@@ -1896,6 +1896,142 @@ async function main() {
         ok(Math.abs(cut.rFull - cut.rNow) < 0.01 && cut.dark > 40, `…its result at the walk-up's time (${cut.rNow?.toFixed?.(1)} s), no fade from black (frame brightness ${cut.dark} at 0 s)`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
+      // 2026-09-28, user (PHI @ CHI): "chicago just ran a play and it was called a touchdown, but it was
+      // being reviewed so it looks like GFFL didnt want to show it. It should show the interim result of
+      // the play, and if the result changes, it should show the result overturned". The fixtures are the
+      // real feed at 14:50 of the 2nd, CHI 7-0: ESPN logged the play only after the review, in one text,
+      // "…for 6 yards, TOUCHDOWN.The Replay Official reviewed the runner broke the plane ruling, and the
+      // play was REVERSED.C.Keenum pass short right to C.Loveland to PHI 1 for 5 yards (M.Carter)."
+      section("Replay reviews: the call, then the ruling");
+      {
+        const RFIX = path.join(__dirname, "fixtures", "sunday");
+        const rSumTx = fs.readFileSync(path.join(RFIX, "sum-401872963-review.json"), "utf8");
+        const rEv = JSON.parse(fs.readFileSync(path.join(RFIX, "sb-401872963-review.json"), "utf8"));
+        const PID = "4018729631003";
+        const FULL = "C.Keenum pass short right to C.Loveland for 6 yards, TOUCHDOWN.The Replay Official reviewed the runner broke the plane ruling, and the play was REVERSED.C.Keenum pass short right to C.Loveland to PHI 1 for 5 yards (M.Carter).";
+        const PRE = "C.Keenum pass short right to C.Loveland for 6 yards, TOUCHDOWN.";
+        // The interim feed (the call on the field, logged before the review): the same play id, the
+        // touchdown's text, 6 yards, a scoring play.
+        const rSumPre = rSumTx.split(JSON.stringify(FULL).slice(1, -1)).join(PRE);
+        const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+        let feed = "full";
+        const evNow = () => { const e = structuredClone(rEv), lp = e.competitions[0].situation?.lastPlay; if (feed === "pre" && lp) { lp.text = PRE; lp.statYardage = 6; } return JSON.stringify(e); };
+        const sumAsks = [];
+        MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872963/.test(u) ? json(evNow())
+          : /site\.api\.espn\.com.*\/summary\?event=401872963/.test(u) ? (sumAsks.push({ feed, t: Date.now() }), json(feed === "pre" ? rSumPre : rSumTx))
+          : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify({ ...sbFixture, events: [...sbFixture.events, JSON.parse(evNow())] }))   // (the board's copy of the game says the same)
+          : /\/\.netlify\/functions\//.test(u) ? json('{"ok":false,"reason":"none"}') : null;
+        await page.setViewport({ width: 390, height: 844 });
+        await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "true"));
+        await page.goto(BASE + "/sunday.html?review=1#g401872963", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction(() => G?.sum && G.ev?.state === "in" && G.id === "401872963", { timeout: 15000 }); } catch {}
+
+        const parse = await probe((FULL) => { const r = typeof raReview === "function" ? raReview({ text: FULL }) : null; return r && { ...r }; }, FULL);
+        ok(parse?.reversed === true && parse.pre === PRE && /^C\.Keenum pass short right to C\.Loveland to PHI 1 for 5 yards/.test(parse.post) && parse.by === "Replay booth" && parse.what === "Runner broke the plane",
+          `the review is read out of ESPN's text: call "${parse?.pre}", ${parse?.reversed ? "reversed" : "?"} by the ${parse?.by} (${parse?.what}), now "${parse?.post?.slice(0, 48)}…"`);
+        const rpl = await probe((txt) => ["The Replay Official reviewed the pass completion ruling, and the play was Upheld.", "Philadelphia challenged the fumble ruling, and the play was REVERSED."].map((t) => { const r = raReview({ text: txt + t }); return r && { rev: r.reversed, by: r.by }; }), "J.Hurts pass short left to D.Smith for 12 yards. ");
+        ok(rpl?.[0]?.rev === false && rpl[0].by === "Replay booth" && rpl?.[1]?.rev === true && rpl[1].by === "Philadelphia challenge",
+          `…an upheld call and a coach's challenge too: ${JSON.stringify(rpl)}`);
+        const none = await probe(() => raReview({ text: "C.Keenum pass short right to C.Loveland for 6 yards, TOUCHDOWN." }));
+        ok(none === null, `a play with no review is left alone (${JSON.stringify(none)})`);
+
+        // Act one: the touchdown as called; "Under review" after it; the page's result held.
+        const a1 = await probe((PID) => {
+          sideStop(); clearTimeout(SIDE.idle);
+          const p = raPlays().find((x) => String(x.id) === PID);
+          if (!p) return null;
+          sidePlay(p);
+          const sc = SIDE.sc, bn = sc.events.filter((e) => e.kind === "banner").map((e) => ({ t: +e.t.toFixed(2), title: e.title, sub: e.sub }));
+          const tx = () => document.querySelector("#bt-tx")?.textContent || "";
+          SIDE.t = sc.callAt + 0.05; raStep(SIDE, 0);
+          // (the tick shows the call's text; wait a frame for it)
+          return new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => res({
+            td: sc.tdAt != null, scoring: sc.p?.scoring ?? null, yards: sc.p?.yards ?? null, bn, gate: String(SIDE.gatePlay), resultAt: SIDE.resultAt === Infinity ? "Infinity" : SIDE.resultAt,
+            tx: tx(), T: sc.T, second: typeof sc.second === "function", pSc: p.scoring, pY: p.yards,
+          }))));
+        }, PID);
+        const tdB = a1?.bn?.find((b) => b.title === "Touchdown"), urB = a1?.bn?.find((b) => b.title === "Under review");
+        ok(a1 && a1.td && tdB && a1.pSc === false && a1.pY === 5, `the play is staged as called, a touchdown (banner at ${tdB?.t} s), though the feed's final result is a 5-yard catch (scoring ${a1?.pSc}, ${a1?.pY} yards)`);
+        ok(urB && tdB && urB.t > tdB.t && urB.t < a1.T && /Replay booth/.test(urB.sub) && /plane/i.test(urB.sub),
+          `…then "Under review" (${urB?.t} s, after the touchdown's ${tdB?.t} s, before the act ends at ${a1?.T?.toFixed?.(1)} s): "${urB?.sub}"`);
+        ok(a1?.second && a1.resultAt === "Infinity" && a1.gate === PID, `…and the page's result waits for the ruling (result at ${a1?.resultAt}, gate on ${a1?.gate})`);
+        ok(a1 && /TOUCHDOWN/.test(a1.tx) && !/REVERSED|Replay Official/i.test(a1.tx), `…the text under the field is the call's, not the ruling's: "${a1?.tx}"`);
+
+        // Act two: "Ruling reversed", the play again, the ball down at the PHI 1, then the page updates.
+        const a2 = await probe(() => new Promise((res) => {
+          const first = SIDE.sc;
+          SIDE.t = first.T; raStep(SIDE, 0);
+          const t0 = performance.now();
+          const look = () => {
+            const sc = SIDE.sc;
+            if (sc === first && performance.now() - t0 < 3000) return requestAnimationFrame(look);
+            const bn = sc.events.filter((e) => e.kind === "banner").map((e) => ({ t: +e.t.toFixed(2), title: e.title, sub: e.sub }));
+            const end = raBall(sc, sc.T), H = sc.offHome ? (sc.spotZ ?? end.z) : 100 - (sc.spotZ ?? end.z);
+            const resultAt = SIDE.resultAt, gate0 = SIDE.gatePlay;
+            // From the first act: the players start where the touchdown left them.
+            const walk = sc.actors.filter((a) => a.side === "o").map((a) => raPos(a, 0));
+            const was = first.actors.filter((a) => a.side === "o").map((a) => raPos(a, first.T));
+            const near = walk.filter(([x, z], i) => was[i] && Math.hypot(x - was[i][0], z - was[i][1]) < 1.5).length;
+            SIDE.t = resultAt + 0.1; raStep(SIDE, 0);
+            requestAnimationFrame(() => requestAnimationFrame(() => res({ same: sc === first, reversal: !!sc.reversal, td: sc.tdAt != null, bn, H: +H.toFixed(1), resultAt, gate0: String(gate0), gate1: SIDE.gatePlay, tx: document.querySelector("#bt-tx")?.textContent || "", near, n: walk.length })));
+          };
+          requestAnimationFrame(look);
+        }));
+        const rrB = a2?.bn?.find((b) => b.title === "Ruling reversed");
+        ok(a2 && !a2.same && a2.reversal && rrB && rrB.sub === "Down at the PHI 1", `a second act follows: "Ruling reversed", "${rrB?.sub}"`);
+        ok(a2 && !a2.td && Math.abs(a2.H - 99) <= 1, `…the play again as it stands, no touchdown, the ball down at the ${a2?.H} (the PHI 1 is 99)`);
+        ok(a2 && a2.near >= a2.n - 1, `…the players walking back from where the touchdown left them (${a2?.near}/${a2?.n} start within 1.5 yd of their spots)`);
+        // (briefText keeps the play as it stands and drops the call and the review's sentence.)
+        ok(a2 && Number.isFinite(a2.resultAt) && a2.gate0 === PID && a2.gate1 == null && /to PHI 1 for 5 yards/.test(a2.tx) && !/TOUCHDOWN/.test(a2.tx),
+          `…and only now the page gets the result (at ${a2?.resultAt?.toFixed?.(1)} s of act two, gate ${a2?.gate0} → ${a2?.gate1}), the text under the field the ruling's: "${a2?.tx}"`);
+
+        // The call first, the review later: ESPN logs the touchdown, then rewrites the same play.
+        feed = "pre";
+        await probe(() => { sideStop(); SIDE.sc = null; SIDE.playId = null; SIDE.lastPlay = null; SIDE.reviewed = null; G.sumPoller.now(); });
+        try { await page.waitForFunction((PID) => String(SIDE.playId) === PID && SIDE.sc && !SIDE.sc.review && SIDE.sc.tdAt != null, { timeout: 12000 }, PID); } catch {}
+        const i1 = await probe(() => ({ id: String(SIDE.playId), td: SIDE.sc?.tdAt != null, review: !!SIDE.sc?.review, text: SIDE.lastPlay?.text }));
+        ok(i1?.td && !i1.review && i1.text === PRE, `the call logged on its own plays as a touchdown (${i1?.td}), no review yet`);
+        const nPre = sumAsks.length;
+        feed = "full";
+        const tSwitch = Date.now();
+        let i2 = null;
+        try {
+          await page.waitForFunction(() => SIDE.sc?.reversal, { timeout: 9000 });
+          i2 = await probe(() => { const sc = SIDE.sc, bn = sc.events.filter((e) => e.kind === "banner").map((e) => ({ t: +e.t.toFixed(2), title: e.title, sub: e.sub })); const end = raBall(sc, sc.T); return { bn, td: sc.tdAt != null, H: +(sc.offHome ? end.z : 100 - end.z).toFixed(1), reviewed: SIDE.reviewed }; });
+        } catch {}
+        const ur2 = i2?.bn?.find((b) => b.title === "Under review"), rr2 = i2?.bn?.find((b) => b.title === "Ruling reversed");
+        ok(i2 && ur2 && rr2 && ur2.t < rr2.t && !i2.td && Math.abs(i2.H - 99) <= 1,
+          `the rewritten play is caught on the next poll: "Under review" (${ur2?.t} s), "Ruling reversed" (${rr2?.t} s), the play as it stands to the ${i2?.H}`);
+        // (The summary's own poll is every 10 s; the scoreboard's, every 2.)
+        const firstFull = sumAsks.slice(nPre).find((a) => a.feed === "full");
+        ok(firstFull && firstFull.t - tSwitch < 4500, `…the summary asked again as soon as the scoreboard's text for that play changed (${firstFull ? ((firstFull.t - tSwitch) / 1000).toFixed(1) + " s" : "never"} after the rewrite; its own poll is every 10 s)`);
+
+        // An upheld call on a play already shown: the banners over the stage, no second play.
+        const up = await probe((PID) => {
+          sideStop(); clearTimeout(SIDE.idle);
+          const p = raPlays().find((x) => String(x.id) === PID);
+          const pre = { ...p, text: "C.Keenum pass short right to C.Loveland for 6 yards, TOUCHDOWN." };
+          sidePlay(pre); SIDE.t = SIDE.sc.T; raStep(SIDE, 0);
+          const cur = SIDE.sc;
+          sideReview({ ...p, text: pre.text + "The Replay Official reviewed the runner broke the plane ruling, and the play was Upheld." });
+          const bn = SIDE.sc.events.filter((e) => e.kind === "banner" && e.t > SIDE.t).map((e) => e.title);
+          return { same: SIDE.sc === cur, bn, running: SIDE.running };
+        }, PID);
+        ok(up?.same && up.bn?.join() === "Under review,Ruling stands" && up.running, `an upheld call on a play already shown: ${JSON.stringify(up?.bn)} over the stage, no replay of the play`);
+        // In a replay the reviewed play gets both acts too.
+        const rp = await probe((PID) => {
+          sideStop();
+          const p = raPlays().find((x) => String(x.id) === PID);
+          SIDE.rp = { from: "drive", id: null, speed: 1, cv: sideTarget().cv, placed: null };
+          SIDE.sc = null;
+          tecmoRpPlay(p);
+          const r = { review: !!SIDE.sc?.review, second: typeof SIDE.sc?.second === "function", resultAt: SIDE.resultAt === Infinity };
+          sideStop(); SIDE.rp = null;
+          return r;
+        }, PID);
+        ok(rp?.review && rp.second && rp.resultAt, `…and a replay stages it the same way (${JSON.stringify(rp)})`);
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+      }
       await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }

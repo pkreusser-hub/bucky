@@ -1400,8 +1400,10 @@ async function loadGameEvent() {
     if (moment && G.cursor == null) celebrateOnce(moment);
   }
   if (typeof sideUpdate === 'function') sideUpdate();
-  // A play we haven't seen yet, or a score change: pull the full summary now.
-  if ((qid && quickIsNewer(qid, G.sum, G.id)) || scoreMoved || G.hold || (old && old.state !== ev.state)) G.sumPoller.now();
+  // A play we haven't seen yet, a score change, or the same play with new text (ESPN rewrites a play once
+  // a replay review is over; the 8-bit view then stages the ruling): pull the full summary now.
+  const edited = !!qid && qid === old?.sit?.lastPlay?.id && ev.sit.lastPlay.text !== old.sit.lastPlay.text;
+  if ((qid && quickIsNewer(qid, G.sum, G.id)) || edited || scoreMoved || G.hold || (old && old.state !== ev.state)) G.sumPoller.now();
 }
 function celebrateOnce(p) {
   if (!p || G.celebrated.has(p.id)) return;

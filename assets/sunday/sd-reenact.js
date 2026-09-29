@@ -3278,6 +3278,8 @@ function sideUpdate() {
   if (G.ev.state === 'post') { if (!SIDE.sc?.post && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || SIDE.sc?.studio)) sideHalftime(true); return; }
   const latest = sideNext();
   if (!latest) return;
+  // The play on the stage came back from a review: the call was shown, now the ruling.
+  if (String(latest.id) === String(SIDE.playId) && SIDE.reviewed !== String(latest.id) && raReview(latest) && SIDE.lastPlay && !raReview(SIDE.lastPlay) && !SIDE.rp) { sideReview(latest); return; }
   // A timeout called since the last snap: clear the field and bring out the cheerleaders.
   // (Timeouts aren't in the play list, so look at the drive's last entry and the scoreboard feed.)
   const lastRaw = G.sum.drives[G.sum.drives.length - 1]?.plays.at(-1);
@@ -3301,6 +3303,58 @@ function sideUpdate() {
   if (String(latest.id) !== String(SIDE.playId)) { if (!SIDE.running || pastResult || ((SIDE.sc?.timeout || SIDE.sc?.halftime || SIDE.sc?.huddle) && !SIDE.sc?.clear)) { if (SIDE.sc?.tdAt == null || !SIDE.idle) sidePlay(latest); } }
   else if (!SIDE.running && !SIDE.idle && !SIDE.sc?.huddle) sideHuddle();
 }
+/* ── Replay reviews ──
+   2026-09-28, user (PHI @ CHI): "chicago just ran a play and it was called a touchdown, but it was being
+   reviewed so it looks like GFFL didnt want to show it. It should show the interim result of the play,
+   and if the result changes, it should show the result overturned". ESPN logs a reviewed play once the
+   review is over, all in one text: the call on the field, then "The Replay Official reviewed the …
+   ruling, and the play was REVERSED." (or "Upheld", "confirmed", "stands"; a coach's "Philadelphia
+   challenged the …"), then, when reversed, the play as it now stands. So a reviewed play is staged in
+   two acts: the play as called (a touchdown is a touchdown, celebration and all), "Under review", and
+   then either "Ruling stands", or "Ruling reversed" and the play again as it stands, the players walking
+   back from where the first act left them. */
+const RA_REVIEW = /\s*(The Replay Official|Replay Official|[A-Z][a-z]+(?: [A-Z][a-z]+){0,2}) (reviewed|challenged) the (.+?) ruling,? and the (?:play|ruling on the field|ruling) (?:was )?(REVERSED|reversed|Reversed|UPHELD|Upheld|upheld|CONFIRMED|Confirmed|confirmed|STANDS|Stands|stands)\.?(?:\s*The ruling on the field (?:stands|was confirmed)\.?)?\s*/;
+function raReview(p) {
+  const t = String(p?.text || ''), m = RA_REVIEW.exec(t);
+  if (!m) return null;
+  const pre = t.slice(0, m.index).trim(), post = t.slice(m.index + m[0].length).trim();
+  if (!pre) return null;
+  const booth = /replay official/i.test(m[1]);
+  const what = m[3].trim();
+  return { reversed: /revers/i.test(m[4]), pre, post, by: booth ? 'Replay booth' : `${m[1].trim()} challenge`, what: what[0].toUpperCase() + what.slice(1) };
+}
+// The play as called on the field, from the text before the review: its yards and a touchdown are the
+// call's, not the feed's (which are the final ruling's).
+function raAsCalled(p, rv) {
+  const pre = rv.pre, td = /TOUCHDOWN/.test(pre);
+  const y = /for (-?\d+) yards?/.exec(pre), yards = y ? +y[1] : /for no gain/i.test(pre) ? 0 : p.yards;
+  const dir = p.offId === G.ev.home.id ? 1 : -1;
+  const eH = td ? (dir > 0 ? 100 : 0) : p.sH != null && yards != null ? p.sH + yards * dir : p.eH;
+  return { ...p, text: pre, yards, eH, penYards: 0, scoring: td, typeText: td ? (/\bpass\b/i.test(pre) ? 'Passing Touchdown' : 'Rushing Touchdown') : p.typeText, asCalled: true };
+}
+const raRuled = (post) => { const m = /\bto ([A-Z]{2,3} \d+|50)\b(?![\s\S]*\bto [A-Z]{2,3} \d+)/.exec(post || ''); return m ? `Down at the ${m[1]}` : 'The call is overturned'; };
+// When a scene's result is final: a reversed call's comes in the second act, an upheld call's with
+// "Ruling stands".
+const raRulingAt = (sc) => !sc.review ? sideResultAt(sc) : sc.second ? Infinity : (sc.events.find((e) => e.title === 'Ruling stands')?.t ?? sideResultAt(sc));
+// The first act, and a builder for the second: `rv` the review, `from` the scene the play starts from.
+function raReviewed(p, rv, from) {
+  const sc = raBuild(raAsCalled(p, rv), G.ev, raQBs(), from);
+  const tRes = sideResultAt(sc);
+  sc.events.push({ t: tRes + 2.2, kind: 'banner', ruling: true, title: 'Under review', sub: `${rv.by}: ${rv.what}`, side: 'o' });
+  if (!rv.reversed) sc.events.push({ t: tRes + 4.8, kind: 'banner', ruling: true, title: 'Ruling stands', sub: rv.what, side: 'o' });
+  sc.T = Math.max(sc.T, tRes + (rv.reversed ? 5 : 7));
+  sc.review = rv;
+  sc.callTx = rv.pre; sc.callAt = tRes;          // the text as called shows with the call; the whole text with the ruling
+  sc.second = rv.reversed && rv.post ? (prev) => {
+    const q = { ...p, text: rv.post };
+    const pb = raBall(prev, prev.T), offHome = p.offId === G.ev.home.id;
+    const b = raBuild(q, G.ev, raQBs(), { from: prev, fromT: prev.T, x0: clamp(Math.round(pb.x * (prev.offHome === offHome ? 1 : -1) / 3.08) * 3.08, -3.08, 3.08) });
+    b.events.push({ t: 0.3, kind: 'banner', ruling: true, title: 'Ruling reversed', sub: raRuled(rv.post), side: 'd' });
+    b.reversal = rv;
+    return b;
+  } : null;
+  return sc;
+}
 function sidePlay(p) {
   clearTimeout(SIDE.idle); SIDE.idle = 0;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
@@ -3310,19 +3364,20 @@ function sidePlay(p) {
   // live 8 bit feed faster worked, now we have some room to back off a little since its like 10 seconds
   // ahead of the tv broadcast. so lets see if we can allow them to leave the huddle each play". The
   // 2 s polling stays.)
-  try { sc = raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
+  const rv = raReview(p);
+  try { sc = rv ? raReviewed(p, rv, sideFrom(p)) : raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
   if (SIDE.gatePlay != null && typeof gameGateRelease === 'function') { gameGateRelease(SIDE.gatePlay); SIDE.gatePlay = null; }   // an earlier play never showed its result
   if (sc) {
     sc.gameId = G.id;
     SIDE.gatePlay = p.id;
-    SIDE.resultAt = sideResultAt(sc);
+    SIDE.resultAt = raRulingAt(sc);               // (a reviewed call: the page waits for the ruling)
   }
   sideText('meta', `${periodLabel(p.period)}${p.clock ? ' ' + p.clock : ''}${p.sDD ? ' · ' + p.sDD : ''}`);
   sideText('tag', G.ev.state === 'post' ? 'Final play' : 'Live');
   sideText('tx', '');
   SIDE.pendingTx = p.text;
   if (!sc) return;
-  sideRun(sc, () => {
+  const after = () => {
     SIDE.idle = setTimeout(() => {
       SIDE.idle = 0;
       const latest = sideNext();
@@ -3331,7 +3386,47 @@ function sidePlay(p) {
       else if (p.pat || RA_PAT_RE.test(p.typeText + ' ' + p.text) || (p.kind === 'fg' && SIDE.sc?.I?.good)) sideCheer(p);
       else sideHuddle();
     }, 1200);
-  });
+  };
+  sideRun(sc, sc.second ? () => sideSecondAct(sc, after) : after);
+}
+// The reversed call's second act: the play as it stands, walked back from where the first act left it.
+function sideSecondAct(first, then) {
+  let b = null;
+  try { b = first.second(first); } catch (err) { console.error(err); }
+  if (!b) { SIDE.resultAt = SIDE.t; then(); return; }
+  b.gameId = first.gameId;
+  SIDE.resultAt = sideResultAt(b);
+  sideRun(b, then);
+}
+// A play already on the stage whose text now carries a review (ESPN logged the call first and edited it
+// once the review was over): "Under review", then "Ruling stands", or "Ruling reversed" and the play
+// as it stands.
+function sideReview(p) {
+  const rv = raReview(p), cur = SIDE.sc;
+  SIDE.lastPlay = p;
+  SIDE.reviewed = String(p.id);
+  if (!rv || !cur || cur.studio || cur.gameId !== G.id) return;
+  const sub = `${rv.by}: ${rv.what}`;
+  if (rv.reversed && rv.post) {                  // the play again, as it stands
+    clearTimeout(SIDE.idle); SIDE.idle = 0;
+    let b = null;
+    try { b = raBuild({ ...p, text: rv.post }, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
+    if (!b) return;
+    b.gameId = G.id;
+    b.reversal = rv;
+    b.events.push({ t: 0.2, kind: 'banner', ruling: true, title: 'Under review', sub, side: 'o' }, { t: 2.4, kind: 'banner', ruling: true, title: 'Ruling reversed', sub: raRuled(rv.post), side: 'd' });
+    sideText('tx', '');
+    SIDE.pendingTx = p.text;
+    SIDE.resultAt = sideResultAt(b);
+    SIDE.gatePlay = p.id;
+    sideRun(b, () => { SIDE.idle = setTimeout(() => { SIDE.idle = 0; sideHuddle(); }, 1200); });
+    return;
+  }
+  // The call stands: the banners over whatever the stage is showing (the play, or the huddle after it).
+  cur.events.push({ t: SIDE.t + 0.2, kind: 'banner', ruling: true, title: 'Under review', sub, side: 'o' }, { t: SIDE.t + 2.6, kind: 'banner', ruling: true, title: 'Ruling stands', sub: rv.what, side: 'o' });
+  if (!SIDE.running) { cur.T = SIDE.t + 5; SIDE.running = true; SIDE.onEnd = null; }
+  else cur.T = Math.max(cur.T, SIDE.t + 5);
+  sideText('tx', playHTML(p.text), true);
 }
 // Out of the huddle when the teams are in one and the same offense has the ball.
 // Every play starts from the scene before it: the players jog from wherever they were into the formation.
@@ -3344,8 +3439,9 @@ function sideFrom(p) {
   return { from: prevSc, fromT: SIDE.t, x0 };
 }
 // The moment a play's result shows: the first banner (a gain, "Touchdown", "Incomplete"…) or the whistle.
+// (Not a review's "Under review" or "Ruling reversed", which come before or after the play's own.)
 function sideResultAt(sc) {
-  const firstBanner = sc.events.filter((e) => e.kind === 'banner').map((e) => e.t).sort((x, y) => x - y)[0];
+  const firstBanner = sc.events.filter((e) => e.kind === 'banner' && !e.ruling).map((e) => e.t).sort((x, y) => x - y)[0];
   return Math.min(firstBanner ?? Infinity, sc.tEnd ?? sc.T - 1.5);
 }
 // After a play (not a score, not a kick): both teams jog into their huddles at the next spot.
@@ -3456,6 +3552,7 @@ function sideResume() {
     SIDE.last = now;
     SIDE.loop = true;
     raStep(SIDE, dt);
+    if (SIDE.sc?.callTx && !SIDE.sc.callShown && SIDE.t >= SIDE.sc.callAt) { SIDE.sc.callShown = true; sideText('tx', playHTML(SIDE.sc.callTx), true); }
     if (SIDE.gatePlay != null && SIDE.t >= SIDE.resultAt) {                 // the result is on screen: let the page update
       const id = SIDE.gatePlay;
       SIDE.gatePlay = null;
@@ -3545,15 +3642,17 @@ function tecmoRpPlay(p) {
   R.id = p.id;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
   let sc = null;
-  try { sc = raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
+  const rv = raReview(p);
+  try { sc = rv ? raReviewed(p, rv, sideFrom(p)) : raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
   sideText('tx', '');
   SIDE.pendingTx = p.text;                     // the play's text shows with its result, as it does live
   tecmoRpBar();
   if (!sc) { SIDE.idle = setTimeout(tecmoRpNext, 400); return; }
   sc.gameId = G.id;
   SIDE.gatePlay = p.id;
-  SIDE.resultAt = sideResultAt(sc);
-  sideRun(sc, () => { SIDE.idle = setTimeout(tecmoRpNext, 900 / R.speed); });
+  SIDE.resultAt = raRulingAt(sc);
+  const next = () => { SIDE.idle = setTimeout(tecmoRpNext, 900 / R.speed); };
+  sideRun(sc, sc.second ? () => sideSecondAct(sc, next) : next);
 }
 function tecmoRpNext() {
   SIDE.idle = 0;
