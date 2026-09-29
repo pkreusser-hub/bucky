@@ -2574,3 +2574,61 @@ next!".
   Anthropic incident when the narrator fell back to grok.
 - **The hourly usage chart has been stuck on Aug 9–19.** `readCollection` reads one 1,000-doc page
   and never follows `nextPageToken`.
+
+# 2026-09-28 — STORY TIME MOVES TO SONNET 5.5
+`netlify/functions/farmgpt.mjs` · `farmgpt.html` · five suites restaged · `tools/_probe-storyship.mjs`
+· the user's call ("switch storytime use of sonnet to sonnet 5.5").
+
+**What moved.** Every Story Time job that ran on Sonnet 5 now runs on `claude-sonnet-5-5`, through
+one new constant, `STORY_SONNET_MODEL`: the narrator (and so hop one of `STORY_FALLBACK_CHAIN`), the
+story bible (`summary`), the family-canon merge, the contradiction `audit`, the little-kid pictures
+(`kidart`), and the `sonnet` options of `KEEPER_PROVIDER` / `STORY_SEED_PROVIDER`. **What did not
+move:** research, the Dungeon Master (all four `dnd*` modes), calories and the fantasy/GFFL
+fallbacks stay on `RESEARCH_MODEL` = `claude-sonnet-5`. The dnd suite's "runs on Sonnet 5" and
+kidstory's "research unchanged" still pin that. The keeper stays on Haiku and the seeder on Opus 5.
+The chain's hop is still named `sonnet`: it is a counter key on Dad's dashboard.
+
+**The catch: Sonnet 5.5 answers `thinking: {type: "disabled"}` with a 400.** Its lowest setting is
+`{type: "between_tools"}`, with no other field in the object, at effort `high` or below (the default
+is `high`). Every other model answers `between_tools` with a 400 of its own. `thinkingFor(model,
+thinking)` makes the swap when each Anthropic request is built. It goes by model, not by mode,
+because the story chain sends the same mode to Sonnet 5.5 and then to Haiku. A 400 is not a
+fallback trigger, so without it every story scene would have died on hop one with an error page.
+`audit` and the canon merge send no `thinking` (adaptive), so they have nothing to translate.
+
+**The fake Anthropic now refuses what the real one refuses:** Sonnet 5.5 + `disabled`, any other
+model + `between_tools`, and `between_tools` with a second field. All three are a 400
+`invalid_request_error`. Before this, the fake accepted every spelling on every model.
+
+**Dashboard.** `RATES.claudesonnet55` is $2/$10, cached $0.20, the same list price as Sonnet 5. It
+sits under its own slug, so it needs its own entry. The model label reads "Sonnet 5.5". The footnote
+had been quoting Sonnet at **$3/$15**. That came from `R_IN`/`R_OUT`, the fallback for rows written
+before per-model logging, not the live price. It now reads `RATES` and says "Sonnet 5 and 5.5
+$2/$10". The two prompt-cache notes above still hold: the story system prompt is 4,241 tokens, well
+over Sonnet 5.5's 512-token cache minimum (it was 1,024 on Sonnet 5).
+
+## Verified
+storyledger **881/881** (876 + 5 new) · story-reminder **72/72** (71 + 1) · storylog-summary 106/106
+· kidstory-server **55/55** (54 + 1) · dnd-server 47/47 · calories-server 24/24 · parent-research
+25/25 · teachergpt 39/39 = **1,249 checks**. Run on Linux: puppeteer-core installed under
+`tools/node_modules` (gitignored), and the playwright Chromium symlinked to `/opt/google/chrome/chrome`
+so `channel: "chrome"` finds it.
+
+**BEFORE/AFTER SPLIT.** With `farmgpt.mjs` and `farmgpt.html` at `HEAD` and the new suites kept:
+storyledger 861/881, story-reminder 70/72, storylog-summary 105/106, kidstory 52/55, dnd 46/47.
+Every failure is a new or restaged check, and every other check passes. **A second split** kept the
+model move but dropped only the `thinkingFor` call. storyledger read 872/881: the narrator's scene,
+the no-key scene, the granted-tail scene and the repair call all failed on the fake's 400. That is
+the production failure this change would otherwise have shipped.
+
+**RESTAGED, reasons written at each check:** story thinking "disabled" → "between_tools, alone";
+the narrator, audit, bible, canon-merge and kid-art model ids `claude-sonnet-5` → `claude-sonnet-5-5`;
+the usage slug `s_claudesonnet5_in` → `s_claudesonnet55_in`; and the hop-one refusal now names 5.5.
+
+## NOT DONE — needs a key this session did not have
+**The adversarial battery has not been run on Sonnet 5.5.** The 2026-08-22 entry says to re-run it
+before the next narrator switch, and this is that switch. `node tools/_probe-storyship.mjs` is
+updated for 5.5 (its gates now expect `s_claudesonnet55_req` and refuse `claude-sonnet-5-5` on
+hop one). It spends a few cents and needs `tools/.env`. Sonnet 5.5 also declines in a
+`general_harms` category Sonnet 5 did not have. A decline with no text already gets the friendly
+stand-in line, but a decline does not fall through the chain, so watch for stand-ins in the Story Log.
