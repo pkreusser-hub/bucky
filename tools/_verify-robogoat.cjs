@@ -132,6 +132,9 @@ const ALLOWED_2DP = new Set(["0.46", "0.16", "6.86", "6.90"]);
         visibleSvgs: svgs.map((s) => s.getAttribute("class")), textOut, typePx: fs * svgScale,
         brokenLocal: local.filter((i) => !i.naturalWidth).map((i) => i.getAttribute("src")),
         localCount: local.length,
+        // RoboGoat's portrait heads every newsletter (user, 2026-09-29): in the masthead, loaded, above the fold
+        rg: (() => { const i = document.querySelector("header.mast img.robogoat"); if (!i) return null;
+          const r = i.getBoundingClientRect(); return { src: i.getAttribute("src"), ok: i.naturalWidth > 0, top: r.top, h: r.height, right: r.right }; })(),
         bodyPx: parseFloat(getComputedStyle(document.querySelector("main > p")).fontSize),
         board: [...document.querySelectorAll(".board .game")].map((g) => [...g.querySelectorAll(".tr")].map((r) => ({
           name: r.querySelector(".tn b").textContent.trim(), pts: r.querySelector(".ts").textContent.trim(), win: r.classList.contains("win") }))),
@@ -158,6 +161,9 @@ const ALLOWED_2DP = new Set(["0.46", "0.16", "6.86", "6.90"]);
     check(`${tag}: exactly one win-probability chart shows, the ${wantSvg.split(" ")[1]} one`, m.visibleSvgs.length === 1 && m.visibleSvgs[0] === wantSvg, m.visibleSvgs.join(","));
     check(`${tag}: chart type renders at >= 11px`, m.typePx >= 11, m.typePx.toFixed(1) + "px");
     check(`${tag}: no chart label spills outside the chart`, m.textOut.length === 0, m.textOut.join("; "));
+    check(`${tag}: RoboGoat's portrait is in the masthead, loaded and fully on screen at the top`,
+      !!m.rg && /(^|\/)robogoat\.png$/.test(m.rg.src) && m.rg.ok && m.rg.top >= 0 && m.rg.top < 120 && m.rg.h >= 100 && m.rg.right <= vw.width,
+      JSON.stringify(m.rg));
     check(`${tag}: body copy >= 16px`, m.bodyPx >= 16, m.bodyPx + "px");
     await page.close();
     if (vw.width !== 390) continue;
@@ -188,6 +194,9 @@ const ALLOWED_2DP = new Set(["0.46", "0.16", "6.86", "6.90"]);
     check("no two-decimal numbers except the ones the column is about", twoDp.every((x) => ALLOWED_2DP.has(x)), twoDp.join(", "));
     const unquoted = text.replace(/“[^”]*”/g, " ");
     check('Laws Rule is "Sandy": no "Mom" outside a verbatim quote', !/\bmom\b/i.test(unquoted), (unquoted.match(/.{30}\bmom\b.{30}/i) || [""])[0]);
+    const OWN = OWNERS.join("|");
+    const atPairs = text.match(new RegExp("\\b(" + OWN + ") at (" + OWN + ")\\b", "g")) || [];
+    check('owner matchups read "Joe versus Calvin", never "Joe at Calvin" (user, 2026-09-29)', atPairs.length === 0, atPairs.join(", "));
     check("every owner is named", OWNERS.every((o) => new RegExp("\\b" + o + "\\b").test(text)), OWNERS.filter((o) => !new RegExp("\\b" + o + "\\b").test(text)).join(","));
     check("curly quotes only (no straight double quotes in the copy)", !/"/.test(text));
     check("scores and records never split at the hyphen (each is in a no-wrap span)", m.hyphenBreaks.length === 0, m.hyphenBreaks.join(" | "));
