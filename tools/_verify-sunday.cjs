@@ -2080,6 +2080,74 @@ async function main() {
         const sc3 = await probe(() => ({ hold: !!G.hold, h: document.querySelector("#gs-h")?.textContent }));
         ok(sc3?.hold && sc3.h === "14", `…but a score that arrives before its play is still held (${JSON.stringify(sc3)})`);
       }
+      // 2026-09-28, user: "Often when refreshing the screen or going from one game back to the live game
+      // it will replay the previous play. It shouldn't replay anything it shoukd always be live view".
+      // Arriving (a load, a game view opened again, the page back in front, a replay left early), the
+      // 8-bit view puts the newest play straight at its end, silently, and carries on from there; only a
+      // play that comes in while someone is watching is animated.
+      section("Arriving at a live game: the game as it is, no replay");
+      {
+        const RFIX = path.join(__dirname, "fixtures", "sunday");
+        const rSum = fs.readFileSync(path.join(RFIX, "sum-401872963-review.json"), "utf8");
+        const rEv = JSON.parse(fs.readFileSync(path.join(RFIX, "sb-401872963-review.json"), "utf8"));
+        const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+        const NEW = "4018729631050";
+        let newer = false;
+        const evNow = () => {
+          const e = structuredClone(rEv), lp = e.competitions[0].situation.lastPlay;
+          // A play after the reviewed one: CHI runs from the PHI 1, stopped for no gain.
+          if (newer) Object.assign(lp, { id: NEW, scoreValue: 0, type: { id: "5", text: "Rush" }, text: "D.Swift up the middle to PHI 1 for no gain (Z.Baun).", statYardage: 0, start: { ...lp.end, yardLine: 99 }, end: { ...lp.end, yardLine: 99 } });
+          return JSON.stringify(e);
+        };
+        MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872963/.test(u) ? json(evNow())
+          : /site\.api\.espn\.com.*\/summary\?event=401872963/.test(u) ? json(rSum)
+          : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify({ ...sbFixture, events: [...sbFixture.events, JSON.parse(evNow())] }))
+          : /\/\.netlify\/functions\//.test(u) ? json('{"ok":false,"reason":"none"}') : null;
+        await page.setViewport({ width: 390, height: 844 });
+        await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "true"));
+        // How the stage stands the moment a play is put up: its clock against its length, and whether any
+        // banner is still to come.
+        const stage = () => probe(() => { const sc = SIDE.sc; return sc && { id: String(SIDE.playId), t: +SIDE.t.toFixed(2), T: +(sc.T > 1e5 ? -1 : sc.T).toFixed(2), huddle: !!sc.huddle, clear: !!sc.clear, left: sc.events.filter((e) => e.kind === "banner" && !SIDE.shown.has(e)).map((e) => e.title), gate: SIDE.gatePlay, tdAt: sc.tdAt ?? null, rev: !!sc.review }; });
+        const settled = (s) => !!s && (s.huddle || s.clear || (s.T > 0 && s.t >= s.T - 0.01)) && !s.left.length && s.gate == null;
+        const PID = "4018729631003";
+        await page.goto(BASE + "/sunday.html?arrive=1#g401872963", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction((PID) => G?.sum && String(SIDE.playId) === PID && SIDE.sc, { timeout: 15000 }, PID); } catch {}
+        const s1 = await stage();
+        ok(settled(s1) && s1.id === PID, `on a load, the newest play is put straight at its end, not played again (${JSON.stringify(s1)})`);
+        const s1b = await probe(() => { const sc = SIDE.sc, end = raBall(sc, SIDE.t); return { td: sc.tdAt != null, rev: !!sc.review, H: +(sc.offHome ? (sc.spotZ ?? end.z) : 100 - (sc.spotZ ?? end.z)).toFixed(1), tx: document.querySelector("#bt-tx")?.textContent || "" }; });
+        ok(s1b && !s1b.td && !s1b.rev && Math.abs(s1b.H - 99) <= 1 && /PHI 1 for 5 yards/.test(s1b.tx), `…a reviewed play settles on the ruling: no touchdown, no "Under review", the ball at the ${s1b?.H}, "${s1b?.tx}"`);
+        await wait(2500);
+        const s1c = await stage();
+        ok(s1c?.huddle, `…and the game carries on from there: the huddle at the next spot (${JSON.stringify(s1c && { huddle: s1c.huddle, id: s1c.id })})`);
+
+        // A play while watching is animated, as ever.
+        newer = true;
+        let s2 = null;
+        try { await page.waitForFunction((NEW) => String(SIDE.playId) === NEW, { timeout: 8000 }, NEW); s2 = await stage(); } catch {}
+        ok(s2 && !s2.huddle && s2.T > 0 && s2.t < s2.T / 2 && s2.left.length > 0, `a play that comes in while watching is animated from its start (${JSON.stringify(s2)})`);
+
+        // Back to the board and into the game again: a new game view, the same game.
+        await page.evaluate(() => { location.hash = ""; });
+        await wait(800);
+        await page.evaluate(() => { location.hash = "#g401872963"; });
+        let s3 = null;
+        try { await page.waitForFunction((NEW) => G?.sum && SIDE.gRef === G && String(SIDE.playId) === NEW && SIDE.sc && !SIDE.arrive, { timeout: 10000 }, NEW); s3 = await stage(); } catch {}
+        ok(settled(s3), `back into the game from the board: the newest play at its end, no replay (${JSON.stringify(s3)})`);
+
+        // Leaving a replay early.
+        const s4 = await probe(() => { tecmoRpStart("drive"); tecmoRpEnd(true); const sc = SIDE.sc; return sc && { id: String(SIDE.playId), t: +SIDE.t.toFixed(2), T: +sc.T.toFixed(2), huddle: !!sc.huddle, left: sc.events.filter((e) => e.kind === "banner" && !SIDE.shown.has(e)).map((e) => e.title), gate: SIDE.gatePlay }; });
+        ok(settled(s4) && s4.id === NEW, `leaving a replay early: the live view picks up the game as it is (${JSON.stringify(s4)})`);
+
+        // The page back in front after a play came in while it was away (sd-app's visibilitychange calls sideArrive).
+        const s5 = await probe((PID) => {
+          sideStop(); SIDE.sc = null; SIDE.playId = PID;           // the stage last showed the play before
+          sideArrive(); sideUpdate();
+          const sc = SIDE.sc; return sc && { id: String(SIDE.playId), t: +SIDE.t.toFixed(2), T: +sc.T.toFixed(2), huddle: !!sc.huddle, left: sc.events.filter((e) => e.kind === "banner" && !SIDE.shown.has(e)).map((e) => e.title), gate: SIDE.gatePlay };
+        }, PID);
+        const wired = /visibilitychange[\s\S]{0,400}sideArrive\(\)/.test(fs.readFileSync(path.join(__dirname, "..", "assets", "sunday", "sd-app.js"), "utf8"));
+        ok(settled(s5) && s5.id === NEW && wired, `the page back in front: the play it missed is put at its end, not played (${JSON.stringify(s5)}; called from visibilitychange: ${wired})`);
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+      }
       await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }

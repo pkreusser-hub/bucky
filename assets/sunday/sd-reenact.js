@@ -3269,15 +3269,22 @@ function sideUpdate() {
   raDetailLoad();
   // The halftime desk starts over on every visit to the game (a game view opened afresh is a new G):
   // "if you revisit the page while its half time it just replays the same dialogue".
-  if (SIDE.gRef !== G) { if (SIDE.sc?.studio) { sideStop(); SIDE.sc = null; } SIDE.gRef = G; }
+  if (SIDE.gRef !== G) { if (SIDE.sc?.studio) { sideStop(); SIDE.sc = null; } SIDE.gRef = G; SIDE.arrive = true; }
   if (SIDE.gameId !== G.id) { sideStop(); Object.assign(SIDE, { gameId: G.id, playId: null, setKey: '', timeoutId: null, sc: null, cv: tgt.cv, rp: null, rpMenu: null }); }
   if (SIDE.cv !== tgt.cv) { SIDE.cv = tgt.cv; SIDE.banner = tgt.banner; SIDE.cam = null; if (SIDE.sc) { raSizeCanvas(SIDE.cv, tgt.h); cancelAnimationFrame(SIDE.raf); sideResume(); } }
-  if (SIDE.rp) return;                                    // the replay runs its own sequence
-  if (isHalftime(G.ev) || htDemo()) { if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || htDemo())) sideHalftime(); return; }
+  if (SIDE.rp) { SIDE.arrive = false; return; }         // the replay runs its own sequence
+  if (isHalftime(G.ev) || htDemo()) { SIDE.arrive = false; if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || htDemo())) sideHalftime(); return; }
   // A final: the postgame desk (a game that ends while you watch finishes its last play first).
-  if (G.ev.state === 'post') { if (!SIDE.sc?.post && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || SIDE.sc?.studio)) sideHalftime(true); return; }
+  if (G.ev.state === 'post') { SIDE.arrive = false; if (!SIDE.sc?.post && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || SIDE.sc?.studio)) sideHalftime(true); return; }
   const latest = sideNext();
   if (!latest) return;
+  // Just arrived (a refresh, back from another game, the page back in front): the game as it is now.
+  // (Also the play already on the stage if it never finished: the view was closed or hidden mid-play.)
+  if (SIDE.arrive) {
+    SIDE.arrive = false;
+    const sc = SIDE.sc, done = sc && (sc.huddle || sc.clear || sc.timeout || SIDE.t >= sc.T) && SIDE.gatePlay == null;
+    if (String(latest.id) !== String(SIDE.playId) || !done) { sideSettle(latest); return; }
+  }
   // The play on the stage came back from a review: the call was shown, now the ruling.
   if (String(latest.id) === String(SIDE.playId) && SIDE.reviewed !== String(latest.id) && raReview(latest) && SIDE.lastPlay && !raReview(SIDE.lastPlay) && !SIDE.rp) { sideReview(latest); return; }
   // A timeout called since the last snap: clear the field and bring out the cheerleaders.
@@ -3303,6 +3310,29 @@ function sideUpdate() {
   if (String(latest.id) !== String(SIDE.playId)) { if (!SIDE.running || pastResult || ((SIDE.sc?.timeout || SIDE.sc?.halftime || SIDE.sc?.huddle) && !SIDE.sc?.clear)) { if (SIDE.sc?.tdAt == null || !SIDE.idle) sidePlay(latest); } }
   else if (!SIDE.running && !SIDE.idle && !SIDE.sc?.huddle) sideHuddle();
 }
+// Arriving at a live game. 2026-09-28, user: "Often when refreshing the screen or going from one game
+// back to the live game it will replay the previous play. It shouldn't replay anything it shoukd always
+// be live view". The newest play is staged and put straight at its end, silently (its banners marked
+// shown, the page's result not held, its text up at once); what follows it runs as it would have: the
+// huddle at the next spot, the teams off after a score, the kickoff. A reviewed play settles on the
+// ruling. Only plays that come in while someone is watching are animated.
+function sideSettle(p) {
+  const rv = raReview(p);
+  const q = rv ? { ...p, text: rv.reversed && rv.post ? rv.post : rv.pre } : p;
+  sidePlay(q);
+  SIDE.lastPlay = p;
+  if (rv) SIDE.reviewed = String(p.id);
+  const sc = SIDE.sc;
+  if (!sc || String(SIDE.playId) !== String(p.id)) return;
+  sc.second = null;
+  for (const e of sc.events) SIDE.shown.add(e);
+  SIDE.t = sc.T;
+  SIDE.gatePlay = null; SIDE.pendingTx = null;
+  sideText('tx', playHTML(p.text), true);
+  if (typeof gameGateRelease === 'function') gameGateRelease(p.id);
+}
+// The page back in front after a while away: pick up the game as it is (sd-app.js calls this).
+function sideArrive() { SIDE.arrive = true; }
 /* ── Replay reviews ──
    2026-09-28, user (PHI @ CHI): "chicago just ran a play and it was called a touchdown, but it was being
    reviewed so it looks like GFFL didnt want to show it. It should show the interim result of the play,
@@ -3630,6 +3660,7 @@ function tecmoRpStart(from) {
   if (!G || !list.length) return;
   const i = tecmoRpFrom(list, from);
   sideStop();
+  SIDE.arrive = false;
   SIDE.rp = { from, id: null, speed: tecmoRpPref(), cv: sideTarget().cv, placed: null };
   SIDE.rpMenu = null;
   SIDE.sc = null;                              // the first play lines up fresh, not from wherever the live scene was
@@ -3664,11 +3695,12 @@ function tecmoRpNext() {
   tecmoRpPlay(list[i + 1]);
 }
 // Caught up (early = false): the live view carries on from the newest play just shown.
-// Left early: the live view starts over at the newest play.
+// Left early: the live view picks up the game as it is now (sideSettle), as on arrival; it used to
+// animate the newest play again, which is the replay the user asked to be rid of (2026-09-28).
 function tecmoRpEnd(early) {
   SIDE.rp = null; SIDE.rpMenu = null;
   clearTimeout(SIDE.idle); SIDE.idle = 0;
-  if (early) { sideStop(); SIDE.sc = null; SIDE.playId = null; SIDE.gatePlay = null; }
+  if (early) { sideStop(); SIDE.sc = null; SIDE.playId = null; SIDE.gatePlay = null; SIDE.arrive = true; }
   tecmoRpBar();
   sideUpdate();
 }

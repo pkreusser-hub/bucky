@@ -1013,3 +1013,30 @@ summary already holding the scoring play, the touchdown as the scoreboard's late
 score, a score with no play still held; the one failure is the webfont ink check that fails the same way on
 HEAD in this container), sunday-ff 53/53, pbpdetail 61/61. Bite: main's sd-app.js holds both explained
 scores (0 and 7 on screen), and the third check then fails too because the first hold is still running.
+
+## 2026-09-28 — arriving at a live game shows it as it is, no replay
+
+Perry: "Often when refreshing the screen or going from one game back to the live game it will replay the
+previous play. It shouldn't replay anything it shoukd always be live view". On arrival the 8-bit view had
+no play of its own yet (`SIDE.playId` null), so `sideNext` handed it the newest play and `sidePlay`
+animated it, walk-up, banners, held score and all.
+
+- **`SIDE.arrive`** is set for a new game view (`SIDE.gRef !== G`: a load, a game opened from the board
+  or from another game), by `sideArrive()` when the page comes back in front (sd-app.js's
+  `visibilitychange`), and when a replay is left early (`tecmoRpEnd(true)`, which used to animate the
+  newest play again). Showing the desk or starting a replay clears it.
+- **`sideSettle(p)`**: the newest play is staged and put straight at its end: every banner marked shown,
+  no score gate, its text up at once. What follows runs as it would have (the huddle at the next spot, the
+  teams off after a score, the kickoff). A reviewed play settles on the ruling. The play already on the
+  stage is settled too if it never finished (the view closed or hidden mid-play), which also clears its
+  pending gate. Plays that come in while someone is watching are animated as before.
+
+Cache-bust ?v=20260928y.
+
+VERIFY: sunday 283/284 (new section "Arriving at a live game: the game as it is, no replay", 7 checks: a
+load, the reviewed play settled on its ruling, the huddle after, a new play while watching still animated,
+back in from the board, a replay left early, the page back in front and its wiring; the one failure is the
+webfont ink check that fails the same way on HEAD in this container), sunday-ff 53/53, pbpdetail 61/61.
+Bite: main's page files fail all 7, every pre-existing check still passing (the "new play animated" guard
+fails there only because main's two-act review of the arrival play is still running when the new play
+arrives).
