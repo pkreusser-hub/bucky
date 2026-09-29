@@ -1518,13 +1518,16 @@ function raTimeout(prev, tPrev, ev, possId, z0H, caller, title = 'Timeout', clea
 // band, 2026-09-28, which marched a stadium loop.) The script comes from the halftime function,
 // written once per game by Opus 5.5 and served to everyone; it runs from its first line on every
 // visit, about a minute, then again after a short break.
-const HT_CAST = ['Hal Brandt', 'Chuck Varney', 'Moose Tillman', 'Dot Keene'];
+// (2026-09-28, user: "replace Dot Keene with RoboGoat, and chuck varney with Force Ghost John Madden".)
+const HT_CAST = ['Hal Brandt', 'Force Ghost John Madden', 'Moose Tillman', 'RoboGoat'];
 // Suit, shirt, tie (null: none), skin, hair, hair style, build. Drawn in this order, left to right.
+// The ghost is drawn in pale blues, see-through and glowing, floating a little over his chair;
+// RoboGoat has a metal goat's head (horns, a snout, LED eyes and an LED mouth) over a bow tie.
 const HT_LOOK = [
   { suit: '#1f2f5c', shirt: '#f4f4f0', tie: '#c8102e', skin: '#f1c27d', hair: '#3b2a1d', style: 'part', w: 26 },
-  { suit: '#4a4f58', shirt: '#dfe8f5', tie: '#d9a520', skin: '#e0ac69', hair: '#c9c9c9', style: 'swept', w: 26 },
+  { suit: '#5aa9e6', shirt: '#d6ecff', tie: '#9fd7ff', skin: '#bfe4ff', hair: '#eef8ff', style: 'swept', w: 32, ghost: true },
   { suit: '#5a2630', shirt: '#f4f4f0', tie: '#2a4a8a', skin: '#8d5524', hair: '#1a1410', style: 'crop', w: 30, beard: true },
-  { suit: '#1f6f6a', shirt: '#f3e7cf', tie: null, skin: '#c68642', hair: '#241a14', style: 'long', w: 24, earrings: true },
+  { suit: '#39404d', shirt: '#dfe3ea', tie: null, bow: '#d50a0a', skin: '#a9b3c1', hair: '#5a4632', style: 'goat', w: 24, goat: true },
 ];
 const HT = new Map();                               // game id -> { lines, cast, state: 'pending' | 'done' | 'failed', polls }
 // A test run of the desk on a finished game (2026-09-28, user: "give me a test link", with no game at
@@ -1543,13 +1546,37 @@ const HT_TARGET = 60, HT_POST_TARGET = 120, HT_INTRO = 1.4, HT_GAP = 0.3, HT_BRE
 const htKey = (id, post) => (post ? 'post:' : '') + id;
 // The script as a timeline: each line gets reading time for its words, scaled so the show runs
 // about a minute (two for the postgame desk), within 0.8x to 1.25x of natural pace.
-function htTimeline(lines, target = HT_TARGET) {
+// A replay (a run of lines with the same `replay` play id) lasts at least `minFor(id)` seconds, so the
+// play plays out under its commentary: its last line is held, and what follows moves along.
+function htTimeline(lines, target = HT_TARGET, minFor = null) {
   const d = lines.map((l) => 1.1 + 0.26 * String(l.text).split(/\s+/).filter(Boolean).length);
   const raw = d.reduce((x, y) => x + y, 0) + HT_GAP * lines.length;
   const f = lines.length > 2 ? clamp(target / raw, 0.8, 1.25) : 1;
   let t = HT_INTRO;
-  const out = lines.map((l, i) => { const t0 = t; t += d[i] * f; const q = { who: l.who, text: l.text, t0, t1: t }; t += HT_GAP; return q; });
+  const out = lines.map((l, i) => { const t0 = t; t += d[i] * f; const q = { who: l.who, text: l.text, replay: l.replay || '', t0, t1: t }; t += HT_GAP; return q; });
+  if (minFor) {
+    for (let i = 0; i < out.length; i++) {
+      if (!out[i].replay || (i > 0 && out[i - 1].replay === out[i].replay)) continue;
+      let j = i; while (j + 1 < out.length && out[j + 1].replay === out[i].replay) j++;
+      const need = minFor(out[i].replay), have = out[j].t1 - out[i].t0;
+      if (need > have) { const x = need - have; out[j].t1 += x; for (let k = j + 1; k < out.length; k++) { out[k].t0 += x; out[k].t1 += x; } t += x; }
+      i = j;
+    }
+  }
   return { lines: out, T: t + HT_BREAK };
+}
+// The replays the desk goes to the tape on (2026-09-28, user: "2-3 replays where an analyst brings
+// up a specific play and it shows that replay along with the commentary words overlaid on top"):
+// each is the play itself, staged fresh on the 8-bit field, built once per show.
+function htReplay(sc, id) {
+  if (!sc.reps) sc.reps = new Map();
+  if (!sc.reps.has(id)) {
+    let r = null;
+    const p = raPlays().find((x) => String(x.id) === String(id));
+    if (p) { try { r = raBuild(p, G.ev, raQBs()); } catch (err) { r = null; } }
+    sc.reps.set(id, r);
+  }
+  return sc.reps.get(id);
 }
 // No stand-in dialogue (2026-09-28, user, of the games whose scripts had failed: "it took like 1
 // seconds to generate but it was super generic and very short"): the five canned lines it played
@@ -1586,7 +1613,9 @@ function htScript(id, post) {
   const e = HT.get(htKey(id, post)), ev = sc.ev || G?.ev;
   if (!e || !ev) return;
   sc.cast = e.cast || HT_CAST;
-  sc.tl = e.state === 'done' ? htTimeline(e.lines, post ? HT_POST_TARGET : HT_TARGET) : null;
+  // A replay runs at least the play (held at most 9 s) plus a beat; a play we can't stage is no replay.
+  const minFor = (id) => { const r = htReplay(sc, id); return r ? Math.min(r.T, 9) + 0.6 : 0; };
+  sc.tl = e.state === 'done' ? htTimeline(e.lines.map((l) => ({ ...l, replay: l.replay && htReplay(sc, l.replay) ? String(l.replay) : '' })), post ? HT_POST_TARGET : HT_TARGET, minFor) : null;
   sc.waiting = e.state === 'pending';
   sc.off = e.state === 'failed';
   sc.since = e.since || sc.since;
@@ -1599,7 +1628,7 @@ function htScript(id, post) {
 // one; at zero it says "Starting…" until the lines arrive, and then the show runs from its top.
 // Seconds: measured on the preview, a low-effort halftime script took 11.5 s to write (seen by the
 // page at 13 s, 783 output tokens); a postgame one writes about twice as much.
-const HT_SOON = { half: 15, post: 25 };
+const HT_SOON = { half: 15, post: 30 };                     // (post 25 -> 30: a postgame script with replays took 25.8 s on the preview)
 function htSoonLeft(sc, now = Date.now()) {
   const est = HT_SOON[sc.post ? 'post' : 'half'];
   return Math.max(0, Math.ceil(est - (now - (sc.since || now)) / 1000));
@@ -1702,7 +1731,28 @@ function htDesk(g, aw, ah) {
 }
 // One analyst, waist up behind the desk. `talk`: this one is speaking (mouth moving, a gesture);
 // `look`: -1 / 0 / 1, where the eyes point (at whoever is talking).
+let HT_GHOST = null;
 function htPerson(g, cx, dy, L, t, i, talk, look) {
+  if (L.ghost && !g.htGhostPass) {
+    // The Force ghost: drawn on a scratch canvas, then laid down see-through over a pale blue glow,
+    // bobbing a pixel or two above his chair.
+    const W = g.canvas.width, H = g.canvas.height;
+    if (!HT_GHOST || HT_GHOST.a.width !== W || HT_GHOST.a.height !== H) { const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; }; HT_GHOST = { a: mk(), b: mk() }; }
+    const a = HT_GHOST.a.getContext('2d'), b = HT_GHOST.b.getContext('2d');
+    a.clearRect(0, 0, W, H); b.clearRect(0, 0, W, H);
+    a.htGhostPass = true;
+    const lift = Math.round(Math.sin(t * 1.7) * 1.5) - 1;
+    const head = htPerson(a, cx, dy + lift, L, t, i, talk, look);
+    a.htGhostPass = false;
+    b.drawImage(HT_GHOST.a, 0, 0); b.globalCompositeOperation = 'source-in'; b.fillStyle = '#9fe0ff'; b.fillRect(0, 0, W, H); b.globalCompositeOperation = 'source-over';
+    g.save();
+    g.globalAlpha = 0.35 + 0.1 * Math.sin(t * 3.1);
+    for (const [dx2, dy2] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-2, 0], [2, 0]]) g.drawImage(HT_GHOST.b, dx2, dy2);
+    g.globalAlpha = 0.74;
+    g.drawImage(HT_GHOST.a, 0, 0);
+    g.restore();
+    return head;
+  }
   const bob = talk && Math.floor(t * 6) % 2 ? -1 : 0;
   const w = L.w, top = dy - 24 + bob, x0 = cx - Math.floor(w / 2);
   const dark = mixHex(L.suit, '#000000', 0.35), lite = mixHex(L.suit, '#ffffff', 0.18);
@@ -1713,6 +1763,7 @@ function htPerson(g, cx, dy, L, t, i, talk, look) {
   g.fillStyle = dark; g.fillRect(x0 + w - 3, top + 2, 3, dy - top);
   g.fillStyle = L.shirt; for (let r = 0; r < 9; r++) g.fillRect(cx - 4 + Math.floor(r / 2), top + r, 9 - Math.floor(r / 2) * 2, 1);
   if (L.tie) { g.fillStyle = L.tie; g.fillRect(cx - 1, top + 1, 3, 2); g.fillRect(cx, top + 3, 1, 1); g.fillRect(cx - 1, top + 4, 3, 7); g.fillStyle = mixHex(L.tie, '#000000', 0.3); g.fillRect(cx + 1, top + 4, 1, 7); }
+  else if (L.bow) { g.fillStyle = L.bow; g.fillRect(cx - 3, top + 1, 3, 3); g.fillRect(cx + 1, top + 1, 3, 3); g.fillStyle = mixHex(L.bow, '#000000', 0.3); g.fillRect(cx, top + 2, 1, 1); }   // a bow tie
   else { g.fillStyle = '#e6c15a'; g.fillRect(cx - 2, top + 3, 1, 1); g.fillRect(cx + 2, top + 3, 1, 1); g.fillRect(cx - 1, top + 4, 3, 1); }   // a necklace
   g.fillStyle = dark; for (let r = 0; r < 8; r++) { g.fillRect(cx - 5 + Math.floor(r / 2), top + r, 1, 1); g.fillRect(cx + 5 - Math.floor(r / 2), top + r, 1, 1); }
   // Arms on the desk; the speaker lifts a hand now and then to make the point.
@@ -1725,6 +1776,7 @@ function htPerson(g, cx, dy, L, t, i, talk, look) {
   // Neck and head.
   const hw = L.w >= 30 ? 12 : 11, hh = 12, hx = cx - Math.floor(hw / 2), hy = top - hh - 2;
   g.fillStyle = mixHex(L.skin, '#000000', 0.2); g.fillRect(cx - 2, top - 3, 5, 3);
+  if (L.goat) return htGoatHead(g, cx, hx, hy, hw, hh, L, t, i, talk, look);
   g.fillStyle = L.skin; g.fillRect(hx, hy + 1, hw, hh - 1); g.fillRect(hx + 1, hy, hw - 2, 1);
   g.fillStyle = mixHex(L.skin, '#000000', 0.18); g.fillRect(hx + hw - 1, hy + 2, 1, hh - 3); g.fillRect(hx + 1, hy + hh - 1, hw - 2, 1);
   g.fillStyle = L.skin; g.fillRect(hx - 1, hy + 5, 1, 3); g.fillRect(hx + hw, hy + 5, 1, 3);        // ears
@@ -1750,14 +1802,60 @@ function htPerson(g, cx, dy, L, t, i, talk, look) {
   else { g.fillStyle = mixHex(L.skin, '#000000', 0.45); g.fillRect(cx - 2, my, 5, 1); }
   return { headX: cx, headTop: hy - 2 };
 }
-function raStudioDraw(g, W, st) {
+// RoboGoat's head: brushed metal, a goat's long snout, curled horns, floppy ears, LED eyes that
+// look about (and blink by going dark), an LED mouth that flickers as it talks, a white chin tuft.
+function htGoatHead(g, cx, hx, hy, hw, hh, L, t, i, talk, look) {
+  const M = L.skin, Md = mixHex(M, '#000000', 0.28), Ml = mixHex(M, '#ffffff', 0.3), led = '#7cff6b';
+  // Horns: up and curling back from both top corners.
+  g.fillStyle = L.hair;
+  g.fillRect(hx, hy - 3, 2, 3); g.fillRect(hx - 1, hy - 5, 2, 2); g.fillRect(hx - 2, hy - 5, 1, 1);
+  g.fillRect(hx + hw - 2, hy - 3, 2, 3); g.fillRect(hx + hw - 1, hy - 5, 2, 2); g.fillRect(hx + hw + 1, hy - 5, 1, 1);
+  // Skull, then the narrower snout below it.
+  g.fillStyle = M; g.fillRect(hx, hy, hw, 7); g.fillRect(hx + 2, hy + 7, hw - 4, 6);
+  g.fillStyle = Ml; g.fillRect(hx + 1, hy, hw - 3, 1);
+  g.fillStyle = Md; g.fillRect(hx + hw - 1, hy + 1, 1, 6); g.fillRect(hx + hw - 3, hy + 7, 1, 6); g.fillRect(hx + 2, hy + 12, hw - 4, 1);
+  for (const r of [3, 9]) { g.fillStyle = Md; g.fillRect(hx + 1, hy + r, 1, 1); g.fillRect(hx + hw - 2, hy + r, 1, 1); }   // rivets
+  // Ears: flaps out to the sides.
+  g.fillStyle = M; g.fillRect(hx - 3, hy + 3, 3, 2); g.fillRect(hx + hw, hy + 3, 3, 2);
+  g.fillStyle = Md; g.fillRect(hx - 3, hy + 4, 3, 1); g.fillRect(hx + hw, hy + 4, 3, 1);
+  // LED eyes.
+  const blink = ((t + i * 1.3) % 4.1) < 0.13, ex = (look > 0 ? 1 : 0) - (look < 0 ? 1 : 0);
+  g.fillStyle = '#0d1a0d'; g.fillRect(hx + 2, hy + 4, 3, 2); g.fillRect(hx + hw - 5, hy + 4, 3, 2);
+  if (!blink) { g.fillStyle = led; g.fillRect(hx + 3 + ex, hy + 4, 1, 2); g.fillRect(hx + hw - 4 + ex, hy + 4, 1, 2); }
+  // Nostrils and the LED mouth.
+  g.fillStyle = Md; g.fillRect(cx - 2, hy + 8, 1, 1); g.fillRect(cx + 1, hy + 8, 1, 1);
+  g.fillStyle = '#0d1a0d'; g.fillRect(cx - 2, hy + 10, 5, 1);
+  if (talk) { g.fillStyle = led; for (let k = 0; k < 5; k++) if ((Math.floor(t * 12) + k * 3) % 4) g.fillRect(cx - 2 + k, hy + 10, 1, 1); }
+  // The chin tuft.
+  g.fillStyle = '#eef0f4'; g.fillRect(cx - 1, hy + 13, 3, 2); g.fillRect(cx, hy + 15, 1, 1);
+  return { headX: cx, headTop: hy - 6 };
+}
+function raStudioDraw(g, W, st, dt = 0) {
   const sc = st.sc, H = g.canvas.height;
   const s = Math.max(1, Math.round(H / 150)), aw = Math.ceil(W / s), ah = Math.ceil(H / s);
   if (!st.htCv || st.htCv.width !== aw || st.htCv.height !== ah) { st.htCv = document.createElement('canvas'); st.htCv.width = aw; st.htCv.height = ah; }
   const o = st.htCv.getContext('2d');
   o.imageSmoothingEnabled = false;
-  o.drawImage(htSet(aw, ah, sc), 0, 0);
   const now = htAt(sc, st.t);
+  // Gone to the tape: the play on the 8-bit field, its commentary over the top.
+  const rp = now.line?.replay ? htReplay(sc, now.line.replay) : null;
+  if (rp) {
+    const tl = sc.tl.lines;
+    let a = now.i; while (a > 0 && tl[a - 1].replay === now.line.replay) a--;
+    if (!st.htRep || st.htRep.id !== now.line.replay || st.htRep.seg !== a) {
+      st.htRep = { id: now.line.replay, seg: a, sc: rp, t: 0, cam: null, cv: st.cv, shown: new Set(), banner: null, loop: false, ruler: false, bugKey: null };
+    }
+    const R = st.htRep, r = clamp(now.u - tl[a].t0, 0, rp.T);
+    R.cv = st.cv; R.t = Math.max(0, r - dt);
+    raStep(R, dt);
+    htBubble(st, { line: null }, [], s, W, H);
+    htCap(st, now);
+    htSoon(st);
+    return;
+  }
+  if (st.htRep) st.htRep = null;
+  htCap(st, null);
+  o.drawImage(htSet(aw, ah, sc), 0, 0);
   const dw = Math.min(Math.round(aw * 0.88), 264), dx = Math.round((aw - dw) / 2), dy = htDeskY(aw, ah);
   const heads = [];
   for (let i = 0; i < 4; i++) {
@@ -1776,6 +1874,23 @@ function raStudioDraw(g, W, st) {
   st.ruler = ruler;
   htBubble(st, now, heads, s, W, H);
   htSoon(st);
+}
+// Over a replay: a REPLAY tag and the analyst's words across the top of the field.
+function htCap(st, now) {
+  const stage = st.cv?.parentElement;
+  if (!stage) return;
+  let el = stage.querySelector('.ht-cap');
+  if (!now?.line) { if (el && !el.hidden) el.hidden = true; st.htCapKey = null; return; }
+  if (!el) { el = document.createElement('div'); el.className = 'ht-cap'; el.innerHTML = '<i>Replay</i><b></b><span></span>'; stage.appendChild(el); }
+  el.hidden = false;
+  const key = `${now.i}|${st.cv.clientWidth}`;
+  if (st.htCapKey === key) return;
+  st.htCapKey = key;
+  const cast = st.sc.cast || HT_CAST;
+  el.querySelector('b').textContent = cast[now.line.who] || '';
+  el.querySelector('b').style.color = HT_LOOK[now.line.who].ghost ? '#9fe0ff' : HT_LOOK[now.line.who].goat ? '#7cff6b' : '#ffd21f';
+  el.querySelector('span').textContent = now.line.text;
+  el.style.fontSize = `${clamp(Math.round((st.cv.clientWidth || 300) / 60), 8, 12)}px`;
 }
 // The chat bubble: HTML over the canvas (a pixel font that wraps), pinned over the speaker's head.
 function htBubble(st, now, heads, s, W, H) {
@@ -3001,9 +3116,10 @@ function raStep(st, dt) {
   st.t = st.loop ? st.t + dt : Math.min(sc.T, st.t + dt);     // the live views keep their clock running
   const cv = st.cv;
   const W = cv.width;
-  if (sc.studio) { raStudioDraw(cv.getContext('2d'), W, st); return; }   // halftime: the desk, no field or camera
+  if (sc.studio) { raStudioDraw(cv.getContext('2d'), W, st, dt); return; }   // halftime: the desk, no field or camera
   if (st.htOn) { st.htOn = false; st.htKey = null; cv.parentElement?.querySelector('.ht-bub')?.classList.remove('on'); }
   if (st.htSoonOn) { st.htSoonOn = false; const el = cv.parentElement?.querySelector('.ht-soon'); if (el) el.hidden = true; }
+  if (st.htCapKey !== undefined && st === SIDE) { const el = cv.parentElement?.querySelector('.ht-cap'); if (el && !el.hidden) el.hidden = true; st.htCapKey = undefined; }
   const Hb = (z) => (sc.offHome ? z : 100 - z);
   const Yb = (x) => RA_TOP + (RAX + x * (sc.offHome ? -1 : 1)) * PY;
   const b = raBall(sc, st.t), b0 = raBall(sc, Math.max(0, st.t - 0.2));
@@ -3358,26 +3474,43 @@ function tecmoRpDrive(p) {
   const f = (G?.sum?.flat || []).find((x) => String(x.p.id) === id);
   return f ? f.di : (G?.sum?.drives.length ?? 1) - 1;
 }
-// Where each choice starts in the play list: the opening kickoff, or the first play of the drive
-// the newest play is in.
+// Where a replay starts in the play list: the opening kickoff ('game'), the first play of the drive
+// the newest play is in ('drive'), or the first play of drive number n (the drive row).
 function tecmoRpFrom(list, from) {
-  if (from !== 'drive') return 0;
-  const d = tecmoRpDrive(list[list.length - 1]);
+  if (from === 'game') return 0;
+  const d = typeof from === 'number' ? from : tecmoRpDrive(list[list.length - 1]);
   const i = list.findIndex((p) => tecmoRpDrive(p) === d);
-  return i < 0 ? list.length - 1 : i;
+  return i < 0 ? (typeof from === 'number' ? 0 : list.length - 1) : i;
 }
-function tecmoRpMenu() {
-  const cv = sideTarget().cv;
-  SIDE.rpMenu = SIDE.rpMenu ? null : cv;
-  tecmoRpBar();
-  if (SIDE.rpMenu) $('#bt-rp [data-btrp]')?.focus({ preventScroll: true });
+// The drive row (2026-09-28, user: "then it should have a horizontal list of drives that can be
+// clicked to take you to any specific drive"): one chip per drive, the team and how it ended, the
+// drive being replayed lit and kept in view.
+const RP_RESULT = [[/touchdown/i, 'TD'], [/field goal|^fg$/i, 'FG'], [/missed fg|missed field|blocked fg/i, 'Missed FG'], [/punt/i, 'Punt'], [/intercept/i, 'INT'], [/fumble/i, 'Fumble'], [/downs/i, 'Downs'], [/safety/i, 'Safety'], [/end of (half|game)/i, 'End of half'], [/end of game/i, 'End']];
+function tecmoRpResult(r) {
+  r = String(r || '');
+  if (/missed|blocked/i.test(r) && /fg|field goal/i.test(r)) return 'Missed FG';
+  if (/end of game/i.test(r)) return 'End';
+  for (const [re, lab] of RP_RESULT) if (re.test(r)) return lab;
+  return r || '…';
+}
+function tecmoRpDrives(cur) {
+  const ev = G?.ev, list = raPlays();
+  if (!ev || !G.sum) return '';
+  const has = new Set(list.map((p) => tecmoRpDrive(p)));
+  const chips = G.sum.drives.map((d, i) => {
+    if (!has.has(i)) return '';
+    const t = String(d.teamId) === String(ev.home.id) ? ev.home : ev.away;
+    const q = d.plays[0]?.period;
+    return `<button class="rp-dr${i === cur ? ' on' : ''}" data-btdrive="${i}"${i === cur ? ' aria-current="true"' : ''} style="--tc:${pair(ev.away, ev.home)[t === ev.home ? 'h' : 'a']}"><b>${esc(t.abbr)}</b><span>${esc(q ? periodLabel(q) : '')} · ${esc(tecmoRpResult(d.result))}</span></button>`;
+  }).join('');
+  return `<div class="rp-drs" role="group" aria-label="Drives">${chips}</div>`;
 }
 function tecmoRpStart(from) {
   const list = raPlays();
   if (!G || !list.length) return;
   const i = tecmoRpFrom(list, from);
   sideStop();
-  SIDE.rp = { from, id: null, speed: tecmoRpPref(), cv: sideTarget().cv };
+  SIDE.rp = { from, id: null, speed: tecmoRpPref(), cv: sideTarget().cv, placed: null };
   SIDE.rpMenu = null;
   SIDE.sc = null;                              // the first play lines up fresh, not from wherever the live scene was
   if (G.gate && typeof gateOpen === 'function') gateOpen();       // the page shows the game as it is
@@ -3425,15 +3558,25 @@ function tecmoRpBar() {
   if (bar.hidden) { bar.innerHTML = ''; return; }
   const s = R ? R.speed : tecmoRpPref();
   const speeds = `<span class="bt-sp" role="group" aria-label="Replay speed">${RP_SPEEDS.map((v) => `<button data-btspeed="${v}" aria-pressed="${v === s}">${v}×</button>`).join('')}</span>`;
-  if (!R) { bar.innerHTML = `<button class="ch" data-btrp="game">${ICON.play}Game start</button><button class="ch" data-btrp="drive">${ICON.play}This drive</button><span class="bt-spw"><span class="bt-rp-l">Speed</span>${speeds}</span>`; return; }
+  if (!R) { bar.hidden = true; bar.innerHTML = ''; return; }
   const p = raPlays().find((x) => String(x.id) === String(R.id));
   const at = p ? `${periodLabel(p.period)}${p.clock ? ' ' + p.clock : ''}` : '';
-  bar.innerHTML = `<span class="bt-rp-l">Replay${R.from === 'drive' ? ' · this drive' : ''}${at ? ' · ' + esc(at) : ''}</span>${speeds}<button data-btrp="stop">${G.ev.state === 'in' ? 'Back to live' : 'Exit replay'}</button>`;
+  const cur = p ? tecmoRpDrive(p) : -1;
+  const row = bar.querySelector('.rp-drs');
+  const keep = row ? row.scrollLeft : 0;
+  bar.innerHTML = `<span class="bt-rp-l">Replay${at ? ' · ' + esc(at) : ''}</span>${speeds}<button data-btrp="stop">${G.ev.state === 'in' ? 'Back to live' : 'Exit replay'}</button>${tecmoRpDrives(cur)}`;
+  const nr = bar.querySelector('.rp-drs'), on = nr?.querySelector('.on');
+  if (nr) {
+    nr.scrollLeft = keep;
+    if (on && R.placed !== cur) { nr.scrollLeft = on.offsetLeft - (nr.clientWidth - on.offsetWidth) / 2; R.placed = cur; }   // the drive being shown, in view
+  }
 }
 document.addEventListener('click', (e) => {
   if (!G) return;
   const rb = e.target.closest('[data-btrp]');
   if (rb) { if (rb.dataset.btrp === 'stop') tecmoRpEnd(true); else tecmoRpStart(rb.dataset.btrp); return; }
+  const dr = e.target.closest('[data-btdrive]');
+  if (dr) { tecmoRpStart(+dr.dataset.btdrive); return; }
   const sp = e.target.closest('[data-btspeed]');
   if (sp) {
     const v = +sp.dataset.btspeed;

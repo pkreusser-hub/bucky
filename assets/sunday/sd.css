@@ -981,6 +981,13 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 /* "Halftime show / starts in 0:30" while the script is written (2026-09-28), over the monitor. */
 .ht-soon { position: absolute; z-index: 2; left: 50%; top: 9%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.7em; padding: 0.9em 1.3em; background: #0d1a3f; color: #ffd21f; box-shadow: 0 0 0 2px #fbfbf4, 0 0 0 4px #101010, 4px 6px 0 3px rgba(0,0,0,0.4); font: 400 11px/1.3 "Press Start 2P", monospace; text-transform: uppercase; white-space: nowrap; pointer-events: none; }
 .ht-soon[hidden] { display: none; }
+/* Over a replay in the desk show (2026-09-28): a red REPLAY tag and the analyst's words across the
+   top of the field, the name in their colour (the ghost's pale blue, RoboGoat's LED green). */
+.ht-cap { position: absolute; z-index: 2; left: 6px; right: 6px; top: 6px; display: grid; grid-template-columns: auto 1fr; gap: 0.5em 0.8em; align-items: start; padding: 0.7em 0.9em; background: rgba(8, 14, 36, 0.9); color: #fbfbf4; box-shadow: 0 0 0 2px #fbfbf4, 0 0 0 4px #101010; font: 400 10px/1.55 "Press Start 2P", monospace; pointer-events: none; overflow-wrap: anywhere; }
+.ht-cap[hidden] { display: none; }
+.ht-cap i { grid-row: span 2; align-self: center; font-style: normal; font-size: 0.8em; padding: 0.35em 0.5em; background: #d50a0a; color: #fff; text-transform: uppercase; animation: rp-blink 1s steps(2) infinite; }
+.ht-cap b { font-weight: 400; font-size: 0.8em; text-transform: uppercase; }
+@keyframes rp-blink { 50% { opacity: 0.55; } }
 .ht-soon span { color: #fbfbf4; font-size: 0.8em; font-variant-numeric: tabular-nums; }
 .ht-bub b { font-weight: 400; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.02em; }
 .ht-bub.dots span { letter-spacing: 0.3em; }
@@ -1028,6 +1035,15 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 /* 8-bit replay: from game start or this drive, at 1×, 2× or 3× */
 .bt-rp { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 6px; margin: 8px 2px 0; }
 .bt-rp[hidden] { display: none; }
+/* The drive row under the replay controls (2026-09-28): one chip per drive, scrolls sideways, the
+   drive being replayed lit in its team's colour. */
+.rp-drs { flex: 1 0 100%; display: flex; gap: 6px; overflow-x: auto; padding: 2px 1px 4px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.rp-drs::-webkit-scrollbar { display: none; }
+.bt-rp .rp-dr { flex: none; display: grid; gap: 2px; min-width: 64px; min-height: 44px; padding: 6px 9px; border-radius: 10px; text-align: left; scroll-snap-align: center;
+  background: var(--stadium-ctl); color: var(--stadium-ink); box-shadow: inset 0 0 0 1.5px var(--stadium-ctl-line), inset 4px 0 0 var(--tc, transparent); }
+.bt-rp .rp-dr b { font: 400 9px/1 "Press Start 2P", monospace; }
+.bt-rp .rp-dr span { font: 600 11px/1.1 var(--cond); letter-spacing: 0.04em; text-transform: uppercase; color: var(--stadium-ink-2); white-space: nowrap; }
+.bt-rp .rp-dr.on { box-shadow: inset 0 0 0 2px var(--tc, #fff), inset 4px 0 0 var(--tc, transparent); background: color-mix(in srgb, var(--tc, #333) 28%, var(--stadium-ctl)); }
 .bt-rp button {
   position: relative; flex: none; min-height: 36px; min-width: 36px; padding: 0 12px; border-radius: 999px;
   display: inline-flex; gap: 6px; align-items: center; justify-content: center;

@@ -44,31 +44,43 @@
 export const HALFTIME_MODEL = "claude-opus-5-5";
 const ESPN = () => process.env.HALFTIME_ESPN_BASE || "https://site.api.espn.com/apis/site/v2/sports/football/nfl";
 const DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
-const COLL = "sunday_halftime";
+// sunday_desk2 (2026-09-28): the new cast and the replays. Scripts stored under the old collection
+// (sunday_halftime) had Chuck and Dot in them and no replays, so every game's script is written anew.
+const COLL = "sunday_desk2";
 const STALE_MS = 4 * 60 * 1000;
 const MAX_TRIES = 3;
 const RETRY_MS = 3600e3;
 
 // The desk. Fixed people, so the show has regulars; the page draws them (suits, faces) in this order.
-export const CAST = ["Hal Brandt", "Chuck Varney", "Moose Tillman", "Dot Keene"];
+// (2026-09-28, user: "replace Dot Keene with RoboGoat, and chuck varney with Force Ghost John Madden".)
+export const CAST = ["Hal Brandt", "Force Ghost John Madden", "Moose Tillman", "RoboGoat"];
 // Who they are, for both shows (2026-09-28: "differentiate the commentators a bit with more
-// personality").
+// personality"). The ghost is an affectionate tribute: the late coach and broadcaster's joy for the
+// game, never words that would embarrass him.
 const PEOPLE = `Four regulars sit at the desk, each with their own voice:
 0. ${CAST[0]}, the host: a silver-haired pro, smooth as a late-night radio DJ. He loves a groan-worthy pun, keeps the peace when the other two go at it, and hands off to people by name.
-1. ${CAST[1]}, former quarterback from West Texas: folksy and unhurried, reaches for ranch-and-farm comparisons, always sticks up for the quarterback, and gets misty about how football used to be played.
-2. ${CAST[2]}, former linebacker: loud and all energy, lives for hits, sacks and takeaways, calls a big play "grown-man football", and needles Chuck every chance he gets.
-3. ${CAST[3]}, the numbers and fantasy analyst: deadpan and precise, settles arguments with a stat from the facts, talks straight to fantasy managers about who helped or hurt their lineups, and gets in one dry zinger at the boys.
+1. ${CAST[1]}: the late, great coach and broadcaster, back as a glowing blue Force ghost who drifts in over the desk. Booming, big-hearted joy for the game: a "Boom!" now and then, loves the big guys up front, mud, hard-nosed running and simple truths about football, loves drawing on the telestrator, and makes the odd warm joke about being a ghost. An affectionate tribute: keep him kind, never mean or crude.
+2. ${CAST[2]}, former linebacker: loud and all energy, lives for hits, sacks and takeaways, calls a big play "grown-man football", and needles RoboGoat's numbers every chance he gets.
+3. ${CAST[3]}: the GFFL's robot goat (the league is the G.O.A.T. league), the numbers and fantasy analyst. Precise and deadpan, settles arguments with a stat from the facts, makes the odd beep or whirr of computing and the rare bleat, likes a goat pun, talks straight to fantasy managers about who helped or hurt their lineups, and gets in one dry zinger at the humans.
 Give each of them their own rhythm and habits, but never repeat the same catchphrase twice. They react to each other, tease and disagree a little; every line should sound like only its speaker could have said it.`;
+// The replays (2026-09-28, user: "2-3 replays where an analyst brings up a specific play and it shows
+// that replay along with the commentary words overlaid on top"). Each scoring and notable play in the
+// facts carries its ESPN id; a line's `replay` names the play shown while it is spoken.
+const TAPE = (n) => `Go to the tape ${n === 2 ? "twice" : "three times"}, as a real desk does: an analyst calls up a specific play from the facts (each scoring and notable play has an "id"), and the page cuts to a replay of it. For each replay, the line that calls for it and the one or two lines after it are spoken over the replay, so they describe what we are watching, telestrator style; give those lines the play's id in "replay". Use different plays, spread through the show. Every other line has "replay": "".`;
 const RULES = `Use only the facts you are given: the score, the scoring plays, the leaders, the big plays and turnovers, the drives, the team numbers. Do not invent stats, injuries, quotes, records or storylines that are not in the facts. Name players as the facts do (full name the first time, last name after). Keep it family friendly. Plain spoken sentences only: no emoji, no stage directions, no hashtags, and do not start a line with a speaker's name.`;
 const SHOW = {
   half: `You write the halftime desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
 
 Write about one minute of back-and-forth on this game's FIRST HALF: 14 to 18 lines, 150 to 190 words in all, no line over 24 words. The host opens with the score and closes by sending it back to the second half; each analyst speaks at least 3 times.
 
+${TAPE(2)}
+
 ${RULES}`,
   post: `You write the postgame desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
 
 Write about two minutes of back-and-forth on this FINISHED game: 26 to 32 lines, 300 to 370 words in all, no line over 26 words. The host opens with the final score and signs the show off at the end; each analyst speaks at least 6 times. Cover how the game was won and lost, the turning point, the player of the game, a play each analyst loved, and the fantasy fallout for the leaders. Give it some shape: a first take, an argument, a verdict.
+
+${TAPE(3)}
 
 ${RULES}`,
 };
@@ -80,8 +92,8 @@ const SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { who: { type: "integer", enum: [0, 1, 2, 3] }, text: { type: "string" } },
-        required: ["who", "text"],
+        properties: { who: { type: "integer", enum: [0, 1, 2, 3] }, text: { type: "string" }, replay: { type: "string" } },
+        required: ["who", "text", "replay"],
         additionalProperties: false,
       },
     },
@@ -128,7 +140,7 @@ export function halftimeFacts(sum, mode) {
   const byId = { [home.id]: home.abbr, [away.id]: away.abbr };
   const facts = { away, home, status: comp.status?.type?.detail || "Halftime" };
   facts.scoring = (sum.scoringPlays || []).filter((p) => Number(p.period?.number) <= maxQ).map((p) => ({
-    q: Number(p.period?.number), clock: p.clock?.displayValue || "", team: p.team?.abbreviation || byId[String(p.team?.id)] || "", play: clip(p.text, 160), score: `${away.abbr} ${p.awayScore} - ${p.homeScore} ${home.abbr}`,
+    id: String(p.id || ""), q: Number(p.period?.number), clock: p.clock?.displayValue || "", team: p.team?.abbreviation || byId[String(p.team?.id)] || "", play: clip(p.text, 160), score: `${away.abbr} ${p.awayScore} - ${p.homeScore} ${home.abbr}`,
   }));
   facts.leaders = [];
   for (const tl of sum.leaders || []) {
@@ -157,7 +169,7 @@ export function halftimeFacts(sum, mode) {
       const yds = Number(p.statYardage) || 0;
       const txt = `${p.type?.text || ""} ${p.text || ""}`;
       if (Math.abs(yds) >= 20 || (NOTABLE.test(txt) && !/extra point|kickoff|no play/i.test(txt))) {
-        facts.notable.push({ q: Number(p.period?.number), clock: p.clock?.displayValue || "", offense: team, play: clip(p.text, 170) });
+        facts.notable.push({ id: String(p.id || ""), q: Number(p.period?.number), clock: p.clock?.displayValue || "", offense: team, play: clip(p.text, 170) });
       }
     }
   }
@@ -172,13 +184,23 @@ export function halftimeFacts(sum, mode) {
 
 // The model's lines, checked: 8 to 24 of them (16 to 40 for the postgame show), a known speaker
 // each, sane lengths, everyone heard.
-export function cleanScript(out, post) {
+// A line's replay is kept only if it names a play in the facts (`plays`, a Set of ids), at most three
+// replays a show, each over three lines at most; any other replay is dropped, the line kept.
+export function cleanScript(out, post, plays) {
   const lines = Array.isArray(out?.lines) ? out.lines : [];
   const ok = lines
-    .map((l) => ({ who: Number(l?.who), text: clip(String(l?.text || "").replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, ""), 220) }))
+    .map((l) => ({ who: Number(l?.who), text: clip(String(l?.text || "").replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, ""), 220), replay: String(l?.replay || "").trim() }))
     .filter((l) => Number.isInteger(l.who) && l.who >= 0 && l.who <= 3 && l.text.length >= 2);
   if (post ? ok.length < 16 || ok.length > 40 : ok.length < 8 || ok.length > 24) return null;
   if (new Set(ok.map((l) => l.who)).size < 4) return null;
+  let segs = 0, run = 0;
+  ok.forEach((l, i) => {
+    if (!l.replay || !plays?.has(l.replay)) { l.replay = ""; run = 0; return; }
+    const cont = i > 0 && ok[i - 1].replay === l.replay;
+    if (!cont) { segs++; run = 0; }
+    run++;
+    if (segs > 3 || run > 3) l.replay = "";
+  });
   return ok;
 }
 
@@ -272,7 +294,7 @@ async function writeScript(facts, post) {
   if (m.stop_reason === "max_tokens") return { error: "max-tokens" };
   let out;
   try { out = JSON.parse(m.text); } catch { return { error: "bad-json" }; }
-  const lines = cleanScript(out, post);
+  const lines = cleanScript(out, post, new Set([...facts.scoring, ...facts.notable].map((p) => p.id).filter(Boolean)));
   return lines ? { lines, model: m.model || HALFTIME_MODEL, usage: m.usage } : { error: "bad-script" };
 }
 // The Messages API's event stream, folded back into one message: the model, the text blocks' text,

@@ -878,3 +878,44 @@ VERIFY: sunday 251/252 (new section "Live: polled every 2 s, plays cut to the sn
 requests in 6.5 s on a live game; the players set at t=0 and the snap at 1.1 s instead of 4.5; the
 result 3.4 s sooner; the frame black at 0 s and lit at 0.45 s; the one failure is the webfont ink check
 that fails the same way on HEAD in this container). Bite: HEAD's sd-app.js and sd-reenact.js fail all 4.
+
+## 2026-09-28 — Replay starts at once, with a drive row; the desk goes to the tape; a new cast
+
+Perry: "when users click replay, it should immediately default to either start of the game if the game
+is over, or current drive if the game is ongoing. then it should have a horizontal list of drives that
+can be clicked to take you to any specific drive. I also want to expand the half time and post game
+analysis to mirror real life: 2-3 replays where an analyst brings up a specific play and it shows that
+replay along with the commentary words overlaid on top. Also replace Dot Keene with RoboGoat, and chuck
+varney with Force Ghost John Madden".
+
+- **Replay starts at once** (the big 8-bit view): the whole game on a final, the current drive in a
+  game still going. The Game start / This drive menu is gone. Under the controls, **a sideways row of
+  the game's drives** (`tecmoRpDrives`): one chip per drive, the team, quarter and result (TD, FG,
+  Punt, INT, Downs, End of half…), the drive being replayed lit in its team's colour and kept in view.
+  A chip starts the replay at that drive's first play (`tecmoRpStart(n)`).
+- **The desk goes to the tape.** Opus is asked to call up a specific play from the facts twice at
+  halftime and three times after the game (every scoring and notable play in the facts now carries its
+  ESPN id). A line's `replay` names the play shown while it is spoken; `cleanScript` keeps a replay only
+  for a play in the facts, three lines each, three a show. On the page (`htReplay`) the desk cuts to the
+  play staged fresh on the 8-bit field, its own score bug showing that moment's clock and down, with a
+  blinking red REPLAY tag and the analyst's words across the top (`.ht-cap`); the run of lines is held
+  until the play has played out (at most 9 s, plus a beat), and then it's back to the desk.
+- **The cast**: Hal Brandt, **Force Ghost John Madden** (in Chuck Varney's seat: drawn see-through in
+  pale blues over a glow, bobbing above his chair; the prompt keeps him an affectionate tribute, kind,
+  never crude), Moose Tillman, **RoboGoat** (in Dot Keene's: a metal goat's head with horns, a snout,
+  LED eyes and an LED mouth, over a bow tie; beeps and the odd bleat). Scripts moved to a new Firestore
+  collection, `sunday_desk2`, so every game's script is written anew with the new cast and the replays.
+  Cache-bust ?v=20260928t.
+
+VERIFY: sunday 256/257 (RESTAGED the replay section's menu checks to start-at-once, the controls
+geometry to measure the drive row not each chip, and the fixture show's length bound to 90 s for its
+replays; 7 new: start of game on a final, the drive row, a chip's jump, the current drive when live,
+the cut to the tape with its caption, the line held for the play, the new faces; the one failure is
+the webfont ink check that fails the same way on HEAD in this container), halftime 61/61 (RESTAGED the
+cast and personality checks; 4 new: ids in the facts, `replay` required, `cleanScript`'s replay rules,
+the stored replays). Bite: HEAD's page files fail the 8 new or restaged page checks; HEAD's halftime.mjs
+fails the new cast, collection and replay checks.
+Checked on the preview: Opus 5.5 at low effort wrote ATL @ GB's postgame show in 25.8 s (6,095 tokens
+in, 1,927 out, about 6 cents), 27 lines and 510 words, with three replays on real plays (Bijan
+Robinson's 55-yard run, Zach Harrison's blocked field goal, Drake London's 68-yard catch). The
+postgame countdown went from 25 s to 30.

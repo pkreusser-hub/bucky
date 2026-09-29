@@ -1539,8 +1539,10 @@ function bumpEl(sel) { const n = $(sel); if (n) { n.classList.remove('bump'); vo
 
 document.addEventListener('click', (e) => {
   if (G && e.target.closest('.rp-start')) {
-    // On the big 8-bit view, Replay asks where to start (game start or this drive) instead.
-    if ($('.stadium')?.classList.contains('tecmo') && typeof tecmoRpMenu === 'function') tecmoRpMenu();
+    // On the big 8-bit view, Replay starts at once (2026-09-28, user: "it should immediately default
+    // to either start of the game if the game is over, or current drive if the game is ongoing"; it
+    // used to ask Game start / This drive first). The drive row under it jumps anywhere.
+    if ($('.stadium')?.classList.contains('tecmo') && typeof tecmoRpStart === 'function') tecmoRpStart(G.ev?.state === 'post' ? 'game' : 'drive');
     else toggleReplay();
     return;
   }
