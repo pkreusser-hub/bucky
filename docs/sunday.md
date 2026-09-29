@@ -919,3 +919,29 @@ Checked on the preview: Opus 5.5 at low effort wrote ATL @ GB's postgame show in
 in, 1,927 out, about 6 cents), 27 lines and 510 words, with three replays on real plays (Bijan
 Robinson's 55-yard run, Zach Harrison's blocked field goal, Drake London's 68-yard catch). The
 postgame countdown went from 25 s to 30.
+
+## 2026-09-28 — replay fixes: no black beat, the analyst's inset and bubble; catchphrase pools
+
+Perry: "during the replay it flickers black once or twice, not sure why. also get rid of the red
+blinking replay word that isnt needed. Instead, lets have a view of that analyst talking and a speech
+bubble at the top of the replay, that way it wont cover the action but you still see who is talking.
+Lets give our analysts a larger database of catch phrases, its fun for them to use them every so often
+but if its the same one over and over it gets tiring".
+
+- **The flicker** was the timeline's 0.3 s gap between two lines of the same replay: with no line to
+  say, the dark studio showed for a beat. Inside a replay the lines now run end to end
+  (`htTimeline`); the gap stays between lines at the desk.
+- **No REPLAY tag.** Over a replay, the speaking analyst sits in a framed inset in the top left corner
+  (`htInset`, drawn on the canvas, about a quarter of the stage's height, mouth moving; the ghost still
+  see-through, RoboGoat's LEDs lit), and their words are in a white speech bubble beside it along the top
+  (`.ht-cap`, its tail pointing at the inset), clear of the field below.
+- **Catchphrases** (`PHRASES` in halftime.mjs): twelve for each of the four. Every game's prompt offers a
+  different four from each list (`phrasePool`, seeded by the two teams and the show, so a retry asks the
+  same), to use once or twice each at most, never the same one twice, most lines with none. Scripts
+  moved to `sunday_desk3` so every game is written anew. Cache-bust ?v=20260928u.
+
+VERIFY: sunday 258/259 (RESTAGED the tape check: no REPLAY tag, the bubble; 2 new: the inset's frame and
+the bubble's place beside it along the top, no studio frame inside a replay with its lines end to end;
+the one failure is the webfont ink check that fails the same way on HEAD in this container), halftime
+65/65 (4 new catchphrase checks; the voices check restaged to the pool's wording). Bite: the live page
+files fail the 4 new or restaged page checks; the live halftime.mjs fails the new collection and pool checks.
