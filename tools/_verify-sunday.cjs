@@ -1988,7 +1988,9 @@ async function main() {
         // The call first, the review later: ESPN logs the touchdown, then rewrites the same play.
         feed = "pre";
         await probe(() => { sideStop(); SIDE.sc = null; SIDE.playId = null; SIDE.lastPlay = null; SIDE.reviewed = null; G.sumPoller.now(); });
-        try { await page.waitForFunction((PID) => String(SIDE.playId) === PID && SIDE.sc && !SIDE.sc.review && SIDE.sc.tdAt != null, { timeout: 12000 }, PID); } catch {}
+        // (Until the scoreboard's own poll has brought the call's text too: that is what the rewrite is
+        // told apart from.)
+        try { await page.waitForFunction((PID, PRE) => String(SIDE.playId) === PID && SIDE.sc && !SIDE.sc.review && SIDE.sc.tdAt != null && G.ev.sit?.lastPlay?.text === PRE, { timeout: 12000 }, PID, PRE); } catch {}
         const i1 = await probe(() => ({ id: String(SIDE.playId), td: SIDE.sc?.tdAt != null, review: !!SIDE.sc?.review, text: SIDE.lastPlay?.text }));
         ok(i1?.td && !i1.review && i1.text === PRE, `the call logged on its own plays as a touchdown (${i1?.td}), no review yet`);
         const nPre = sumAsks.length;

@@ -961,3 +961,35 @@ cut checks RESTAGED to two, with the reason at the check: the players jogging fr
 snap at the walk-up's 4.5 s and no fade, the result at the walk-up's time; the one failure is the webfont
 ink check that fails the same way on HEAD in this container). Bite: the cut-to-the-snap sd-reenact.js
 fails both.
+
+## 2026-09-28 — a reviewed play: the call, then the ruling
+
+Perry, during PHI @ CHI: "chicago just ran a play and it was called a touchdown, but it was being
+reviewed so it looks like GFFL didnt want to show it. It should show the interim result of the play,
+and if the result changes, it should show the result overturned". ESPN logged that play (4018729631003)
+only once the review was over, in one text: the call ("…for 6 yards, TOUCHDOWN."), then "The Replay
+Official reviewed the runner broke the plane ruling, and the play was REVERSED.", then the play as it
+stands ("…to PHI 1 for 5 yards"). Its yards and scoring flag are the final ruling's.
+
+- **`raReview(p)`** reads that sentence: booth review or a coach's challenge ("Philadelphia challenged
+  the …"), reversed or upheld/confirmed/stands, the call's text and the ruling's. The challenger
+  alternative is a capitalised place name only: a looser one matched "TOUCHDOWN.The Replay Official"
+  as a team.
+- **Two acts** (`raReviewed`, `sideSecondAct`): the play as called (`raAsCalled`: the call's yards, a
+  touchdown to the goal line with its celebration), "Under review" 2.2 s after its result; reversed, then
+  "Ruling reversed / Down at the PHI 1" and the play again as it stands, the players walking back from
+  where the first act left them; upheld, "Ruling stands" and nothing replayed. The text under the field
+  is the call's during the first act. The page's result gate waits for the ruling (`raRulingAt`); review
+  banners carry `ruling: true` so `sideResultAt` skips them. Replays stage it the same way.
+- **The call first, the rewrite later**: if the stage already showed a play and its text comes back with
+  a review, `sideUpdate` hands it to `sideReview` ("Under review", then the ruling). sd-app.js asks for
+  the summary as soon as the scoreboard's text for the same play id changes, rather than on the 10 s
+  summary poll. Cache-bust ?v=20260928w.
+
+VERIFY: sunday 273/274 (new section "Replay reviews: the call, then the ruling", 16 checks, fixtures
+sum-/sb-401872963-review.json from the live feed; the one failure is the webfont ink check that fails the
+same way on HEAD in this container), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65. Bite: main's page
+files fail 13 of the 16 new checks, every pre-existing check still passing; the 3 that pass there check
+only the end state (the ball at the 1, the players' starting spots, the call-only feed staged as a
+touchdown). The rewritten-play check first passed vacuously-then-flaked: its setup ended before the
+scoreboard's poll had brought the call's text, so it now waits for that.
