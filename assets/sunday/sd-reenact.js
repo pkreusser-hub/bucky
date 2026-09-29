@@ -2311,10 +2311,15 @@ function raFig(pose, variant = 'p') {
   }
   leg(S.fl, S.ff, false);
   limb(lerp(S.s, S.c, 0.2), lerp(S.s, S.c, 0.55), 1.7, 1.6, TF, false);   // neck
-  // Head, tilted `hr` degrees forward (or as the neck leans): x forward, y up in its own frame.
+  // Head, tilted `hr` degrees forward (or as the neck leans): x forward, y up in its own frame. A tilt
+  // under 14 degrees is drawn upright on the same sub-pixel footing in every frame, so the helmet, its
+  // mask and its logo come out the same pixels frame to frame instead of shimmering. A head tilted
+  // further (diving, lying down) keeps its exact place, which that pose's mask was laid out for.
+  const hl = [];                                                    // the shell's cells: index, x, y in the head's frame
   {
-    const [cx, cy] = S.c;
-    const lean = S.hr != null ? S.hr * Math.PI / 180 : Math.atan2(S.c[0] - S.s[0], S.c[1] - S.s[1]) * 0.6;
+    const lean0 = S.hr != null ? S.hr * Math.PI / 180 : Math.atan2(S.c[0] - S.s[0], S.c[1] - S.s[1]) * 0.6;
+    const up = Math.abs(lean0) < 14 * Math.PI / 180, lean = up ? 0 : lean0;
+    const cx = up ? Math.round(S.c[0] - 0.9) + 0.9 : S.c[0], cy = up ? Math.round(S.c[1] - 0.5) + 0.5 : S.c[1];
     const cs = Math.cos(lean), sn = Math.sin(lean);
     const loc = (x, y) => { const dx = x - cx, dy = y - cy; return [dx * cs - dy * sn, dx * sn + dy * cs]; };
     if (variant === 'm') paint((x, y) => {                          // trainers: bare head, short hair
@@ -2345,6 +2350,7 @@ function raFig(pose, variant = 'p') {
       // The opening: the brow's shadow across its top, the eye under it, the face (shaded toward the
       // ear and at the chin), the jaw pad of the shell below.
       if (lx > 0.9 && ly > -3.5 && ly < 0.5) return ly > -0.5 ? 'k' : lx > 2.1 && lx < 3.1 && ly > -1.5 ? 'e' : lx < 2.1 || ly < -2.5 ? 'f' : 'F';
+      hl.push((AY - y - 0.5) * W + (x + AX - 0.5), lx, ly);          // (where on the helmet's side it is, for the logo)
       return 'H';
     }, true);
   }
@@ -2370,7 +2376,7 @@ function raFig(pose, variant = 'p') {
   // Where the number goes: on the jersey, a little behind the middle of the back.
   let num = null;
   if (!S.noNum) { const c = lerp(S.h, S.s, 0.56); num = [Math.round(AX + c[0] - 1.1), Math.round(AY - c[1] - 2.5)]; }
-  f = { g: out, W, H, ax: AX, ay: AY, num };
+  f = { g: out, W, H, ax: AX, ay: AY, num, hl };
   RA_FIG.set(key, f);
   return f;
 }
@@ -2397,7 +2403,7 @@ const RA_SPR = new Map();
 const RA_RULER = new Map();
 const raRGB = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 function raSprite(pose, pal, flip, num) {
-  const key = pose + '|' + (pal.variant || 'p') + '|' + (pal.key || (pal.key = Object.entries(pal).filter(([k]) => k.length === 1).map((e) => e.join(':')).join())) + '|' + (flip ? 1 : 0) + '|' + (num ?? '');
+  const key = pose + '|' + (pal.variant || 'p') + '|' + (pal.key || (pal.key = Object.entries(pal).filter(([k]) => k.length === 1).map((e) => e.join(':')).join())) + '|' + (flip ? 1 : 0) + '|' + (num ?? '') + '|' + (pal.logoKey || '');
   let c = RA_SPR.get(key);
   if (c) { RA_SPR.delete(key); RA_SPR.set(key, c); return c; }       // (the most recently used last)
   // A stride is eight frames for every man on the field and both ways he can face, so the cache is
@@ -2444,6 +2450,25 @@ function raSprite(pose, pal, flip, num) {
           const sx = flip ? f.W - 1 - fx : fx, ch = f.g[y * f.W + sx];
           if (ch === 'J' || ch === 'j' || ch === 'L') set(fx, y, rgb.n);
         }
+      }
+    }
+    // The team's helmet logo, painted onto the shell's cells only, each from where it sits on the side
+    // of the helmet: an animal or a bolt turns with the player so it faces forward on both sides, as on
+    // real helmets; letters never read backwards; a logo worn on one side only shows on that side.
+    const lg = pal.logo;
+    if (lg && f.hl.length && !(lg.side === 'r' && flip)) {
+      const rgbL = lg.rgb || (lg.rgb = Object.fromEntries(Object.entries(lg.c).map(([k, v]) => [k, raRGB(v)])));
+      for (let k = 0; k < f.hl.length; k += 3) {
+        const i = f.hl[k];
+        if (f.g[i] !== 'H') continue;                               // (an arm across the helmet)
+        let u = Math.floor(f.hl[k + 1] - RA_LOGO_BOX[0]);
+        const v = Math.floor(RA_LOGO_BOX[1] - f.hl[k + 2]);
+        if (u < 0 || v < 0 || u >= RA_LOGO_W || v >= RA_LOGO_H) continue;
+        if (lg.text && flip) u = RA_LOGO_W - 1 - u;
+        const ch = lg.px[v][u];
+        if (ch === '.') continue;
+        const x = i % f.W, y = (i - x) / f.W;
+        set(flip ? f.W - 1 - x : x, y, rgbL[ch]);
       }
     }
     if (pal.cross && f.num && rgb.R) {
@@ -2700,6 +2725,52 @@ const RA_KITS = {
   TEN: { home: { jersey: '#4495D2', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#4495D2' } }, // Mar 2026 Oilers-blue rebrand: white helmet (and facemask) for the first time
   WSH: { home: { jersey: '#5A1414', pants: '#FFB612', helmet: '#5a1414', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFB612', helmet: '#5a1414', num: '#5A1414' } }, // Apr 2026 rebrand: gloss-burgundy helmet, gold facemask, gold pants both ways
 };
+// Helmet logos (2026-09-29, user: "i know we dont have a lot of pixels to work with but lets take a run
+// at making logos on the helmets"). Each is drawn facing forward (right) in a 7-by-7 box on the side
+// of the shell behind the face opening (RA_LOGO_BOX: its top-left corner in the head's own frame),
+// one character a pixel, '.' the shell. On an upright helmet the shell's curve trims five cells, the
+// top-left corner (row 0 columns 0-1, rows 1-2 column 0) and row 6 column 0; the rest all show.
+// `text` logos (letters) never mirror; the rest turn with the player so they face forward on both
+// sides. `side: 'r'`: worn on the right side only (the Steelers), so seen only when he faces right.
+// The Browns' helmet has no logo. 2026 designs: the Titans' sword-T on a light-blue shield, the
+// Commanders' gold W, the Falcons' falcon on low-gloss black, the Ravens' raven head (sources:
+// docs/sunday.md, 2026-09-29). Two are stand-ins: the Texans' bull is drawn head-on, horns up (the
+// real one is side-on, and at seven pixels a side-on bull read as a red heart), and the Jets' wordmark
+// has four letters too many for seven pixels, so they wear a jet.
+const RA_LOGO_BOX = [-5.9, 4.5], RA_LOGO_W = 7, RA_LOGO_H = 7;
+const RA_LOGO = {
+  ARI: { c: { r: '#97233F', k: '#101010', y: '#FFB612', w: '#ffffff' }, px: ['...rr..', '..rrr..', '.rrrrk.', 'rrrrkwy', '.rrrkyy', '..rrr..', '...r...'] },
+  ATL: { c: { r: '#A71930', w: '#ffffff' }, px: ['....rrr', '...rrw.', 'rrrrrr.', '.rrrrrw', '..rr...', '.rr....', '.r.....'] },
+  BAL: { c: { p: '#5b3fb0', g: '#C9A227', w: '#ffffff', q: '#b8a6e0' }, px: ['..ppp..', '.ppppp.', '.pppwpp', '.pgpppq', '.pggppq', '..ppp..', '.......'] },
+  BUF: { c: { b: '#00338D', r: '#C60C30' }, px: ['.......', 'rrrrr..', '.bbbbrr', 'bbbbbbb', '.bbbbbb', '.b.b.bb', '.b.b...'] },
+  CAR: { c: { k: '#101820', b: '#0085CA', w: '#ffffff' }, px: ['..b....', '.bkbbb.', '.bkkkkb', '.bkbkkk', '.bkkkk.', '..bkww.', '...bb..'] },
+  CHI: { c: { o: '#C83803' }, text: 1, px: ['...ooo.', '..oo.oo', '.oo....', '.oo....', '.oo....', '..oo.oo', '...ooo.'] },
+  CIN: { c: { o: '#FB4F14' }, px: ['..ooo.o', '.oo..oo', 'oo..oo.', 'o..oo..', '..oo..o', '.oo..oo', 'oo..oo.'] },
+  DAL: { c: { n: '#041E42' }, px: ['...n...', '...n...', '..nnn..', 'nnnnnnn', '.nnnnn.', '.nn.nn.', '.n...n.'] },
+  DEN: { c: { o: '#FB4F14', w: '#ffffff' }, px: ['...oo..', '..oooo.', '.ooowoo', '.oooooo', '..ooooo', '..oo.oo', '..o....'] },
+  DET: { c: { b: '#0076B6' }, px: ['.....bb', '....bbb', '..bbbbb', '.bbbbb.', 'bb.b.bb', 'b.....b', '.......'] },
+  GB: { c: { g: '#203731', w: '#ffffff' }, text: 1, px: ['.ggggg.', 'gwwwwwg', 'gwggggg', 'gwggwwg', 'gwgggwg', 'gwwwwwg', '.ggggg.'] },
+  HOU: { c: { r: '#A71930', w: '#ffffff' }, px: ['.......', '.w....w', '.ww..ww', '..rrrr.', '.rrrrrr', '..rrrr.', '...rr..'] },
+  IND: { c: { b: '#002C5F' }, px: ['..bbbb.', '.bbbbbb', '.bb..bb', '.b....b', '.b....b', '.b....b', '.bb..bb'] },
+  JAX: { c: { g: '#D7A22A', t: '#006778', k: '#101820' }, px: ['.gg....', '.ggggg.', 'gggkggg', '.gggggg', '..ggtgg', '...ggg.', '.......'] },
+  KC: { c: { w: '#ffffff', r: '#E31837' }, px: ['.......', '.wwww..', '.wrwrw.', '.wrrwrw', '.wrwrw.', '.wwww..', '.......'] },
+  LV: { c: { k: '#101820', w: '#ffffff' }, text: 1, px: ['.kkkkk.', '.kwwwk.', '.kwkwk.', '.kkkkk.', '.kkkkk.', '..kkk..', '...k...'] },
+  LAC: { c: { y: '#FFC20E', b: '#0080C6' }, px: ['.......', 'bbbbb..', 'byyyyb.', '.byyyyb', '...byyy', '....byy', '.....by'] },
+  LAR: { c: { y: '#FFD100' }, px: ['..yyyyy', '.yy....', 'yy.yy..', 'y.y..y.', 'y..yy..', '.yy....', '.......'] },
+  MIA: { c: { a: '#008E97', o: '#FC4C02' }, px: ['.......', '..ooo..', '.ooaaa.', 'ooaaaaa', '.aaa.oo', '..ooo..', '.......'] },
+  MIN: { c: { w: '#ffffff', g: '#FFC62F' }, px: ['.......', '.....ww', '....wwg', '...wwg.', '.wwwg..', 'wwgg...', 'gg.....'] },
+  NE: { c: { n: '#002244', r: '#C60C30', w: '#ffffff' }, px: ['.......', '..rrrr.', '.rwwwnn', 'rwnnnnn', '.nnnnnn', '..nnnn.', '.......'] },
+  NO: { c: { k: '#101820' }, px: ['.......', '...k...', '..kkk..', 'k.kkk.k', 'kk.k.kk', '.kkkkk.', '...k...'] },
+  NYG: { c: { w: '#ffffff' }, text: 1, px: ['.......', '.......', '.......', 'ww..w.w', 'w.w.w.w', 'w.w..ww', '....ww.'] },
+  NYJ: { c: { w: '#ffffff' }, px: ['...w...', '...ww..', '.w..ww.', '.wwwwww', '.w..ww.', '...ww..', '...w...'] },
+  PHI: { c: { s: '#A5ACAF', w: '#ffffff' }, px: ['..sssss', '.ssswww', 'sswww..', 'sww....', 'w......', '.......', '.......'] },
+  PIT: { c: { w: '#ffffff', k: '#101820', y: '#FFB612', r: '#C8102E', b: '#00539B' }, side: 'r', text: 1, px: ['..www..', '.wwwyw.', 'wwwwwww', 'wkkkwrw', 'wwwwwww', '.wwwbw.', '..www..'] },
+  SF: { c: { r: '#AA0000', w: '#ffffff' }, text: 1, px: ['.rrrrr.', 'rwwrwwr', 'rwrrwrr', 'rwwrwwr', 'rrwrwrr', 'rwwrwrr', '.rrrrr.'] },
+  SEA: { c: { s: '#A5ACAF', w: '#ffffff', g: '#69BE28' }, px: ['.......', '..ssss.', '.ssgssw', 'sssssww', '.sss...', '.......', '.......'] },
+  TB: { c: { r: '#D50A0A', w: '#ffffff', k: '#1e1b18' }, px: ['.rrrrrk', 'rrwwrrk', 'rwwwrrk', 'rrwrrrk', '.rrrr.k', '......k', '.......'] },
+  TEN: { c: { b: '#4B92DB', w: '#ffffff' }, text: 1, px: ['..bbb..', '.bbbbb.', 'bbbbbbb', 'bwwwwwb', 'bbbwbbb', '.bbwbb.', '..bbb..'] },
+  WSH: { c: { y: '#FFB612' }, text: 1, px: ['.......', '.......', '.......', 'y.....y', 'y..y..y', 'y.y.y.y', '.y...y.'] },
+};
 // The helmet shell, by ESPN abbreviation, derived from RA_KITS so there is one source of truth (a
 // team's helmet doesn't change between its home and road sets). An abbreviation not in RA_KITS falls
 // back to its primary colour, same as raKit below.
@@ -2779,7 +2850,9 @@ function raPalette(sc, a) {
     const idx = a.idx ?? sc.actors.indexOf(a);
     const F = RA_SKIN[(idx * 7 + (a.side === 'o' ? 1 : 3)) % RA_SKIN.length];
     const { J, P, H, S } = kit;
+    const abbr = (t.abbr || '').toUpperCase();
     a.pal = {
+      logo: RA_LOGO[abbr] || null, logoKey: RA_LOGO[abbr] ? abbr : '',
       J, j: raShade(J), L: raLight(J), P, p: raShade(P), Q: raLight(P), H, h: raShade(H), l: raLight(H), w: kit.w,
       m: RA_MASK, k: '#1b1512', F, f: raShade(F), E: raLight(F), S, s: raShade(S),
       B: '#17181d', b: '#44464e', e: '#141414', n: kit.n, O: '#0d0e13',

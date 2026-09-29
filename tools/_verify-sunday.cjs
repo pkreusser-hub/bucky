@@ -599,17 +599,25 @@ async function main() {
       // 2026-09-28, user: "the players have two colors on their helmet, make the helmet 1 solid
       // color". In the head (the top 9 rows of ink) nothing may be the helmet's shadow or highlight
       // tone or its stripe colour; the shell is all H. (The face, eye and mask are other colours.)
+      // RESTAGED 2026-09-29, user: "lets take a run at making logos on the helmets". The logo is a
+      // decal on that one-colour shell, and logos use the kit's other colours (the Packers' G is the
+      // jersey green and white, the falcon has white in it), which this count took for a second
+      // helmet colour. So the shell is read off the same player drawn with no logo, where it must
+      // still be all H; the logo is the pixels where the two drawings differ, and every one of those
+      // must be a shell pixel underneath. How much of each logo shows is checked in the players section.
       tryIt("helmet1", () => {
         const sc = raBuild(np("40187294863"), ev, new Set());
         out.helmet1 = ["o", "d"].map((side) => raPalette(sc, sc.actors.find((a) => a.side === side))).map((o) => {
-          const spr = raSprite("stand", o, false, 12), gg = spr.getContext("2d"), px = gg.getImageData(0, 0, spr.width, spr.height).data;
+          const spr = raSprite("stand", o, false, 12), gg = spr.getContext("2d"), lp = gg.getImageData(0, 0, spr.width, spr.height).data;
+          const bare = raSprite("stand", { ...o, logo: null, logoKey: "" }, false, 12), px = bare.getContext("2d").getImageData(0, 0, bare.width, bare.height).data;
           const hex = (i) => "#" + [px[i], px[i + 1], px[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join("");
           let top = 1e9; for (let y = 0; y < spr.height && top === 1e9; y++) for (let x = 0; x < spr.width; x++) if (px[(y * spr.width + x) * 4 + 3]) { top = y; break; }
           const face = new Set([o.F, o.f, o.E, o.e, o.m].filter(Boolean).map((c) => c.toLowerCase()));
           const off = new Set([o.h, o.l, o.w].filter(Boolean).map((c) => c.toLowerCase()).filter((c) => c !== o.H.toLowerCase() && !face.has(c)));
-          let shell = 0, other = 0;
+          let shell = 0, other = 0, logo = 0, logoOffShell = 0;
           for (let y = top; y < top + 9; y++) for (let x = 0; x < spr.width; x++) { const i = (y * spr.width + x) * 4; if (!px[i + 3]) continue; const c = hex(i); if (c === o.H.toLowerCase()) shell++; else if (off.has(c)) other++; }
-          return { H: o.H, shell, other };
+          for (let i = 0; i < lp.length; i += 4) if (lp[i] !== px[i] || lp[i + 1] !== px[i + 1] || lp[i + 2] !== px[i + 2] || lp[i + 3] !== px[i + 3]) { logo++; if (hex(i) !== o.H.toLowerCase()) logoOffShell++; }
+          return { H: o.H, shell, other, logo, logoOffShell };
         });
       });
       // 2026-09-28, user: "I keep having to refresh to see latest play". The live 8-bit view worked
@@ -702,8 +710,8 @@ async function main() {
     // 17 rows of ink plus outline (19); now he is at least 32 rows tall and 12 wide.
     chk(() => [ra.res.RA_H === 336 && ra.res.PX === 18 && ra.res.PY === 14 && ra.res.HK === 10 && ra.res.inkH >= 32 && ra.res.inkH <= 40 && ra.res.inkW >= 12 && ra.res.poses >= 20,
       `the stage is twice the old resolution and a standing player is drawn in ${ra.res.inkW}×${ra.res.inkH} px (${ra.res.poses} poses)`]);
-    chk(() => [ra.helmet1.length === 2 && ra.helmet1.every((h) => h.other === 0 && h.shell >= 20),
-      `helmets are one solid colour: no shadow, highlight or stripe pixels in the head, only the shell (${JSON.stringify(ra.helmet1)})`]);
+    chk(() => [ra.helmet1.length === 2 && ra.helmet1.every((h) => h.other === 0 && h.shell >= 20 && h.logoOffShell === 0),
+      `helmets are one solid colour: no shadow, highlight or stripe pixels in the head, only the shell, and the team's logo painted only over shell (${JSON.stringify(ra.helmet1)})`]);
     chk(() => [ra.catchUp.oneBehind && ra.catchUp.twoBehind && ra.catchUp.fiveBehind,
       `the live 8-bit view plays the next play when one behind and jumps to the newest when further behind (${JSON.stringify(ra.catchUp)})`]);
 
@@ -932,6 +940,67 @@ async function main() {
         for (const k of Object.keys(RA_SKEL)) { const n = raFig(k, "p").g.filter((c) => c === "m").length; if (n < fewest) { fewest = n; fewestAt = k; } }
         out.helmet = { n: masks.length, colours: [...new Set(masks)], darkest: +Math.min(...masks.map((c) => lum(c))).toFixed(3), front: best, inFront: face.every(([x]) => x < fx), gap, bars, browOverEye: eye ? at(eye[0], eye[1] - 1) : null, fewest, fewestAt };
       });
+      // ── Helmet logos (2026-09-29, user: "i know we dont have a lot of pixels to work with but lets
+      // take a run at making logos on the helmets"). Each team's standing player is drawn with and
+      // without his logo, facing each way; the pixels that differ are the logo. What should show is
+      // worked out here from the designs in RA_LOGO: a 7-by-7 box whose cell in row v, column u is the
+      // pixel centred at (u − 5.4, 4 − v) in an upright head's own frame (x forward, y up). Five of
+      // those centres fall outside the shell's 5.2 × 4.8 ellipse about (−0.5, 0.35), so the shell's
+      // curve trims them: row,column 0,0 (1.21 of the way out), 0,1 (1.07), 1,0 (1.09), 2,0 (1.003)
+      // and 6,0 (1.06). Facing left, a mark that turns with him keeps its cells; a lettered logo is
+      // read the other way along each row, so the trimmed cells take the other end of it. A cell the
+      // shell's own colour changes no pixel.
+      tryIt("logos", () => {
+        const TRIM = new Set(["0,0", "0,1", "1,0", "2,0", "6,0"]);
+        const pal = (A) => raPalette({ offHome: true, offT: { id: "t" + A, abbr: A, color: "#444444", alt: "#999999" }, defT: { id: "u", abbr: "ZZZ", color: "#777777", alt: "#bbbbbb" }, actors: [] }, { side: "o", role: "WR", idx: 3 });
+        const data = (spr) => spr.getContext("2d").getImageData(0, 0, spr.width, spr.height).data;
+        const decal = (pose, o, flip) => {
+          const spr = raSprite(pose, o, flip, 88), a = data(spr), b = data(raSprite(pose, { ...o, logo: null, logoKey: "" }, flip, 88)), r = [];
+          for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) r.push([(i / 4) % spr.width, Math.floor(i / 4 / spr.width)]);
+          return r;
+        };
+        const want = (L, H, flip) => {
+          if (!L || (L.side === "r" && flip)) return 0;
+          let n = 0;
+          for (let v = 0; v < 7; v++) for (let u = 0; u < 7; u++) {
+            if (TRIM.has(v + "," + u)) continue;
+            const ch = L.px[v][flip && L.text ? 6 - u : u];
+            if (ch !== "." && L.c[ch].toLowerCase() !== H.toLowerCase()) n++;
+          }
+          return n;
+        };
+        const fig = raFig("stand", "p"), rows = [];
+        for (const A of [...Object.keys(RA_KITS), "ZZZ"]) {
+          const o = pal(A), L = RA_LOGO[A] || null;
+          const is7 = !L || (L.px.length === 7 && L.px.every((r) => r.length === 7 && [...r].every((ch) => ch === "." || L.c[ch])));
+          for (const flip of [false, true]) {
+            const d = decal("stand", o, flip);
+            rows.push({ A, flip, got: d.length, want: is7 ? want(L, o.H, flip) : -1, is7, onShell: d.every(([x, y]) => fig.g[y * fig.W + (flip ? fig.W - 1 - x : x)] === "H") });
+          }
+        }
+        const right = rows.filter((r) => !r.flip && RA_LOGO[r.A]).sort((p, q) => p.want - q.want);
+        out.logos = {
+          teams: right.length, plain: rows.filter((r) => !r.flip && !RA_LOGO[r.A]).map((r) => r.A),
+          wrong: rows.filter((r) => r.got !== r.want || !r.is7).map((r) => `${r.A}${r.flip ? " facing left" : ""} ${r.got} px, design ${r.want}`),
+          offShell: rows.filter((r) => !r.onShell).map((r) => r.A + (r.flip ? " facing left" : "")),
+          smallest: right[0].want, smallestAt: right[0].A, pix: rows.filter((r) => !r.flip).reduce((s, r) => s + r.got, 0),
+          pit: [rows.find((r) => r.A === "PIT" && !r.flip).got, rows.find((r) => r.A === "PIT" && r.flip).got],
+        };
+        // Which way a logo reads, with an F (not the same turned round): as letters it reads the same
+        // facing either way; as a mark it turns with him, so it faces forward on both sides.
+        const shape = (d, mirror) => { const xs = d.map(([x]) => (mirror ? -x : x)), x0 = Math.min(...xs), y0 = Math.min(...d.map(([, y]) => y)); return d.map(([x, y]) => `${(mirror ? -x : x) - x0},${y - y0}`).sort().join(" "); };
+        const F = [".......", "..xxxx.", "..x....", "..xxx..", "..x....", "..x....", "......."];
+        const gb = pal("GB");
+        const asText = { ...gb, logo: { c: { x: "#ff00ff" }, text: 1, px: F }, logoKey: "F-text" }, asMark = { ...gb, logo: { c: { x: "#ff00ff" }, px: F }, logoKey: "F-mark" };
+        const tR = decal("stand", asText, false), tL = decal("stand", asText, true), mR = decal("stand", asMark, false), mL = decal("stand", asMark, true);
+        out.logoTurn = { n: [tR, tL, mR, mL].map((d) => d.length), textReads: shape(tL) === shape(tR), textTurned: shape(tL) === shape(tR, true), markTurns: shape(mL) === shape(mR, true), markSame: shape(mL) === shape(mR) };
+        // The logo holds still through a stride: in all 40 frames of the walk, jog, run, carry and
+        // backpedal (the head drawn upright in every one) the Packers' G is the standing frame's pixels,
+        // moved only as the head bobs, facing either way.
+        const gaits = Object.keys(RA_SKEL).filter((k) => /^(walk|jog|run|carry|back)[1-8]$/.test(k));
+        const refR = shape(decal("stand", gb, false)), refL = shape(decal("stand", gb, true));
+        out.logoSteady = { frames: gaits.length, px: refR.split(" ").length, moved: gaits.filter((k) => shape(decal(k, gb, false)) !== refR || shape(decal(k, gb, true)) !== refL) };
+      });
       return out;
     }, sumFixture, det160);
     const pchk = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(pl).slice(0, 160)})`]; } ok(r[0], r[1]); };
@@ -986,6 +1055,17 @@ async function main() {
       `a cage you can read on an upright helmet: a front bar ${pl.helmet.front} px tall standing in front of the whole face, a dark gap between it and the eye (${pl.helmet.gap}), ${pl.helmet.bars} bars reaching back from it, the brow's shadow over the eye ("${pl.helmet.browOverEye}")`]);
     pchk(() => [pl.helmet.fewest >= 5,
       `the facemask shows in every one of the frames, arms up and lying down included (at least ${pl.helmet.fewest} mask pixels, ${pl.helmet.fewestAt})`]);
+    // Helmet logos: what each one should draw is worked out from its design in the probe above.
+    pchk(() => [pl.logos.teams === 31 && pl.logos.plain.join() === "CLE,ZZZ" && pl.logos.smallest >= 10,
+      `a logo on every team's helmet but the Browns', whose helmet has none, and none for a team with no art (ZZZ): ${pl.logos.teams} logos, the smallest ${pl.logos.smallest} px (${pl.logos.smallestAt}); plain: ${pl.logos.plain.join(", ")}`]);
+    pchk(() => [pl.logos.wrong.length === 0 && pl.logos.pix >= 31 * 10,
+      `every logo draws exactly the pixels its 7-by-7 design puts on the shell, less the five cells the shell's curve trims, facing right and facing left (${pl.logos.pix} px across the standing helmets; wrong: ${pl.logos.wrong.join("; ") || "none"})`]);
+    pchk(() => [pl.logos.offShell.length === 0,
+      `a logo paints only the helmet's shell, never the face, the mask, the outline or the jersey (${pl.logos.offShell.join(", ") || "none off the shell"})`]);
+    pchk(() => [pl.logos.pit[0] > 0 && pl.logos.pit[1] === 0 && pl.logoTurn.n.every((n) => n === 10) && pl.logoTurn.textReads && !pl.logoTurn.textTurned && pl.logoTurn.markTurns && !pl.logoTurn.markSame,
+      `letters read the right way round facing either way, a mark turns with the player so it faces forward on both sides, and the Steelers' logo, worn on the right side only, shows only when he faces right (an F as letters: same ${pl.logoTurn.textReads}, turned ${pl.logoTurn.textTurned}; as a mark: turned ${pl.logoTurn.markTurns}; ${pl.logoTurn.n.join("/")} px; PIT ${pl.logos.pit[0]} px facing right, ${pl.logos.pit[1]} facing left)`]);
+    pchk(() => [pl.logoSteady.frames === 40 && pl.logoSteady.px >= 20 && pl.logoSteady.moved.length === 0,
+      `the logo holds still through a stride: the Packers' G is the same ${pl.logoSteady.px} px in all ${pl.logoSteady.frames} frames of the walk, jog, run, carry and backpedal, facing either way (${pl.logoSteady.moved.length} frames differ${pl.logoSteady.moved.length ? ": " + pl.logoSteady.moved.slice(0, 6).join(", ") : ""})`]);
 
     /* ===================== console sanity ===================== */
     // 2026-09-28, user: "when a play includes 'push ob' or 'ob' that means the ball carrier finishes

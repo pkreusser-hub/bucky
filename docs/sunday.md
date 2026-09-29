@@ -1210,3 +1210,61 @@ VERIFY: sunday 313/314 (RESTAGED the facemask colour check, with the reason at t
 all 64 kits, relative luminance between 0.5 and 0.8, light but not white; the one failure is the webfont
 ink check that fails the same way on HEAD). Bite: the white-mask sd-reenact.js fails the restaged check
 (0.903) and nothing else in the section.
+
+## 2026-09-29 — helmet logos
+
+Perry: "i know we dont have a lot of pixels to work with but lets take a run at making logos on the
+helmets". Every team but Cleveland (whose helmet has no logo) now wears its logo on the side of the
+helmet (`RA_LOGO`), painted over the one-colour shell like a decal. The shell under it is still one
+solid colour (the 2026-09-28 rule); the facemask and the opening are unchanged.
+
+- **The box:** 7 by 7 pixels on the side of the shell behind the face opening (`RA_LOGO_BOX`), one
+  character a pixel in the table, each logo drawn facing forward (right). On an upright helmet the
+  shell's curve trims five cells at the back: row 0's first two, the first cell of rows 1, 2 and 6.
+  The designs keep their ink off those cells where losing it would throw them off balance; the
+  Commanders' W, the Titans' T bar, the Giants' "ny", the fleur-de-lis and the jet were moved for it.
+- **Which way it faces:** animals, bolts, wings and horns turn with the player so they face forward on
+  both sides, as on real helmets. Lettered logos (`text`: the G, the C, "ny", "SF", the Raiders'
+  shield, the Titans' T, the Commanders' W, the Steelmark) never read backwards. The Steelers wear
+  theirs on the right side only (`side: 'r'`), so it shows only when he faces right.
+- **Stand-ins:** the Texans' bull is drawn head-on with its horns up. The real one is side-on, and at
+  seven pixels every side-on try read as a red heart. The Jets' helmet wordmark has four letters too
+  many for seven pixels, so they wear a jet. The Panthers' black head keeps a blue outline on its back
+  and top; without it the head ran into the helmet's black outline and read as a two-tone helmet.
+- **2026 designs:** the Titans' white sword-T on a light-blue roundel, no flames; the Commanders' gold
+  W; the Falcons' falcon on the new low-gloss black; the Ravens' raven head on the 1999 helmet they
+  kept. Sources: [Titans helmet logo](https://www.sportslogos.net/logos/view/16093562026/Tennessee-Titans-Logo/2026/Helmet-Logo),
+  [Commanders](https://www.espn.com/nfl/story/_/id/48489288/washington-commanders-new-uniforms-2026),
+  [Falcons](https://news.sportslogos.net/2026/04/02/atlanta-falcons-officially-unveil-new-uniforms-for-2026-season/football/),
+  [Ravens](https://www.cbssports.com/nfl/news/nfl-ravens-uniform-change-new-helmets/),
+  [2026-27 changes](https://news.sportslogos.net/2026/09/09/previewing-the-nfls-new-uniforms-helmets-and-logos-for-the-2026-27-season/football/).
+- **A still head:** a head tilted less than 14 degrees is now drawn upright on the same sub-pixel footing
+  in every frame (`raFig`), so helmet, mask and logo are the same pixels all through a stride. Without
+  it the Packers' G changed shape in all 40 stride frames. A head tilted further (diving, lying down)
+  keeps its exact place: a first try snapped those too, and the face-down `down` frame's cage fell
+  between pixel rows (3 mask pixels, was 8).
+- `raFig` records the shell's cells as it paints them (index, and place on the side of the helmet);
+  `raSprite` paints the logo onto the ones still showing, so an arm across the helmet stays an arm. It
+  costs about 4 µs a sprite (61 against 57, built once and cached); scanning the whole grid for them
+  had cost 55. The sprite cache key carries the logo.
+- At game size on a phone the G, the C, the falcon and the Steelmark read; on the desktop's
+  whole-field view a logo is a few pixels of colour on the helmet.
+
+Cache-bust ?v=20260929f.
+
+VERIFY: sunday 318/319 (5 new checks in "8-bit players: pixel art and animation": 31 logos, none for
+the Browns or a team with no art, the smallest 11 px (Washington); every logo draws exactly the pixels
+its design puts on the shell less the five trimmed cells, facing right and facing left, 766 px over
+the standing helmets, the expected counts worked out in the check from the table and the shell's
+ellipse; logos only on shell cells; an F reads the same both ways as letters and turns as a mark,
+Pittsburgh 36 px facing right and 0 facing left; the G the same 42 px in all 40 stride frames.
+RESTAGED "helmets are one solid colour", the reason at the check: the logos use kit colours, so the
+shell is read off the player drawn without his logo, and every pixel the logo changes must be shell
+underneath (58 shell pixels and 0 others for both teams; logos 22 and 42 px). The one failure is the
+webfont ink check that fails the same way on HEAD), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65.
+Bite: HEAD's sd-reenact.js scores 313/319, failing the 5 new checks (and the webfont check); the
+restaged check passes on both. Breaking one thing at a time fails the check meant for it: no head
+snap, the stride check (40 of 40 frames); letters mirrored, the turn check and Chicago's count (20
+against 18); the Steelmark on both sides, Pittsburgh's count (36 against 0) and the turn check; the
+logo left out of the sprite cache key, every count 0; tilted heads snapped too, the facemask check
+(`down`, 3 px).
