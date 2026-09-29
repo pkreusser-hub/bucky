@@ -945,3 +945,19 @@ the bubble's place beside it along the top, no studio frame inside a replay with
 the one failure is the webfont ink check that fails the same way on HEAD in this container), halftime
 65/65 (4 new catchphrase checks; the voices check restaged to the pool's wording). Bite: the live page
 files fail the 4 new or restaged page checks; the live halftime.mjs fails the new collection and pool checks.
+
+## 2026-09-28 — live plays walk out of the huddle again
+
+Perry, after watching the Monday night game: "its looking like our changes to make the live 8 bit feed
+faster worked, now we have some room to back off a little since its like 10 seconds ahead of the tv
+broadcast. so lets see if we can allow them to leave the huddle each play and then we are still ahead
+of the broadcast". REVERSES the same day's cut straight to the snap (players set, snap at 1.1 s, a
+0.3 s fade from black; `sc.cutIn` is gone): a live play walks out of the huddle into its formation
+again, as a replay's does, which gives back about 3.4 s (result at 5.9 s against 2.5 s on the fixture),
+leaving the view roughly 6-7 s ahead of the broadcast. The 2 s polling stays. Cache-bust ?v=20260928v.
+
+VERIFY: sunday 257/258 (section renamed "Live: polled every 2 s; plays walk out of the huddle"; its three
+cut checks RESTAGED to two, with the reason at the check: the players jogging from the huddle with the
+snap at the walk-up's 4.5 s and no fade, the result at the walk-up's time; the one failure is the webfont
+ink check that fails the same way on HEAD in this container). Bite: the cut-to-the-snap sd-reenact.js
+fails both.

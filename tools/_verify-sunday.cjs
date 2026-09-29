@@ -1856,7 +1856,7 @@ async function main() {
       // 2026-09-28, user: "is there anything we can do to decrease the time from when a play happens in
       // real life to the time it is animated in GFFL?" … "lets just try the 2 changes for tonight".
       // ATL @ GB moved to the 3rd quarter (the halftime cut of the summary, the scoreboard set live).
-      section("Live: polled every 2 s, plays cut to the snap");
+      section("Live: polled every 2 s; plays walk out of the huddle");
       {
         const HFIX = path.join(__dirname, "fixtures", "halftime");
         const halfSum = fs.readFileSync(path.join(HFIX, "sum-401872948-half.json"), "utf8");
@@ -1886,10 +1886,14 @@ async function main() {
           const px = (t) => { SIDE.t = t; raStep(SIDE, 0); const c = SIDE.cv, d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let v = 0; for (let i = 0; i < d.length; i += 64) v += d[i] + d[i + 1] + d[i + 2]; return Math.round(v / (d.length / 64) / 3); };
           return { tS: sc.tS, cutIn: sc.cutIn, fullTS: full.tS, set: still(sc), fullSet: still(full), rNow: sideResultAt(sc), rFull: sideResultAt(full), dark: px(0), lit: px(0.45), id: String(SIDE.playId), want: String(p.id) };
         });
-        ok(cut.id === cut.want && cut.tS === 1.1 && cut.cutIn === 0.3 && cut.set && cut.fullTS >= 4 && !cut.fullSet,
-          `a live play cuts straight to the snap: the players are already set (${cut.set}; with the walk-up they'd still be jogging: ${!cut.fullSet}), the snap at ${cut.tS} s instead of ${cut.fullTS} s`);
-        ok(cut.rFull - cut.rNow >= 2.9, `…so its result shows ${(cut.rFull - cut.rNow).toFixed(1)} s sooner (at ${cut.rNow?.toFixed?.(1)} s instead of ${cut.rFull?.toFixed?.(1)} s)`);
-        ok(cut.dark < 12 && cut.lit > 40, `…behind a quick fade from black, as TV cuts to the next snap (frame brightness ${cut.dark} at 0 s, ${cut.lit} at 0.45 s)`);
+        // RESTAGED 2026-09-28 (user: "its looking like our changes to make the live 8 bit feed faster
+        // worked, now we have some room to back off a little since its like 10 seconds ahead of the tv
+        // broadcast. so lets see if we can allow them to leave the huddle each play"): the one-night cut
+        // straight to the snap (players set, snap at 1.1 s, a fade from black) is gone. A live play walks
+        // out of the huddle again, exactly as a replay's does; the 2 s polling above stays.
+        ok(cut.id === cut.want && cut.tS === cut.fullTS && cut.tS >= 4 && !cut.set && cut.cutIn == null,
+          `a live play leaves the huddle and walks into its formation (players jogging at the start: ${!cut.set}), the snap at ${cut.tS} s, as a replay's (${cut.fullTS} s), no cut`);
+        ok(Math.abs(cut.rFull - cut.rNow) < 0.01 && cut.dark > 40, `…its result at the walk-up's time (${cut.rNow?.toFixed?.(1)} s), no fade from black (frame brightness ${cut.dark} at 0 s)`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
       await page.setViewport({ width: 800, height: 600 });

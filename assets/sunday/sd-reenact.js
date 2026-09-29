@@ -3164,7 +3164,6 @@ function raStep(st, dt) {
   st.cam.x += (tx - st.cam.x) * k;
   st.cam.y += (ty - st.cam.y) * k;
   raDraw(cv.getContext('2d'), W, st);
-  if (sc.cutIn && st.t < sc.cutIn) { const g = cv.getContext('2d'); g.fillStyle = `rgba(0,0,0,${(1 - st.t / sc.cutIn).toFixed(3)})`; g.fillRect(0, 0, W, RA_H); }   // the cut to the snap
   for (const e of sc.events) {
     if (e.kind !== 'banner' || st.t < e.t || st.shown.has(e)) continue;
     st.shown.add(e);
@@ -3306,15 +3305,12 @@ function sidePlay(p) {
   clearTimeout(SIDE.idle); SIDE.idle = 0;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
   let sc = null;
-  // A live game cuts straight to the snap (2026-09-28, user: "is there anything we can do to decrease
-  // the time from when a play happens in real life to the time it is animated in GFFL?"): by the time
-  // ESPN has the play it is over, so the 4-6 s jog from the huddle into the formation only added
-  // delay. The play is built as a fresh one (snap at 1.1 s, the hash kept) behind a quick fade from
-  // black, the way TV cuts to the next snap, and its result shows about 3.4 s sooner. (A replay
-  // keeps the walk-up; there nothing is behind.)
-  const live = G.ev?.state === 'in';
-  const from = sideFrom(p);
-  try { sc = raBuild(p, G.ev, raQBs(), live && from.from ? { x0: from.x0 } : from); if (live && from.from) sc.cutIn = 0.3; } catch (err) { console.error(err); }
+  // Every play walks out of the huddle into its formation. (A live game cut straight to the snap for
+  // one night, 2026-09-28, to win back 3.4 s; then, user: "its looking like our changes to make the
+  // live 8 bit feed faster worked, now we have some room to back off a little since its like 10 seconds
+  // ahead of the tv broadcast. so lets see if we can allow them to leave the huddle each play". The
+  // 2 s polling stays.)
+  try { sc = raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
   if (SIDE.gatePlay != null && typeof gameGateRelease === 'function') { gameGateRelease(SIDE.gatePlay); SIDE.gatePlay = null; }   // an earlier play never showed its result
   if (sc) {
     sc.gameId = G.id;
