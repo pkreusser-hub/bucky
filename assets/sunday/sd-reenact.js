@@ -331,7 +331,7 @@ function raBuild(p, ev, qbs, opts = {}) {
       // easing's peak only 11 yd/s, so an eased approach from 8 yd away stopped yards short of the
       // man he tackles (2026-09-28 audit: up to 9 yd).
       go(cand, tE, xE + (i === 1 ? -0.8 : i === 2 ? 0.8 : R(-0.4, 0.4)), zE + toward * (0.7 + i * 0.3), Math.hypot(cx - xE, cz - zE) > 2.5 ? 0 : 3);
-      if (i === 0 && carDown) cand.downAt = tE + 0.08;
+      if (i === 0 && carDown) { cand.downAt = tE + 0.08; cand.tackler = true; }   // (he dives in: raFrame)
       cand.labelAt = tE - 0.4;
     }
     if (carDown) car.downAt = tE;
@@ -712,7 +712,7 @@ function raBuild(p, ev, qbs, opts = {}) {
     who(car, I.rusher);
     const tHand = snapTo(off.QB, tS, I.form !== 'under' ? 0.3 : 0.08);
     if (kind === 'kneel') {
-      go(off.QB, tS + 0.5, x0, z0 - 1.6, 1); off.QB.downAt = tS + 0.6; ballHold(off.QB, tHand, 99);
+      go(off.QB, tS + 0.5, x0, z0 - 1.6, 1); off.QB.downAt = tS + 0.6; off.QB.kneels = true; ballHold(off.QB, tHand, 99);
       banner(tS + 0.8, 'Kneel', 'Clock running', 'o');
       T = tS + 2.6; sc.tEnd = tS + 0.6;
     } else {
@@ -899,7 +899,7 @@ function raBuild(p, ev, qbs, opts = {}) {
         // takes a knee where he caught it and nobody chases him.
         if (intTB) {
           const tE = go(hawk, tCatch + 0.45, raX(xT + R(-0.4, 0.4)), zT + 0.3, 2);
-          hawk.downAt = tE + 0.05;
+          hawk.downAt = tE + 0.05; hawk.kneels = true;
           converge(allOff().filter((a) => a !== off.C), tCatch + 0.3, xT, zT - 4, tCatch + 1.8, 2, 9, 6);
           banner(tCatch + 0.1, 'Intercepted', I.interceptor ? I.interceptor.last : defT.name, 'd');
           banner(tE + 0.6, 'Touchback', defT.name, 'd');
@@ -1060,7 +1060,7 @@ function raBuild(p, ev, qbs, opts = {}) {
       if (I.returner && !punt) {
         // Caught in the end zone and taken down to a knee; the ball comes out to the 35.
         sc.ball.push({ t0: tL, t1: tL + 1.4, a: ret });
-        ret.acts = [[tL + 0.35, tL + 1.6, 'hold']];
+        ret.acts = [[tL + 0.35, tL + 1.6, 'kneel']];
       } else {
         const bz = Math.min(zL + 4, 108);
         ballFly(tL, tL + 0.6, [xL, zL, 0.4], [xL + 1, bz, 0], 0.8);
@@ -1334,7 +1334,7 @@ function raBuild(p, ev, qbs, opts = {}) {
           const tFrom = Math.max(lastT(m), t0);
           hold(m, tFrom);
           const tA = go(m, tFrom + Math.max(0.6, Math.hypot(tx - raPos(m, tFrom)[0], tz - raPos(m, tFrom)[1]) / 2.5), tx, tz, 2);
-          m.acts = [...(m.acts || []).filter((q) => q[1] <= tA), [tA + 0.2, tAll, 'hold']];
+          m.acts = [...(m.acts || []).filter((q) => q[1] <= tA), [tA + 0.2, tAll, 'kneel']];
         });
         for (const m of sc.actors) {                                   // everyone else gives him room
           if ((m.side !== 'o' && m.side !== 'd') || m.injured || mates.includes(m)) continue;
@@ -2085,143 +2085,287 @@ function bigLabel(s, k, col, shadow) {
 }
 
 /* ── Players ──
-   Every player pose is a skeleton (hip, shoulder, head, and three points for each arm and leg, in
-   sprite pixels, y up from the ground, facing right) rasterised once into a 34×40 grid of shade
-   codes, then coloured per uniform. Each limb is a capsule lit from above and in front, so every
-   colour gets three tones (light / base / shadow); the near arm and leg carry their own dark edge so
-   they read over the body, and the whole figure gets a one-pixel outline.
-   Codes: J j L jersey (base, shadow, light), P p Q pants, S s socks, F f E skin, H h l helmet,
-   w (unused since helmets went one solid colour), m face mask, e eye, B b cleats, C cap (officials), O outline. */
+   Redrawn 2026-09-29 (user: "do a design pass on the 8-bit players in gffl to get them better pixel
+   graphics and better animations"). Every frame is a skeleton in sprite pixels, x forward, y up from
+   the ground: hip `h`, the top of the spine `s`, the head's centre `c`, three points for each arm
+   (shoulder, elbow, hand: `fa` near, `ba` far) and leg (hip, knee, ankle: `fl`, `bl`), the feet's
+   directions (`ff`, `bf`) and the head's tilt (`hr`, degrees forward; else it follows the neck). It is
+   rasterised once into a 34×40 grid of shade codes, then coloured per uniform (raSprite):
+   - football proportions: a big helmet, shoulder pads wider than the chest, a narrow waist, thick
+     thighs, the pants ending under the knee over the socks
+   - the helmet is one solid shell colour (2026-09-28, user: "make the helmet 1 solid color") with the
+     face in its opening under the brow's shadow and a light grey facemask's bars in front (a later
+     pass the same day); officials get a cap, trainers bare heads
+   - two tones a colour, lit from above and in front, and a lighter third only on the jersey's
+     shoulders; the far arm and leg sit in shadow
+   - a near limb casts a one-pixel shadow onto whatever it crosses, in that thing's own shadow tone,
+     instead of a black line through the body; the helmet keeps a dark rim
+   - a last pass gives any lone pixel of a tone its neighbours' tone, and the figure a dark outline
+   The walking, jogging, running, ball-carrying, backpedalling and stretcher-carrying strides are
+   generated (raGait): eight frames a stride from one foot path per gait, the knees solved from it,
+   the body bobbing twice a stride, the arms swinging against the legs.
+   Codes: J j L jersey (base, shadow, light), P p Q pants, S s socks, F f E skin, H helmet, m face
+   mask, k the brow's shadow, e eye, B b cleats, C c cap or hair, O outline. */
+// Every limb is [root, middle, end]: the root is placed by the rig (raRig), the middle joint only
+// says which way the limb bends, and the end (hand, ankle) is where it reaches.
 const RA_SKEL = {
-  stand:  { h: [0, 15], s: [0.6, 23.5], c: [1.4, 29], fa: [[2.2, 22.5], [3.4, 17.5], [3.6, 13]], ba: [[-2.2, 22.5], [-3.2, 17.5], [-3.2, 13]], fl: [[1.3, 15], [2, 8.5], [2.1, 2]], bl: [[-1.3, 15], [-2, 8.5], [-2.3, 2]] },
-  run1:   { h: [0, 14.5], s: [1.8, 22.8], c: [3, 28.2], fa: [[2.3, 21.8], [-0.2, 18.2], [-1.5, 14.8]], ba: [[1.2, 21.8], [3.6, 18.5], [5.6, 20.5]], fl: [[0.5, 14.5], [4, 9.5], [5.5, 3]], bl: [[-0.5, 14.5], [-2.5, 8.5], [-6, 5]], bf: [-0.3, -1] },
-  run2:   { h: [0, 15.5], s: [1.8, 23.8], c: [3, 29.2], fa: [[2.3, 22.8], [1.8, 18], [3.4, 15.5]], ba: [[1.2, 22.8], [0.5, 18.2], [1.8, 15.8]], fl: [[0.5, 15.5], [0.8, 9], [-1.5, 3.5]], bl: [[-0.5, 15.5], [2.8, 11], [0.8, 6.5]], ff: [0.6, -0.8] },
-  stance: { h: [-3, 11.5], s: [4.5, 13.5], c: [8.5, 15], fa: [[4.5, 12.5], [5.5, 7], [6, 1.2]], ba: [[3.5, 12.5], [1.5, 9.5], [0, 8]], fl: [[-2.5, 11.5], [1.5, 6], [-0.5, 1.5]], bl: [[-3.5, 11.5], [-5, 5.5], [-6.5, 1.5]], noNum: 1 },
-  snap:   { h: [-3, 11.5], s: [4.5, 13.2], c: [8.2, 14.8], fa: [[4.5, 12.5], [6.2, 7.5], [7.2, 2]], ba: [[3.8, 12.5], [5.5, 7.5], [6.4, 2.2]], fl: [[-2.5, 11.5], [0.5, 6], [0, 1.5]], bl: [[-3.5, 11.5], [-4, 6], [-4.5, 1.5]], noNum: 1 },
-  ready:  { h: [-1.5, 12.5], s: [2.2, 20], c: [3.8, 25.4], fa: [[2.8, 19.2], [3.8, 14.8], [3.2, 10]], ba: [[1.5, 19.2], [2, 14.8], [1.6, 10]], fl: [[-1, 12.5], [2.2, 7.5], [1.2, 2]], bl: [[-2, 12.5], [-1, 7], [-3, 2]] },
-  qbUnder:{ h: [-1.5, 12], s: [2, 19.5], c: [3.6, 24.9], fa: [[2.6, 18.6], [4.8, 15.2], [6.2, 12.6]], ba: [[1.6, 18.6], [3.8, 15], [5.6, 12.2]], fl: [[-1, 12], [1.8, 7.2], [0.8, 2]], bl: [[-2, 12], [-1.2, 6.8], [-3.2, 2]] },
-  gun:    { h: [0, 14], s: [1.2, 22.2], c: [2.2, 27.7], fa: [[1.8, 21.2], [3, 17.5], [4.8, 17.8]], ba: [[1, 21.2], [2.3, 17.2], [4.3, 17.4]], fl: [[0.5, 14], [1.8, 8], [1.2, 2]], bl: [[-0.5, 14], [-1.2, 8], [-2, 2]] },
-  hold:   { h: [-0.5, 9], s: [1.5, 16.5], c: [2.8, 21.9], fa: [[2.2, 15.8], [4.5, 12.5], [6.5, 10]], ba: [[1.2, 15.8], [3.6, 12.2], [5.8, 9.6]], fl: [[0, 9], [3.2, 6.5], [3, 1.5]], bl: [[-1, 9], [-3.5, 1.4], [-7.2, 1.2]], bf: [-1, 0.1] },
-  hold2:  { h: [-0.5, 9], s: [2, 16], c: [3.6, 21.2], fa: [[2.6, 15.2], [5, 9.5], [6.4, 4.2]], ba: [[1.6, 15.2], [4, 9.3], [5.4, 4.6]], fl: [[0, 9], [3.2, 6.5], [3, 1.5]], bl: [[-1, 9], [-3.5, 1.4], [-7.2, 1.2]], bf: [-1, 0.1] },
-  kick0:  { h: [0, 15], s: [0.8, 23.2], c: [1.5, 28.7], fa: [[1.5, 22], [3.6, 19], [5.8, 19.6]], ba: [[0.2, 22], [-2.5, 19.5], [-4.8, 18.5]], fl: [[0.5, 15], [-2.4, 9.5], [-6, 11]], bl: [[-0.3, 15], [0.4, 8.5], [0.2, 2]], ff: [-0.2, -1] },
-  kick:   { h: [0, 15], s: [-1.2, 23], c: [-1, 28.5], fa: [[0, 22], [-2.8, 19.5], [-5.6, 19]], ba: [[0, 22], [2.8, 20.5], [5.4, 21.8]], fl: [[0.8, 15], [5, 16.5], [9.5, 18.5]], bl: [[-0.5, 15], [-0.2, 8.5], [-0.6, 2]], ff: [0.7, 0.7] },
-  punt:   { h: [0, 15], s: [-1.6, 22.8], c: [-1.8, 28.2], fa: [[-0.5, 22], [2.5, 21.5], [5.2, 23]], ba: [[-0.8, 22], [-3.6, 20.5], [-6.2, 20.2]], fl: [[0.8, 15], [4.6, 19.5], [8, 23.8]], bl: [[-0.5, 15], [-0.4, 8.5], [-0.8, 2]], ff: [0.6, 0.8] },
-  throw1: { h: [0, 14.5], s: [-0.5, 22.6], c: [0.6, 28.1], fa: [[0, 22], [3, 21.5], [5.6, 22]], ba: [[-1, 22], [-3.6, 24], [-3.2, 28.5]], fl: [[0.6, 14.5], [3.2, 8.5], [4.2, 2]], bl: [[-0.6, 14.5], [-2.6, 8.5], [-4.2, 2]] },
-  throw2: { h: [0.6, 14.5], s: [2.6, 22.4], c: [3.9, 27.7], fa: [[2.4, 21.5], [0.2, 18.5], [-1.4, 16.4]], ba: [[2.6, 21.5], [5.4, 20], [6.6, 16.8]], fl: [[1.2, 14.5], [3.8, 8.5], [4.6, 2]], bl: [[0, 14.5], [-1.6, 8.3], [-3.6, 3]], bf: [0.3, -1] },
-  catch:  { h: [0, 15], s: [0.8, 23.4], c: [1.6, 28.9], fa: [[1.4, 22.5], [3.4, 26.5], [5.2, 30.2]], ba: [[0.6, 22.5], [2.8, 26.8], [4.4, 30.8]], fl: [[0.6, 15], [2.4, 8.5], [2.2, 2]], bl: [[-0.6, 15], [-2, 8.5], [-3.4, 2.5]] },
-  block:  { h: [-1, 12.8], s: [3, 19.5], c: [5, 24], fa: [[3.4, 18.6], [5.8, 17.5], [8, 17.8]], ba: [[2.6, 18.6], [5, 16.8], [7.4, 17]], fl: [[-0.5, 12.8], [2.2, 7.5], [1.2, 2]], bl: [[-1.5, 12.8], [-3.2, 7.3], [-5.2, 2]] },
-  down:   { h: [-4, 3.5], s: [4, 3.8], c: [8.4, 4.4], fa: [[4.5, 3.5], [8, 2.2], [11.5, 2]], ba: [[3.5, 4], [6.8, 3.5], [10, 3.5]], fl: [[-4, 3.2], [-8.5, 2.4], [-12.5, 2]], bl: [[-4, 3.8], [-8.8, 3.4], [-12.8, 3.4]], ff: [-0.2, -1], bf: [-0.2, -1], noNum: 1 },
-  cheer:  { h: [0, 15], s: [0.3, 23.4], c: [0.8, 28.9], fa: [[1.6, 22.6], [3, 27.2], [3.8, 32]], ba: [[-1, 22.6], [-2.4, 27.2], [-3, 32]], fl: [[0.8, 15], [2.2, 8.5], [3, 2]], bl: [[-0.8, 15], [-2.2, 8.5], [-3, 2]] },
-  dance:  { h: [0, 14.5], s: [0.3, 22.9], c: [0.9, 28.4], fa: [[1.6, 22], [3.2, 26.5], [2.6, 31.5]], ba: [[-1, 22], [-3.6, 19], [-1.4, 16]], fl: [[0.8, 14.5], [3.2, 9], [3.6, 2]], bl: [[-0.8, 14.5], [-3, 9], [-4, 2]] },
+  stand:  { h: [0, 13.1], s: [0.3, 23.1], c: [0.9, 28.5], fa: [0, [1.6, 16.6], [2.8, 12.2]], ba: [0, [-2.4, 16.6], [-2.4, 12.2]], fl: [0, [1.4, 7.6], [2, 2.2]], bl: [0, [-1.4, 7.6], [-2.2, 2.2]] },
+  // Breathing out: the knees give a little and everything above settles.
+  stand2: { h: [0, 12.7], s: [0.3, 22.7], c: [0.9, 28.1], fa: [0, [1.6, 16.2], [2.9, 11.9]], ba: [0, [-2.4, 16.2], [-2.5, 11.9]], fl: [0, [1.6, 7.4], [2, 2.2]], bl: [0, [-1.2, 7.4], [-2.2, 2.2]] },
+  hips:   { h: [0, 13.1], s: [0.2, 23.1], c: [0.7, 28.5], fa: [0, [4.6, 18.2], [2.4, 14.4]], ba: [0, [-4.4, 18.4], [-2.2, 14.6]], fl: [0, [2, 7.6], [2.8, 2.2]], bl: [0, [-2, 7.6], [-3, 2.2]] },
+  ready:  { h: [-1.4, 11.2], s: [2.4, 20.4], c: [3.8, 25.6], hr: 12, fa: [0, [4.2, 13.8], [3.6, 9.6]], ba: [0, [2.2, 13.6], [1.4, 9.2]], fl: [0, [2.6, 7], [1.6, 2.2]], bl: [0, [-1, 6.6], [-3.2, 2.2]] },
+  stance: { h: [-3.6, 10], s: [4, 12], c: [8, 13.6], tl: 8, nl: 4.4, hr: 36, fa: [0, [5.6, 6], [6.2, 1.4]], ba: [0, [1.2, 7.8], [0.2, 6.6]], fl: [0, [1.2, 5.4], [-0.6, 2]], bl: [0, [-5.2, 5.2], [-6.8, 2]], noNum: 1 },
+  snap:   { h: [-3.6, 10], s: [4, 11.8], c: [8, 13.2], tl: 8, nl: 4.4, hr: 40, fa: [0, [6.4, 6.4], [7.4, 2.2]], ba: [0, [5.6, 6.2], [6.6, 2.4]], fl: [0, [0.4, 5.4], [0.2, 2]], bl: [0, [-4.6, 5.4], [-4.8, 2]], noNum: 1 },
+  qbUnder:{ h: [-1.4, 10.8], s: [2, 19.6], c: [3.4, 25], hr: 10, fa: [0, [4.6, 13.4], [6.2, 11.2]], ba: [0, [3.8, 13.2], [5.6, 10.8]], fl: [0, [2, 6.6], [1, 2.2]], bl: [0, [-1.2, 6.2], [-3.2, 2.2]] },
+  gun:    { h: [0, 12.5], s: [1.1, 22.4], c: [2, 27.8], fa: [0, [3.8, 15.8], [7.2, 16.4]], ba: [0, [2.2, 15.6], [5.8, 15.9]], fl: [0, [2, 7.2], [1.4, 2.2]], bl: [0, [-1.4, 7.2], [-2.2, 2.2]] },
+  // The QB with the ball at his chest, feet under him, waiting to throw.
+  qbSet:  { h: [0, 12.9], s: [0.7, 22.9], c: [1.5, 28.3], fa: [0, [1.2, 16.4], [4.2, 18.4]], ba: [0, [0.4, 16.4], [3.6, 19]], fl: [0, [2.2, 7.4], [2.6, 2.2]], bl: [0, [-2, 7.4], [-2.8, 2.2]] },
+  hold:   { h: [-0.6, 8.2], s: [1.4, 17.8], c: [2.7, 23.2], hr: 12, fa: [0, [4.4, 12], [6.5, 9]], ba: [0, [3.6, 11.6], [5.8, 8.6]], fl: [0, [3.6, 7.4], [3.4, 2]], bl: [0, [-1.8, 1.7], [-6.8, 1.5]], bf: [-1, 0.1] },
+  hold2:  { h: [-0.6, 8.2], s: [2, 17.4], c: [3.6, 22.6], hr: 22, fa: [0, [5, 10.4], [6.4, 4.6]], ba: [0, [4, 10.2], [5.4, 4.9]], fl: [0, [3.6, 7.4], [3.4, 2]], bl: [0, [-1.8, 1.7], [-6.8, 1.5]], bf: [-1, 0.1] },
+  kick0:  { h: [0, 13], s: [0.8, 23], c: [1.5, 28.4], fa: [0, [3.6, 18.2], [5.8, 18.8]], ba: [0, [-2.5, 18.6], [-4.8, 17.4]], fl: [0, [-2.4, 8.6], [-6, 9.6]], bl: [0, [0.4, 7.6], [0.2, 2.2]], ff: [-0.2, -1] },
+  kick:   { h: [0, 13], s: [-1.3, 22.9], c: [-1, 28.3], fa: [0, [-2.8, 18.6], [-5.6, 18]], ba: [0, [2.8, 20], [5.4, 21.6]], fl: [0, [5.2, 15], [9.6, 17.6]], bl: [0, [-0.2, 7.6], [-0.6, 2.2]], ff: [0.7, 0.7] },
+  punt:   { h: [0, 13], s: [-1.7, 22.6], c: [-1.8, 28], fa: [0, [-0.4, 20.2], [4.8, 20.4]], ba: [0, [-3.6, 19.8], [-6.2, 19.4]], fl: [0, [4.6, 18.6], [8, 23.4]], bl: [0, [-0.4, 7.6], [-0.8, 2.2]], ff: [0.6, 0.8] },
+  // The pass: wound up with the ball by his ear and the front arm pointing, released high in front,
+  // then the follow-through, the arm across the body and the back foot coming off the ground.
+  throw1: { h: [-0.3, 12.8], s: [-0.9, 22.8], c: [0, 28.2], hr: -4, fa: [0, [3.4, 21], [6, 21.6]], ba: [0, [-5.6, 21.4], [-5.8, 27.4]], fl: [0, [3.4, 7.8], [4.6, 2.2]], bl: [0, [-2.8, 7.6], [-4.4, 2.2]] },
+  throw2: { h: [0.8, 12.8], s: [2.2, 22.6], c: [3, 28], hr: 4, fa: [0, [2.2, 16.4], [0.4, 14.6]], ba: [0, [5.4, 27.4], [10.4, 29.2]], fl: [0, [4, 7.8], [5, 2.2]], bl: [0, [-1.8, 7.4], [-3.6, 3.2]], bf: [0.35, -0.94] },
+  throw3: { h: [1.4, 12.4], s: [4, 21.8], c: [5.4, 27], hr: 16, fa: [0, [2.2, 16.2], [0, 14.4]], ba: [0, [6.4, 17.4], [5.2, 13.2]], fl: [0, [4.3, 7.4], [4.9, 2.2]], bl: [0, [-1.8, 9.4], [-4.6, 7]], bf: [-0.3, -1] },
+  catch:  { h: [0, 13.1], s: [0.8, 23.1], c: [1.2, 28.5], hr: -8, fa: [0, [7, 21.4], [11.4, 25.4]], ba: [0, [5.4, 22.8], [10.4, 26.8]], fl: [0, [2.4, 7.6], [2.2, 2.2]], bl: [0, [-2, 7.6], [-3.4, 2.6]] },
+  // The ball pulled into the chest a beat after the catch.
+  secure: { h: [0, 12.5], s: [1.5, 22.4], c: [2.5, 27.8], hr: 8, fa: [0, [0.9, 16.6], [4.1, 18]], ba: [0, [0.4, 16.6], [3.5, 19]], fl: [0, [2.6, 7.2], [2, 2.2]], bl: [0, [-1.8, 7], [-2.8, 2.2]] },
+  // Engaged: hands on the other man's chest, leaning in, the feet chopping (block2 the other foot).
+  block:  { h: [-1, 11.4], s: [3, 20.4], c: [4.9, 25.8], hr: 14, fa: [0, [5.8, 17.2], [8.2, 17.6]], ba: [0, [5, 16.4], [7.6, 16.6]], fl: [0, [2.2, 6.8], [1.2, 2.2]], bl: [0, [-3.2, 6.6], [-5.2, 2.2]] },
+  block2: { h: [-0.7, 11.2], s: [3.4, 20.2], c: [5.3, 25.5], hr: 16, fa: [0, [6.2, 17], [8.7, 17.4]], ba: [0, [5.4, 16.2], [8, 16.4]], fl: [0, [0.8, 6.6], [-1.3, 2.2]], bl: [0, [1, 6.8], [0.4, 2.2]] },
+  down:   { h: [-2.6, 3.1], s: [5, 3.5], c: [9.6, 3.8], tl: 7.6, nl: 4.6, hr: 90, fa: [0, [8.6, 2.4], [13.6, 1.8]], ba: [0, [6.8, 5], [9.6, 4.4]], fl: [0, [-8, 3.4], [-13.4, 2]], bl: [0, [-8.2, 5], [-13, 4.8]], ff: [-0.2, -1], bf: [-0.4, -1], noNum: 1 },
+  // Going down: the knees buckle and he pitches forward (fall1), then lands on his knees and hands
+  // (fall2) before he is flat. A tackler dives in first, arms out.
+  fall1:  { h: [0.4, 11.2], s: [4.4, 19.8], c: [6.6, 24.6], hr: 28, fa: [0, [7.4, 15.4], [9.6, 13.2]], ba: [0, [1.8, 21], [0.2, 23.4]], fl: [0, [3.4, 6.4], [1.6, 2]], bl: [0, [-2.6, 7.6], [-5, 4.2]], bf: [-0.5, -0.9] },
+  fall2:  { h: [-1.2, 6.8], s: [5.3, 9.4], c: [9.3, 10.9], tl: 8, nl: 4.6, hr: 38, fa: [0, [7.6, 5.2], [9.6, 1.6]], ba: [0, [6.8, 5.6], [8.8, 1.7]], fl: [0, [2.4, 2], [-2.6, 1.4]], bl: [0, [-4.2, 2.2], [-8.4, 1.6]], ff: [-1, 0.1], bf: [-1, 0.1], noNum: 1 },
+  dive:   { h: [-3.4, 8.2], s: [4.2, 11], c: [8.6, 12.8], tl: 8, nl: 4.6, hr: 58, fa: [0, [8.4, 10.6], [12.2, 11.2]], ba: [0, [7.6, 12.2], [11.4, 12.8]], fl: [0, [-7.4, 6.6], [-12, 6.2]], bl: [0, [-8, 9.4], [-12.4, 10.4]], ff: [-0.4, -1], bf: [-0.4, -1], noNum: 1 },
+  // On one knee (taking a knee; getting up goes kneel, then rise).
+  kneel:  { h: [-0.4, 8.4], s: [0.4, 18.4], c: [1.1, 23.8], fa: [0, [2.8, 12.6], [4, 9]], ba: [0, [-1.2, 12.6], [-1, 8.2]], fl: [0, [4.4, 8], [4.6, 2.2]], bl: [0, [-1.6, 2], [-6.2, 1.5]], bf: [-1, 0.1] },
+  rise:   { h: [-0.6, 9.4], s: [2.7, 18.8], c: [4.5, 24], hr: 18, fa: [0, [4.6, 12.4], [4.8, 8.4]], ba: [0, [2, 12], [2.4, 8]], fl: [0, [4.1, 8], [4.3, 2.2]], bl: [0, [-2.2, 2.8], [-5.8, 1.6]], bf: [-1, 0.2] },
+  // A squat before a jump and on landing.
+  crouch: { h: [-0.6, 10], s: [1.6, 19.8], c: [2.6, 25.2], hr: 6, fa: [0, [2.6, 13.8], [1.8, 10.2]], ba: [0, [-1, 14.2], [-2.6, 11.4]], fl: [0, [3.4, 6.2], [1.4, 2.2]], bl: [0, [1.8, 6], [-0.8, 2.2]] },
+  // Celebrating: the near arm flexed out in front, clear of the facemask, the far one up behind the helmet.
+  cheer:  { h: [0, 13.1], s: [0.3, 23.1], c: [0.8, 28.5], hr: -6, fa: [0, [9, 22.6], [9.8, 27.8]], ba: [0, [-4.6, 26.8], [-5.6, 31.8]], fl: [0, [2.2, 7.6], [3, 2.2]], bl: [0, [-2.2, 7.6], [-3, 2.2]] },
+  // Both arms straight up: the men holding a hoisted kicker.
+  signal: { h: [0, 13.1], s: [0.2, 23.1], c: [0.5, 28.5], fa: [0, [3.8, 27.4], [4, 32.8]], ba: [0, [-4.4, 26.8], [-4.8, 32.4]], fl: [0, [1.2, 7.6], [1.4, 2.2]], bl: [0, [-1.2, 7.6], [-1.6, 2.2]] },
+  dance:  { h: [0, 12.8], s: [0.3, 22.8], c: [0.9, 28.2], fa: [0, [6.4, 19.4], [10.4, 20.8]], ba: [0, [-4.2, 26.2], [-4.8, 31]], fl: [0, [3.2, 8], [3.6, 2.2]], bl: [0, [-3, 8], [-4, 2.2]] },
+  // Knees up, arms swinging: the two halves of a step dance.
+  dance2: { h: [0, 13.4], s: [0.5, 23.4], c: [1.1, 28.8], fa: [0, [4.2, 19.2], [3.8, 16]], ba: [0, [-3.2, 18], [-2, 14.6]], fl: [0, [3.8, 12.2], [3.2, 7.4]], bl: [0, [-1, 7.8], [-1.4, 2.2]], ff: [0.4, -0.9] },
+  dance3: { h: [0, 13.4], s: [0.5, 23.4], c: [1.1, 28.8], fa: [0, [3.8, 18], [1.6, 15]], ba: [0, [-1.4, 19.6], [1.2, 17.8]], fl: [0, [1, 7.8], [1.4, 2.2]], bl: [0, [2.4, 12.4], [2, 7.4]], bf: [0.4, -0.9] },
+  // Trainers holding the stretcher's handles.
+  carry:  { h: [0, 13.1], s: [0.4, 23.1], c: [1, 28.5], fa: [0, [3.9, 16.8], [6.6, 13.8]], ba: [0, [2.4, 17.2], [5.6, 13.9]], fl: [0, [1.4, 7.6], [2, 2.2]], bl: [0, [-1.4, 7.6], [-2.2, 2.2]] },
 };
-// The other half of the stride: the same frames with the near and far limbs swapped.
-RA_SKEL.run3 = { ...RA_SKEL.run1, fa: RA_SKEL.run1.ba, ba: RA_SKEL.run1.fa, fl: RA_SKEL.run1.bl, bl: RA_SKEL.run1.fl, ff: RA_SKEL.run1.bf, bf: RA_SKEL.run1.ff };
-RA_SKEL.run4 = { ...RA_SKEL.run2, fa: RA_SKEL.run2.ba, ba: RA_SKEL.run2.fa, fl: RA_SKEL.run2.bl, bl: RA_SKEL.run2.fl, ff: RA_SKEL.run2.bf, bf: RA_SKEL.run2.ff };
-const RA_RUN = ['run1', 'run2', 'run3', 'run4'];
-// Trainers holding the stretcher's handles: standing, and a four-frame walk with the same arms.
-RA_SKEL.carry = { ...RA_SKEL.stand, fa: [[2, 22.5], [4, 18], [6.6, 15.5]], ba: [[-1, 22.5], [2.4, 18.2], [5.6, 15.6]] };
-['run1', 'run2', 'run3', 'run4'].forEach((r, i) => { RA_SKEL['crun' + (i + 1)] = { ...RA_SKEL[r], s: [RA_SKEL[r].s[0] * 0.4, RA_SKEL[r].s[1]], c: [RA_SKEL[r].c[0] * 0.4, RA_SKEL[r].c[1]], fa: RA_SKEL.carry.fa, ba: RA_SKEL.carry.ba }; });
-const RA_CRUN = ['crun1', 'crun2', 'crun3', 'crun4'];
+// A stride in eight frames. Each gait's feet follow one closed path — [phase, x, the ankle's height,
+// the foot's angle in degrees] with the near foot coming down at phase 0 — and the far foot runs half
+// a stride behind. The body leans `lean` degrees and bobs twice a stride (`bob`: [hip height, amount,
+// the phase it tops out]); the arms swing `arm` degrees against the legs, the elbows bent `flex`
+// degrees plus the second number times the swing (more when the arm is forward). `tuck` carries the
+// ball in the near arm; `handles` holds a stretcher's handles out in front; the backpedal's path runs
+// forward under him as he goes backward.
+const RA_GAITS = {
+  walk:  { lean: 3, bob: [13, 0.25, 0.25], arm: 20, flex: [14, 8], path: [[0, 2.8, 2.2, 14], [0.25, 0.4, 2.2, 0], [0.5, -1.8, 2.2, 0], [0.62, -2.8, 2.6, -30], [0.8, -0.6, 3.6, -12], [0.92, 2, 3, 6]] },
+  jog:   { lean: 10, bob: [12.8, 0.4, 0.42], arm: 32, flex: [92, 18], path: [[0, 3.4, 2.2, 12], [0.16, 0.8, 2.2, 0], [0.32, -2.4, 2.3, -20], [0.42, -3.6, 2.8, -45], [0.58, -3.4, 5.6, -70], [0.76, 1, 6.6, -30], [0.9, 3.8, 4, 8]] },
+  run:   { lean: 20, bob: [12.6, 0.6, 0.42], arm: 46, flex: [96, 26], path: [[0, 4.2, 2.3, 14], [0.14, 1.4, 2.2, 0], [0.3, -2.8, 2.4, -25], [0.4, -4.8, 3.4, -55], [0.55, -4.4, 7.6, -80], [0.72, 1.2, 8.6, -35], [0.87, 5.2, 5.2, 10]] },
+  carry: { lean: 17, bob: [12.6, 0.55, 0.42], arm: 44, flex: [96, 26], tuck: 1, path: [[0, 4, 2.3, 14], [0.14, 1.3, 2.2, 0], [0.3, -2.7, 2.4, -25], [0.4, -4.6, 3.3, -55], [0.55, -4.2, 7.3, -80], [0.72, 1.2, 8.2, -35], [0.87, 5, 5, 10]] },
+  back:  { lean: 18, bob: [11.4, 0.3, 0.15], arm: 14, flex: [95, 8], path: [[0, -2.6, 2.2, 0], [0.3, 0.2, 2.2, 0], [0.45, 2.2, 2.4, -20], [0.62, 1.6, 4.4, -25], [0.85, -1.6, 3.8, -10]] },
+  crun:  { lean: 4, bob: [12.8, 0.3, 0.42], arm: 0, flex: [0, 0], handles: 1, path: [[0, 3.2, 2.2, 12], [0.16, 0.8, 2.2, 0], [0.32, -2.2, 2.3, -20], [0.42, -3.2, 2.8, -45], [0.58, -3, 5, -60], [0.76, 0.8, 5.8, -25], [0.9, 3.4, 3.8, 8]] },
+};
+const RA_STRIDE = 8;
+function raGait(name, i) {
+  const G = RA_GAITS[name], q = i / RA_STRIDE, rad = Math.PI / 180;
+  // The path, as a closed Catmull-Rom curve through its points.
+  const at = (ph) => {
+    const P = G.path, n = P.length;
+    ph = ((ph % 1) + 1) % 1;
+    let k = n - 1;
+    for (let j = 0; j < n; j++) if (P[j][0] <= ph) k = j;
+    const p1 = P[k], p2 = P[(k + 1) % n], p0 = P[(k + n - 1) % n], p3 = P[(k + 2) % n];
+    const span = ((p2[0] - p1[0]) + 1) % 1 || 1, u = (((ph - p1[0]) + 1) % 1) / span;
+    const cr = (a, b, c, d) => 0.5 * (2 * b + (c - a) * u + (2 * a - 5 * b + 4 * c - d) * u * u + (3 * b - a - 3 * c + d) * u * u * u);
+    return [cr(p0[1], p1[1], p2[1], p3[1]), cr(p0[2], p1[2], p2[2], p3[2]), p1[3] + (p2[3] - p1[3]) * u];
+  };
+  const hy = G.bob[0] + G.bob[1] * Math.cos(4 * Math.PI * (q - G.bob[2]));
+  const th = G.lean * rad, h = [0, hy], s = [Math.sin(th) * 10, hy + Math.cos(th) * 10];
+  const c = [s[0] + Math.sin(th * 0.6) * 5.4, s[1] + Math.cos(th * 0.6) * 5.4];
+  const foot = (ph) => { const [x, y, a] = at(ph); return { end: [x, y], f: [Math.cos(a * rad), Math.sin(a * rad)] }; };
+  const nf = foot(q), bf = foot(q + 0.5);
+  // The arms from the shoulders: the upper arm `ang` from straight down (forward positive), the
+  // forearm bent `flex` further. (raRig puts the shoulders on the spine.)
+  const arm = (ang, flex) => {
+    const el = [Math.sin(ang) * 6, -Math.cos(ang) * 6];
+    return [0, el, [el[0] + Math.sin(ang + flex) * 4.6, el[1] - Math.cos(ang + flex) * 4.6]];
+  };
+  const sw = Math.cos(2 * Math.PI * q) * G.arm;               // the near arm is back as the near foot lands
+  const flex = (v) => (G.flex[0] + G.flex[1] * (v / (G.arm || 1))) * rad;
+  let fa = arm(-sw * rad + th, flex(-sw)), ba = arm(sw * rad + th, flex(sw));
+  if (G.tuck) fa = arm(-0.32 + th, 2.1);                      // the ball tucked high and tight
+  if (G.handles) { fa = [0, [2.2, -5.3], [4.9, -8.3]]; ba = [0, [3.3, -4.9], [6.3, -8.2]]; }
+  // (Arm points relative to the shoulder; raRig moves them onto it.)
+  return { h, s, c, hr: name === 'back' ? 0 : G.lean * 0.6, rel: 1, fa, ba, fl: [0, [nf.end[0] + 3, (hy + nf.end[1]) / 2 + 1], nf.end], bl: [0, [bf.end[0] + 3, (hy + bf.end[1]) / 2 + 1], bf.end], ff: nf.f, bf: bf.f };
+}
+for (const name of Object.keys(RA_GAITS)) for (let i = 0; i < RA_STRIDE; i++) RA_SKEL[name + (i + 1)] = raGait(name, i);
+// The rig: fixed bone lengths for every frame, so nothing grows or shrinks from one frame to the next.
+// The spine runs `tl` (10) from the hips, the head's centre sits `nl` (5.4) above it; the shoulders and
+// hips are set on the body; each arm and leg reaches for its end, bending its middle joint the way
+// the pose drew it.
+const RA_BONE = { thigh: 5.9, shin: 5.2, upper: 6, fore: 4.6 };
+function raRig(P) {
+  const d = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-6;
+  const along = (a, b, L) => { const k = L / d(a, b); return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]; };
+  const h = P.h, s = along(h, P.s, P.tl || 10), c = along(s, P.c, P.nl || 5.4);
+  const up = [(s[0] - h[0]) / (P.tl || 10), (s[1] - h[1]) / (P.tl || 10)], fw = [up[1], -up[0]];
+  const on = (o, k) => [o[0] + fw[0] * k[0] + up[0] * k[1], o[1] + fw[1] * k[0] + up[1] * k[1]];
+  const solve = (root, hint, end, l1, l2) => {
+    const D = d(root, end), dd = Math.min(D, l1 + l2 - 0.02), t = along(root, end, dd);
+    const al = Math.acos(clamp((l1 * l1 + dd * dd - l2 * l2) / (2 * l1 * dd), -1, 1)), base = Math.atan2(t[1] - root[1], t[0] - root[0]);
+    const m1 = [root[0] + Math.cos(base + al) * l1, root[1] + Math.sin(base + al) * l1];
+    const m2 = [root[0] + Math.cos(base - al) * l1, root[1] + Math.sin(base - al) * l1];
+    return [root, d(m1, hint) <= d(m2, hint) ? m1 : m2, t];
+  };
+  const shN = on(s, P.fo || [3.2, -1.8]), shF = on(s, P.bo || [-3, -1.8]), hpN = [h[0] + 1.2, h[1]], hpF = [h[0] - 1.2, h[1]];
+  const rel = (A, o) => (P.rel ? A.map((p) => (Array.isArray(p) ? [p[0] + o[0], p[1] + o[1]] : p)) : A);
+  const fa = rel(P.fa, shN), ba = rel(P.ba, shF);
+  return { ...P, h, s, c,
+    fa: solve(shN, fa[1], fa[2], RA_BONE.upper, RA_BONE.fore), ba: solve(shF, ba[1], ba[2], RA_BONE.upper, RA_BONE.fore),
+    fl: solve(hpN, P.fl[1], P.fl[2], RA_BONE.thigh, RA_BONE.shin), bl: solve(hpF, P.bl[1], P.bl[2], RA_BONE.thigh, RA_BONE.shin) };
+}
+for (const k of Object.keys(RA_SKEL)) RA_SKEL[k] = raRig(RA_SKEL[k]);
 const RA_FW = 34, RA_FH = 40, RA_FAX = 17, RA_FAY = 38;   // sprite grid; the feet stand on (17, 38)
 const RA_FIG = new Map();
 function raFig(pose, variant = 'p') {
   const key = pose + '|' + variant;
   let f = RA_FIG.get(key);
   if (f) return f;
-  // The poses are written on a lankier frame; this shortens the legs and lengthens the body to
-  // football proportions (hips at 12.4 px, shoulder pads at 23, the helmet's centre at 28.3): the
-  // jersey, not the pants, has to be the colour a player reads as from across the field.
-  const LY = [[0, 0], [2, 2], [8.5, 6.9], [15, 12.4], [23.5, 23], [29, 28.3], [40, 39]];
-  const ry = (y) => { for (let i = 1; i < LY.length; i++) if (y <= LY[i][0]) { const [a, b] = LY[i - 1], [c, d] = LY[i]; return b + (d - b) * (y - a) / (c - a); } return y; };
-  const S0 = RA_SKEL[pose] || RA_SKEL.stand, S = {};
-  for (const [k, v] of Object.entries(S0)) S[k] = !Array.isArray(v) || k === 'ff' || k === 'bf' ? v : Array.isArray(v[0]) ? v.map(([x, y]) => [x, ry(y)]) : [v[0], ry(v[1])];
+  const S = RA_SKEL[pose] || RA_SKEL.stand;
   const W = RA_FW, H = RA_FH, AX = RA_FAX, AY = RA_FAY;
   const g = new Array(W * H).fill('.');
-  const Lx = 0.5, Ly = 0.866;                                    // light: from above, a little in front
-  const tone = (d, t) => (d > 0.42 ? t[2] : d < -0.3 ? t[1] : t[0]);
-  const paint = (fn) => {
+  const Lx = 0.45, Ly = 0.89;                                    // light: from above, a little in front
+  const MAT = { J: 'J', j: 'J', L: 'J', P: 'P', p: 'P', Q: 'P', S: 'S', s: 'S', F: 'F', f: 'F', E: 'F', B: 'B', b: 'B', C: 'C', c: 'C' };
+  const SHADE = { J: 'j', P: 'p', S: 's', F: 'f', B: 'B', C: 'c' };
+  // fn(x, y) at each cell's centre: a code to paint, 0 for nothing, 1 for the part's rim (a cast
+  // shadow in the shade of whatever is already there, or a dark line with `dark`).
+  const paint = (fn, dark) => {
     for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
       const i = gy * W + gx, v = fn(gx + 0.5 - AX, AY - gy - 0.5);
-      if (v === 1) { if (g[i] !== '.') g[i] = 'O'; } else if (v) g[i] = v;
+      if (v === 1) { const c = g[i]; if (c !== '.' && c !== 'O') g[i] = dark ? 'O' : SHADE[MAT[c]] || c; }
+      else if (v) g[i] = v;
     }
   };
   const near = (x, y, a, b) => {
     const dx = b[0] - a[0], dy = b[1] - a[1], u = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1);
-    return [x - a[0] - dx * u, y - a[1] - dy * u];
+    return [x - a[0] - dx * u, y - a[1] - dy * u, u];
   };
-  // A capsule from a to b; `edge` gives it its own dark rim where it lies over something drawn earlier.
-  const limb = (a, b, r, t, edge) => paint((x, y) => {
-    const [dx, dy] = near(x, y, a, b), d = Math.hypot(dx, dy);
-    if (d <= r) return tone((dx * Lx + dy * Ly) / r, t);
-    return edge && d <= r + 0.9 ? 1 : 0;
+  // A capsule from a to b, r0 thick at a and r1 at b, in tones T = [base, shadow, light]: the side
+  // away from the light is in shadow, the side toward it (on a part with a light tone) lit.
+  const limb = (a, b, r0, r1, T, rim, lo = -0.3, hi = 0.6) => paint((x, y) => {
+    const [dx, dy, u] = near(x, y, a, b), r = r0 + (r1 - r0) * u, d = Math.hypot(dx, dy);
+    if (d <= r) { const k = (dx * Lx + dy * Ly) / r; return k < lo ? T[1] : T[2] && k > hi ? T[2] : T[0]; }
+    return rim && d <= r + 0.95 ? 1 : 0;
   });
   const lerp = (a, b, u) => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
-  const TJ = ['J', 'j', 'L'], TP = ['P', 'p', 'Q'], TS = ['S', 's', 'S'], TF = ['F', 'f', 'E'], TB = ['B', 'B', 'b'];
-  const back = (t) => [t[1], t[1], t[0]];
-  const arm = (A, far) => {
-    const [sh, el, hd] = A, mid = lerp(sh, el, 0.8);
-    limb(sh, mid, 1.85, far ? back(TJ) : TJ, !far);
-    limb(mid, el, 1.45, far ? back(TF) : TF, !far);
-    limb(el, hd, 1.3, far ? back(TF) : TF, !far);
-    limb(hd, hd, 1.45, far ? back(TF) : TF, false);
+  const TJ = ['J', 'j', 'L'], TP = ['P', 'p', null], TS = ['S', 's', null], TF = ['F', 'f', null], TB = ['B', 'B', 'b'];
+  const far = (t) => [t[1], t[1], null];
+  const pads = variant === 'p';
+  const arm = (A, isFar) => {
+    const [sh, el, hd] = A, sleeve = lerp(sh, el, pads ? 0.42 : 0.55), T = (t) => (isFar ? far(t) : t);
+    limb(sh, sleeve, pads ? 2.5 : 2, 2, T(TJ), !isFar);
+    limb(sleeve, el, 1.75, 1.55, T(TF), !isFar);
+    limb(el, hd, 1.55, 1.35, T(TF), !isFar);
+    limb(hd, hd, 1.6, 1.6, T(TF), false);
   };
-  const leg = (A, fd, far) => {
-    const [hp, kn, an] = A;
-    const dir = fd || [1, 0], dl = Math.hypot(dir[0], dir[1]) || 1, ux = dir[0] / dl, uy = dir[1] / dl;
-    const sole = [-uy * 0.55, ux * 0.55];                          // toward the sole, off the foot's axis
-    limb([an[0] - ux * 0.7 - sole[0], an[1] - uy * 0.7 - sole[1]], [an[0] + ux * 2.6 - sole[0], an[1] + uy * 2.6 - sole[1]], 1.15, far ? ['B', 'B', 'B'] : TB, !far);
-    limb(kn, an, 1.75, far ? back(TS) : TS, !far);
-    limb(hp, lerp(kn, an, 0.22), 2.7, far ? back(TP) : TP, !far);
+  const leg = (A, fd, isFar) => {
+    const [hp, kn, an] = A, T = (t) => (isFar ? far(t) : t);
+    const dir = fd || [1, 0], dl = Math.hypot(dir[0], dir[1]) || 1;
+    let ux = dir[0] / dl, uy = dir[1] / dl;
+    // A toe pointed into the ground bends up at the ankle until it rests on it.
+    if (an[1] + uy * 2.7 < 1.1) { uy = Math.min(0, (1.1 - an[1]) / 2.7); ux = Math.sign(ux || 1) * Math.sqrt(Math.max(0, 1 - uy * uy)); }
+    const sole = [-uy * 0.5, ux * 0.5];                            // toward the sole, off the foot's axis
+    limb([an[0] - ux * 0.8 - sole[0], an[1] - uy * 0.8 - sole[1]], [an[0] + ux * 2.7 - sole[0], an[1] + uy * 2.7 - sole[1]], 1.2, 1.05, isFar ? ['B', 'B', null] : TB, !isFar);
+    limb(lerp(kn, an, 0.1), an, 1.55, 1.25, T(TS), !isFar);
+    limb(hp, lerp(kn, an, 0.2), 2.55, 1.95, T(TP), !isFar);
   };
   arm(S.ba, true);
   leg(S.bl, S.bf, true);
-  limb(S.h, S.h, 3.6, TP, false);                                  // seat of the pants
-  // Torso: hips to shoulder pads along the spine, a waistband of pants at the bottom.
+  // Torso: from the hips up the spine. The seat and waist are pants; above them the jersey, deeper at
+  // the chest; on a player the shoulder pads stand out over it front and back.
   {
     const [hx, hy] = S.h, [sx, sy] = S.s, ax = sx - hx, ay = sy - hy, len = Math.hypot(ax, ay) || 1;
     const ux = ax / len, uy = ay / len, px = uy, py = -ux;
     paint((x, y) => {
-      const rx = x - hx, ry = y - hy, v = (rx * ux + ry * uy) / len, u = rx * px + ry * py;
-      if (v < -0.12 || v > 1.14) return 0;
-      let hw = 4.5 + 2.2 * clamp(v, 0, 1);
-      if (v > 0.84) hw *= 1 - Math.pow((v - 0.84) / 0.3, 2) * 0.6;
-      if (v < 0) hw *= 1 + v * 2.5;
-      if (Math.abs(u) > hw) return 0;
-      return tone((u / hw) * 0.75 + (v - 0.45) * 0.6, v < 0.1 ? TP : TJ);
+      const rx = x - hx, ry = y - hy, v = (rx * ux + ry * uy) / len, w = rx * px + ry * py;
+      if (v < -0.3 || v > 1.16) return 0;
+      let hf, hb;
+      if (v < 0.22) { hf = 3.6; hb = 3.9; }
+      else if (v < 0.7) { const q = (v - 0.22) / 0.48; hf = 3.6 + q * 1.7; hb = 3.9 + q * 1.5; }
+      else { hf = pads ? 7 : 5.4; hb = pads ? 6.8 : 5.4; }
+      if (v > 0.96) { const q = (v - 0.96) / 0.2, k = Math.sqrt(Math.max(0, 1 - q * q)); hf *= k; hb *= k; }
+      if (v < 0) { const q = -v / 0.3, k = Math.sqrt(Math.max(0, 1 - q * q)); hf *= k; hb *= k; }
+      if (w > hf || w < -hb) return 0;
+      if (v < 0.17) return w < -hb * 0.5 ? 'p' : 'P';
+      if (pads && v > 0.88 && w > -hb * 0.2) return 'L';            // the shoulders catch the light
+      return w < -hb * 0.58 ? 'j' : 'J';
     });
   }
   leg(S.fl, S.ff, false);
-  limb(lerp(S.s, S.c, 0.25), lerp(S.s, S.c, 0.6), 1.7, TF, false);  // neck
-  // Head: a helmet with its stripe, the face in the opening and the mask's bars in front; officials
-  // get a face under a white cap with a brim.
+  limb(lerp(S.s, S.c, 0.2), lerp(S.s, S.c, 0.55), 1.7, 1.6, TF, false);   // neck
+  // Head, tilted `hr` degrees forward (or as the neck leans): x forward, y up in its own frame. A tilt
+  // under 14 degrees is drawn upright on the same sub-pixel footing in every frame, so the helmet, its
+  // mask and its logo come out the same pixels frame to frame instead of shimmering. A head tilted
+  // further (diving, lying down) keeps its exact place, which that pose's mask was laid out for.
+  const hl = [];                                                    // the shell's cells: index, x, y in the head's frame
   {
-    const [cx, cy] = S.c;
+    const lean0 = S.hr != null ? S.hr * Math.PI / 180 : Math.atan2(S.c[0] - S.s[0], S.c[1] - S.s[1]) * 0.6;
+    const up = Math.abs(lean0) < 14 * Math.PI / 180, lean = up ? 0 : lean0;
+    const cx = up ? Math.round(S.c[0] - 0.9) + 0.9 : S.c[0], cy = up ? Math.round(S.c[1] - 0.5) + 0.5 : S.c[1];
+    const cs = Math.cos(lean), sn = Math.sin(lean);
+    const loc = (x, y) => { const dx = x - cx, dy = y - cy; return [dx * cs - dy * sn, dx * sn + dy * cs]; };
     if (variant === 'm') paint((x, y) => {                          // trainers: bare head, short hair
-      const lx = x - cx, ly = y - cy, d = Math.hypot(lx / 3.3, ly / 3.7);
-      if (d > 1) return d <= 1.27 ? 1 : 0;
-      if (ly > 1.1 || (lx < -1.2 && ly > -1.2)) return tone(lx / 3.3 * 0.5 + ly / 3.7 * 0.5, ['C', 'c', 'C']);
-      if (lx > 1.6 && lx < 2.6 && ly > -0.6 && ly < 0.4) return 'e';
-      return tone((lx / 3.3) * Lx + (ly / 3.7) * Ly, TF);
-    });
-    else if (variant === 'r') paint((x, y) => {
-      const lx = x - cx, ly = y - cy, d = Math.hypot(lx / 3.3, ly / 3.7);
-      if (ly > 0.9 && ly < 2.1 && lx > 0.8 && lx < 5) return 'C';
-      if (d > 1) return d <= 1.27 ? 1 : 0;
-      if (ly > 0.9) return tone(lx / 3.3 * 0.5 + 0.5, ['C', 'c', 'C']);
-      if (lx > 1.6 && lx < 2.6 && ly > -0.6 && ly < 0.4) return 'e';
-      return tone((lx / 3.3) * Lx + (ly / 3.7) * Ly, TF);
-    });
+      const [lx, ly] = loc(x, y), d = Math.hypot(lx / 3.4, ly / 3.8);
+      if (d > 1) return d <= 1.28 ? 1 : 0;
+      if (ly > 1.2 || (lx < -1.3 && ly > -1.3)) return ly > 2.4 ? 'c' : 'C';
+      if (lx > 1.5 && lx < 2.5 && ly > -0.5 && ly < 0.5) return 'e';
+      return lx < -0.4 || ly < -2.4 ? 'f' : 'F';
+    }, true);
+    else if (variant === 'r') paint((x, y) => {                     // officials: a white cap with a brim
+      const [lx, ly] = loc(x, y), d = Math.hypot(lx / 3.4, ly / 3.8);
+      if (ly > 0.9 && ly < 2.1 && lx > 0.8 && lx < 5.2) return 'C';
+      if (d > 1) return d <= 1.28 ? 1 : 0;
+      if (ly > 0.9) return ly > 3 || lx < -2.6 ? 'c' : 'C';
+      if (lx > 1.5 && lx < 2.5 && ly > -0.5 && ly < 0.5) return 'e';
+      return lx < -0.4 || ly < -2.4 ? 'f' : 'F';
+    }, true);
     else paint((x, y) => {
-      const lx = x - cx, ly = y - cy, nx = lx / 4.6, ny = ly / 4.3, d = Math.hypot(nx, ny);
-      if (lx > 3.3 && lx < 5.7 && ly > -3.7 && ly < 0.6 && (lx > 4.7 || (ly > -1.7 && ly < -0.8) || ly < -2.9)) return 'm';
-      if (d > 1) return d <= 1.22 ? 1 : 0;
-      if (lx > 1.2 && lx < 4.1 && ly > -3.3 && ly < 0.6) return lx > 2.1 && lx < 3.1 && ly > -0.6 && ly < 0.4 ? 'e' : ly < -2 ? 'f' : 'F';
-      // One solid shell colour: no stripe, no light/shadow tones (2026-09-28, user: "the players have
-      // two colors on their helmet, make the helmet 1 solid color"). The mask and outline stay.
+      const [lx, ly] = loc(x, y);
+      // The facemask, light grey, one pixel thick with dark gaps between its bars: a front bar standing off
+      // the face, joined to the brow at the top, a short bar across at the nose and one under the chin.
+      // (Sized to the upright head's pixel rows, which fall on whole numbers here.)
+      if (lx > 5.1 && lx < 6.1 && ly > -4.5 && ly < 1.5) return 'm';
+      if (lx > 4.1 && lx < 6.1 && ((ly > 0.5 && ly < 1.5) || (ly > -2.5 && ly < -1.5))) return 'm';
+      if (lx > 2.1 && lx < 6.1 && ly > -4.5 && ly < -3.5) return 'm';
+      const nx = (lx + 0.5) / 5.2, ny = (ly - 0.35) / 4.8, d = Math.hypot(nx, ny);
+      if (d > 1) return d <= 1.18 ? 1 : 0;
+      // The opening: the brow's shadow across its top, the eye under it, the face (shaded toward the
+      // ear and at the chin), the jaw pad of the shell below.
+      if (lx > 0.9 && ly > -3.5 && ly < 0.5) return ly > -0.5 ? 'k' : lx > 2.1 && lx < 3.1 && ly > -1.5 ? 'e' : lx < 2.1 || ly < -2.5 ? 'f' : 'F';
+      hl.push((AY - y - 0.5) * W + (x + AX - 0.5), lx, ly);          // (where on the helmet's side it is, for the logo)
       return 'H';
-    });
+    }, true);
   }
   arm(S.fa, false);
+  // A lone pixel of a tone in a patch of another tone of the same colour takes the patch's tone.
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? '.' : g[y * W + x]);
+  for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+    const c = g[gy * W + gx], m = MAT[c];
+    if (!m) continue;
+    const nb = [at(gx - 1, gy), at(gx + 1, gy), at(gx, gy - 1), at(gx, gy + 1)].filter((q) => MAT[q] === m);
+    if (nb.length >= 3 && !nb.includes(c)) {
+      const cnt = {}; for (const q of nb) cnt[q] = (cnt[q] || 0) + 1;
+      g[gy * W + gx] = Object.keys(cnt).sort((p, q) => cnt[q] - cnt[p])[0];
+    }
+  }
   // Outline: every empty cell touching the figure.
   const out = g.slice();
   for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
@@ -2231,10 +2375,19 @@ function raFig(pose, variant = 'p') {
   }
   // Where the number goes: on the jersey, a little behind the middle of the back.
   let num = null;
-  if (!S.noNum) { const c = lerp(S.h, S.s, 0.58); num = [Math.round(AX + c[0] - 0.9), Math.round(AY - c[1] - 2.5)]; }
-  f = { g: out, W, H, ax: AX, ay: AY, num };
+  if (!S.noNum) { const c = lerp(S.h, S.s, 0.56); num = [Math.round(AX + c[0] - 1.1), Math.round(AY - c[1] - 2.5)]; }
+  f = { g: out, W, H, ax: AX, ay: AY, num, hl };
   RA_FIG.set(key, f);
   return f;
+}
+
+// Every player frame is rasterised ahead of time, a few at a time while the page is idle, so the first
+// plays drawn don't stop to build them (82 frames at 1.5-2 ms each; the colouring per uniform is cheap).
+{
+  const keys = Object.keys(RA_SKEL), idle = window.requestIdleCallback || ((f) => setTimeout(() => f({ timeRemaining: () => 6 }), 60));
+  let i = 0;
+  const step = (dl) => { while (i < keys.length && dl.timeRemaining() > 2) raFig(keys[i++], 'p'); if (i < keys.length) idle(step); };
+  idle(step);
 }
 
 // Cheerleaders: drawn as 12-pixel maps and doubled.
@@ -2250,9 +2403,12 @@ const RA_SPR = new Map();
 const RA_RULER = new Map();
 const raRGB = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 function raSprite(pose, pal, flip, num) {
-  const key = pose + '|' + (pal.variant || 'p') + '|' + (pal.key || (pal.key = Object.entries(pal).filter(([k]) => k.length === 1).map((e) => e.join(':')).join())) + '|' + (flip ? 1 : 0) + '|' + (num ?? '');
+  const key = pose + '|' + (pal.variant || 'p') + '|' + (pal.key || (pal.key = Object.entries(pal).filter(([k]) => k.length === 1).map((e) => e.join(':')).join())) + '|' + (flip ? 1 : 0) + '|' + (num ?? '') + '|' + (pal.logoKey || '');
   let c = RA_SPR.get(key);
-  if (c) return c;
+  if (c) { RA_SPR.delete(key); RA_SPR.set(key, c); return c; }       // (the most recently used last)
+  // A stride is eight frames for every man on the field and both ways he can face, so the cache is
+  // trimmed of the frames least recently drawn rather than left to grow for the whole game.
+  if (RA_SPR.size >= 2400) for (const k of [...RA_SPR.keys()].slice(0, 600)) RA_SPR.delete(k);
   c = document.createElement('canvas');
   const g = c.getContext('2d');
   const map = RA_MAPS[pose];
@@ -2296,6 +2452,25 @@ function raSprite(pose, pal, flip, num) {
         }
       }
     }
+    // The team's helmet logo, painted onto the shell's cells only, each from where it sits on the side
+    // of the helmet: an animal or a bolt turns with the player so it faces forward on both sides, as on
+    // real helmets; letters never read backwards; a logo worn on one side only shows on that side.
+    const lg = pal.logo;
+    if (lg && f.hl.length && !(lg.side === 'r' && flip)) {
+      const rgbL = lg.rgb || (lg.rgb = Object.fromEntries(Object.entries(lg.c).map(([k, v]) => [k, raRGB(v)])));
+      for (let k = 0; k < f.hl.length; k += 3) {
+        const i = f.hl[k];
+        if (f.g[i] !== 'H') continue;                               // (an arm across the helmet)
+        let u = Math.floor(f.hl[k + 1] - RA_LOGO_BOX[0]);
+        const v = Math.floor(RA_LOGO_BOX[1] - f.hl[k + 2]);
+        if (u < 0 || v < 0 || u >= RA_LOGO_W || v >= RA_LOGO_H) continue;
+        if (lg.text && flip) u = RA_LOGO_W - 1 - u;
+        const ch = lg.px[v][u];
+        if (ch === '.') continue;
+        const x = i % f.W, y = (i - x) / f.W;
+        set(flip ? f.W - 1 - x : x, y, rgbL[ch]);
+      }
+    }
     if (pal.cross && f.num && rgb.R) {
       const cx0 = f.num[0], cy0 = f.num[1] + 2;
       for (const [dx, dy] of [[0, -1], [-1, 0], [0, 0], [1, 0], [0, 1]]) {
@@ -2316,7 +2491,7 @@ function raBallSprite(k) {
   const S = 16, c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d'), img = g.createImageData(S, S), d = img.data;
-  const ang = (k * Math.PI) / 8, cs = Math.cos(ang), sn = Math.sin(ang), A = 4.8, B = 2.9;
+  const ang = (k * Math.PI) / 8, cs = Math.cos(ang), sn = Math.sin(ang), A = 4.2, B = 2.55;   // (a little smaller since the 2026-09-29 redraw: it sits in the hands)
   const inside = (x, y) => { const u = x * cs + y * sn, v = -x * sn + y * cs; return (u / A) ** 2 + (v / B) ** 2 <= 1; };
   const put = (i, c3) => { d[i] = c3[0]; d[i + 1] = c3[1]; d[i + 2] = c3[2]; d[i + 3] = 255; };
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
@@ -2550,6 +2725,52 @@ const RA_KITS = {
   TEN: { home: { jersey: '#4495D2', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#4495D2' } }, // Mar 2026 Oilers-blue rebrand: white helmet (and facemask) for the first time
   WSH: { home: { jersey: '#5A1414', pants: '#FFB612', helmet: '#5a1414', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFB612', helmet: '#5a1414', num: '#5A1414' } }, // Apr 2026 rebrand: gloss-burgundy helmet, gold facemask, gold pants both ways
 };
+// Helmet logos (2026-09-29, user: "i know we dont have a lot of pixels to work with but lets take a run
+// at making logos on the helmets"). Each is drawn facing forward (right) in a 7-by-7 box on the side
+// of the shell behind the face opening (RA_LOGO_BOX: its top-left corner in the head's own frame),
+// one character a pixel, '.' the shell. On an upright helmet the shell's curve trims five cells, the
+// top-left corner (row 0 columns 0-1, rows 1-2 column 0) and row 6 column 0; the rest all show.
+// `text` logos (letters) never mirror; the rest turn with the player so they face forward on both
+// sides. `side: 'r'`: worn on the right side only (the Steelers), so seen only when he faces right.
+// The Browns' helmet has no logo. 2026 designs: the Titans' sword-T on a light-blue shield, the
+// Commanders' gold W, the Falcons' falcon on low-gloss black, the Ravens' raven head (sources:
+// docs/sunday.md, 2026-09-29). Two are stand-ins: the Texans' bull is drawn head-on, horns up (the
+// real one is side-on, and at seven pixels a side-on bull read as a red heart), and the Jets' wordmark
+// has four letters too many for seven pixels, so they wear a jet.
+const RA_LOGO_BOX = [-5.9, 4.5], RA_LOGO_W = 7, RA_LOGO_H = 7;
+const RA_LOGO = {
+  ARI: { c: { r: '#97233F', k: '#101010', y: '#FFB612', w: '#ffffff' }, px: ['...rr..', '..rrr..', '.rrrrk.', 'rrrrkwy', '.rrrkyy', '..rrr..', '...r...'] },
+  ATL: { c: { r: '#A71930', w: '#ffffff' }, px: ['....rrr', '...rrw.', 'rrrrrr.', '.rrrrrw', '..rr...', '.rr....', '.r.....'] },
+  BAL: { c: { p: '#5b3fb0', g: '#C9A227', w: '#ffffff', q: '#b8a6e0' }, px: ['..ppp..', '.ppppp.', '.pppwpp', '.pgpppq', '.pggppq', '..ppp..', '.......'] },
+  BUF: { c: { b: '#00338D', r: '#C60C30' }, px: ['.......', 'rrrrr..', '.bbbbrr', 'bbbbbbb', '.bbbbbb', '.b.b.bb', '.b.b...'] },
+  CAR: { c: { k: '#101820', b: '#0085CA', w: '#ffffff' }, px: ['..b....', '.bkbbb.', '.bkkkkb', '.bkbkkk', '.bkkkk.', '..bkww.', '...bb..'] },
+  CHI: { c: { o: '#C83803' }, text: 1, px: ['...ooo.', '..oo.oo', '.oo....', '.oo....', '.oo....', '..oo.oo', '...ooo.'] },
+  CIN: { c: { o: '#FB4F14' }, px: ['..ooo.o', '.oo..oo', 'oo..oo.', 'o..oo..', '..oo..o', '.oo..oo', 'oo..oo.'] },
+  DAL: { c: { n: '#041E42' }, px: ['...n...', '...n...', '..nnn..', 'nnnnnnn', '.nnnnn.', '.nn.nn.', '.n...n.'] },
+  DEN: { c: { o: '#FB4F14', w: '#ffffff' }, px: ['...oo..', '..oooo.', '.ooowoo', '.oooooo', '..ooooo', '..oo.oo', '..o....'] },
+  DET: { c: { b: '#0076B6' }, px: ['.....bb', '....bbb', '..bbbbb', '.bbbbb.', 'bb.b.bb', 'b.....b', '.......'] },
+  GB: { c: { g: '#203731', w: '#ffffff' }, text: 1, px: ['.ggggg.', 'gwwwwwg', 'gwggggg', 'gwggwwg', 'gwgggwg', 'gwwwwwg', '.ggggg.'] },
+  HOU: { c: { r: '#A71930', w: '#ffffff' }, px: ['.......', '.w....w', '.ww..ww', '..rrrr.', '.rrrrrr', '..rrrr.', '...rr..'] },
+  IND: { c: { b: '#002C5F' }, px: ['..bbbb.', '.bbbbbb', '.bb..bb', '.b....b', '.b....b', '.b....b', '.bb..bb'] },
+  JAX: { c: { g: '#D7A22A', t: '#006778', k: '#101820' }, px: ['.gg....', '.ggggg.', 'gggkggg', '.gggggg', '..ggtgg', '...ggg.', '.......'] },
+  KC: { c: { w: '#ffffff', r: '#E31837' }, px: ['.......', '.wwww..', '.wrwrw.', '.wrrwrw', '.wrwrw.', '.wwww..', '.......'] },
+  LV: { c: { k: '#101820', w: '#ffffff' }, text: 1, px: ['.kkkkk.', '.kwwwk.', '.kwkwk.', '.kkkkk.', '.kkkkk.', '..kkk..', '...k...'] },
+  LAC: { c: { y: '#FFC20E', b: '#0080C6' }, px: ['.......', 'bbbbb..', 'byyyyb.', '.byyyyb', '...byyy', '....byy', '.....by'] },
+  LAR: { c: { y: '#FFD100' }, px: ['..yyyyy', '.yy....', 'yy.yy..', 'y.y..y.', 'y..yy..', '.yy....', '.......'] },
+  MIA: { c: { a: '#008E97', o: '#FC4C02' }, px: ['.......', '..ooo..', '.ooaaa.', 'ooaaaaa', '.aaa.oo', '..ooo..', '.......'] },
+  MIN: { c: { w: '#ffffff', g: '#FFC62F' }, px: ['.......', '.....ww', '....wwg', '...wwg.', '.wwwg..', 'wwgg...', 'gg.....'] },
+  NE: { c: { n: '#002244', r: '#C60C30', w: '#ffffff' }, px: ['.......', '..rrrr.', '.rwwwnn', 'rwnnnnn', '.nnnnnn', '..nnnn.', '.......'] },
+  NO: { c: { k: '#101820' }, px: ['.......', '...k...', '..kkk..', 'k.kkk.k', 'kk.k.kk', '.kkkkk.', '...k...'] },
+  NYG: { c: { w: '#ffffff' }, text: 1, px: ['.......', '.......', '.......', 'ww..w.w', 'w.w.w.w', 'w.w..ww', '....ww.'] },
+  NYJ: { c: { w: '#ffffff' }, px: ['...w...', '...ww..', '.w..ww.', '.wwwwww', '.w..ww.', '...ww..', '...w...'] },
+  PHI: { c: { s: '#A5ACAF', w: '#ffffff' }, px: ['..sssss', '.ssswww', 'sswww..', 'sww....', 'w......', '.......', '.......'] },
+  PIT: { c: { w: '#ffffff', k: '#101820', y: '#FFB612', r: '#C8102E', b: '#00539B' }, side: 'r', text: 1, px: ['..www..', '.wwwyw.', 'wwwwwww', 'wkkkwrw', 'wwwwwww', '.wwwbw.', '..www..'] },
+  SF: { c: { r: '#AA0000', w: '#ffffff' }, text: 1, px: ['.rrrrr.', 'rwwrwwr', 'rwrrwrr', 'rwwrwwr', 'rrwrwrr', 'rwwrwrr', '.rrrrr.'] },
+  SEA: { c: { s: '#A5ACAF', w: '#ffffff', g: '#69BE28' }, px: ['.......', '..ssss.', '.ssgssw', 'sssssww', '.sss...', '.......', '.......'] },
+  TB: { c: { r: '#D50A0A', w: '#ffffff', k: '#1e1b18' }, px: ['.rrrrrk', 'rrwwrrk', 'rwwwrrk', 'rrwrrrk', '.rrrr.k', '......k', '.......'] },
+  TEN: { c: { b: '#4B92DB', w: '#ffffff' }, text: 1, px: ['..bbb..', '.bbbbb.', 'bbbbbbb', 'bwwwwwb', 'bbbwbbb', '.bbwbb.', '..bbb..'] },
+  WSH: { c: { y: '#FFB612' }, text: 1, px: ['.......', '.......', '.......', 'y.....y', 'y..y..y', 'y.y.y.y', '.y...y.'] },
+};
 // The helmet shell, by ESPN abbreviation, derived from RA_KITS so there is one source of truth (a
 // team's helmet doesn't change between its home and road sets). An abbreviation not in RA_KITS falls
 // back to its primary colour, same as raKit below.
@@ -2584,6 +2805,10 @@ function raKit(homeT, roadT) {
   const withExtras = (e, t, k) => ({ ...e, w: [t.alt, e.J, '#ffffff', '#111111'].find((c) => raContrast(c, e.H) >= 1.9) || '#ffffff', S: brand(t, k) });
   return { home: withExtras(home, homeT, KH), road: withExtras(road, roadT, KR) };
 }
+// Facemasks are one light grey on every helmet (2026-09-29, user: "white face masks would help", then
+// "Lets go with light Grey face masks"): the one bright line in front of the face, whatever the shell's
+// colour, with the dark gaps between its bars keeping it off white and silver shells.
+const RA_MASK = '#d0d4d9';
 const raShade = (c) => mixHex(c, '#0a0c18', lum(c) > 0.6 ? 0.26 : 0.42);
 const raLight = (c) => (lum(c) > 0.6 ? '#ffffff' : mixHex(c, '#ffffff', lum(c) < 0.03 ? 0.22 : 0.3));
 const RA_SKIN = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69', '#6b4226'];
@@ -2625,9 +2850,11 @@ function raPalette(sc, a) {
     const idx = a.idx ?? sc.actors.indexOf(a);
     const F = RA_SKIN[(idx * 7 + (a.side === 'o' ? 1 : 3)) % RA_SKIN.length];
     const { J, P, H, S } = kit;
+    const abbr = (t.abbr || '').toUpperCase();
     a.pal = {
+      logo: RA_LOGO[abbr] || null, logoKey: RA_LOGO[abbr] ? abbr : '',
       J, j: raShade(J), L: raLight(J), P, p: raShade(P), Q: raLight(P), H, h: raShade(H), l: raLight(H), w: kit.w,
-      m: raContrast('#9aa0a8', H) < 1.6 ? '#2b2f38' : '#9aa0a8', F, f: raShade(F), E: raLight(F), S, s: raShade(S),
+      m: RA_MASK, k: '#1b1512', F, f: raShade(F), E: raLight(F), S, s: raShade(S),
       B: '#17181d', b: '#44464e', e: '#141414', n: kit.n, O: '#0d0e13',
     };
     a.num = raNumber(a.role, `${t.id}:${a.role}:${idx}`);
@@ -2665,7 +2892,8 @@ function raHoistLift(h, t) {
   return y;
 }
 // What a player is doing at time t: a scripted action (the throw, the catch, the kick, the hold),
-// set in his stance before the snap, blocking, running (a four-frame stride) or standing.
+// set in his stance before the snap, blocking, running or standing. The frame drawn for it, with the
+// in-betweens, is raFrame's.
 function raPoseAt(sc, a, t) {
   const [x, z] = raPos(a, t), [ox, oz] = raPos(a, Math.max(0, t - 0.1));
   const speed = Math.hypot(x - ox, z - oz) / 0.1;
@@ -2673,13 +2901,70 @@ function raPoseAt(sc, a, t) {
   if (a.acts) for (const [t0, t1, p] of a.acts) if (t >= t0 && t < t1) return p;
   if (a.set && speed < 0.5 && !sc.huddle && ((t < sc.tS && t > sc.tS - 1.2) || (sc.freeze && t < sc.freeze && t >= sc.tS))) return a.set;
   if (['OL', 'DL', 'TE'].includes(a.role) && t >= sc.tS && t < (sc.tEnd ?? sc.T) && speed < 3.2 && !sc.huddle && !sc.timeout) return 'block';
-  if (speed > 0.8) return RA_RUN[Math.floor(t * (speed < 3.5 ? 5 : speed < 7 ? 8 : 10.5) + (a.phase || 0) * 4) % 4];
+  if (speed > 0.8) return 'run';
   return 'stand';
 }
-// Where the ball sits in a man's hands, by pose (sprite pixels, facing right, up from the ground).
-const RA_HOLD = { stand: [4, 16], run1: [4.5, 16], run2: [4.5, 17], run3: [4.5, 16], run4: [4.5, 17], gun: [5, 17.6], qbUnder: [6.4, 12.6], throw1: [-3.4, 29], throw2: [6.8, 17],
-  catch: [5, 31], down: [11.5, 3], hold: [6.8, 10], hold2: [6.4, 4.2], snap: [8, 1.6], block: [6, 17], ready: [4, 11], stance: [6.5, 1.4], kick: [3, 17], kick0: [5.5, 18.5], punt: [4, 17],
-  dance: [2.6, 32], cheer: [3.8, 32.5] };
+// How far through his stride a man is. Each gait covers so many yards a stride; the phase is carried
+// from one drawn frame to the next, so a change of speed changes the cadence without jumping the legs
+// (a jump back in time, or a first look, starts it from the clock).
+const RA_STRIDE_YD = { walk: 1.9, jog: 3, run: 4.2, carry: 4, back: 1.7, crun: 2.4 };
+function raGaitFrame(a, t, gait, speed) {
+  const rate = speed / RA_STRIDE_YD[gait], c = a.gph;
+  const ph = c && t >= c.t && t - c.t <= 0.3 ? c.ph + (t - c.t) * rate : t * rate + (a.phase || 0);
+  a.gph = { t, ph };
+  return gait + (1 + ((Math.floor(ph * RA_STRIDE) % RA_STRIDE) + RA_STRIDE) % RA_STRIDE);
+}
+// The frame drawn for a pose (2026-09-29 design pass): a runner's stride (walking, jogging, running,
+// carrying the ball, or backpedalling when he moves against the way he faces), a stumble and a fall
+// before a man is down and a dive for the one who tackles him, getting back up through his knees,
+// taking a knee, the pass's follow-through, the ball pulled in after a catch, a blocker's feet
+// chopping, the ball at the chest of a man standing with it, and breathing, or hands on hips after
+// the whistle, for everyone standing around. `o`: speed, held (he has the ball), back (moving
+// against his facing), after (the play is over).
+function raFrame(sc, a, t, pose, o) {
+  const dn = a.downAt, up = a.upAt, lying = dn != null && !(up != null && t > up);
+  if (lying && a.kneels) { if (t > dn + 0.05) return 'kneel'; if (t > dn - 0.15) return 'crouch'; }
+  else if (lying && a.tackler) { if (t > dn + 0.1) return 'down'; if (t > dn - 0.3) return 'dive'; }
+  else if (lying) { if (t > dn + 0.26) return 'down'; if (t > dn + 0.1) return 'fall2'; if (t > dn - 0.1) return 'fall1'; }
+  if (dn != null && up != null && t > up && t < up + 0.4 && !a.kneels) return t < up + 0.18 ? 'fall2' : 'rise';
+  if (pose === 'throw2' || pose === 'catch') {
+    const act = a.acts?.find(([t0, t1, q]) => q === pose && t >= t0 && t < t1);
+    if (act && pose === 'throw2' && t > act[0] + 0.1) return 'throw3';
+    if (act && pose === 'catch' && t > act[1] - 0.12) return 'secure';
+    return pose;
+  }
+  if (pose === 'block') return Math.floor(t * 4 + (a.phase || 0) * 2) % 2 ? 'block2' : 'block';
+  if (pose === 'run') {
+    const gait = o.back ? 'back' : o.held ? (o.speed < 2.4 ? 'walk' : 'carry') : o.speed < 2.4 ? 'walk' : o.speed < 5.6 ? 'jog' : 'run';
+    return raGaitFrame(a, t, gait, o.speed);
+  }
+  if (pose === 'stand') {
+    if (o.held) return a.role === 'QB' ? 'qbSet' : 'secure';
+    if (o.after && (a.phase || 0) > 0.6) return 'hips';                // (about two in five)
+    return Math.floor(t * 0.9 + (a.phase || 0) * 2) % 2 ? 'stand2' : 'stand';
+  }
+  return pose;
+}
+// Where the ball sits in a man's hands, by frame (sprite pixels, facing right, up from the ground):
+// in the near hand, between both hands for a two-handed hold, in the throwing (far) hand for a pass,
+// and on the ground under the center's hands for the snap.
+const RA_HOLD = {};
+{
+  const two = ['catch', 'secure', 'qbSet', 'gun', 'qbUnder', 'hold', 'hold2', 'stance'], far = ['throw1', 'throw2', 'throw3'];
+  for (const [k, S] of Object.entries(RA_SKEL)) {
+    const n = S.fa[2], f = S.ba[2];
+    RA_HOLD[k] = far.includes(k) ? [f[0] + 0.4, f[1] + 0.6] : two.includes(k) ? [(n[0] + f[0]) / 2 + 0.6, (n[1] + f[1]) / 2 + 0.3] : [n[0] + 0.6, n[1] + 0.4];
+  }
+  RA_HOLD.snap = [8, 1.6];
+}
+// A man's shadow on the grass: a small pixel ellipse under his feet, longer under a man lying down,
+// smaller the higher he is off the ground.
+const RA_FLAT = new Set(['down', 'dive', 'fall2']);
+function raShadow(g, X, Y, lift, flat) {
+  const k = clamp(1 - lift / (26 * RA_K), 0.55, 1), w = Math.round((flat ? 14 : 9) * k), w1 = Math.round((flat ? 11 : 6) * k);
+  g.fillStyle = 'rgba(0,30,0,0.35)';
+  g.fillRect(X - w1, Y - 2, 2 * w1 + 1, 1); g.fillRect(X - w, Y - 1, 2 * w + 1, 2); g.fillRect(X - w1, Y + 1, 2 * w1 + 1, 1);
+}
 // Goalposts in three pieces so the ball can pass between them: the far upright, the crossbar with
 // the offset post, the near upright. Seen from the side every part of the posts would stack on one
 // screen column, so the uprights are drawn in a little perspective (the far one shifted toward
@@ -2737,6 +3022,11 @@ function raDraw(g, W, st) {
     items.push({ y: yN, draw: () => post(xn, yN - bar, yN - top) });
   }
   const defBall = sc.ball.some((q) => q.a && q.a.side === 'd' && t >= q.t0);   // a turnover: the defense has it
+  const b = raBall(sc, t);
+  // Until the pass is away (half a second into anything else) the defensive backs and linebackers
+  // drop facing the quarterback, backpedalling rather than turning to run.
+  if (sc.drop === undefined) { const th = sc.actors.find((q) => q.role === 'QB' && q.side === 'o')?.acts?.find((q) => q[2] === 'throw2'); sc.drop = th ? th[0] : sc.tS + 0.5; }
+  const after = t > (sc.tEnd ?? sc.T) + 0.6;
   for (const a of sc.actors) {
     if (a.showFrom != null && t < a.showFrom) continue;
     const [x, z] = raPos(a, t);
@@ -2763,27 +3053,41 @@ function raDraw(g, W, st) {
     // The QB faces the line of scrimmage for the whole play, dropping back or rolling out included
     // (2026-09-28, user), until the defense has the ball or the play is over.
     if (a.role === 'QB' && a.side === 'o' && !sc.huddle && !sc.timeout && !sc.halftime && !inHuddle && t < (sc.tEnd ?? sc.T) && !defBall) a.face = attackRight ? 'r' : 'l';
+    // (Once he has to sprint to stay with his man he turns and runs, and stays turned.)
+    if ((a.role === 'DB' || a.role === 'LB') && a.side === 'd') {
+      if (a.turnAt === undefined) {
+        a.turnAt = Infinity;
+        for (let q = sc.tS + 0.1; q < sc.drop; q += 0.05) { const [x1, z1] = raPos(a, q), [x0, z0] = raPos(a, q - 0.1); if (Math.hypot(x1 - x0, z1 - z0) >= 0.65) { a.turnAt = q; break; } }
+      }
+      if (t > sc.tS && t < Math.min(sc.drop, a.turnAt) && !defBall && !sc.huddle && !sc.timeout) a.face = attackRight ? 'l' : 'r';
+    }
+    // Linemen face the man in front of them while they block: the offensive line kick-slides back in
+    // pass protection instead of turning round, and a pass rusher driven back still faces the passer.
+    const inPlay = t >= sc.tS && t < (sc.tEnd ?? sc.T) && !sc.huddle && !sc.timeout && !defBall;
+    if (inPlay && ((a.role === 'OL' && a.side === 'o') || (['OL', 'DL', 'TE'].includes(a.role) && speed < 3.2))) a.face = (a.side === 'o') === attackRight ? 'r' : 'l';
+    const back = speed > 0.8 && ((sx - px > 0.25 * K && a.face === 'l') || (px - sx > 0.25 * K && a.face === 'r'));   // moving against his facing
     // (A hoisted kicker is drawn after the men under him.)
     items.push({ y: sy + (a.hoist && t >= a.hoist.t0 - 0.3 && t <= a.hoist.t1 ? 40 : 0), draw: () => {
       const pal = raPalette(sc, a);
       const X = Math.round(sx), Y = Math.round(sy);
-      g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 2, 17, 4); g.fillRect(X - 10, Y - 1, 21, 2);
       const down = a.downAt != null && t > a.downAt + 0.1 && !(a.upAt != null && t > a.upAt);
-      let pose = raPoseAt(sc, a, t);
+      let pose = raFrame(sc, a, t, raPoseAt(sc, a, t), { speed, held: b.held === a, back, after });
       let lift = 0, flip = a.face === 'l';
-      if (a.jumpAt != null && t > a.jumpAt && t < a.jumpAt + 5) {
+      if (a.jumpAt != null && t > a.jumpAt && t < a.jumpAt + 5) {           // jumping around the scorer: a squat between jumps
         lift = Math.round(Math.abs(Math.sin((t - a.jumpAt) * 7)) * 7 * K);
-        if (a.cheer && lift > K) pose = 'cheer';
+        if (a.cheer) pose = lift > K ? 'cheer' : 'crouch';
       }
-      if (a.danceAt != null && t > a.danceAt && !down) {       // the scorer's end-zone dance
-        const ph = Math.floor((t - a.danceAt) * 4);
-        pose = ph % 2 ? 'cheer' : 'dance';
-        flip = Math.floor((t - a.danceAt) * 2) % 2 === 1;
-        lift = ph % 4 === 1 ? 3 * K : 0;
+      if (a.danceAt != null && t > a.danceAt && !down) {       // the scorer's end-zone dance: four steps, then arms up twice
+        const beat = Math.floor((t - a.danceAt) * 4);
+        pose = ['dance2', 'dance3', 'dance2', 'dance3', 'dance', 'cheer', 'dance', 'cheer'][beat % 8];
+        flip = Math.floor(beat / 4) % 2 === 1;
+        lift = beat % 8 === 5 || beat % 8 === 7 ? 3 * K : 0;
       }
-      if (sc.huddle && a.side === 'o' && t > sc.arrived && !down) lift = (Math.floor(t * 2.4 + a.phase * 3) % 2) * K;   // bouncing on their toes (the defense just stands)
-      else if (!down && speed < 0.3 && (a.side === 'o' || a.side === 'd') && t > (sc.tEnd ?? sc.T) + 0.6 && !a.danceAt && !a.jumpAt) lift = Math.floor(t * 1.3 + a.phase * 5) % 3 === 0 ? K : 0;
-      if (a.side === 'r') { pose = speed > 0.8 ? RA_RUN[Math.floor(t * (speed < 3.5 ? 5 : 9)) % 4] : 'stand'; lift = 0; }
+      if (sc.huddle && a.side === 'o' && t > sc.arrived && !down) {   // bouncing on their toes (the defense just stands)
+        const upNow = Math.floor(t * 2.4 + a.phase * 3) % 2;
+        lift = upNow * K; pose = upNow ? 'stand' : 'stand2';
+      }
+      if (a.side === 'r') { pose = raFrame(sc, a, t, speed > 0.8 ? 'run' : 'stand', { speed }); lift = 0; }
       if (a.side === 'c') {
         if (a.danceFrom != null && t > a.danceFrom) {             // a synchronized routine
           const beat = Math.floor((t - a.danceFrom) / 0.32);
@@ -2795,14 +3099,15 @@ function raDraw(g, W, st) {
       if (a.side === 'm') {                                         // trainers face the stretcher between them
         const [qx] = S(...raPos(a.str, t));
         flip = qx < sx;
-        pose = pose === 'hold' ? 'hold' : speed > 0.6 ? RA_CRUN[Math.floor(t * 6 + a.idx) % 4] : 'carry';
+        pose = raPoseAt(sc, a, t) === 'hold' ? 'hold' : speed > 0.6 ? raGaitFrame(a, t, 'crun', speed) : 'carry';
         lift = 0;
       }
       if (a.onStr && t >= a.onStr.from) lift = Math.round(raStrH(a.onStr.str, t) * HK) + 3;   // on the stretcher
       // (Last, so no idle bounce or cheer overrides it.)
       if (a.hoist && t >= a.hoist.t0 && t <= a.hoist.t1) { lift = Math.round(raHoistLift(a.hoist, t) * K); pose = 'cheer'; }
-      else if (a.carrying && t >= a.carrying[0] && t <= a.carrying[1]) { pose = 'cheer'; lift = 0; }   // arms up, holding him
+      else if (a.carrying && t >= a.carrying[0] && t <= a.carrying[1]) { pose = 'signal'; lift = 0; }   // arms straight up, holding him
       a.drawn = { pose, flip, lift };
+      if (!(a.hoist && t >= a.hoist.t0 && t <= a.hoist.t1) && !(a.onStr && t >= a.onStr.from)) raShadow(g, X, Y, lift, RA_FLAT.has(pose));   // (up on shoulders or a stretcher, theirs is his)
       const spr = raSprite(pose, pal, flip, a.num);
       g.drawImage(spr, X - spr.ax, Y - spr.ay - lift);
     } });
@@ -2814,18 +3119,19 @@ function raDraw(g, W, st) {
     items.push({ y: sy, draw: () => {
       const pal = raPalette(sc, a);
       const cheering = sc.tdAt != null && t > sc.tdAt + 0.3 && a.side === sc.tdSide;
-      let pose = Math.abs(vx) > 1.2 * K ? RA_RUN[Math.floor(t * 5 + a.ph) % 4] : 'stand', lift = 0;
-      if (cheering) { lift = Math.round(Math.abs(Math.sin((t + a.ph) * 6)) * 5 * K); if (lift > K) pose = 'cheer'; }
+      // Pacing (a slow walk) or standing and breathing; jumping up and down after their team scores.
+      let pose = Math.abs(vx) > 1.2 * K ? 'walk' + (1 + Math.floor((t * 0.9 + a.ph) * RA_STRIDE) % RA_STRIDE) : Math.floor(t * 0.9 + a.ph) % 2 ? 'stand2' : 'stand', lift = 0;
+      if (cheering) { lift = Math.round(Math.abs(Math.sin((t + a.ph) * 6)) * 5 * K); pose = lift > K ? 'cheer' : 'crouch'; }
       const face = a.amp ? vx > 0 : Math.floor((t + a.ph) / a.flipT) % 2 === 0;
       const X = Math.round(sx), Y = Math.round(sy);
-      g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 1, 17, 2);
+      raShadow(g, X, Y, lift, false);
       const spr = raSprite(pose, pal, !face, a.num);
       g.drawImage(spr, X - spr.ax, Y - spr.ay - lift);
     } });
   }
-  const b = raBall(sc, t);
   let [bx, by] = S(b.x, b.z);
-  const byKey = b.held ? S(...raPos(b.held, t))[1] + 0.5 : by + 0.5;
+  // In the throwing hand, wound up behind the helmet, the ball is behind the passer; otherwise in front.
+  const byKey = b.held ? S(...raPos(b.held, t))[1] + (raPoseAt(sc, b.held, t) === 'throw1' ? -0.5 : 0.5) : by + 0.5;
   if (!sc.noBall) items.push({ y: byKey, draw: () => {
     let yb, xb = bx, k = 0;
     if (b.held) {

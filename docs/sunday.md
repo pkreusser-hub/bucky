@@ -1095,3 +1095,176 @@ the field view, noted at the check: with nothing stored it would also wait for t
 banner, the gate, which is its own behaviour. The one failure is the webfont ink check that fails the same
 way on HEAD), sunday-ff 53/53, pbpdetail 61/61. Bite: main's sd-reenact.js opens on the field and fails
 the default check; the stored-pick check passes on both.
+
+## 2026-09-29 — the 8-bit players redrawn, and animated frame by frame
+
+Perry: "I want you to do a design pass on the 8-bit players in gffl to get them better pixel graphics
+and better animations". All in `sd-reenact.js`; the stage, the camera, the kits and the play staging
+are unchanged.
+
+**The sprites** (`raFig`, same 34×40 grid and foot anchor):
+- **Football proportions, drawn in the chunky three-quarter style retro football games use.** Shoulder
+  pads 14 px of jersey across against a 10 px helmet (11 against 9 before), a tapered waist, longer and
+  slimmer legs, the pants ending under the knee over the socks, the arms hanging from the pads' edges.
+- **The helmet stays one solid shell** (2026-09-28 rule) with the face in its opening, an eye, and the
+  facemask's bars in front. It keeps a dark rim so it separates from the pads.
+- **Clean shading.** Two tones a colour, lit from above and in front, plus a lighter third only on the
+  top of the pads. The far arm and leg sit in shadow. A near arm or leg crossing the body casts a shade
+  in the body's own shadow tone instead of the black rim it had, which put 44 dark cells a frame through
+  the figure. A last pass gives any lone pixel of a tone its neighbours' tone (13 such pixels before).
+- **One rig.** Every frame is rebuilt through `raRig` with fixed bones (thigh 5.9, shin 5.2, upper arm 6,
+  forearm 4.6 px, spine 10), so nothing grows or shrinks between frames (it varied by up to 3.4 px).
+  A pose now gives the hands and feet and which way the elbows and knees bend; the rig places the
+  shoulders and hips and solves the joints. `tl`/`nl` shorten the spine and neck for poses lying flat.
+- **The ball** is a little smaller (it sits in the hands now). A shadow is a pixel ellipse (`raShadow`)
+  that shrinks as a man goes up and is longer under a man lying down. Officials and trainers go through
+  the same rasteriser.
+
+**The animation** (82 frames, 27 before; `raPoseAt` still returns the same poses, `raFrame` picks the
+frame and its in-betweens):
+- **Eight-frame strides** generated from one foot path per gait (`RA_GAITS`, `raGait`): walk, jog, run,
+  carrying the ball, backpedal, and the trainers with the stretcher. The body leans and bobs twice a
+  stride, the arms pump against the legs. The stride's phase is carried from frame to frame against the
+  distance covered (`raGaitFrame`, `RA_STRIDE_YD`), so speeding up changes the cadence and never skips
+  the legs ahead.
+- **The ball carrier** runs with it tucked in his near arm; a man standing with it holds it at his chest.
+- **No moonwalking.** A man moving against the way he faces backpedals. That is the QB's drop, which
+  used to run a forward stride backwards, and now also: the defensive backs and linebackers drop facing
+  the quarterback until the throw (a man who has to sprint turns and runs, and stays turned), and the
+  linemen face their man for the whole snap, kick-sliding back in pass protection (the centre used to
+  turn round), feet chopping while they block.
+- **The pass:** wound up with the ball behind the helmet (drawn behind the passer), the release, a
+  follow-through with the back foot coming up. **The catch:** reach, then pull it in.
+- **Going down:** a stumble and the knees before he is flat; the man who makes the tackle dives into it;
+  getting up goes back through the knees. **Taking a knee** is a kneel, the ball on the knee (the QB's
+  kneel-down, the touchback interception, a kick returner downing it in the end zone, teammates beside
+  an injured man). `raPoseAt` still reads `down` for the first two, as the play's own checks expect.
+- **Standing around:** breathing, and about two in five with hands on hips after the whistle (the old
+  one-pixel hop is gone). Jumping teammates squat between jumps, the scorer's dance is four steps then
+  arms up twice, the men holding up a kicker hold their arms straight up.
+
+Frame time, headless Chrome, 240 frames through each of five plays on a phone-size stage (mean ms,
+HEAD → now): 0.5-1.4 → 0.3-1.5, the same. The new frames cost 1.4-2.3 ms each to rasterise, so they are
+built while the page is idle after load; the first play's 95th-percentile frame is 1.2-1.3 ms (HEAD
+0.9-2.2 over five runs; 4.5 before the idle-time build).
+The sprite cache holds up to 2,400 uniformed frames and drops the least recently drawn beyond that.
+Cache-bust ?v=20260929c.
+
+VERIFY: sunday 310/311 (new section "8-bit players: pixel art and animation", 19 checks: the rig's
+bone lengths in all 82 frames; eight distinct frames a gait, the run's 10-px foot travel and 1-px bob;
+the cadence on a 0-9 yd/s ramp at 60 fps, never more than one frame a step, 1.792 strides in the last
+second against the hand-computed 7.5 ÷ 4.2 = 1.786; pads 14 vs helmet 10; no lone pixels in 246 frames
+of players, officials and trainers; 5.4 dark cells a frame inside the figures, all enclosed gaps;
+no forward stride in 3,962 frames of men moving against their facing over 14 passes; on 885 Penix's
+backpedal, six defensive backs dropping, the line facing the rush in 1,045 of 1,045 frames with both
+block frames, throw1 → throw2 → throw3, Robinson's catch → secure → carry → fall1 → fall2 → down, the
+tackler's dive; 863's carry tucked in 50 of 50 frames; 160's hit QB down and up through his knees (with
+the play's nflverse detail); 4399's kneel with the ball on the knee; breathing and hands on hips; every
+frame drawn across 184 plays a real one; the shadow 19 px, 11 up, 29 lying. The one failure is the
+webfont ink check that fails the same way on HEAD), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65.
+Bite: HEAD's sd-reenact.js scores 291/311, failing exactly the 19 new checks (and the webfont check);
+every pre-existing check passes on both.
+
+## 2026-09-29 — the helmet: white facemasks, a face you can see
+
+Perry, on the redrawn players: "The helmet needs another pass its hard to tell what's going on, white
+face masks would help". The shell stayed a round block of one colour with a small patch of skin in
+front and a grey facemask (a dark one on gold and silver shells, where grey didn't show). On a gold,
+silver or white helmet the face and mask were lost.
+
+- **White facemasks on every helmet** (`RA_MASK`, all 32 teams, home and road). The shell is still
+  one solid colour (the 2026-09-28 rule).
+- **A cage, one pixel thick, sized to the upright head's pixel rows:** a front bar standing off the
+  face and joined to the brow, a short bar across at the nose, one under the chin, with dark gaps
+  between them and the face. The first try packed the bars so close they merged into a white block,
+  and its chin bar never landed on a pixel row.
+- **The opening:** the brow's shadow across the top (a new near-black `k`), then the eye, then the face,
+  shaded toward the ear and the chin. The dark brow line is what separates a light face from a gold or
+  white shell.
+- **Poses re-aimed so an arm doesn't cover the mask.** The celebration `cheer` is now a flex, with the
+  near arm out in front below the mask and the far arm up behind the helmet. The scorer's `dance`
+  points forward with the far arm raised. The kicker-hoisting `signal` raises the near arm over the
+  helmet's side. The punter's hand is lower. The falling head in `fall2` looks forward. Every frame
+  keeps at least 5 mask pixels; `signal` had kept 0 and `dance` 1.
+
+Cache-bust ?v=20260929d.
+
+VERIFY: sunday 313/314 (3 new checks in "8-bit players: pixel art and animation": white masks on all
+64 kits, relative luminance at least 0.90 where they were 0.03-0.35; the cage on the standing frame's
+grid, a 6-px front bar in front of every face cell, a dark gap at the eye's row, 3 bars, the brow's
+shadow over the eye; at least 5 mask pixels in all 82 frames. The one failure is the webfont ink check
+that fails the same way on HEAD. "Helmets are one solid colour" still passes: 58 shell pixels, 0
+others), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65. Bite: the previous sd-reenact.js scores
+310/314, failing exactly the 3 new checks; every other check passes on both.
+
+## 2026-09-29 — light grey facemasks
+
+Perry, having seen the white masks: "Lets go with light Grey face masks". REVERSES the white above:
+`RA_MASK` is `#d0d4d9` on every helmet (relative luminance 0.65 against the white's 0.90). Against the
+shells it reads about as well on white (1.35:1) as on silver (1.35:1 for New England, 1.53:1 for
+Carolina). A darker grey would lose the silver helmets, a lighter one the white. The dark gaps between
+the bars do most of the separating either way. Cage, opening and poses unchanged. Cache-bust
+?v=20260929e.
+
+VERIFY: sunday 313/314 (RESTAGED the facemask colour check, with the reason at the check: one colour on
+all 64 kits, relative luminance between 0.5 and 0.8, light but not white; the one failure is the webfont
+ink check that fails the same way on HEAD). Bite: the white-mask sd-reenact.js fails the restaged check
+(0.903) and nothing else in the section.
+
+## 2026-09-29 — helmet logos
+
+Perry: "i know we dont have a lot of pixels to work with but lets take a run at making logos on the
+helmets". Every team but Cleveland (whose helmet has no logo) now wears its logo on the side of the
+helmet (`RA_LOGO`), painted over the one-colour shell like a decal. The shell under it is still one
+solid colour (the 2026-09-28 rule); the facemask and the opening are unchanged.
+
+- **The box:** 7 by 7 pixels on the side of the shell behind the face opening (`RA_LOGO_BOX`), one
+  character a pixel in the table, each logo drawn facing forward (right). On an upright helmet the
+  shell's curve trims five cells at the back: row 0's first two, the first cell of rows 1, 2 and 6.
+  The designs keep their ink off those cells where losing it would throw them off balance; the
+  Commanders' W, the Titans' T bar, the Giants' "ny", the fleur-de-lis and the jet were moved for it.
+- **Which way it faces:** animals, bolts, wings and horns turn with the player so they face forward on
+  both sides, as on real helmets. Lettered logos (`text`: the G, the C, "ny", "SF", the Raiders'
+  shield, the Titans' T, the Commanders' W, the Steelmark) never read backwards. The Steelers wear
+  theirs on the right side only (`side: 'r'`), so it shows only when he faces right.
+- **Stand-ins:** the Texans' bull is drawn head-on with its horns up. The real one is side-on, and at
+  seven pixels every side-on try read as a red heart. The Jets' helmet wordmark has four letters too
+  many for seven pixels, so they wear a jet. The Panthers' black head keeps a blue outline on its back
+  and top; without it the head ran into the helmet's black outline and read as a two-tone helmet.
+- **2026 designs:** the Titans' white sword-T on a light-blue roundel, no flames; the Commanders' gold
+  W; the Falcons' falcon on the new low-gloss black; the Ravens' raven head on the 1999 helmet they
+  kept. Sources: [Titans helmet logo](https://www.sportslogos.net/logos/view/16093562026/Tennessee-Titans-Logo/2026/Helmet-Logo),
+  [Commanders](https://www.espn.com/nfl/story/_/id/48489288/washington-commanders-new-uniforms-2026),
+  [Falcons](https://news.sportslogos.net/2026/04/02/atlanta-falcons-officially-unveil-new-uniforms-for-2026-season/football/),
+  [Ravens](https://www.cbssports.com/nfl/news/nfl-ravens-uniform-change-new-helmets/),
+  [2026-27 changes](https://news.sportslogos.net/2026/09/09/previewing-the-nfls-new-uniforms-helmets-and-logos-for-the-2026-27-season/football/).
+- **A still head:** a head tilted less than 14 degrees is now drawn upright on the same sub-pixel footing
+  in every frame (`raFig`), so helmet, mask and logo are the same pixels all through a stride. Without
+  it the Packers' G changed shape in all 40 stride frames. A head tilted further (diving, lying down)
+  keeps its exact place: a first try snapped those too, and the face-down `down` frame's cage fell
+  between pixel rows (3 mask pixels, was 8).
+- `raFig` records the shell's cells as it paints them (index, and place on the side of the helmet);
+  `raSprite` paints the logo onto the ones still showing, so an arm across the helmet stays an arm. It
+  costs about 4 µs a sprite (61 against 57, built once and cached); scanning the whole grid for them
+  had cost 55. The sprite cache key carries the logo.
+- At game size on a phone the G, the C, the falcon and the Steelmark read; on the desktop's
+  whole-field view a logo is a few pixels of colour on the helmet.
+
+Cache-bust ?v=20260929f.
+
+VERIFY: sunday 318/319 (5 new checks in "8-bit players: pixel art and animation": 31 logos, none for
+the Browns or a team with no art, the smallest 11 px (Washington); every logo draws exactly the pixels
+its design puts on the shell less the five trimmed cells, facing right and facing left, 766 px over
+the standing helmets, the expected counts worked out in the check from the table and the shell's
+ellipse; logos only on shell cells; an F reads the same both ways as letters and turns as a mark,
+Pittsburgh 36 px facing right and 0 facing left; the G the same 42 px in all 40 stride frames.
+RESTAGED "helmets are one solid colour", the reason at the check: the logos use kit colours, so the
+shell is read off the player drawn without his logo, and every pixel the logo changes must be shell
+underneath (58 shell pixels and 0 others for both teams; logos 22 and 42 px). The one failure is the
+webfont ink check that fails the same way on HEAD), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65.
+Bite: HEAD's sd-reenact.js scores 313/319, failing the 5 new checks (and the webfont check); the
+restaged check passes on both. Breaking one thing at a time fails the check meant for it: no head
+snap, the stride check (40 of 40 frames); letters mirrored, the turn check and Chicago's count (20
+against 18); the Steelmark on both sides, Pittsburgh's count (36 against 0) and the turn check; the
+logo left out of the sprite cache key, every count 0; tilted heads snapped too, the facemask check
+(`down`, 3 px).

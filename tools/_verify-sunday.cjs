@@ -599,17 +599,25 @@ async function main() {
       // 2026-09-28, user: "the players have two colors on their helmet, make the helmet 1 solid
       // color". In the head (the top 9 rows of ink) nothing may be the helmet's shadow or highlight
       // tone or its stripe colour; the shell is all H. (The face, eye and mask are other colours.)
+      // RESTAGED 2026-09-29, user: "lets take a run at making logos on the helmets". The logo is a
+      // decal on that one-colour shell, and logos use the kit's other colours (the Packers' G is the
+      // jersey green and white, the falcon has white in it), which this count took for a second
+      // helmet colour. So the shell is read off the same player drawn with no logo, where it must
+      // still be all H; the logo is the pixels where the two drawings differ, and every one of those
+      // must be a shell pixel underneath. How much of each logo shows is checked in the players section.
       tryIt("helmet1", () => {
         const sc = raBuild(np("40187294863"), ev, new Set());
         out.helmet1 = ["o", "d"].map((side) => raPalette(sc, sc.actors.find((a) => a.side === side))).map((o) => {
-          const spr = raSprite("stand", o, false, 12), gg = spr.getContext("2d"), px = gg.getImageData(0, 0, spr.width, spr.height).data;
+          const spr = raSprite("stand", o, false, 12), gg = spr.getContext("2d"), lp = gg.getImageData(0, 0, spr.width, spr.height).data;
+          const bare = raSprite("stand", { ...o, logo: null, logoKey: "" }, false, 12), px = bare.getContext("2d").getImageData(0, 0, bare.width, bare.height).data;
           const hex = (i) => "#" + [px[i], px[i + 1], px[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join("");
           let top = 1e9; for (let y = 0; y < spr.height && top === 1e9; y++) for (let x = 0; x < spr.width; x++) if (px[(y * spr.width + x) * 4 + 3]) { top = y; break; }
           const face = new Set([o.F, o.f, o.E, o.e, o.m].filter(Boolean).map((c) => c.toLowerCase()));
           const off = new Set([o.h, o.l, o.w].filter(Boolean).map((c) => c.toLowerCase()).filter((c) => c !== o.H.toLowerCase() && !face.has(c)));
-          let shell = 0, other = 0;
+          let shell = 0, other = 0, logo = 0, logoOffShell = 0;
           for (let y = top; y < top + 9; y++) for (let x = 0; x < spr.width; x++) { const i = (y * spr.width + x) * 4; if (!px[i + 3]) continue; const c = hex(i); if (c === o.H.toLowerCase()) shell++; else if (off.has(c)) other++; }
-          return { H: o.H, shell, other };
+          for (let i = 0; i < lp.length; i += 4) if (lp[i] !== px[i] || lp[i + 1] !== px[i + 1] || lp[i + 2] !== px[i + 2] || lp[i + 3] !== px[i + 3]) { logo++; if (hex(i) !== o.H.toLowerCase()) logoOffShell++; }
+          return { H: o.H, shell, other, logo, logoOffShell };
         });
       });
       // 2026-09-28, user: "I keep having to refresh to see latest play". The live 8-bit view worked
@@ -702,10 +710,362 @@ async function main() {
     // 17 rows of ink plus outline (19); now he is at least 32 rows tall and 12 wide.
     chk(() => [ra.res.RA_H === 336 && ra.res.PX === 18 && ra.res.PY === 14 && ra.res.HK === 10 && ra.res.inkH >= 32 && ra.res.inkH <= 40 && ra.res.inkW >= 12 && ra.res.poses >= 20,
       `the stage is twice the old resolution and a standing player is drawn in ${ra.res.inkW}×${ra.res.inkH} px (${ra.res.poses} poses)`]);
-    chk(() => [ra.helmet1.length === 2 && ra.helmet1.every((h) => h.other === 0 && h.shell >= 20),
-      `helmets are one solid colour: no shadow, highlight or stripe pixels in the head, only the shell (${JSON.stringify(ra.helmet1)})`]);
+    chk(() => [ra.helmet1.length === 2 && ra.helmet1.every((h) => h.other === 0 && h.shell >= 20 && h.logoOffShell === 0),
+      `helmets are one solid colour: no shadow, highlight or stripe pixels in the head, only the shell, and the team's logo painted only over shell (${JSON.stringify(ra.helmet1)})`]);
     chk(() => [ra.catchUp.oneBehind && ra.catchUp.twoBehind && ra.catchUp.fiveBehind,
       `the live 8-bit view plays the next play when one behind and jumps to the newest when further behind (${JSON.stringify(ra.catchUp)})`]);
+
+    /* ===================== (g2) the 8-bit players: pixel art and animation ===================== */
+    // 2026-09-29, user: "do a design pass on the 8-bit players in gffl to get them better pixel
+    // graphics and better animations". Every number is read off the rig (RA_SKEL after raRig), the
+    // rasterised shade-code grids (raFig) or frames drawn through raDraw on the ATL @ GB fixture, never
+    // off rendered pixels. Frames are drawn 60 (or 30) a second on a canvas as wide as the world, so
+    // nobody is culled and the stride's phase is carried from frame to frame as on screen.
+    section("8-bit players: pixel art and animation");
+    // (160's hit on the passer is nflverse's `hit`, so that play is built with its real detail.)
+    const det160 = JSON.parse(fs.readFileSync(path.join(FIX, "pbp-401872948.json"), "utf8")).plays["401872948160"];
+    const pl = await page.evaluate((fixture, det160) => {
+      const comp = fixture.header.competitions[0];
+      const ev = { home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+      const byId = new Map();
+      for (const dr of fixture.drives.previous || []) for (const raw of dr.plays || []) byId.set(raw.id, { raw, teamId: dr.team?.id });
+      const np = (id) => { const { raw, teamId } = byId.get(id); return normPlay(raw, ev.home.id, teamId, ev.home.abbr); };
+      const out = {};
+      const tryIt = (k, fn) => { try { fn(); } catch (e) { out[k] = { err: String(e.message || e) }; } };
+      const cv = document.createElement("canvas"); cv.width = RA_WORLD_W; cv.height = RA_WORLD_H;
+      const g = cv.getContext("2d");
+      const frames = (sc, t1, fn, dt = 1 / 60) => { const st = { sc, t: 0, cam: { x: 0, y: 0 }, shown: new Set() }; for (let t = 0; t <= t1 + 1e-9; t += dt) { st.t = t; raDraw(g, cv.width, st); fn(t, st); } };
+      const d = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const MAT = { J: "J", j: "J", L: "J", P: "P", p: "P", Q: "P", S: "S", s: "S", F: "F", f: "F", E: "F", B: "B", b: "B", C: "C", c: "C" };
+      const sx = (sc, a, t) => { const [, z] = raPos(a, t); return raSX(sc.offHome ? z : 100 - z); };
+      const gait = (p) => /^(walk|jog|run|carry|back|crun)\d$/.exec(p || "")?.[1] || null;
+      // ── The rig: one set of bone lengths for every frame.
+      tryIt("bones", () => {
+        let worst = 0, at = "";
+        for (const [k, S] of Object.entries(RA_SKEL)) {
+          const L = [[S.fl, 5.9, 5.2], [S.bl, 5.9, 5.2], [S.fa, 6, 4.6], [S.ba, 6, 4.6]];
+          const dev = Math.max(...L.flatMap(([A, a, b]) => [Math.abs(d(A[0], A[1]) - a), Math.abs(d(A[1], A[2]) - b)]), Math.abs(d(S.h, S.s) - (S.tl || 10)));
+          if (dev > worst) { worst = dev; at = k; }
+        }
+        out.bones = { n: Object.keys(RA_SKEL).length, worst: +worst.toFixed(3), at };
+      });
+      // ── The strides: eight frames a gait, all different; the run's feet and bob.
+      tryIt("gaits", () => {
+        const names = ["walk", "jog", "run", "carry", "back"];
+        const per = names.map((n) => { const fr = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => RA_SKEL[n + i]); return fr.every(Boolean) ? new Set(fr.map((_, i) => raFig(n + (i + 1), "p").g.join(""))).size : 0; });
+        const run = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => RA_SKEL["run" + i]);
+        const ax = run.map((S) => S.fl[2][0]), hy = run.map((S) => S.h[1]);
+        out.gaits = { names, distinct: per, ankleSpan: +(Math.max(...ax) - Math.min(...ax)).toFixed(2), bob: +(Math.max(...hy) - Math.min(...hy)).toFixed(2), gaitsObj: typeof RA_GAITS === "object" };
+      });
+      // ── The cadence: a man speeding up from a standstill to 9 yd/s over 3 s, drawn 60 times a second.
+      tryIt("cadence", () => {
+        const a = { phase: 0 }, idx = [], ph = [];
+        for (let i = 0; i <= 180; i++) {
+          const t = i / 60, v = 3 * t, gt = v < 2.4 ? "walk" : v < 5.6 ? "jog" : "run";
+          if (v < 0.8) continue;
+          idx.push(+raGaitFrame(a, t, gt, v).slice(-1) - 1);
+          ph.push([t, a.gph.ph]);
+        }
+        const steps = idx.slice(1).map((k, i) => (k - idx[i] + 8) % 8);
+        const p2 = ph.find(([t]) => Math.abs(t - 2) < 1e-9)[1], p3 = ph.find(([t]) => Math.abs(t - 3) < 1e-9)[1];
+        // Over the last second (6 → 9 yd/s, all running) he covers ∫3t dt = 7.5 yd at 4.2 yd a stride.
+        out.cadence = { maxStep: Math.max(...steps), strides: +(p3 - p2).toFixed(3), expect: +(7.5 / 4.2).toFixed(3) };
+      });
+      // ── The silhouette: shoulder pads wider than the helmet.
+      tryIt("pads", () => {
+        const f = raFig("stand", "p");
+        const rows = (set) => { let best = 0; for (let y = 0; y < f.H; y++) { let n = 0; for (let x = 0; x < f.W; x++) if (set.includes(f.g[y * f.W + x])) n++; best = Math.max(best, n); } return best; };
+        out.pads = { jersey: rows(["J", "j", "L"]), helmet: rows(["H"]) };
+      });
+      // ── Clean pixels: no lone pixel of a tone inside a patch of another tone of the same colour, in
+      // any frame, for players, officials and trainers.
+      tryIt("lone", () => {
+        let n = 0, frames_ = 0; const where = [];
+        for (const v of ["p", "r", "m"]) for (const k of Object.keys(RA_SKEL)) {
+          const f = raFig(k, v); frames_++;
+          for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) {
+            const c = f.g[y * f.W + x], m = MAT[c];
+            if (!m) continue;
+            const nb = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].map(([u, w]) => (u < 0 || w < 0 || u >= f.W || w >= f.H ? "." : f.g[w * f.W + u])).filter((q) => MAT[q] === m);
+            if (nb.length >= 3 && !nb.includes(c)) { n++; if (where.length < 4) where.push(`${k}/${v}`); }
+          }
+        }
+        out.lone = { n, frames: frames_, where };
+      });
+      // ── No black line through the body: HEAD ringed each near arm and leg with the outline colour
+      // where it crossed the body. Now it casts a shade, and the only dark cells inside a figure away
+      // from the helmet's rim are the outline of an enclosed gap (between two legs, an arm and the body).
+      tryIt("lines", () => {
+        let n = 0, frames_ = 0, most = 0, at = "";
+        for (const [k, S] of Object.entries(RA_SKEL)) {
+          const f = raFig(k, "p"), cx = f.ax + S.c[0], cy = f.ay - S.c[1];
+          let m = 0; frames_++;
+          for (let y = 1; y < f.H - 1; y++) for (let x = 1; x < f.W - 1; x++) {
+            if (f.g[y * f.W + x] !== "O") continue;
+            if ([f.g[y * f.W + x - 1], f.g[y * f.W + x + 1], f.g[(y - 1) * f.W + x], f.g[(y + 1) * f.W + x]].includes(".")) continue;
+            if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 7.5) continue;           // (the helmet's own dark rim)
+            m++;
+          }
+          n += m; if (m > most) { most = m; at = k; }
+        }
+        out.lines = { perFrame: +(n / frames_).toFixed(1), most, at, frames: frames_ };
+      });
+      // ── Play 885 (Penix to Robinson for 17, Franklin and Cisse tackle him) drawn 60 a second.
+      tryIt("pass", () => {
+        const sc = raBuild(np("40187294885"), ev, new Set());
+        const attackRight = !sc.offHome;
+        const qb = sc.actors.find((a) => a.role === "QB" && a.side === "o"), rec = sc.actors.find((a) => a.who?.last === "Robinson");
+        const ol = sc.actors.filter((a) => a.role === "OL" && a.side === "o");
+        const tk = sc.actors.find((a) => a.tackler) || sc.actors.find((a) => a.who?.last === "Franklin");
+        const tThrow = qb.acts.find((q) => q[2] === "throw2")[0];
+        const seq = { qb: [], rec: [], tk: [] }, olFace = { n: 0, wrong: 0 }, olPoses = new Set(), dbBack = new Set(), qbDrop = { back: 0, fwd: 0 };
+        const push = (arr, p) => { if (arr[arr.length - 1] !== p) arr.push(p); };
+        frames(sc, sc.T, (t) => {
+          push(seq.qb, qb.drawn?.pose); push(seq.rec, rec.drawn?.pose); push(seq.tk, tk.drawn?.pose);
+          if (t >= sc.tS && t < sc.tEnd) for (const a of ol) { olFace.n++; if (a.drawn.flip !== !attackRight) olFace.wrong++; if (t < sc.tS + 1.6 && /^block/.test(a.drawn.pose)) olPoses.add(a.drawn.pose); }
+          // The drop: moving back from the line before the throw.
+          if (t > sc.tS + 0.3 && t < tThrow - 0.4) { const g_ = gait(qb.drawn.pose); if (g_ === "back") qbDrop.back++; else if (g_) qbDrop.fwd++; }
+          if (t > sc.tS && t < tThrow) for (const a of sc.actors) if (a.side === "d" && (a.role === "DB" || a.role === "LB") && gait(a.drawn?.pose) === "back" && a.drawn.flip === attackRight) dbBack.add(sc.actors.indexOf(a));
+        });
+        out.pass = { seq, olFace, olPoses: [...olPoses], dbBack: dbBack.size, qbDrop, tackler: !!tk?.tackler, hold: { throw1: RA_HOLD.throw1, far: RA_SKEL.throw1?.ba?.[2] } };
+      });
+      // ── No moonwalking: across the game's first 14 completions and incompletions, every frame of a man
+      // moving against the way he faces (faster than a walk) is a backpedal, never a forward stride.
+      tryIt("moon", () => {
+        const passes = [...byId.values()].filter((r) => /\bpass\b/.test(r.raw.text || "") && !/PENALTY|INTERCEPT|sacked/i.test(r.raw.text) && r.raw.type?.text !== "Two-point Conversion").slice(0, 14);
+        let n = 0, fwd = 0; const bad = [];
+        for (const r of passes) {
+          const sc = raBuild(np(r.raw.id), ev, new Set());
+          const prev = new Map();
+          frames(sc, sc.tEnd ?? sc.T, (t) => {
+            for (const a of sc.actors) {
+              if (a.side !== "o" && a.side !== "d") continue;
+              const x = sx(sc, a, t), [px, pz] = raPos(a, Math.max(0, t - 0.1)), ox = raSX(sc.offHome ? pz : 100 - pz);
+              const [cx, cz] = raPos(a, t), speed = Math.hypot(cx - px, cz - pz) / 0.1;
+              const against = speed > 1.5 && a.drawn && ((x - ox > 0.5 * RA_K && a.drawn.flip) || (ox - x > 0.5 * RA_K && !a.drawn.flip));
+              const g_ = gait(a.drawn?.pose);
+              if (against && g_) { n++; if (g_ !== "back") { fwd++; if (bad.length < 4) bad.push(`${r.raw.id}:${a.role}@${t.toFixed(2)}`); } }
+            }
+          }, 1 / 30);
+        }
+        out.moon = { plays: passes.length, n, fwd, bad };
+      });
+      // ── The run (863, Bi.Robinson 4 yd): after the handoff he carries it tucked.
+      tryIt("carry", () => {
+        const sc = raBuild(np("40187294863"), ev, new Set());
+        const car = sc.actors.find((a) => a.who?.last === "Robinson");
+        const tHand = sc.ball.find((q) => q.a === car).t0;
+        let n = 0, tucked = 0, atHand = true;
+        frames(sc, sc.tEnd, (t) => {
+          if (t < tHand + 0.1 || t > sc.tEnd - 0.15) return;
+          const [px, pz] = raPos(car, t - 0.1), [x, z] = raPos(car, t);
+          if (Math.hypot(x - px, z - pz) / 0.1 < 2.4) return;
+          n++;
+          if (gait(car.drawn.pose) === "carry") tucked++;
+          const S = RA_SKEL[car.drawn.pose], h = RA_HOLD[car.drawn.pose];
+          if (!S || !h || Math.hypot(h[0] - S.fa[2][0], h[1] - S.fa[2][1]) > 1.2) atHand = false;
+        });
+        out.carry = { n, tucked, atHand };
+      });
+      // ── Down and back up: 160's QB is hit as he throws (down 0.3 s after, up 2.1 s after); the
+      // kneel-down (4399) takes a knee.
+      tryIt("up", () => {
+        const sc = raBuild(np("401872948160"), ev, new Set(), { detail: det160 }), qb = sc.actors.find((a) => a.role === "QB" && a.side === "o");
+        const seq = [];
+        frames(sc, Math.min(sc.T, qb.upAt + 1), () => { if (seq[seq.length - 1] !== qb.drawn?.pose) seq.push(qb.drawn?.pose); });
+        const sk = raBuild(np("4018729484399"), ev, new Set()), qk = sk.actors.find((a) => a.role === "QB" && a.side === "o");
+        let kneel = null;
+        frames(sk, qk.downAt + 0.6, (t) => { if (t > qk.downAt + 0.5 && kneel == null) kneel = { frame: qk.drawn.pose, pose: raPoseAt(sk, qk, t), held: raBall(sk, t).held === qk }; });
+        out.up = { seq, kneel, holdKneel: RA_HOLD.kneel, kneeHand: RA_SKEL.kneel?.fa?.[2] };
+      });
+      // ── Standing around after the whistle (885's last seconds): breathing, and hands on hips.
+      tryIt("idle", () => {
+        const sc = raBuild(np("40187294885"), ev, new Set());
+        const seen = new Map(), hips = new Set();
+        frames(sc, sc.T, (t) => {
+          if (t < sc.tEnd + 0.8) return;
+          for (const a of sc.actors) {
+            const p = a.drawn?.pose;
+            if (p === "stand" || p === "stand2") { if (!seen.has(a)) seen.set(a, new Set()); seen.get(a).add(p); }
+            if (p === "hips") hips.add(a);
+          }
+        }, 1 / 30);
+        out.idle = { breathing: [...seen.values()].filter((s) => s.size === 2).length, hips: hips.size };
+      });
+      // ── Every frame drawn over the whole game is a real frame (a missing name would fall back to
+      // standing): each man's frame 10 times a second through raFrame, plus the names raDraw sets itself.
+      tryIt("names", () => {
+        const missing = new Set(); let n = 0;
+        for (const id of byId.keys()) {
+          let sc; try { sc = raBuild(np(id), ev, new Set()); } catch { continue; }
+          for (let t = 0; t <= sc.T; t += 0.1) {
+            const b = raBall(sc, t);
+            for (const a of sc.actors) {
+              if (a.side !== "o" && a.side !== "d") continue;
+              const [x, z] = raPos(a, t), [px, pz] = raPos(a, Math.max(0, t - 0.1)), speed = Math.hypot(x - px, z - pz) / 0.1;
+              const f = raFrame(sc, a, t, raPoseAt(sc, a, t), { speed, held: b.held === a, back: false, after: t > (sc.tEnd ?? sc.T) + 0.6 });
+              n++; if (!RA_SKEL[f]) missing.add(f);
+            }
+          }
+        }
+        for (const f of ["cheer", "crouch", "signal", "dance", "dance2", "dance3", "stand", "stand2", "carry", "hold", "kneel", "down"]) if (!RA_SKEL[f]) missing.add(f);
+        out.names = { n, missing: [...missing] };
+      });
+      // ── The shadow: a pixel ellipse under his feet, smaller the higher he is, longer under a man lying.
+      tryIt("shadow", () => {
+        const widest = (lift, flat) => { const w = []; const stub = { fillRect: (x, y, ww) => w.push(ww), set fillStyle(v) {} }; raShadow(stub, 100, 100, lift, flat); return Math.max(...w); };
+        out.shadow = { ground: widest(0, false), up: widest(40, false), lying: widest(0, true) };
+      });
+      // ── The helmet (2026-09-29, user: "The helmet needs another pass its hard to tell what's going on,
+      // white face masks would help"). The masks' colour on every team's home and road kit; the cage on
+      // an upright helmet, read off the standing frame's grid; and the mask in every frame.
+      tryIt("helmet", () => {
+        const masks = Object.keys(RA_KITS).flatMap((A) => ["home", "road"].map((side) => {
+          const T = { id: "t" + A, abbr: A, color: "#444444", alt: "#999999" }, U = { id: "u", abbr: "ZZZ", color: "#777777", alt: "#bbbbbb" };
+          return raPalette({ offHome: side === "home", offT: T, defT: U, actors: [] }, { side: "o", role: "WR", idx: 3 }).m;
+        }));
+        const f = raFig("stand", "p"), at = (x, y) => f.g[y * f.W + x];
+        const cells = (test) => { const r = []; for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) if (test(at(x, y))) r.push([x, y]); return r; };
+        // (Face cells only between the top of the shell and the chin bar, so the arms' skin isn't counted.)
+        const m = cells((c) => c === "m"), top = Math.min(...cells((c) => c === "H").map(([, y]) => y)), chin = Math.max(...m.map(([, y]) => y));
+        const face = cells((c) => "Ffek".includes(c)).filter(([, y]) => y >= top && y <= chin), eye = cells((c) => c === "e")[0];
+        // The front bar: the column with the most mask cells, and its longest unbroken run.
+        const byCol = {}; for (const [x] of m) byCol[x] = (byCol[x] || 0) + 1;
+        const fx = +Object.keys(byCol).sort((p, q) => byCol[q] - byCol[p])[0];
+        let run = 0, best = 0; for (let y = 0; y < f.H; y++) { run = at(fx, y) === "m" ? run + 1 : 0; best = Math.max(best, run); }
+        // Bars: rows where the mask reaches back from the front bar toward the face.
+        const bars = [...new Set(m.map(([, y]) => y))].filter((y) => at(fx - 1, y) === "m").length;
+        const gap = eye ? [...Array(fx - eye[0] - 1)].map((_, i) => at(eye[0] + 1 + i, eye[1])).includes("O") : false;
+        let fewest = 99, fewestAt = "";
+        for (const k of Object.keys(RA_SKEL)) { const n = raFig(k, "p").g.filter((c) => c === "m").length; if (n < fewest) { fewest = n; fewestAt = k; } }
+        out.helmet = { n: masks.length, colours: [...new Set(masks)], darkest: +Math.min(...masks.map((c) => lum(c))).toFixed(3), front: best, inFront: face.every(([x]) => x < fx), gap, bars, browOverEye: eye ? at(eye[0], eye[1] - 1) : null, fewest, fewestAt };
+      });
+      // ── Helmet logos (2026-09-29, user: "i know we dont have a lot of pixels to work with but lets
+      // take a run at making logos on the helmets"). Each team's standing player is drawn with and
+      // without his logo, facing each way; the pixels that differ are the logo. What should show is
+      // worked out here from the designs in RA_LOGO: a 7-by-7 box whose cell in row v, column u is the
+      // pixel centred at (u − 5.4, 4 − v) in an upright head's own frame (x forward, y up). Five of
+      // those centres fall outside the shell's 5.2 × 4.8 ellipse about (−0.5, 0.35), so the shell's
+      // curve trims them: row,column 0,0 (1.21 of the way out), 0,1 (1.07), 1,0 (1.09), 2,0 (1.003)
+      // and 6,0 (1.06). Facing left, a mark that turns with him keeps its cells; a lettered logo is
+      // read the other way along each row, so the trimmed cells take the other end of it. A cell the
+      // shell's own colour changes no pixel.
+      tryIt("logos", () => {
+        const TRIM = new Set(["0,0", "0,1", "1,0", "2,0", "6,0"]);
+        const pal = (A) => raPalette({ offHome: true, offT: { id: "t" + A, abbr: A, color: "#444444", alt: "#999999" }, defT: { id: "u", abbr: "ZZZ", color: "#777777", alt: "#bbbbbb" }, actors: [] }, { side: "o", role: "WR", idx: 3 });
+        const data = (spr) => spr.getContext("2d").getImageData(0, 0, spr.width, spr.height).data;
+        const decal = (pose, o, flip) => {
+          const spr = raSprite(pose, o, flip, 88), a = data(spr), b = data(raSprite(pose, { ...o, logo: null, logoKey: "" }, flip, 88)), r = [];
+          for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) r.push([(i / 4) % spr.width, Math.floor(i / 4 / spr.width)]);
+          return r;
+        };
+        const want = (L, H, flip) => {
+          if (!L || (L.side === "r" && flip)) return 0;
+          let n = 0;
+          for (let v = 0; v < 7; v++) for (let u = 0; u < 7; u++) {
+            if (TRIM.has(v + "," + u)) continue;
+            const ch = L.px[v][flip && L.text ? 6 - u : u];
+            if (ch !== "." && L.c[ch].toLowerCase() !== H.toLowerCase()) n++;
+          }
+          return n;
+        };
+        const fig = raFig("stand", "p"), rows = [];
+        for (const A of [...Object.keys(RA_KITS), "ZZZ"]) {
+          const o = pal(A), L = RA_LOGO[A] || null;
+          const is7 = !L || (L.px.length === 7 && L.px.every((r) => r.length === 7 && [...r].every((ch) => ch === "." || L.c[ch])));
+          for (const flip of [false, true]) {
+            const d = decal("stand", o, flip);
+            rows.push({ A, flip, got: d.length, want: is7 ? want(L, o.H, flip) : -1, is7, onShell: d.every(([x, y]) => fig.g[y * fig.W + (flip ? fig.W - 1 - x : x)] === "H") });
+          }
+        }
+        const right = rows.filter((r) => !r.flip && RA_LOGO[r.A]).sort((p, q) => p.want - q.want);
+        out.logos = {
+          teams: right.length, plain: rows.filter((r) => !r.flip && !RA_LOGO[r.A]).map((r) => r.A),
+          wrong: rows.filter((r) => r.got !== r.want || !r.is7).map((r) => `${r.A}${r.flip ? " facing left" : ""} ${r.got} px, design ${r.want}`),
+          offShell: rows.filter((r) => !r.onShell).map((r) => r.A + (r.flip ? " facing left" : "")),
+          smallest: right[0].want, smallestAt: right[0].A, pix: rows.filter((r) => !r.flip).reduce((s, r) => s + r.got, 0),
+          pit: [rows.find((r) => r.A === "PIT" && !r.flip).got, rows.find((r) => r.A === "PIT" && r.flip).got],
+        };
+        // Which way a logo reads, with an F (not the same turned round): as letters it reads the same
+        // facing either way; as a mark it turns with him, so it faces forward on both sides.
+        const shape = (d, mirror) => { const xs = d.map(([x]) => (mirror ? -x : x)), x0 = Math.min(...xs), y0 = Math.min(...d.map(([, y]) => y)); return d.map(([x, y]) => `${(mirror ? -x : x) - x0},${y - y0}`).sort().join(" "); };
+        const F = [".......", "..xxxx.", "..x....", "..xxx..", "..x....", "..x....", "......."];
+        const gb = pal("GB");
+        const asText = { ...gb, logo: { c: { x: "#ff00ff" }, text: 1, px: F }, logoKey: "F-text" }, asMark = { ...gb, logo: { c: { x: "#ff00ff" }, px: F }, logoKey: "F-mark" };
+        const tR = decal("stand", asText, false), tL = decal("stand", asText, true), mR = decal("stand", asMark, false), mL = decal("stand", asMark, true);
+        out.logoTurn = { n: [tR, tL, mR, mL].map((d) => d.length), textReads: shape(tL) === shape(tR), textTurned: shape(tL) === shape(tR, true), markTurns: shape(mL) === shape(mR, true), markSame: shape(mL) === shape(mR) };
+        // The logo holds still through a stride: in all 40 frames of the walk, jog, run, carry and
+        // backpedal (the head drawn upright in every one) the Packers' G is the standing frame's pixels,
+        // moved only as the head bobs, facing either way.
+        const gaits = Object.keys(RA_SKEL).filter((k) => /^(walk|jog|run|carry|back)[1-8]$/.test(k));
+        const refR = shape(decal("stand", gb, false)), refL = shape(decal("stand", gb, true));
+        out.logoSteady = { frames: gaits.length, px: refR.split(" ").length, moved: gaits.filter((k) => shape(decal(k, gb, false)) !== refR || shape(decal(k, gb, true)) !== refL) };
+      });
+      return out;
+    }, sumFixture, det160);
+    const pchk = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(pl).slice(0, 160)})`]; } ok(r[0], r[1]); };
+    pchk(() => [pl.bones.n >= 70 && pl.bones.worst <= 0.01,
+      `one rig for every frame: thighs 5.9, shins 5.2, upper arms 6, forearms 4.6 px and the spine its length in all ${pl.bones.n} frames (worst ${pl.bones.worst} px off, ${pl.bones.at}), so nothing grows or shrinks between frames`]);
+    pchk(() => [pl.gaits.gaitsObj && pl.gaits.distinct.every((n) => n === 8) && pl.gaits.ankleSpan >= 8 && pl.gaits.bob >= 1,
+      `eight-frame strides for walking, jogging, running, carrying the ball and backpedalling, every frame different (${pl.gaits.distinct.join("/")}); the run's foot travels ${pl.gaits.ankleSpan} px fore and aft and the body bobs ${pl.gaits.bob} px`]);
+    // Hand-computed: 6 → 9 yd/s over the last second is 7.5 yd, at 4.2 yd a running stride 1.786 strides.
+    pchk(() => [pl.cadence.maxStep <= 1 && Math.abs(pl.cadence.strides - pl.cadence.expect) < 0.01,
+      `the stride keeps pace with the man: speeding up from a walk to 9 yd/s, drawn 60 times a second, the legs never skip a frame (largest step ${pl.cadence.maxStep}) and the last second is ${pl.cadence.strides} strides (7.5 yd ÷ 4.2 = ${pl.cadence.expect})`]);
+    pchk(() => [pl.pads.jersey >= 13 && pl.pads.jersey >= pl.pads.helmet + 3,
+      `football shoulders: a standing player's pads are ${pl.pads.jersey} px of jersey across, the helmet ${pl.pads.helmet}`]);
+    pchk(() => [pl.lone.n === 0 && pl.lone.frames >= 200,
+      `clean pixel art: no lone pixel of one tone inside another tone of the same colour, in ${pl.lone.frames} frames of players, officials and trainers (${pl.lone.n}${pl.lone.where.length ? ": " + pl.lone.where.join(" ") : ""})`]);
+    // HEAD: 1,186 such cells in 27 frames, 44 a frame (53 in the standing frame alone).
+    pchk(() => [pl.lines.perFrame <= 8 && pl.lines.most <= 16,
+      `no black line through the body: a near arm or leg crossing it casts a shade, so dark cells inside a figure away from the helmet average ${pl.lines.perFrame} a frame over ${pl.lines.frames} frames (at most ${pl.lines.most}, ${pl.lines.at}: the outline of an enclosed gap) against 44 when the near limbs had black rims`]);
+    pchk(() => [pl.moon.plays === 14 && pl.moon.n >= 30 && pl.moon.fwd === 0,
+      `no moonwalking: in 14 passing plays, all ${pl.moon.n} frames of a man moving against the way he faces are a backpedal (${pl.moon.fwd} forward strides${pl.moon.bad.length ? ": " + pl.moon.bad.join(" ") : ""})`]);
+    pchk(() => [pl.pass.qbDrop.back >= 10 && pl.pass.qbDrop.fwd === 0,
+      `885: Penix drops back from the shotgun in a backpedal, still facing the line (${pl.pass.qbDrop.back} backpedal frames, ${pl.pass.qbDrop.fwd} forward)`]);
+    pchk(() => [pl.pass.dbBack >= 1,
+      `885: the defensive backs drop into coverage facing the quarterback, backpedalling until the throw (${pl.pass.dbBack} of them)`]);
+    pchk(() => [pl.pass.olFace.n > 100 && pl.pass.olFace.wrong === 0 && pl.pass.olPoses.includes("block") && pl.pass.olPoses.includes("block2"),
+      `885: the offensive line faces the rush in every frame of the play, kick-sliding back rather than turning round (${pl.pass.olFace.wrong} of ${pl.pass.olFace.n} frames turned), feet chopping while they block (${pl.pass.olPoses.join(", ")})`]);
+    // (A name ending in * is any frame of that stride: "carry*" is carry1 to carry8.)
+    const inOrder = (seq, want) => { let i = 0; for (const p of seq) if (i < want.length && (p === want[i] || (want[i].endsWith("*") && String(p).startsWith(want[i].slice(0, -1))))) i++; return i === want.length; };
+    pchk(() => [inOrder(pl.pass.seq.qb, ["throw1", "throw2", "throw3"]) && pl.pass.hold.throw1 && Math.hypot(pl.pass.hold.throw1[0] - pl.pass.hold.far[0], pl.pass.hold.throw1[1] - pl.pass.hold.far[1]) < 1,
+      `885: the pass winds up with the ball in the throwing hand behind the helmet, releases, and follows through (${pl.pass.seq.qb.filter((p) => /throw/.test(p)).join(" → ")})`]);
+    pchk(() => [inOrder(pl.pass.seq.rec, ["catch", "secure", "carry*"]) && inOrder(pl.pass.seq.rec, ["fall1", "fall2", "down"]),
+      `885: Robinson reaches, pulls it in, runs with it tucked, then stumbles, goes to his knees and is down (${pl.pass.seq.rec.filter((p) => !/^(jog|run|walk)\d/.test(p)).map((p) => p.replace(/^(carry|back)\d$/, "$1")).filter((p, i, a) => p !== a[i - 1]).join(" → ")})`]);
+    pchk(() => [pl.pass.tackler && inOrder(pl.pass.seq.tk, ["dive", "down"]),
+      `885: the man who makes the tackle dives into it (${pl.pass.seq.tk.slice(-4).join(" → ")})`]);
+    pchk(() => [pl.carry.n >= 10 && pl.carry.tucked === pl.carry.n && pl.carry.atHand,
+      `863: after the handoff Bi.Robinson runs with the ball tucked in his near arm (${pl.carry.tucked} of ${pl.carry.n} running frames; the ball at that hand: ${pl.carry.atHand})`]);
+    pchk(() => [inOrder(pl.up.seq, ["fall1", "fall2", "down", "fall2", "rise"]),
+      `160: the hit QB goes down through his knees and gets back up the same way (${pl.up.seq.filter((p) => !/^(jog|run|walk|back|carry)\d/.test(p)).join(" → ")})`]);
+    pchk(() => [pl.up.kneel && pl.up.kneel.frame === "kneel" && pl.up.kneel.pose === "down" && pl.up.kneel.held && Math.hypot(pl.up.holdKneel[0] - pl.up.kneeHand[0], pl.up.holdKneel[1] - pl.up.kneeHand[1]) < 1.2,
+      `4399: Penix takes a knee (drawn ${pl.up.kneel?.frame}, still "${pl.up.kneel?.pose}" to the play) with the ball in his hand on the knee`]);
+    pchk(() => [pl.idle.breathing >= 8 && pl.idle.hips >= 2,
+      `after the whistle the men standing around breathe (${pl.idle.breathing} seen in both frames) and some stand hands on hips (${pl.idle.hips})`]);
+    pchk(() => [pl.names.n > 10000 && pl.names.missing.length === 0,
+      `every frame drawn over the game's 184 plays is a real frame, none falling back to standing (${pl.names.n} checked${pl.names.missing.length ? ", missing " + pl.names.missing.join(", ") : ""})`]);
+    pchk(() => [pl.shadow.ground === 19 && pl.shadow.up < pl.shadow.ground && pl.shadow.lying > pl.shadow.ground,
+      `each man's shadow is a small ellipse under his feet: ${pl.shadow.ground} px across on the ground, ${pl.shadow.up} px when he is 40 px up, ${pl.shadow.lying} px under a man lying down`]);
+    // RESTAGED 2026-09-29 (user, after seeing the white masks: "Lets go with light Grey face masks"): this
+    // asserted white, relative luminance at least 0.85 (the white was 0.90). The mask is now one light
+    // grey on every kit: light, and not white.
+    pchk(() => [pl.helmet.n === 64 && pl.helmet.colours.length === 1 && pl.helmet.darkest >= 0.5 && pl.helmet.darkest <= 0.8,
+      `light grey facemasks on every helmet: all 32 teams' home and road kits the one colour (${pl.helmet.colours.join(", ")}, relative luminance ${pl.helmet.darkest}: light, not white)`]);
+    pchk(() => [pl.helmet.front >= 5 && pl.helmet.inFront && pl.helmet.gap && pl.helmet.bars >= 2 && pl.helmet.browOverEye === "k",
+      `a cage you can read on an upright helmet: a front bar ${pl.helmet.front} px tall standing in front of the whole face, a dark gap between it and the eye (${pl.helmet.gap}), ${pl.helmet.bars} bars reaching back from it, the brow's shadow over the eye ("${pl.helmet.browOverEye}")`]);
+    pchk(() => [pl.helmet.fewest >= 5,
+      `the facemask shows in every one of the frames, arms up and lying down included (at least ${pl.helmet.fewest} mask pixels, ${pl.helmet.fewestAt})`]);
+    // Helmet logos: what each one should draw is worked out from its design in the probe above.
+    pchk(() => [pl.logos.teams === 31 && pl.logos.plain.join() === "CLE,ZZZ" && pl.logos.smallest >= 10,
+      `a logo on every team's helmet but the Browns', whose helmet has none, and none for a team with no art (ZZZ): ${pl.logos.teams} logos, the smallest ${pl.logos.smallest} px (${pl.logos.smallestAt}); plain: ${pl.logos.plain.join(", ")}`]);
+    pchk(() => [pl.logos.wrong.length === 0 && pl.logos.pix >= 31 * 10,
+      `every logo draws exactly the pixels its 7-by-7 design puts on the shell, less the five cells the shell's curve trims, facing right and facing left (${pl.logos.pix} px across the standing helmets; wrong: ${pl.logos.wrong.join("; ") || "none"})`]);
+    pchk(() => [pl.logos.offShell.length === 0,
+      `a logo paints only the helmet's shell, never the face, the mask, the outline or the jersey (${pl.logos.offShell.join(", ") || "none off the shell"})`]);
+    pchk(() => [pl.logos.pit[0] > 0 && pl.logos.pit[1] === 0 && pl.logoTurn.n.every((n) => n === 10) && pl.logoTurn.textReads && !pl.logoTurn.textTurned && pl.logoTurn.markTurns && !pl.logoTurn.markSame,
+      `letters read the right way round facing either way, a mark turns with the player so it faces forward on both sides, and the Steelers' logo, worn on the right side only, shows only when he faces right (an F as letters: same ${pl.logoTurn.textReads}, turned ${pl.logoTurn.textTurned}; as a mark: turned ${pl.logoTurn.markTurns}; ${pl.logoTurn.n.join("/")} px; PIT ${pl.logos.pit[0]} px facing right, ${pl.logos.pit[1]} facing left)`]);
+    pchk(() => [pl.logoSteady.frames === 40 && pl.logoSteady.px >= 20 && pl.logoSteady.moved.length === 0,
+      `the logo holds still through a stride: the Packers' G is the same ${pl.logoSteady.px} px in all ${pl.logoSteady.frames} frames of the walk, jog, run, carry and backpedal, facing either way (${pl.logoSteady.moved.length} frames differ${pl.logoSteady.moved.length ? ": " + pl.logoSteady.moved.slice(0, 6).join(", ") : ""})`]);
 
     /* ===================== console sanity ===================== */
     // 2026-09-28, user: "when a play includes 'push ob' or 'ob' that means the ball carrier finishes
