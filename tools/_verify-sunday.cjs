@@ -2120,9 +2120,12 @@ async function main() {
         const rEv = JSON.parse(fs.readFileSync(path.join(RFIX, "sb-401872963-review.json"), "utf8"));
         const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
         const NEW = "4018729631050";
-        let newer = false;
+        let newer = false, tdLast = false;
+        const TDID = "4018729631060";
         const evNow = () => {
           const e = structuredClone(rEv), lp = e.competitions[0].situation.lastPlay;
+          // …and a touchdown after that one: Swift from the 1.
+          if (tdLast) { Object.assign(lp, { id: TDID, scoreValue: 6, type: { id: "68", text: "Rushing Touchdown" }, text: "D.Swift up the middle for 1 yard, TOUCHDOWN.", statYardage: 1, start: { ...lp.end, yardLine: 99 }, end: { ...lp.end, yardLine: 100 } }); return JSON.stringify(e); }
           // A play after the reviewed one: CHI runs from the PHI 1, stopped for no gain.
           if (newer) Object.assign(lp, { id: NEW, scoreValue: 0, type: { id: "5", text: "Rush" }, text: "D.Swift up the middle to PHI 1 for no gain (Z.Baun).", statYardage: 0, start: { ...lp.end, yardLine: 99 }, end: { ...lp.end, yardLine: 99 } });
           return JSON.stringify(e);
@@ -2174,6 +2177,20 @@ async function main() {
         }, PID);
         const wired = /visibilitychange[\s\S]{0,400}sideArrive\(\)/.test(fs.readFileSync(path.join(__dirname, "..", "assets", "sunday", "sd-app.js"), "utf8"));
         ok(settled(s5) && s5.id === NEW && wired, `the page back in front: the play it missed is put at its end, not played (${JSON.stringify(s5)}; called from visibilitychange: ${wired})`);
+
+        // The exception (user: "if the last play was a touchdown it should shoe that").
+        tdLast = true;
+        await page.goto(BASE + "/sunday.html?arrive=2#g401872963", { waitUntil: "domcontentloaded" });
+        let s6 = null;
+        try { await page.waitForFunction((TDID) => G?.sum && String(SIDE.playId) === TDID && SIDE.sc, { timeout: 15000 }, TDID); s6 = await stage(); } catch {}
+        ok(s6 && s6.tdAt != null && s6.T > 0 && s6.t < s6.T / 2 && s6.left.includes("Touchdown"), `arriving on a touchdown, it plays: from ${s6?.t} s of ${s6?.T} s, "Touchdown" still to come (${JSON.stringify(s6)})`);
+        const s7 = await probe(() => {
+          const l = raPlays(), i = l.findIndex((p) => String(p.id) === "401872963315"), td = l[i], pat = l[i + 1];
+          const rev = l.find((p) => String(p.id) === "4018729631003");
+          return { td: !!td, pat: pat && `${pat.id} ${pat.typeText}`, onPat: String(raArriveTD(pat)?.id), onTd: String(raArriveTD(td)?.id), onRev: raArriveTD(rev), onRun: raArriveTD(l[i - 1]) };
+        });
+        ok(s7?.td && s7.onTd === "401872963315" && s7.onPat === "401872963315" && s7.onRev === null && s7.onRun === null,
+          `…on the try just after one, its touchdown plays first (${s7?.pat} → ${s7?.onPat}); a touchdown the review took away, or any other play, is settled (${JSON.stringify(s7)})`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
       await page.setViewport({ width: 800, height: 600 });
