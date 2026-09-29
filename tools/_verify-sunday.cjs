@@ -977,8 +977,11 @@ async function main() {
       `every frame drawn over the game's 184 plays is a real frame, none falling back to standing (${pl.names.n} checked${pl.names.missing.length ? ", missing " + pl.names.missing.join(", ") : ""})`]);
     pchk(() => [pl.shadow.ground === 19 && pl.shadow.up < pl.shadow.ground && pl.shadow.lying > pl.shadow.ground,
       `each man's shadow is a small ellipse under his feet: ${pl.shadow.ground} px across on the ground, ${pl.shadow.up} px when he is 40 px up, ${pl.shadow.lying} px under a man lying down`]);
-    pchk(() => [pl.helmet.n === 64 && pl.helmet.darkest >= 0.85,
-      `white facemasks on every helmet: all 32 teams' home and road kits (${pl.helmet.colours.join(", ")}, relative luminance at least ${pl.helmet.darkest})`]);
+    // RESTAGED 2026-09-29 (user, after seeing the white masks: "Lets go with light Grey face masks"): this
+    // asserted white, relative luminance at least 0.85 (the white was 0.90). The mask is now one light
+    // grey on every kit: light, and not white.
+    pchk(() => [pl.helmet.n === 64 && pl.helmet.colours.length === 1 && pl.helmet.darkest >= 0.5 && pl.helmet.darkest <= 0.8,
+      `light grey facemasks on every helmet: all 32 teams' home and road kits the one colour (${pl.helmet.colours.join(", ")}, relative luminance ${pl.helmet.darkest}: light, not white)`]);
     pchk(() => [pl.helmet.front >= 5 && pl.helmet.inFront && pl.helmet.gap && pl.helmet.bars >= 2 && pl.helmet.browOverEye === "k",
       `a cage you can read on an upright helmet: a front bar ${pl.helmet.front} px tall standing in front of the whole face, a dark gap between it and the eye (${pl.helmet.gap}), ${pl.helmet.bars} bars reaching back from it, the brow's shadow over the eye ("${pl.helmet.browOverEye}")`]);
     pchk(() => [pl.helmet.fewest >= 5,

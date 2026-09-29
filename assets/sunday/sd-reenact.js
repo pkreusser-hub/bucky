@@ -2094,8 +2094,8 @@ function bigLabel(s, k, col, shadow) {
    - football proportions: a big helmet, shoulder pads wider than the chest, a narrow waist, thick
      thighs, the pants ending under the knee over the socks
    - the helmet is one solid shell colour (2026-09-28, user: "make the helmet 1 solid color") with the
-     face in its opening under the brow's shadow and a white facemask's bars in front (a later pass the
-     same day); officials get a cap, trainers bare heads
+     face in its opening under the brow's shadow and a light grey facemask's bars in front (a later
+     pass the same day); officials get a cap, trainers bare heads
    - two tones a colour, lit from above and in front, and a lighter third only on the jersey's
      shoulders; the far arm and leg sit in shadow
    - a near limb casts a one-pixel shadow onto whatever it crosses, in that thing's own shadow tone,
@@ -2334,7 +2334,7 @@ function raFig(pose, variant = 'p') {
     }, true);
     else paint((x, y) => {
       const [lx, ly] = loc(x, y);
-      // The facemask, white, one pixel thick with dark gaps between its bars: a front bar standing off
+      // The facemask, light grey, one pixel thick with dark gaps between its bars: a front bar standing off
       // the face, joined to the brow at the top, a short bar across at the nose and one under the chin.
       // (Sized to the upright head's pixel rows, which fall on whole numbers here.)
       if (lx > 5.1 && lx < 6.1 && ly > -4.5 && ly < 1.5) return 'm';
@@ -2734,9 +2734,10 @@ function raKit(homeT, roadT) {
   const withExtras = (e, t, k) => ({ ...e, w: [t.alt, e.J, '#ffffff', '#111111'].find((c) => raContrast(c, e.H) >= 1.9) || '#ffffff', S: brand(t, k) });
   return { home: withExtras(home, homeT, KH), road: withExtras(road, roadT, KR) };
 }
-// Facemasks are white on every helmet (2026-09-29, user: "white face masks would help"): the one bright
-// line in front of the face, whatever the shell's colour.
-const RA_MASK = '#f4f4f2';
+// Facemasks are one light grey on every helmet (2026-09-29, user: "white face masks would help", then
+// "Lets go with light Grey face masks"): the one bright line in front of the face, whatever the shell's
+// colour, with the dark gaps between its bars keeping it off white and silver shells.
+const RA_MASK = '#d0d4d9';
 const raShade = (c) => mixHex(c, '#0a0c18', lum(c) > 0.6 ? 0.26 : 0.42);
 const raLight = (c) => (lum(c) > 0.6 ? '#ffffff' : mixHex(c, '#ffffff', lum(c) < 0.03 ? 0.22 : 0.3));
 const RA_SKIN = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69', '#6b4226'];

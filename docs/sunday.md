@@ -1196,3 +1196,17 @@ shadow over the eye; at least 5 mask pixels in all 82 frames. The one failure is
 that fails the same way on HEAD. "Helmets are one solid colour" still passes: 58 shell pixels, 0
 others), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65. Bite: the previous sd-reenact.js scores
 310/314, failing exactly the 3 new checks; every other check passes on both.
+
+## 2026-09-29 — light grey facemasks
+
+Perry, having seen the white masks: "Lets go with light Grey face masks". REVERSES the white above:
+`RA_MASK` is `#d0d4d9` on every helmet (relative luminance 0.65 against the white's 0.90). Against the
+shells it reads about as well on white (1.35:1) as on silver (1.35:1 for New England, 1.53:1 for
+Carolina). A darker grey would lose the silver helmets, a lighter one the white. The dark gaps between
+the bars do most of the separating either way. Cage, opening and poses unchanged. Cache-bust
+?v=20260929e.
+
+VERIFY: sunday 313/314 (RESTAGED the facemask colour check, with the reason at the check: one colour on
+all 64 kits, relative luminance between 0.5 and 0.8, light but not white; the one failure is the webfont
+ink check that fails the same way on HEAD). Bite: the white-mask sd-reenact.js fails the restaged check
+(0.903) and nothing else in the section.
