@@ -9931,3 +9931,60 @@ Sunday link still literally named "Sunday".
 Full battery **4093/4094**. The one failure is AG's pre-existing
 "longest opponent line" bug (every value `undefined`) — unchanged by
 this change, left for its own fix, same as the last two entries.
+
+---
+
+## RoboGoat newsletter pages — `robogoat/<season>/week-<n>/` (2026-09-29)
+
+User: "to preserve our images, lets build it as an html and then we will email the link for the
+newsletter to the league … it still needs to be mobile friendly." The Tuesday recap (and later the
+Saturday preview) is a static page on this site, and the Gmail draft carries only a link to it.
+
+**Why not an HTML email:** the Gmail connector strips every image at storage. It removes `<img>`
+with https, `data:` and `cid:` sources (even a `cid:` matching the Content-ID Gmail itself assigned),
+and `background-image`. A ~52 KB HTML body also 500s the connector; ~38 KB went through.
+
+**The page:** `robogoat/2026/week-3/index.html`. It is static and uses no JS. Every chart is inline
+HTML/SVG, and the win-probability chart ships twice: `.wp-lg` (600 wide) and `.wp-sm` (360 wide,
+shown ≤560px). The desktop SVG scaled to ~8px type on a phone. Team logos are
+`robogoat/logos/team-<id>.jpg`, 192px squares resized from each team doc's `logoData`. Headshots
+hotlink ESPN's combiner exactly like `lg-data.js`. `share.png` (1200×630) is the `og:image` for the
+link preview. `noindex`, because the page names the family.
+
+**Copy rules the user set (2026-09-29):**
+- One decimal place unless the second one decides something (0.46 vs 0.16 margins, 6.86 vs 6.90).
+- Owners by first name. Laws Rule is **Sandy**, never "Mom", except inside a verbatim chat quote.
+  Perry = Kreussers, John = Nerfherders, Calvin = Kruz Control, Isaac = GOAT Kids,
+  Tom = Jaguarrams, Joe = Cowboys, Elan = Skywalkers.
+- "He" for everyone except Sandy.
+- Owner matchups read "Joe versus Calvin", never "Joe at Calvin". "At" is for team names only
+  ("Wyoming Cowboys at Kruz Control").
+- **RoboGoat's portrait heads every newsletter** (user: "include the robogoat picture from last
+  week's email at the top of the newsletter and all future newsletters"). The file is
+  `robogoat/robogoat.png`, taken from the inline image in the sent Week 2 recap email. The original
+  had an opaque white background, which was flood-filled to transparent from the edges; his white
+  face is untouched. It sits in the masthead at the right and is on `share.png` too. Future pages
+  point at the same file (`../../robogoat.png` from `robogoat/<season>/week-<n>/`).
+- Chat quotes are public league chat (`chat_*` docs). Private email replies, declined trade offers
+  and the `act_*` log are off limits.
+
+**Data:** official team totals come from `weekly_<season>_w<n>`. Per-player points come from
+`tools/_gffl_shadow_score.mjs`'s recompute. After the Monday finalize, three teams recomputed 1.00
+high (a D/ST or kicker stat correction), so quote the weekly doc's totals and not those units' points.
+`wpgraph_*` `p` is the **away** team's chance. Readings exist only while someone has the app open,
+so the page draws gaps over 3h dashed.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **46/46**. It checks 360/390/1280 with external
+requests blocked:
+- no horizontal scroll;
+- local logos load;
+- exactly one WP chart visible, with type ≥11px and no label outside the viewBox;
+- scoreboard values, standings order and points (summed here from the weekly totals, hand-entered);
+- bench bars proportional to their values;
+- the decimal whitelist, no unquoted "Mom", all eight owners named, curly quotes, no "Joe at Calvin";
+- RoboGoat's portrait in the masthead, loaded and on screen;
+- every score or record inside a no-wrap span.
+
+The first run caught three real bugs: the top three bench bars were clipped to one length by a
+`max-width`, "100%" spilled off the desktop chart, and the scoreboard records could break at
+the hyphen. Against HEAD (no page) the suite fails at "page file exists".
