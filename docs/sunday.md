@@ -1095,3 +1095,72 @@ the field view, noted at the check: with nothing stored it would also wait for t
 banner, the gate, which is its own behaviour. The one failure is the webfont ink check that fails the same
 way on HEAD), sunday-ff 53/53, pbpdetail 61/61. Bite: main's sd-reenact.js opens on the field and fails
 the default check; the stored-pick check passes on both.
+
+## 2026-09-29 — the 8-bit players redrawn, and animated frame by frame
+
+Perry: "I want you to do a design pass on the 8-bit players in gffl to get them better pixel graphics
+and better animations". All in `sd-reenact.js`; the stage, the camera, the kits and the play staging
+are unchanged.
+
+**The sprites** (`raFig`, same 34×40 grid and foot anchor):
+- **Football proportions, drawn in the chunky three-quarter style retro football games use.** Shoulder
+  pads 14 px of jersey across against a 10 px helmet (11 against 9 before), a tapered waist, longer and
+  slimmer legs, the pants ending under the knee over the socks, the arms hanging from the pads' edges.
+- **The helmet stays one solid shell** (2026-09-28 rule) with the face in its opening, an eye, and the
+  facemask's bars in front. It keeps a dark rim so it separates from the pads.
+- **Clean shading.** Two tones a colour, lit from above and in front, plus a lighter third only on the
+  top of the pads. The far arm and leg sit in shadow. A near arm or leg crossing the body casts a shade
+  in the body's own shadow tone instead of the black rim it had, which put 44 dark cells a frame through
+  the figure. A last pass gives any lone pixel of a tone its neighbours' tone (13 such pixels before).
+- **One rig.** Every frame is rebuilt through `raRig` with fixed bones (thigh 5.9, shin 5.2, upper arm 6,
+  forearm 4.6 px, spine 10), so nothing grows or shrinks between frames (it varied by up to 3.4 px).
+  A pose now gives the hands and feet and which way the elbows and knees bend; the rig places the
+  shoulders and hips and solves the joints. `tl`/`nl` shorten the spine and neck for poses lying flat.
+- **The ball** is a little smaller (it sits in the hands now). A shadow is a pixel ellipse (`raShadow`)
+  that shrinks as a man goes up and is longer under a man lying down. Officials and trainers go through
+  the same rasteriser.
+
+**The animation** (82 frames, 27 before; `raPoseAt` still returns the same poses, `raFrame` picks the
+frame and its in-betweens):
+- **Eight-frame strides** generated from one foot path per gait (`RA_GAITS`, `raGait`): walk, jog, run,
+  carrying the ball, backpedal, and the trainers with the stretcher. The body leans and bobs twice a
+  stride, the arms pump against the legs. The stride's phase is carried from frame to frame against the
+  distance covered (`raGaitFrame`, `RA_STRIDE_YD`), so speeding up changes the cadence and never skips
+  the legs ahead.
+- **The ball carrier** runs with it tucked in his near arm; a man standing with it holds it at his chest.
+- **No moonwalking.** A man moving against the way he faces backpedals. That is the QB's drop, which
+  used to run a forward stride backwards, and now also: the defensive backs and linebackers drop facing
+  the quarterback until the throw (a man who has to sprint turns and runs, and stays turned), and the
+  linemen face their man for the whole snap, kick-sliding back in pass protection (the centre used to
+  turn round), feet chopping while they block.
+- **The pass:** wound up with the ball behind the helmet (drawn behind the passer), the release, a
+  follow-through with the back foot coming up. **The catch:** reach, then pull it in.
+- **Going down:** a stumble and the knees before he is flat; the man who makes the tackle dives into it;
+  getting up goes back through the knees. **Taking a knee** is a kneel, the ball on the knee (the QB's
+  kneel-down, the touchback interception, a kick returner downing it in the end zone, teammates beside
+  an injured man). `raPoseAt` still reads `down` for the first two, as the play's own checks expect.
+- **Standing around:** breathing, and about two in five with hands on hips after the whistle (the old
+  one-pixel hop is gone). Jumping teammates squat between jumps, the scorer's dance is four steps then
+  arms up twice, the men holding up a kicker hold their arms straight up.
+
+Frame time, headless Chrome, 240 frames through each of five plays on a phone-size stage (mean ms,
+HEAD → now): 0.5-1.4 → 0.3-1.5, the same. The new frames cost 1.4-2.3 ms each to rasterise, so they are
+built while the page is idle after load; the first play's 95th-percentile frame is 1.2-1.3 ms (HEAD
+0.9-2.2 over five runs; 4.5 before the idle-time build).
+The sprite cache holds up to 2,400 uniformed frames and drops the least recently drawn beyond that.
+Cache-bust ?v=20260929c.
+
+VERIFY: sunday 310/311 (new section "8-bit players: pixel art and animation", 19 checks: the rig's
+bone lengths in all 82 frames; eight distinct frames a gait, the run's 10-px foot travel and 1-px bob;
+the cadence on a 0-9 yd/s ramp at 60 fps, never more than one frame a step, 1.792 strides in the last
+second against the hand-computed 7.5 ÷ 4.2 = 1.786; pads 14 vs helmet 10; no lone pixels in 246 frames
+of players, officials and trainers; 5.4 dark cells a frame inside the figures, all enclosed gaps;
+no forward stride in 3,962 frames of men moving against their facing over 14 passes; on 885 Penix's
+backpedal, six defensive backs dropping, the line facing the rush in 1,045 of 1,045 frames with both
+block frames, throw1 → throw2 → throw3, Robinson's catch → secure → carry → fall1 → fall2 → down, the
+tackler's dive; 863's carry tucked in 50 of 50 frames; 160's hit QB down and up through his knees (with
+the play's nflverse detail); 4399's kneel with the ball on the knee; breathing and hands on hips; every
+frame drawn across 184 plays a real one; the shadow 19 px, 11 up, 29 lying. The one failure is the
+webfont ink check that fails the same way on HEAD), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65.
+Bite: HEAD's sd-reenact.js scores 291/311, failing exactly the 19 new checks (and the webfont check);
+every pre-existing check passes on both.

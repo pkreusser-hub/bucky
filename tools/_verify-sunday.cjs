@@ -707,6 +707,253 @@ async function main() {
     chk(() => [ra.catchUp.oneBehind && ra.catchUp.twoBehind && ra.catchUp.fiveBehind,
       `the live 8-bit view plays the next play when one behind and jumps to the newest when further behind (${JSON.stringify(ra.catchUp)})`]);
 
+    /* ===================== (g2) the 8-bit players: pixel art and animation ===================== */
+    // 2026-09-29, user: "do a design pass on the 8-bit players in gffl to get them better pixel
+    // graphics and better animations". Every number is read off the rig (RA_SKEL after raRig), the
+    // rasterised shade-code grids (raFig) or frames drawn through raDraw on the ATL @ GB fixture, never
+    // off rendered pixels. Frames are drawn 60 (or 30) a second on a canvas as wide as the world, so
+    // nobody is culled and the stride's phase is carried from frame to frame as on screen.
+    section("8-bit players: pixel art and animation");
+    // (160's hit on the passer is nflverse's `hit`, so that play is built with its real detail.)
+    const det160 = JSON.parse(fs.readFileSync(path.join(FIX, "pbp-401872948.json"), "utf8")).plays["401872948160"];
+    const pl = await page.evaluate((fixture, det160) => {
+      const comp = fixture.header.competitions[0];
+      const ev = { home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+      const byId = new Map();
+      for (const dr of fixture.drives.previous || []) for (const raw of dr.plays || []) byId.set(raw.id, { raw, teamId: dr.team?.id });
+      const np = (id) => { const { raw, teamId } = byId.get(id); return normPlay(raw, ev.home.id, teamId, ev.home.abbr); };
+      const out = {};
+      const tryIt = (k, fn) => { try { fn(); } catch (e) { out[k] = { err: String(e.message || e) }; } };
+      const cv = document.createElement("canvas"); cv.width = RA_WORLD_W; cv.height = RA_WORLD_H;
+      const g = cv.getContext("2d");
+      const frames = (sc, t1, fn, dt = 1 / 60) => { const st = { sc, t: 0, cam: { x: 0, y: 0 }, shown: new Set() }; for (let t = 0; t <= t1 + 1e-9; t += dt) { st.t = t; raDraw(g, cv.width, st); fn(t, st); } };
+      const d = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const MAT = { J: "J", j: "J", L: "J", P: "P", p: "P", Q: "P", S: "S", s: "S", F: "F", f: "F", E: "F", B: "B", b: "B", C: "C", c: "C" };
+      const sx = (sc, a, t) => { const [, z] = raPos(a, t); return raSX(sc.offHome ? z : 100 - z); };
+      const gait = (p) => /^(walk|jog|run|carry|back|crun)\d$/.exec(p || "")?.[1] || null;
+      // ── The rig: one set of bone lengths for every frame.
+      tryIt("bones", () => {
+        let worst = 0, at = "";
+        for (const [k, S] of Object.entries(RA_SKEL)) {
+          const L = [[S.fl, 5.9, 5.2], [S.bl, 5.9, 5.2], [S.fa, 6, 4.6], [S.ba, 6, 4.6]];
+          const dev = Math.max(...L.flatMap(([A, a, b]) => [Math.abs(d(A[0], A[1]) - a), Math.abs(d(A[1], A[2]) - b)]), Math.abs(d(S.h, S.s) - (S.tl || 10)));
+          if (dev > worst) { worst = dev; at = k; }
+        }
+        out.bones = { n: Object.keys(RA_SKEL).length, worst: +worst.toFixed(3), at };
+      });
+      // ── The strides: eight frames a gait, all different; the run's feet and bob.
+      tryIt("gaits", () => {
+        const names = ["walk", "jog", "run", "carry", "back"];
+        const per = names.map((n) => { const fr = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => RA_SKEL[n + i]); return fr.every(Boolean) ? new Set(fr.map((_, i) => raFig(n + (i + 1), "p").g.join(""))).size : 0; });
+        const run = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => RA_SKEL["run" + i]);
+        const ax = run.map((S) => S.fl[2][0]), hy = run.map((S) => S.h[1]);
+        out.gaits = { names, distinct: per, ankleSpan: +(Math.max(...ax) - Math.min(...ax)).toFixed(2), bob: +(Math.max(...hy) - Math.min(...hy)).toFixed(2), gaitsObj: typeof RA_GAITS === "object" };
+      });
+      // ── The cadence: a man speeding up from a standstill to 9 yd/s over 3 s, drawn 60 times a second.
+      tryIt("cadence", () => {
+        const a = { phase: 0 }, idx = [], ph = [];
+        for (let i = 0; i <= 180; i++) {
+          const t = i / 60, v = 3 * t, gt = v < 2.4 ? "walk" : v < 5.6 ? "jog" : "run";
+          if (v < 0.8) continue;
+          idx.push(+raGaitFrame(a, t, gt, v).slice(-1) - 1);
+          ph.push([t, a.gph.ph]);
+        }
+        const steps = idx.slice(1).map((k, i) => (k - idx[i] + 8) % 8);
+        const p2 = ph.find(([t]) => Math.abs(t - 2) < 1e-9)[1], p3 = ph.find(([t]) => Math.abs(t - 3) < 1e-9)[1];
+        // Over the last second (6 → 9 yd/s, all running) he covers ∫3t dt = 7.5 yd at 4.2 yd a stride.
+        out.cadence = { maxStep: Math.max(...steps), strides: +(p3 - p2).toFixed(3), expect: +(7.5 / 4.2).toFixed(3) };
+      });
+      // ── The silhouette: shoulder pads wider than the helmet.
+      tryIt("pads", () => {
+        const f = raFig("stand", "p");
+        const rows = (set) => { let best = 0; for (let y = 0; y < f.H; y++) { let n = 0; for (let x = 0; x < f.W; x++) if (set.includes(f.g[y * f.W + x])) n++; best = Math.max(best, n); } return best; };
+        out.pads = { jersey: rows(["J", "j", "L"]), helmet: rows(["H"]) };
+      });
+      // ── Clean pixels: no lone pixel of a tone inside a patch of another tone of the same colour, in
+      // any frame, for players, officials and trainers.
+      tryIt("lone", () => {
+        let n = 0, frames_ = 0; const where = [];
+        for (const v of ["p", "r", "m"]) for (const k of Object.keys(RA_SKEL)) {
+          const f = raFig(k, v); frames_++;
+          for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) {
+            const c = f.g[y * f.W + x], m = MAT[c];
+            if (!m) continue;
+            const nb = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].map(([u, w]) => (u < 0 || w < 0 || u >= f.W || w >= f.H ? "." : f.g[w * f.W + u])).filter((q) => MAT[q] === m);
+            if (nb.length >= 3 && !nb.includes(c)) { n++; if (where.length < 4) where.push(`${k}/${v}`); }
+          }
+        }
+        out.lone = { n, frames: frames_, where };
+      });
+      // ── No black line through the body: HEAD ringed each near arm and leg with the outline colour
+      // where it crossed the body. Now it casts a shade, and the only dark cells inside a figure away
+      // from the helmet's rim are the outline of an enclosed gap (between two legs, an arm and the body).
+      tryIt("lines", () => {
+        let n = 0, frames_ = 0, most = 0, at = "";
+        for (const [k, S] of Object.entries(RA_SKEL)) {
+          const f = raFig(k, "p"), cx = f.ax + S.c[0], cy = f.ay - S.c[1];
+          let m = 0; frames_++;
+          for (let y = 1; y < f.H - 1; y++) for (let x = 1; x < f.W - 1; x++) {
+            if (f.g[y * f.W + x] !== "O") continue;
+            if ([f.g[y * f.W + x - 1], f.g[y * f.W + x + 1], f.g[(y - 1) * f.W + x], f.g[(y + 1) * f.W + x]].includes(".")) continue;
+            if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 7.5) continue;           // (the helmet's own dark rim)
+            m++;
+          }
+          n += m; if (m > most) { most = m; at = k; }
+        }
+        out.lines = { perFrame: +(n / frames_).toFixed(1), most, at, frames: frames_ };
+      });
+      // ── Play 885 (Penix to Robinson for 17, Franklin and Cisse tackle him) drawn 60 a second.
+      tryIt("pass", () => {
+        const sc = raBuild(np("40187294885"), ev, new Set());
+        const attackRight = !sc.offHome;
+        const qb = sc.actors.find((a) => a.role === "QB" && a.side === "o"), rec = sc.actors.find((a) => a.who?.last === "Robinson");
+        const ol = sc.actors.filter((a) => a.role === "OL" && a.side === "o");
+        const tk = sc.actors.find((a) => a.tackler) || sc.actors.find((a) => a.who?.last === "Franklin");
+        const tThrow = qb.acts.find((q) => q[2] === "throw2")[0];
+        const seq = { qb: [], rec: [], tk: [] }, olFace = { n: 0, wrong: 0 }, olPoses = new Set(), dbBack = new Set(), qbDrop = { back: 0, fwd: 0 };
+        const push = (arr, p) => { if (arr[arr.length - 1] !== p) arr.push(p); };
+        frames(sc, sc.T, (t) => {
+          push(seq.qb, qb.drawn?.pose); push(seq.rec, rec.drawn?.pose); push(seq.tk, tk.drawn?.pose);
+          if (t >= sc.tS && t < sc.tEnd) for (const a of ol) { olFace.n++; if (a.drawn.flip !== !attackRight) olFace.wrong++; if (t < sc.tS + 1.6 && /^block/.test(a.drawn.pose)) olPoses.add(a.drawn.pose); }
+          // The drop: moving back from the line before the throw.
+          if (t > sc.tS + 0.3 && t < tThrow - 0.4) { const g_ = gait(qb.drawn.pose); if (g_ === "back") qbDrop.back++; else if (g_) qbDrop.fwd++; }
+          if (t > sc.tS && t < tThrow) for (const a of sc.actors) if (a.side === "d" && (a.role === "DB" || a.role === "LB") && gait(a.drawn?.pose) === "back" && a.drawn.flip === attackRight) dbBack.add(sc.actors.indexOf(a));
+        });
+        out.pass = { seq, olFace, olPoses: [...olPoses], dbBack: dbBack.size, qbDrop, tackler: !!tk?.tackler, hold: { throw1: RA_HOLD.throw1, far: RA_SKEL.throw1?.ba?.[2] } };
+      });
+      // ── No moonwalking: across the game's first 14 completions and incompletions, every frame of a man
+      // moving against the way he faces (faster than a walk) is a backpedal, never a forward stride.
+      tryIt("moon", () => {
+        const passes = [...byId.values()].filter((r) => /\bpass\b/.test(r.raw.text || "") && !/PENALTY|INTERCEPT|sacked/i.test(r.raw.text) && r.raw.type?.text !== "Two-point Conversion").slice(0, 14);
+        let n = 0, fwd = 0; const bad = [];
+        for (const r of passes) {
+          const sc = raBuild(np(r.raw.id), ev, new Set());
+          const prev = new Map();
+          frames(sc, sc.tEnd ?? sc.T, (t) => {
+            for (const a of sc.actors) {
+              if (a.side !== "o" && a.side !== "d") continue;
+              const x = sx(sc, a, t), [px, pz] = raPos(a, Math.max(0, t - 0.1)), ox = raSX(sc.offHome ? pz : 100 - pz);
+              const [cx, cz] = raPos(a, t), speed = Math.hypot(cx - px, cz - pz) / 0.1;
+              const against = speed > 1.5 && a.drawn && ((x - ox > 0.5 * RA_K && a.drawn.flip) || (ox - x > 0.5 * RA_K && !a.drawn.flip));
+              const g_ = gait(a.drawn?.pose);
+              if (against && g_) { n++; if (g_ !== "back") { fwd++; if (bad.length < 4) bad.push(`${r.raw.id}:${a.role}@${t.toFixed(2)}`); } }
+            }
+          }, 1 / 30);
+        }
+        out.moon = { plays: passes.length, n, fwd, bad };
+      });
+      // ── The run (863, Bi.Robinson 4 yd): after the handoff he carries it tucked.
+      tryIt("carry", () => {
+        const sc = raBuild(np("40187294863"), ev, new Set());
+        const car = sc.actors.find((a) => a.who?.last === "Robinson");
+        const tHand = sc.ball.find((q) => q.a === car).t0;
+        let n = 0, tucked = 0, atHand = true;
+        frames(sc, sc.tEnd, (t) => {
+          if (t < tHand + 0.1 || t > sc.tEnd - 0.15) return;
+          const [px, pz] = raPos(car, t - 0.1), [x, z] = raPos(car, t);
+          if (Math.hypot(x - px, z - pz) / 0.1 < 2.4) return;
+          n++;
+          if (gait(car.drawn.pose) === "carry") tucked++;
+          const S = RA_SKEL[car.drawn.pose], h = RA_HOLD[car.drawn.pose];
+          if (!S || !h || Math.hypot(h[0] - S.fa[2][0], h[1] - S.fa[2][1]) > 1.2) atHand = false;
+        });
+        out.carry = { n, tucked, atHand };
+      });
+      // ── Down and back up: 160's QB is hit as he throws (down 0.3 s after, up 2.1 s after); the
+      // kneel-down (4399) takes a knee.
+      tryIt("up", () => {
+        const sc = raBuild(np("401872948160"), ev, new Set(), { detail: det160 }), qb = sc.actors.find((a) => a.role === "QB" && a.side === "o");
+        const seq = [];
+        frames(sc, Math.min(sc.T, qb.upAt + 1), () => { if (seq[seq.length - 1] !== qb.drawn?.pose) seq.push(qb.drawn?.pose); });
+        const sk = raBuild(np("4018729484399"), ev, new Set()), qk = sk.actors.find((a) => a.role === "QB" && a.side === "o");
+        let kneel = null;
+        frames(sk, qk.downAt + 0.6, (t) => { if (t > qk.downAt + 0.5 && kneel == null) kneel = { frame: qk.drawn.pose, pose: raPoseAt(sk, qk, t), held: raBall(sk, t).held === qk }; });
+        out.up = { seq, kneel, holdKneel: RA_HOLD.kneel, kneeHand: RA_SKEL.kneel?.fa?.[2] };
+      });
+      // ── Standing around after the whistle (885's last seconds): breathing, and hands on hips.
+      tryIt("idle", () => {
+        const sc = raBuild(np("40187294885"), ev, new Set());
+        const seen = new Map(), hips = new Set();
+        frames(sc, sc.T, (t) => {
+          if (t < sc.tEnd + 0.8) return;
+          for (const a of sc.actors) {
+            const p = a.drawn?.pose;
+            if (p === "stand" || p === "stand2") { if (!seen.has(a)) seen.set(a, new Set()); seen.get(a).add(p); }
+            if (p === "hips") hips.add(a);
+          }
+        }, 1 / 30);
+        out.idle = { breathing: [...seen.values()].filter((s) => s.size === 2).length, hips: hips.size };
+      });
+      // ── Every frame drawn over the whole game is a real frame (a missing name would fall back to
+      // standing): each man's frame 10 times a second through raFrame, plus the names raDraw sets itself.
+      tryIt("names", () => {
+        const missing = new Set(); let n = 0;
+        for (const id of byId.keys()) {
+          let sc; try { sc = raBuild(np(id), ev, new Set()); } catch { continue; }
+          for (let t = 0; t <= sc.T; t += 0.1) {
+            const b = raBall(sc, t);
+            for (const a of sc.actors) {
+              if (a.side !== "o" && a.side !== "d") continue;
+              const [x, z] = raPos(a, t), [px, pz] = raPos(a, Math.max(0, t - 0.1)), speed = Math.hypot(x - px, z - pz) / 0.1;
+              const f = raFrame(sc, a, t, raPoseAt(sc, a, t), { speed, held: b.held === a, back: false, after: t > (sc.tEnd ?? sc.T) + 0.6 });
+              n++; if (!RA_SKEL[f]) missing.add(f);
+            }
+          }
+        }
+        for (const f of ["cheer", "crouch", "signal", "dance", "dance2", "dance3", "stand", "stand2", "carry", "hold", "kneel", "down"]) if (!RA_SKEL[f]) missing.add(f);
+        out.names = { n, missing: [...missing] };
+      });
+      // ── The shadow: a pixel ellipse under his feet, smaller the higher he is, longer under a man lying.
+      tryIt("shadow", () => {
+        const widest = (lift, flat) => { const w = []; const stub = { fillRect: (x, y, ww) => w.push(ww), set fillStyle(v) {} }; raShadow(stub, 100, 100, lift, flat); return Math.max(...w); };
+        out.shadow = { ground: widest(0, false), up: widest(40, false), lying: widest(0, true) };
+      });
+      return out;
+    }, sumFixture, det160);
+    const pchk = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(pl).slice(0, 160)})`]; } ok(r[0], r[1]); };
+    pchk(() => [pl.bones.n >= 70 && pl.bones.worst <= 0.01,
+      `one rig for every frame: thighs 5.9, shins 5.2, upper arms 6, forearms 4.6 px and the spine its length in all ${pl.bones.n} frames (worst ${pl.bones.worst} px off, ${pl.bones.at}), so nothing grows or shrinks between frames`]);
+    pchk(() => [pl.gaits.gaitsObj && pl.gaits.distinct.every((n) => n === 8) && pl.gaits.ankleSpan >= 8 && pl.gaits.bob >= 1,
+      `eight-frame strides for walking, jogging, running, carrying the ball and backpedalling, every frame different (${pl.gaits.distinct.join("/")}); the run's foot travels ${pl.gaits.ankleSpan} px fore and aft and the body bobs ${pl.gaits.bob} px`]);
+    // Hand-computed: 6 → 9 yd/s over the last second is 7.5 yd, at 4.2 yd a running stride 1.786 strides.
+    pchk(() => [pl.cadence.maxStep <= 1 && Math.abs(pl.cadence.strides - pl.cadence.expect) < 0.01,
+      `the stride keeps pace with the man: speeding up from a walk to 9 yd/s, drawn 60 times a second, the legs never skip a frame (largest step ${pl.cadence.maxStep}) and the last second is ${pl.cadence.strides} strides (7.5 yd ÷ 4.2 = ${pl.cadence.expect})`]);
+    pchk(() => [pl.pads.jersey >= 13 && pl.pads.jersey >= pl.pads.helmet + 3,
+      `football shoulders: a standing player's pads are ${pl.pads.jersey} px of jersey across, the helmet ${pl.pads.helmet}`]);
+    pchk(() => [pl.lone.n === 0 && pl.lone.frames >= 200,
+      `clean pixel art: no lone pixel of one tone inside another tone of the same colour, in ${pl.lone.frames} frames of players, officials and trainers (${pl.lone.n}${pl.lone.where.length ? ": " + pl.lone.where.join(" ") : ""})`]);
+    // HEAD: 1,186 such cells in 27 frames, 44 a frame (53 in the standing frame alone).
+    pchk(() => [pl.lines.perFrame <= 8 && pl.lines.most <= 16,
+      `no black line through the body: a near arm or leg crossing it casts a shade, so dark cells inside a figure away from the helmet average ${pl.lines.perFrame} a frame over ${pl.lines.frames} frames (at most ${pl.lines.most}, ${pl.lines.at}: the outline of an enclosed gap) against 44 when the near limbs had black rims`]);
+    pchk(() => [pl.moon.plays === 14 && pl.moon.n >= 30 && pl.moon.fwd === 0,
+      `no moonwalking: in 14 passing plays, all ${pl.moon.n} frames of a man moving against the way he faces are a backpedal (${pl.moon.fwd} forward strides${pl.moon.bad.length ? ": " + pl.moon.bad.join(" ") : ""})`]);
+    pchk(() => [pl.pass.qbDrop.back >= 10 && pl.pass.qbDrop.fwd === 0,
+      `885: Penix drops back from the shotgun in a backpedal, still facing the line (${pl.pass.qbDrop.back} backpedal frames, ${pl.pass.qbDrop.fwd} forward)`]);
+    pchk(() => [pl.pass.dbBack >= 1,
+      `885: the defensive backs drop into coverage facing the quarterback, backpedalling until the throw (${pl.pass.dbBack} of them)`]);
+    pchk(() => [pl.pass.olFace.n > 100 && pl.pass.olFace.wrong === 0 && pl.pass.olPoses.includes("block") && pl.pass.olPoses.includes("block2"),
+      `885: the offensive line faces the rush in every frame of the play, kick-sliding back rather than turning round (${pl.pass.olFace.wrong} of ${pl.pass.olFace.n} frames turned), feet chopping while they block (${pl.pass.olPoses.join(", ")})`]);
+    // (A name ending in * is any frame of that stride: "carry*" is carry1 to carry8.)
+    const inOrder = (seq, want) => { let i = 0; for (const p of seq) if (i < want.length && (p === want[i] || (want[i].endsWith("*") && String(p).startsWith(want[i].slice(0, -1))))) i++; return i === want.length; };
+    pchk(() => [inOrder(pl.pass.seq.qb, ["throw1", "throw2", "throw3"]) && pl.pass.hold.throw1 && Math.hypot(pl.pass.hold.throw1[0] - pl.pass.hold.far[0], pl.pass.hold.throw1[1] - pl.pass.hold.far[1]) < 1,
+      `885: the pass winds up with the ball in the throwing hand behind the helmet, releases, and follows through (${pl.pass.seq.qb.filter((p) => /throw/.test(p)).join(" → ")})`]);
+    pchk(() => [inOrder(pl.pass.seq.rec, ["catch", "secure", "carry*"]) && inOrder(pl.pass.seq.rec, ["fall1", "fall2", "down"]),
+      `885: Robinson reaches, pulls it in, runs with it tucked, then stumbles, goes to his knees and is down (${pl.pass.seq.rec.filter((p) => !/^(jog|run|walk)\d/.test(p)).map((p) => p.replace(/^(carry|back)\d$/, "$1")).filter((p, i, a) => p !== a[i - 1]).join(" → ")})`]);
+    pchk(() => [pl.pass.tackler && inOrder(pl.pass.seq.tk, ["dive", "down"]),
+      `885: the man who makes the tackle dives into it (${pl.pass.seq.tk.slice(-4).join(" → ")})`]);
+    pchk(() => [pl.carry.n >= 10 && pl.carry.tucked === pl.carry.n && pl.carry.atHand,
+      `863: after the handoff Bi.Robinson runs with the ball tucked in his near arm (${pl.carry.tucked} of ${pl.carry.n} running frames; the ball at that hand: ${pl.carry.atHand})`]);
+    pchk(() => [inOrder(pl.up.seq, ["fall1", "fall2", "down", "fall2", "rise"]),
+      `160: the hit QB goes down through his knees and gets back up the same way (${pl.up.seq.filter((p) => !/^(jog|run|walk|back|carry)\d/.test(p)).join(" → ")})`]);
+    pchk(() => [pl.up.kneel && pl.up.kneel.frame === "kneel" && pl.up.kneel.pose === "down" && pl.up.kneel.held && Math.hypot(pl.up.holdKneel[0] - pl.up.kneeHand[0], pl.up.holdKneel[1] - pl.up.kneeHand[1]) < 1.2,
+      `4399: Penix takes a knee (drawn ${pl.up.kneel?.frame}, still "${pl.up.kneel?.pose}" to the play) with the ball in his hand on the knee`]);
+    pchk(() => [pl.idle.breathing >= 8 && pl.idle.hips >= 2,
+      `after the whistle the men standing around breathe (${pl.idle.breathing} seen in both frames) and some stand hands on hips (${pl.idle.hips})`]);
+    pchk(() => [pl.names.n > 10000 && pl.names.missing.length === 0,
+      `every frame drawn over the game's 184 plays is a real frame, none falling back to standing (${pl.names.n} checked${pl.names.missing.length ? ", missing " + pl.names.missing.join(", ") : ""})`]);
+    pchk(() => [pl.shadow.ground === 19 && pl.shadow.up < pl.shadow.ground && pl.shadow.lying > pl.shadow.ground,
+      `each man's shadow is a small ellipse under his feet: ${pl.shadow.ground} px across on the ground, ${pl.shadow.up} px when he is 40 px up, ${pl.shadow.lying} px under a man lying down`]);
+
     /* ===================== console sanity ===================== */
     // 2026-09-28, user: "when a play includes 'push ob' or 'ob' that means the ball carrier finishes
     // the play crossing out of bounds, so our animation should use that". raParse only knew "out of
