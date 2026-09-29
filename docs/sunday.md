@@ -1082,3 +1082,16 @@ with its "Touchdown" banner still to come; `raArriveTD` on the fixture's 4018729
 the touchdown, on the reversed 4018729631003 and an ordinary play nothing; the one failure is the webfont
 ink check that fails the same way on HEAD), sunday-ff 53/53, pbpdetail 61/61. Bite: main's sd-reenact.js
 puts the touchdown straight at its end and fails both.
+
+## 2026-09-29 — the 8-bit view is the default
+
+Perry: "Lets set 8-bit view as the default instead of field". `bigTecmo()` falls back to true when nothing
+is stored (`sun.tecmoBig`), on phone and desktop alike; the Field / 8-bit toggle still stores the pick, so
+a viewer who chose the field keeps it. Cache-bust ?v=20260929b.
+
+VERIFY: sunday 291/292 (new section "The 8-bit view is the default": nothing stored opens on the 8-bit
+stage with the toggle offering "Field"; a stored "false" keeps the field. The score-hold section now pins
+the field view, noted at the check: with nothing stored it would also wait for the 8-bit touchdown's
+banner, the gate, which is its own behaviour. The one failure is the webfont ink check that fails the same
+way on HEAD), sunday-ff 53/53, pbpdetail 61/61. Bite: main's sd-reenact.js opens on the field and fails
+the default check; the stored-pick check passes on both.

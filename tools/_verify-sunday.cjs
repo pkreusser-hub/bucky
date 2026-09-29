@@ -2087,6 +2087,9 @@ async function main() {
           : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify({ ...sbFixture, events: [...sbFixture.events, JSON.parse(evNow())] }))
           : /\/\.netlify\/functions\//.test(u) ? json('{"ok":false,"reason":"none"}') : null;
         await page.setViewport({ width: 390, height: 844 });
+        // (On the field view: this is the score hold alone. On the 8-bit view, the default since
+        // 2026-09-29, the score also waits for the touchdown's banner, the gate, which is its own check.)
+        await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "false"));
         await page.goto(BASE + "/sunday.html?hold=1#g401872963", { waitUntil: "domcontentloaded" });
         try { await page.waitForFunction(() => G?.sum && G.ev?.state === "in" && G.id === "401872963" && +G.ev.home.score === 0, { timeout: 15000 }); } catch {}
         const settle = (want) => page.waitForFunction((want) => !G.hold && !G.gate && document.querySelector("#gs-h")?.textContent === want, { timeout: 6000 }, want).then(() => true, () => false);
@@ -2107,6 +2110,24 @@ async function main() {
         await wait(3000);
         const sc3 = await probe(() => ({ hold: !!G.hold, h: document.querySelector("#gs-h")?.textContent }));
         ok(sc3?.hold && sc3.h === "14", `…but a score that arrives before its play is still held (${JSON.stringify(sc3)})`);
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+      }
+      // 2026-09-29, user: "Lets set 8-bit view as the default instead of field". Nothing stored: the
+      // 8-bit stage shows and the tilted field doesn't; a viewer who picked the field keeps it.
+      section("The 8-bit view is the default");
+      {
+        const shown = () => probe(() => ({ big: document.querySelector("#big-tecmo")?.offsetParent != null, field: document.querySelector(".field-3d")?.offsetParent != null, tog: document.querySelector("[data-fview]")?.textContent?.trim() }));
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+        await page.goto(BASE + "/sunday.html?dflt=1#g401872963", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction(() => G?.sum && document.querySelector("#big-tecmo")?.offsetParent != null, { timeout: 10000 }); } catch {}
+        const d = await shown();
+        ok(d?.big && !d.field && d.tog === "Field", `with nothing stored the game opens on the 8-bit view (8-bit shown ${d?.big}, field shown ${d?.field}; the toggle offers "${d?.tog}")`);
+        await probe(() => localStorage.setItem("sun.tecmoBig", "false"));
+        await page.goto(BASE + "/sunday.html?dflt=2#g401872963", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction(() => G?.sum && document.querySelector(".field-3d")?.offsetParent != null, { timeout: 10000 }); } catch {}
+        const f = await shown();
+        ok(f && !f.big && f.field && f.tog === "8-bit", `…a viewer who picked the field keeps it (8-bit shown ${f?.big}, field shown ${f?.field})`);
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
       // 2026-09-28, user: "Often when refreshing the screen or going from one game back to the live game
       // it will replay the previous play. It shouldn't replay anything it shoukd always be live view".

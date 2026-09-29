@@ -3264,8 +3264,10 @@ window.addEventListener('hashchange', () => { if (RA.open && !/^#g/.test(locatio
 // line up at the real spot for the next snap. Clicking it opens the full viewer.
 const SIDE = { sc: null, t: 0, cam: null, shown: new Set(), raf: 0, last: 0, running: false, playId: null, setKey: '', idle: 0, gameId: null, cv: null };
 const sideEl = () => document.getElementById('side-live');
-// The big 8-bit view swaps in for the tilted field when the viewer picks it (remembered).
-const bigTecmo = () => store.get('tecmoBig', false);
+// The big 8-bit view swaps in for the tilted field (the viewer's pick is remembered). It is the default
+// (2026-09-29, user: "Lets set 8-bit view as the default instead of field"); a viewer who picked the
+// field keeps it.
+const bigTecmo = () => store.get('tecmoBig', true);
 function sideTarget() {
   // (The sidebar card's fixed-height canvas grows by the 1.2 the halftime desk's 4:3 frame takes from
   // its width, so it stays wide enough for the score bug at its smallest.)
