@@ -1383,11 +1383,12 @@ async function loadGameEvent() {
   const q = quickPlay(ev);
   const scoreMoved = old && (old.home.score !== ev.home.score || old.away.score !== ev.away.score);
   let moment = null, heroOld = old;
-  if (scoreMoved && !(fresh && q?.scoring) && !G.hold) G.hold = { away: old.away.score, home: old.home.score, t: Date.now() };
+  if (scoreMoved && !(fresh && q?.scoring) && !scoreExplained(ev, q) && !G.hold) G.hold = { away: old.away.score, home: old.home.score, t: Date.now() };
   if (fresh && q && (q.scoring || q.turnover)) {
     moment = q;
     if (q.scoring && G.hold) { heroOld = { away: { score: G.hold.away }, home: { score: G.hold.home } }; G.hold = null; }
   }
+  if (G.hold && scoreExplained(ev, q)) { heroOld = { away: { score: G.hold.away }, home: { score: G.hold.home } }; G.hold = null; }
   gateCheck();
   if (G.gate) {                                                          // the 8-bit view shows it first
     G.gate.old ||= G.hold ? null : heroOld;
@@ -1404,6 +1405,17 @@ async function loadGameEvent() {
   // a replay review is over; the 8-bit view then stages the ruling): pull the full summary now.
   const edited = !!qid && qid === old?.sit?.lastPlay?.id && ev.sit.lastPlay.text !== old.sit.lastPlay.text;
   if ((qid && quickIsNewer(qid, G.sum, G.id)) || edited || scoreMoved || G.hold || (old && old.state !== ev.state)) G.sumPoller.now();
+}
+// A score change the page can already account for: the scoreboard's latest play is a scoring play, or
+// the summary's last scoring play carries this very score. (2026-09-28, PHI @ CHI: ESPN put the
+// touchdown up as the scoreboard's latest play a poll before it moved the score, so the score moved
+// with no *new* play; the page held the old score for its full 25 s, and the family saw it change about
+// 30 s after the 8-bit touchdown.) The hold is for a score that arrives before its play does.
+function scoreExplained(ev, q) {
+  if (!ev) return false;
+  if (q?.scoring) return true;
+  const last = G?.sum?.flat.map((f) => f.p).filter((p) => p.scoring && p.kind !== 'meta').pop();
+  return !!last && +last.away === +ev.away.score && +last.home === +ev.home.score;
 }
 function celebrateOnce(p) {
   if (!p || G.celebrated.has(p.id)) return;
@@ -1438,7 +1450,7 @@ async function loadSummary() {
   const isNew = fresh.length > 0 || !prev;
   const moment = [...fresh].reverse().find((p) => p.scoring || p.turnover);
   let held = null;
-  if (G.hold && (fresh.some((p) => p.scoring) || Date.now() - G.hold.t > 25000)) {
+  if (G.hold && (fresh.some((p) => p.scoring) || scoreExplained(G.ev, quickPlay(G.ev)) || Date.now() - G.hold.t > 25000)) {
     held = { away: { score: G.hold.away }, home: { score: G.hold.home } };
     G.hold = null;
   }

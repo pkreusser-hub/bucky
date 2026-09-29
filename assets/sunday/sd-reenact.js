@@ -3547,7 +3547,7 @@ function sideSet() {
 function sideResume() {
   SIDE.last = performance.now();
   const tick = (now) => {
-    if (!SIDE.cv?.isConnected || SIDE.cv.closest('[hidden]')) { SIDE.running = false; return; }
+    if (!SIDE.cv?.isConnected || SIDE.cv.closest('[hidden]') || !SIDE.sc) { SIDE.running = false; return; }   // (a loop left over from a cleared stage stops)
     const dt = Math.min(0.05, (now - SIDE.last) / 1000) * (SIDE.rp?.speed || 1);
     SIDE.last = now;
     SIDE.loop = true;

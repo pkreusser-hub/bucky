@@ -993,3 +993,23 @@ files fail 13 of the 16 new checks, every pre-existing check still passing; the 
 only the end state (the ball at the 1, the players' starting spots, the call-only feed staged as a
 touchdown). The rewritten-play check first passed vacuously-then-flaked: its setup ended before the
 scoreboard's poll had brought the call's text, so it now waits for that.
+
+## 2026-09-28 — a score its play already explains is not held
+
+Perry, PHI @ CHI, the Eagles' touchdown on the last play of the half: "the eagles just scored a
+touchdown but it is not changing the score … or it did, but like 30 seconds after the 8 bit animation
+played". The page holds a scoreboard score that moves with no new play (`G.hold`: the score must not beat
+its play onto the screen) until the summary brings a *new* scoring play, or 25 s. ESPN had put the
+touchdown up as the scoreboard's latest play a poll before it moved the score, so the score then moved
+with no new play, the lagging summary never counted it as fresh, and the hold ran its full 25 s.
+`scoreExplained(ev, q)`: a score is shown at once when the scoreboard's latest play is a scoring play, or
+the summary's last scoring play carries that very score; `loadGameEvent` doesn't start a hold for it and
+releases one it can now explain, and `loadSummary` releases on it too. A score that arrives before any
+play accounts for it is still held. Also: the 8-bit tick stops when the stage has been cleared
+(`SIDE.sc` null) rather than throwing. Cache-bust ?v=20260928x.
+
+VERIFY: sunday 276/277 (new section "A score change its play already explains is not held", 3 checks: the
+summary already holding the scoring play, the touchdown as the scoreboard's latest play a poll before the
+score, a score with no play still held; the one failure is the webfont ink check that fails the same way on
+HEAD in this container), sunday-ff 53/53, pbpdetail 61/61. Bite: main's sd-app.js holds both explained
+scores (0 and 7 on screen), and the third check then fails too because the first hold is still running.

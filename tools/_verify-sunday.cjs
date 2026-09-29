@@ -2034,6 +2034,52 @@ async function main() {
         ok(rp?.review && rp.second && rp.resultAt, `…and a replay stages it the same way (${JSON.stringify(rp)})`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
+      // 2026-09-28, user (PHI @ CHI): "the eagles just scored a touchdown but it is not changing the
+      // score … or it did, but like 30 seconds after the 8 bit animation played". ESPN put the touchdown
+      // up as the scoreboard's latest play a poll before it moved the score; the score then moved with no
+      // new play, and the page held the old score for its full 25 s. A score the page can already account
+      // for (the scoreboard's latest play a scoring play, or the summary's last scoring play carrying that
+      // score) shows at once; the hold stays for a score that arrives before its play does.
+      section("A score change its play already explains is not held");
+      {
+        const RFIX = path.join(__dirname, "fixtures", "sunday");
+        const rSum = fs.readFileSync(path.join(RFIX, "sum-401872963-review.json"), "utf8");
+        const rEv = JSON.parse(fs.readFileSync(path.join(RFIX, "sb-401872963-review.json"), "utf8"));
+        const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+        // phase: [CHI score, the scoreboard's latest play]
+        let ph = { chi: 0, td: false };
+        const evNow = () => {
+          const e = structuredClone(rEv), c = e.competitions[0];
+          for (const x of c.competitors) if (x.homeAway === "home") x.score = String(ph.chi);
+          if (ph.td) Object.assign(c.situation.lastPlay, { id: "4018729631050", scoreValue: 6, type: { id: "67", text: "Passing Touchdown" }, text: "C.Keenum pass short right to C.Loveland for 1 yard, TOUCHDOWN.", statYardage: 1 });
+          return JSON.stringify(e);
+        };
+        MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872963/.test(u) ? json(evNow())
+          : /site\.api\.espn\.com.*\/summary\?event=401872963/.test(u) ? json(rSum)                 // (the summary lags: never the new touchdown)
+          : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify({ ...sbFixture, events: [...sbFixture.events, JSON.parse(evNow())] }))
+          : /\/\.netlify\/functions\//.test(u) ? json('{"ok":false,"reason":"none"}') : null;
+        await page.setViewport({ width: 390, height: 844 });
+        await page.goto(BASE + "/sunday.html?hold=1#g401872963", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction(() => G?.sum && G.ev?.state === "in" && G.id === "401872963" && +G.ev.home.score === 0, { timeout: 15000 }); } catch {}
+        const settle = (want) => page.waitForFunction((want) => !G.hold && !G.gate && document.querySelector("#gs-h")?.textContent === want, { timeout: 6000 }, want).then(() => true, () => false);
+        // (a) The summary already has the scoring play with this score (CHI's 7-0 touchdown, 401872963315).
+        ph = { chi: 7, td: false };
+        const t0 = Date.now(), a = await settle("7"), da = Date.now() - t0;
+        const sa = await probe(() => ({ hold: !!G.hold, h: document.querySelector("#gs-h")?.textContent }));
+        ok(a, `the score moves to 7 as soon as the scoreboard says so, its touchdown already in the summary (${a ? (da / 1000).toFixed(1) + " s" : "held: " + JSON.stringify(sa)}; the hold is 25 s)`);
+        // (b) The touchdown is the scoreboard's latest play a poll before the score moves (PHI @ CHI).
+        ph = { chi: 7, td: true };
+        await wait(3000);
+        ph = { chi: 14, td: true };
+        const t1 = Date.now(), b = await settle("14"), db = Date.now() - t1;
+        const sb2 = await probe(() => ({ hold: !!G.hold, gate: !!G.gate, h: document.querySelector("#gs-h")?.textContent }));
+        ok(b, `…and to 14 a poll after the touchdown went up as the latest play, the summary not yet caught up (${b ? (db / 1000).toFixed(1) + " s" : "held: " + JSON.stringify(sb2)})`);
+        // (c) A score with no play to account for it is still held.
+        ph = { chi: 17, td: false };
+        await wait(3000);
+        const sc3 = await probe(() => ({ hold: !!G.hold, h: document.querySelector("#gs-h")?.textContent }));
+        ok(sc3?.hold && sc3.h === "14", `…but a score that arrives before its play is still held (${JSON.stringify(sc3)})`);
+      }
       await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }
