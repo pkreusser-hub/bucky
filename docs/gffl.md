@@ -9995,3 +9995,106 @@ requests blocked:
 The first run caught three real bugs: the top three bench bars were clipped to one length by a
 `max-width`, "100%" spilled off the desktop chart, and the scoreboard records could break at
 the hyphen. Against HEAD (no page) the suite fails at "page file exists".
+
+---
+
+## RoboGoat kit, season threads, archive, app link, subject lines (2026-09-30)
+
+User, after the Week 3 recap: "lets do 1, 4, 5, 6". That is (1) the machinery in the repo so the
+weekly routines reuse it, (4) season-long running threads, (5) an archive page with a link from
+the app and a push when a new issue posts, and (6) hooky subject lines.
+
+**The kit is `tools/robogoat/`.** Its README is the runbook both routines follow.
+- `facts.mjs` pulls a week, read-only. It runs `_gffl_shadow_score.mjs --dump` for weeks 1..N
+  (the new `--dump` flag writes every player's points and stat line to a JSON file).
+- `build.mjs` is the Node port of the Week 3 Python builder.
+- `share.mjs` renders the 1200×630 image with bundled OFL fonts.
+- `archive.mjs` writes the archive.
+- `announce.mjs` sends the push.
+
+An issue is now its sources, `column.md` and `issue.json` (plus `wp.json` for a recap chart), and
+`index.html` is always built from them. Before any new feature went in, `build.mjs` reproduced the
+published Week 3 page **byte for byte** (footer link aside). It formats numbers with Python's
+round-half-even, so the port could be proved. The suite rebuilds every issue and fails on any
+difference, so a hand edit to a page, or a source edit that was never built, cannot ship.
+
+**Season threads.** `robogoat/<season>/season.json` has two halves:
+- `picks` and `rankings` by week, written by RoboGoat;
+- `weeks.<n>` (bench left per team, the app's final scores, the top five starters), written by
+  `facts.mjs --season-file`.
+
+A week is written **once**. A later run leaves it alone unless `--refresh` is passed, and the
+season panel is cut at the issue's own week. So when Week 4 lands, the Week 3 page does not
+change when rebuilt. The panel (`[IMAGE: season]`) shows:
+- points left on the bench all season, a stacked bar per team with the week just played in navy;
+- the top three team scores and top three starters;
+- RoboGoat's picks by week, one mark per pick.
+
+Power rankings now carry movement against the previous recap's ranking: a green up triangle, a red
+down triangle, or a dash. It is inline SVG, not an emoji.
+
+**A correction the season numbers forced.** The Week 3 column said Elan had left "about 104"
+points on the bench in three weeks. 104 was 11.4 + 47.78 + 44.8, and the 11.4 for Week 1 came
+from an earlier column. The recompute gives Week 1 33.8: Zay Flowers (26.5) and Brock Purdy
+(21.1) sat for Drake London (4.5) and Dak Prescott (14.4). His recomputed Week 1 starters total
+equals the app's 121.20 exactly, so the lineup data is right. The column now says "about 126".
+
+Bench-left against the app's own bench-blunder award:
+- Week 2 (Elan 47.78) and Week 3 (Elan 44.8) match to the hundredth.
+- Week 1 is Perry's in both, but 47.6 here against the app's 47.22. The app finalized from that
+  Tuesday's stat lines; the recompute uses corrected ones (Perry's starters 126.72 against the
+  official 125.10).
+
+**Archive and app link.**
+- `goatfantasyleague.com/robogoat/` is `robogoat/index.html`: every issue, newest first, with
+  its share image. `robogoat/issues.json` is the same list for machines.
+- Every issue's footer links back to the archive.
+- The app's league links card has a third entry after Rules and Draft: `<a id="lnkRobogoat"
+  href="robogoat/">RoboGoat</a>`, "Weekly previews and recaps". It is a real link, like Draft.
+- `gffl-v` → `20260930a` and the scripts → `?v=20260930a`, so installed copies pick up the card.
+
+**The push is `announce.mjs`, and it is a dry run unless `--send` is passed.**
+- It posts to `notify` with `{ gfflAll: true, kind: "recap" }`, the same kind as the app's
+  "Week N is final" push. A device that muted "Week recaps" is skipped.
+- It first fetches the issue's public URL and refuses unless the live page carries that issue's
+  meta description, so it never pushes a link to a 404 or to last week's page.
+- It sends only on Perry's say-so for that issue, after the PR is merged and deployed.
+
+**Subject lines (6).** `RoboGoat: <hook> (Week N recap|preview)`, at most 72 characters. The hook
+is the week's best line, a name and a thing that happened: "RoboGoat: Sandy beats Calvin on a
+Wednesday kicker (Week 3 recap)". The same hook is the push body. The suite checks the format
+from `issue.json`.
+
+**Previews.** They use the same builder. The scoreboard shows records instead of scores, with
+names in full ink. Picks go in each game's note and in `season.json` with an empty result. The
+share image marks each picked team. Previews carry no power rankings, because the arrows compare
+recap to recap. A throwaway Week 4 preview was built end to end (facts, build, share, suite) and
+then deleted.
+
+**VERIFY**
+- `node tools/_verify-robogoat.cjs` **86/86**. It adds:
+  - byte-identical rebuild of every issue;
+  - share.png at 1200×630;
+  - the subject format;
+  - the archive: current, lists every issue once, newest first, every link 200, no scroll at
+    360/390/1280, portrait and thumbnails load, a link back to the app;
+  - each issue's footer link to the archive;
+  - the season panel: Week 3 bench equal to the week's bars; each week's biggest bench against
+    the app's award; totals, order, bar and segment proportions, legend; top team scores
+    hand-computed from the weekly totals; picks 3-1, 4-0, 7-1;
+  - rank arrows hand-computed from the Week 2 and Week 3 orders.
+
+  It also restages the week's bench selector to `.panel:not(.season)`, with the reason at the
+  check. Bite (the Week 3 page at HEAD, no archive): **56 pass / 15 fail**. Every pre-existing
+  check passed.
+- `node tools/_verify-gffl.cjs --only RGL` **9/9** (new section: the link, its label, its place,
+  ≥44px, no emoji, tapping it opens the archive, and desktop). The static harness now serves
+  `dir/` as `dir/index.html` for a trailing slash, as Netlify does. Bite (HEAD `lg-ui.js` +
+  `league.html`): **2 pass / 7 fail**; the two passes are the page-error checks.
+
+  Neighbouring sections with the change (`--only RGL,C,AE,AL,AT,TG`): **449 pass / 8 fail**.
+  - Seven are AE and AT name/column widths (e.g. "J. Smith-Njigba 97>95"). They fail identically
+    with `lg-ui.js` and `league.html` at HEAD (`--only AE,AT,TG`: 399/7, the same seven), so they
+    were already failing in this container's fallback fonts and are left for their own fix.
+  - The eighth was TG's "a freeze-gap pulse reports the page was frozen", a timing check. That run
+    shared the CPU with a RoboGoat build. `--only TG` alone with the change: **46/46**, twice.

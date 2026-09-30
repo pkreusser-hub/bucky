@@ -1,0 +1,300 @@
+{
+ "season": 2026,
+ "week": 3,
+ "type": "recap",
+ "published": "2026-09-29",
+ "subject": "RoboGoat: Sandy beats Calvin on a Wednesday kicker (Week 3 recap)",
+ "description": "Perry scores 175.5, Sandy beats Calvin on a Wednesday kicker, and RoboGoat goes 4-0.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-3/share.png",
+ "window": "Sept. 24 to 28, 2026",
+ "picksWeek": "4-0",
+ "allowTwoDecimals": [
+  "0.46",
+  "0.16",
+  "6.86",
+  "6.90"
+ ],
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "2-1",
+  "2": "1-2",
+  "3": "1-2",
+  "4": "1-2",
+  "5": "2-1",
+  "9": "2-1",
+  "11": "2-1",
+  "12": "1-2"
+ },
+ "games": [
+  {
+   "away": 1,
+   "awayPts": 175.5,
+   "home": 9,
+   "homePts": 148.98,
+   "note": "Season high. Bijan Robinson 37.3, Garrett Wilson 24.7. Jahmyr Gibbs scored 37.9 in a loss."
+  },
+  {
+   "away": 11,
+   "awayPts": 105.54,
+   "home": 5,
+   "homePts": 123.26,
+   "note": "Sandy wins. Spencer Shrader, signed Wednesday, went 4-for-4 with a 58-yarder."
+  },
+  {
+   "away": 12,
+   "awayPts": 132.18,
+   "home": 4,
+   "homePts": 112.22,
+   "note": "Isaac's first win. Last year these two split games decided by 0.46 and 0.16."
+  },
+  {
+   "away": 2,
+   "awayPts": 125.58,
+   "home": 3,
+   "homePts": 120.08,
+   "note": "Champs on the board. Brock Purdy's first start: four touchdowns, 31.3."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 2,
+   "l": 1,
+   "pf": 466.06
+  },
+  {
+   "team": 5,
+   "w": 2,
+   "l": 1,
+   "pf": 403.44
+  },
+  {
+   "team": 1,
+   "w": 2,
+   "l": 1,
+   "pf": 397.68
+  },
+  {
+   "team": 11,
+   "w": 2,
+   "l": 1,
+   "pf": 362.9
+  },
+  {
+   "team": 3,
+   "w": 1,
+   "l": 2,
+   "pf": 414.82
+  },
+  {
+   "team": 12,
+   "w": 1,
+   "l": 2,
+   "pf": 402.32
+  },
+  {
+   "team": 2,
+   "w": 1,
+   "l": 2,
+   "pf": 363.16
+  },
+  {
+   "team": 4,
+   "w": 1,
+   "l": 2,
+   "pf": 351.4
+  }
+ ],
+ "bench": [
+  {
+   "team": 2,
+   "left": 44.8
+  },
+  {
+   "team": 5,
+   "left": 42
+  },
+  {
+   "team": 12,
+   "left": 40.22
+  },
+  {
+   "team": 4,
+   "left": 30.14
+  },
+  {
+   "team": 9,
+   "left": 23.3
+  },
+  {
+   "team": 11,
+   "left": 23
+  },
+  {
+   "team": 3,
+   "left": 6.9
+  },
+  {
+   "team": 1,
+   "left": 6.86
+  }
+ ],
+ "stars": {
+  "kick": "The week's biggest numbers",
+  "title": "Four starters cleared 30",
+  "items": [
+   {
+    "key": "4429795",
+    "pts": "37.9",
+    "name": "Jahmyr Gibbs",
+    "line": "99 rush yds, 65 rec yds, 3 TD vs. Jets",
+    "team": 9
+   },
+   {
+    "key": "4430807",
+    "pts": "37.3",
+    "name": "Bijan Robinson",
+    "line": "29 carries, 194 yds, 2 TD at Green Bay",
+    "team": 1
+   },
+   {
+    "key": "4430878",
+    "pts": "33.4",
+    "name": "Jaxon Smith-Njigba",
+    "line": "10 catches, 128 yds, 2 TD, and one completion",
+    "team": 9
+   },
+   {
+    "key": "4361741",
+    "pts": "31.3",
+    "name": "Brock Purdy",
+    "line": "297 pass yds, 4 TD in his first start",
+    "team": 2
+   }
+  ]
+ },
+ "wp": {
+  "game": {
+   "home": 5,
+   "away": 11
+  },
+  "team": 5,
+  "kick": "Calvin vs. Sandy",
+  "title": "Laws Rule's chance to win, all week",
+  "aria": "Laws Rule win probability across Week 3: 44 percent Tuesday, 28 percent at 1:15 p.m. Sunday, 87 percent by 6:49 p.m. Sunday, final win.",
+  "t0": "2026-09-22T11:00:00Z",
+  "t1": "2026-09-29T04:00:00Z",
+  "annotations": [
+   {
+    "at": "low-after:2026-09-27T12:00:00Z",
+    "dot": true,
+    "labels": [
+     {
+      "text": "28%",
+      "dx": -10,
+      "dy": 22,
+      "anchor": "end",
+      "cls": "strong"
+     },
+     {
+      "text": "Sun 1:15 p.m.",
+      "dx": -10,
+      "dy": 40,
+      "anchor": "end"
+     }
+    ]
+   },
+   {
+    "at": "last",
+    "dot": true,
+    "labels": [
+     {
+      "text": "Final: 123.3 to 105.5",
+      "dx": -10,
+      "dy": 5,
+      "anchor": "end",
+      "cls": "strong"
+     }
+    ]
+   },
+   {
+    "at": "first",
+    "labels": [
+     {
+      "text": "Tuesday: 44%",
+      "dx": 2,
+      "dy": 26
+     }
+    ]
+   },
+   {
+    "at": {
+     "t": "2026-09-27T21:00:00Z",
+     "p": 0.64
+    },
+    "labels": [
+     {
+      "text": "no readings",
+      "anchor": "middle",
+      "cls": "small"
+     },
+     {
+      "text": "1:19 to 6:49",
+      "dyFs": 1,
+      "anchor": "middle",
+      "cls": "small"
+     }
+    ]
+   }
+  ]
+ }
+}
