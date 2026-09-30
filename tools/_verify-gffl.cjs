@@ -19974,8 +19974,9 @@ async function openDetails(page, id) {
       }))) || {};
       ok(edit.editingGrid === true, "…the grid enters edit mode");
       // RESTAGED 2026-09-08: 12 → 13 — the AI power rankings card ("power") joined MAIN.
-      ok(edit.strips === edit.wrappers && edit.wrappers === 13,
-        "…every registered card carries an edit strip — all 13, hidden none (" + edit.strips + "/" + edit.wrappers + ")");
+      // RESTAGED 2026-09-30: 13 → 14 — the RoboGoat card ("robogoat") joined MAIN above "week" (RGL).
+      ok(edit.strips === edit.wrappers && edit.wrappers === 14,
+        "…every registered card carries an edit strip — all 14, hidden none (" + edit.strips + "/" + edit.wrappers + ")");
       ok(edit.empties >= 1, "…a self-hiding card renders as a labelled placeholder so it can still be positioned (" + edit.empties + ")");
       ok(/Text size/.test(edit.barBits) && /Spacing/.test(edit.barBits) && /Done/.test(edit.barBits),
         "…and the bar carries the global text-size and spacing controls");
@@ -20083,15 +20084,19 @@ async function openDetails(page, id) {
           bogusGone: !all.includes("bogusCard"), hiddenClean: l.hidden.length === 0,
           // RESTAGED 2026-09-08: 12 → 13 with the AI power rankings card; and "power" itself is
           // the live case of the append rule — this saved layout predates it.
-          complete: all.length === 13 && new Set(all).size === 13,
+          // RESTAGED 2026-09-30: 13 → 14 with the RoboGoat card. It is the live case of the OTHER
+          // rule — the one-time migration that puts a card this layout never named directly above
+          // "week" instead of appending it (RGL has the full set of cases).
+          complete: all.length === 14 && new Set(all).size === 14,
           movesAppended: l.rail.includes("moves"), powerAppended: l.main.includes("power"), scale: l.scale, cz: Object.keys(l.cz).length,
-          rendered: document.querySelectorAll(".deskcard").length === 13 - l.hidden.length,
+          rgAboveWeek: l.main.indexOf("robogoat") >= 0 && l.main.indexOf("robogoat") === l.main.indexOf("week") - 1,
+          rendered: document.querySelectorAll(".deskcard").length === 14 - l.hidden.length,
         };
       });
-      ok(sane && sane.bogusGone && sane.hiddenClean && sane.complete && sane.movesAppended && sane.powerAppended,
-        "AU9: unknown ids are dropped and every card the saved layout never heard of lands back in its default column — nothing can vanish (power included)");
+      ok(sane && sane.bogusGone && sane.hiddenClean && sane.complete && sane.movesAppended && sane.powerAppended && sane.rgAboveWeek,
+        "AU9: unknown ids are dropped and every card the saved layout never heard of lands back in its default column — nothing can vanish (power appended, robogoat above week)");
       ok(sane && sane.scale === 100 && sane.cz === 0, "…and an off-step scale or size snaps to 100% instead of rendering garbage");
-      ok(sane && sane.rendered === true, "…with all 13 wrappers on the page");
+      ok(sane && sane.rendered === true, "…with all 14 wrappers on the page");
       // THE CHAT CONTRACT, WHEREVER CHAT SITS: move it into MAIN, type, force a live repaint.
       await evalOr(page, () => { window.__GFFL__.UI.deskLayoutAction("side", "chat"); });
       await waitFnOr(page, () => [...document.querySelectorAll(".lgmain .deskcard")].some((w) => w.dataset.card === "chat"));
@@ -20106,7 +20111,8 @@ async function openDetails(page, id) {
       await evalOr(page, () => window.__GFFL__.UI.renderLeague(true));
       await new Promise((r) => setTimeout(r, 250));
       // RESTAGED 2026-09-08: 12 → 13 with the AI power rankings card.
-      ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 13)) === true,
+      // RESTAGED 2026-09-30: 13 → 14 with the RoboGoat card.
+      ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 14)) === true,
         "AU9c: a live repaint while the editor is open changes nothing — the strips stand");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();

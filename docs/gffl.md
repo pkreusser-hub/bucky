@@ -10139,6 +10139,9 @@ RESTAGED, reasons at the checks:
 - AV2's saved-layout migration check read `custom[2] === "links"`. The RoboGoat insertion shifts
   every card after `week` by one, so it now checks that links still sits straight after `week`,
   which is the rule it was guarding.
+- AU's card counts go from 13 to 14 in three places, the same restage the power card made on
+  2026-09-08. AU9's saved layout predates the card, so it is now also the live case of the
+  migration: RoboGoat lands above `week`.
 - The harness serves `opts.robogoatIssues` in place of `robogoat/issues.json` when a test arms it,
   so the fallbacks can be exercised.
 
@@ -10152,3 +10155,15 @@ headline read from the repo's own `issues.json` rather than typed in:
 - the 404 and bad-path fallbacks;
 - desktop: above `week`, ≥44px;
 - the four saved-layout cases.
+
+Neighbouring sections (`--only RGL,C,AE,AL,AT,TG`), before the AU restage: 458 pass, 11 fail.
+The four AU card counts were the restage above. The other seven are the AE/AT width checks that
+already fail on HEAD in this container's fallback fonts (2026-09-30 kit entry). After the
+restage, `--only AT,RGL` gives **283/284**; the one failure is AD8's pre-existing 133px floor.
+
+Bite (`lg-ui.js` + `league.html` at `main`, new suite, `--only AT,RGL`): **262 pass / 22 fail**:
+- the 17 new RGL checks (the page-error checks pass);
+- the 4 restaged AU counts, which assert 14 against main's 13;
+- the pre-existing AD8.
+
+Every other pre-existing check passed, including the restaged AV2 links check.
