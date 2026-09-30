@@ -2175,7 +2175,11 @@ function startStatic() {
       }, 400);
       return;
     }
-    const p = path.join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/^\/+/, "") || "index.html");
+    let p = path.join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/^\/+/, "") || "index.html");
+    // RGL (2026-09-30): a path ending in "/" serves that directory's index.html, as Netlify does —
+    // the league links card's RoboGoat entry is href="robogoat/", and following it is the check.
+    // Only a trailing-slash request with a real index.html; any other directory is still a 404.
+    if (/\/$/.test(new URL(req.url, "http://x").pathname) && fs.existsSync(path.join(p, "index.html"))) p = path.join(p, "index.html");
     if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end("nope"); return; }
     // ITEM 33: .webmanifest and the icons it points at are served with real types — a manifest
     // handed back as application/octet-stream is one Chrome will fetch and then ignore, so the
@@ -28275,6 +28279,59 @@ async function openDetails(page, id) {
     ok(viaHash.view === "scores" && viaHash.hash === "#scores",
       "…and #scores by itself (a bookmark/reload) lands on the view too (" + JSON.stringify(viaHash) + ")");
     ok(errors.length === 0, "0 page errors reaching Scores with no tab");
+    await ctx.close();
+  }
+  }
+  if (section("RGL · RoboGoat — the league links card opens the newsletter archive")) {
+  // User, 2026-09-29: an archive of every RoboGoat column at goatfantasyleague.com/robogoat/,
+  // "plus a link from the GFFL app". It is a third entry in the Rules / Draft card — a real
+  // <a href>, like Draft, because it leaves league.html for a static page.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    const r = await evalOr(page, () => {
+      const a = document.getElementById("lnkRobogoat");
+      if (!a) return { found: false };
+      const card = a.closest(".leaguelinks");
+      const kids = card ? [...card.querySelectorAll(".navlinkbtn")].map((e) => e.id) : [];
+      const b = a.getBoundingClientRect(), c = card.getBoundingClientRect();
+      return {
+        found: true, tag: a.tagName, href: a.getAttribute("href"), resolved: new URL(a.getAttribute("href"), location.href).pathname,
+        title: a.firstChild.nodeValue.trim(), sub: (a.querySelector(".small") || {}).textContent, kids,
+        h: Math.round(b.height), inside: b.left >= c.left - 0.5 && b.right <= c.right + 0.5, shown: a.offsetParent !== null,
+        clipped: a.scrollWidth > a.clientWidth + 1, text: a.textContent,
+      };
+    }) || { found: false };
+    ok(r.found && r.tag === "A" && r.href === "robogoat/" && r.resolved === "/robogoat/",
+      "phone: the league links card has a RoboGoat <a href=\"robogoat/\">, resolving to /robogoat/ (" + JSON.stringify({ tag: r.tag, href: r.href, resolved: r.resolved }) + ")");
+    ok(r.title === "RoboGoat" && r.sub === "Weekly previews and recaps", "…labelled \"RoboGoat\" / \"Weekly previews and recaps\" (" + JSON.stringify([r.title, r.sub]) + ")");
+    ok(JSON.stringify(r.kids) === JSON.stringify(["lnkRules", "lnkDraft", "lnkRobogoat"]), "…third, after Rules and Draft, in the same card (" + JSON.stringify(r.kids) + ")");
+    ok(r.shown && r.h >= 44 && r.inside && !r.clipped, "…visible, ≥44px tall, inside the card, nothing clipped (" + JSON.stringify({ h: r.h, inside: r.inside, clipped: r.clipped }) + ")");
+    ok(r.found && !/\p{Extended_Pictographic}/u.test(r.text || ""), "…and no emoji in app chrome (" + JSON.stringify(r.text) + ")");
+    // Following it lands on the archive itself: its masthead and at least one issue link.
+    // (Guarded: with no link there is nothing to tap, and a thrown click would end the battery.)
+    let arc = {};
+    if (r.found) {
+      await Promise.all([page.waitForNavigation({ timeout: 9000 }).catch(() => null), page.click("#lnkRobogoat")]);
+      arc = await evalOr(page, () => ({ path: location.pathname, name: (document.querySelector(".mast .name") || {}).textContent,
+        issues: document.querySelectorAll("a.issue").length })) || {};
+    }
+    ok(arc.path === "/robogoat/" && arc.name === "ROBOGOAT" && arc.issues >= 1, "…and tapping it opens the archive, which lists the issues (" + JSON.stringify(arc) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+    await bootPage(page);
+    await waitOr(page, ".lgdesk");
+    const d = await evalOr(page, () => {
+      const a = document.getElementById("lnkRobogoat");
+      const card = a && a.closest(".deskcard");
+      return { card: card && card.dataset.card, shown: !!a && a.offsetParent !== null, h: a ? Math.round(a.getBoundingClientRect().height) : 0 };
+    }) || {};
+    ok(d.card === "links" && d.shown && d.h >= 44, "desktop: the same link is in MAIN's links card, visible and ≥44px (" + JSON.stringify(d) + ")");
+    ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
   }

@@ -27,6 +27,9 @@
 // Usage:
 //   node tools/_gffl_shadow_score.mjs [--week N] [--season Y] [--seasonType pre|regular|post]
 //                                     [--report [path]] [--no-live] [--base-url URL] [--quiet]
+//                                     [--dump path]   # every rostered player's recomputed points
+//                                                     # (starters AND bench) as JSON — the RoboGoat
+//                                                     # column's per-player numbers (tools/robogoat/)
 //   node tools/_gffl_shadow_score.mjs --selftest      # fixture checks only, NO network at all
 //
 // Exit code: 0 unless at least one section FAILed (WARN never fails the run).
@@ -58,6 +61,11 @@ const ARG_WEEK = argVal("--week") ? Number(argVal("--week")) : null;
 const ARG_SEASON = argVal("--season") ? Number(argVal("--season")) : null;
 const ARG_SEASON_TYPE = argVal("--seasonType");
 const ARG_BASE_URL = argVal("--base-url") || "https://goatfantasyleague.com";
+const DUMP_PATH = argVal("--dump");
+// Raw Sleeper fields kept on a --dump line, so a column can quote "29-194-2" without a second fetch.
+const DUMP_LINE_KEYS = ["pass_att", "pass_cmp", "pass_yd", "pass_td", "pass_int", "rush_att", "rush_yd", "rush_td",
+  "rec_tgt", "rec", "rec_yd", "rec_td", "fum_lost", "fgm", "fga", "fgm_lng", "xpm", "def_td", "sack", "int", "fum_rec",
+  "pts_allow", "def_st_td", "safe", "pass_2pt", "rush_2pt", "rec_2pt"];
 let REPORT_PATH = null;
 {
   const i = argv.indexOf("--report");
@@ -795,8 +803,10 @@ async function main() {
         const pts = score(normSlp(raw), scoring);
         const nk = nameKey(meta.name, meta.team);
         const outKey = meta.pos === "DEF" ? "dst_" + pid : (keyByName.get(nk) || meta.espn_id || "slp_" + pid);
-        recomputed.set(outKey, { pts, pid });
-        if (meta.pos === "DEF" && meta.team) recomputed.set("dst_" + slpTeam(meta.team), { pts, pid });
+        const line = {};
+        if (DUMP_PATH) for (const k of DUMP_LINE_KEYS) if (num(raw[k])) line[k] = num(raw[k]);
+        recomputed.set(outKey, { pts, pid, line });
+        if (meta.pos === "DEF" && meta.team) recomputed.set("dst_" + slpTeam(meta.team), { pts, pid, line });
       }
       secStats.line(`recomputed scores for ${recomputed.size} output key(s).`);
       if (unknownRawKeys.size) {
@@ -813,6 +823,7 @@ async function main() {
   const scoreboard = await loadScoreboardTeamStates(season, week, seasonType);
   const playedNoLine = [];
   const teamRows = [];
+  const dump = { season, week, seasonType, collection: LG_COLL, at: new Date().toISOString(), teams: {} };
   for (const t of teams) {
     const players = rosterByTeam.get(t.id) || [];
     const starters = players.filter((p) => p.slot !== "BENCH" && p.slot !== "IR");
@@ -829,6 +840,12 @@ async function main() {
       }
     }
     teamRows.push({ team: t, total: Math.round(total * 100) / 100, rows });
+    if (DUMP_PATH) {
+      dump.teams[t.id] = { name: t.name, startersTotal: Math.round(total * 100) / 100,
+        players: players.map((p) => { const hit = recomputed.get(p.key);
+          return { key: p.key, name: p.name, pos: p.pos, nfl: p.team, slot: p.slot, injury: p.injury || "",
+            pts: hit ? Math.round(hit.pts * 100) / 100 : null, line: hit ? hit.line : null }; }) };
+    }
     secTeam.line(`${t.name.padEnd(24)} recomputed starters total = ${(Math.round(total * 100) / 100).toFixed(2)}`);
   }
   // Gate on the stats bucket actually carrying SOME data this week. If the whole bucket is
@@ -870,6 +887,10 @@ async function main() {
     secLive.setStatus("WARN", NO_LIVE ? "--no-live passed — skipped by request." : `season ${season} isn't the season the live app is running (${LG_SEASON_DEFAULT}) — comparing to it would compare apples to oranges. Pass --no-live to silence this note.`);
   }
 
+  if (DUMP_PATH) {
+    try { mkdirSync(dirname(resolve(DUMP_PATH)), { recursive: true }); writeFileSync(resolve(DUMP_PATH), JSON.stringify(dump, null, 1)); }
+    catch (e) { console.error(`could not write --dump: ${(e && e.message) || e}`); }
+  }
   const finishedAt = Date.now();
   const report = renderReport(startedAt, finishedAt, season, week, seasonType);
   console.log(report);

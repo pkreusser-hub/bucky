@@ -2481,6 +2481,8 @@
         <span class="mut small">Scoring, roster, waivers, keepers</span></button>
       <a class="navlinkbtn" id="lnkDraft" href="ffdraft.html">Draft room
         <span class="mut small">Opens the keeper draft board</span></a>
+      <a class="navlinkbtn" id="lnkRobogoat" href="robogoat/">RoboGoat
+        <span class="mut small">Weekly previews and recaps</span></a>
       ${draftedLine}
     </div>`;
   }
