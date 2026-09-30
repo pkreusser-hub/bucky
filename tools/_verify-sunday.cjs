@@ -1910,6 +1910,32 @@ async function main() {
         `the Scores tab opens straight on a game's detail, the default one (${L.hash}, wanted #g${L.want}); the scoreboard is gone from view (${L.board}) and there is no "Scores" back button (${L.back})`);
       ok(L.barHit && L.gvBottom <= L.barTop, `phone: the GFFL bar stays on screen and tappable under the detail (a tap on "League" reaches the bar: ${L.barHit}; detail ends at ${L.gvBottom}px, the bar starts at ${L.barTop}px)`);
       ok(L.stripShown && L.items === L.n && L.curId === L.hash && L.curInView, `phone: a strip of this week's games under the header, the open one lit and scrolled into view (${L.items} of ${L.n} games, lit ${L.curId}, in view ${L.curInView})`);
+      // 2026-09-30, user: 'on Scores, remove the "follow team" stars and feature altogether.' The
+      // star on each team's logo in the game header, the "Follow" pill on a team page, the "My Teams"
+      // filter, the "Following" tag on a card and the toasts/sort boost for followed teams are all gone.
+      // Nothing here existed before this date's edit, so nothing was restaged for it; these checks
+      // are the proof it stays gone. (The team page is rendered from a hand-built team, no network.)
+      const nf = await probe(() => {
+        const gv = document.getElementById("game-view");
+        const gone = (root) => ({ follow: root.querySelectorAll("[data-follow], .follow, .t-follow").length, star: root.querySelectorAll(".follow svg, .t-follow svg, button svg path[d^='M12 3l2.7']").length });
+        const game = gone(gv);
+        const gameBtns = [...gv.querySelectorAll(".gt button")].length;
+        openTeamView("1");
+        Object.assign(T, { team: { id: "1", abbreviation: "ATL", color: "a71930", alternateColor: "000000", name: "Falcons", location: "Atlanta", displayName: "Atlanta Falcons", record: { items: [] } }, sched: [] });
+        const tv = document.getElementById("team-view");
+        renderTeam();
+        const team = gone(tv), teamHero = !!tv.querySelector(".t-hero-in"), teamText = tv.querySelector("#t-hero")?.textContent || "";
+        return { game, gameBtns, team, teamHero, teamText, filters: FILTERS.map((f) => f.id), main: MAIN_FILTERS, favs: typeof S.favs, isFav: typeof isFav, isFavGame: typeof isFavGame, star: typeof ICON.star,
+          allText: document.body.innerHTML.includes("No teams followed") };
+      });
+      // The open team view's own fetch is refused (no network) and paints its error into #t-body a beat
+      // later; let it land before tearing the view down, or the teardown races it.
+      await wait(400);
+      await probe(() => { T = null; const tv = document.getElementById("team-view"); tv.hidden = true; tv.innerHTML = ""; });
+      ok(nf.game.follow === 0 && nf.game.star === 0 && nf.gameBtns === 0, `the game header has no follow star: no [data-follow], .follow or star icon, no button on the team logos (${JSON.stringify(nf.game)}, ${nf.gameBtns} buttons)`);
+      ok(nf.teamHero && nf.team.follow === 0 && nf.team.star === 0 && !/follow/i.test(nf.teamText), `the team page has no Follow pill (hero drawn: ${nf.teamHero}; ${JSON.stringify(nf.team)}; hero text ${JSON.stringify(nf.teamText.replace(/\s+/g, " ").trim())})`);
+      ok(!nf.filters.includes("mine") && !nf.main.includes("mine"), `no "My Teams"/Following filter remains (filters ${nf.filters.join("/")}; main ${nf.main.join("/")})`);
+      ok(nf.favs === "undefined" && nf.isFav === "undefined" && nf.isFavGame === "undefined" && nf.star === "undefined" && !nf.allText, `no follow state or helpers left (S.favs ${nf.favs}, isFav ${nf.isFav}, isFavGame ${nf.isFavGame}, ICON.star ${nf.star})`);
       await click(`#g-strip a[href="${L.sideOther}"]`);
       await wait(400);
       const sw = await probe(() => ({ hash: location.hash, id: "#g" + G.id, histLen: history.length, lit: document.querySelector("#g-strip .current")?.getAttribute("href") }));

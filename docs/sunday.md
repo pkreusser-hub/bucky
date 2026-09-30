@@ -1268,3 +1268,35 @@ snap, the stride check (40 of 40 frames); letters mirrored, the turn check and C
 against 18); the Steelmark on both sides, Pittsburgh's count (36 against 0) and the turn check; the
 logo left out of the sprite cache key, every count 0; tilted heads snapped too, the facemask check
 (`down`, 3 px).
+
+## 2026-09-30 — the follow-team feature is gone
+
+User: 'on Scores, remove the "follow team" stars and feature altogether.'
+
+Removed, all of it:
+- the star button on each team's logo in the game header, and its click handler;
+- the "Follow"/"Following" pill on a team page;
+- the "My Teams" filter (`FILTERS`, `MAIN_FILTERS`, `filterEvents`) and its "No teams followed yet"
+  empty state, so the board's empty state is now only "No games here";
+- the "Following" tag on a live card, the +100 `excitement()` boost and the followed-first tiebreak in
+  `defaultGameId`, and the score toasts for a followed team (upset toasts now fire for big upsets only);
+- `S.favs`, `isFav`, `isFavGame`, `ICON.star`, and the CSS for them (`.gt .follow`, `.t-follow`,
+  `.tag.fav`, `.empty .star`, the never-used `.st .fav-star`).
+
+The old `sun.favs` key in a visitor's localStorage is simply not read any more; it is left in place.
+`RA.follow` ("Play new snaps as they happen" in the replay) is a different feature and untouched. The
+`.lgw` wrapper around the header logo stays, so the header's layout is unchanged.
+
+Files: assets/sunday/sd-app.js, sd-features.js, sd.css, sunday.html (cache-bust ?v=20260930a),
+tools/_verify-sunday.cjs.
+
+VERIFY: sunday 322/323 (4 new checks in "Scores is the game detail": no `[data-follow]`, `.follow` or star
+icon and no button on the logos in the game header; no Follow pill on a team page drawn from a hand-built
+team; no "mine" filter in `FILTERS`/`MAIN_FILTERS`; `S.favs`, `isFav`, `isFavGame` and `ICON.star` are
+undefined). The one failure is the webfont ink check that fails the same way on HEAD (Range 57.7px vs
+52px room; no Barlow-width fix in this container). sunday-ff 53/53. RESTAGED: none. No existing check
+asserted the feature; the one that saves `"mine"` as a filter and expects `S.filter === "all"` still
+holds (an old saved key is ignored) and now covers a filter that no longer exists.
+Bite: HEAD's sd-app.js, sd-features.js and sd.css score 318/323, failing exactly the 4 new checks
+(game header 2 buttons / 4 star paths, team page 1 pill, `mine` present in both filter lists, `S.favs`
+object) plus the webfont check; restoring the edits returns 322/323.

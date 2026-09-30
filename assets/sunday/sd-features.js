@@ -124,7 +124,6 @@ function renderTeam() {
     ${logoImg(tm, 72, 't-logo', light)}
     <div class="t-id"><h2>${esc(t.location || t.displayName)}</h2><p>${esc(t.name || '')}</p>
       <p class="t-meta">${esc(rec)}${t.standingSummary ? ` · ${esc(t.standingSummary)}` : ''}</p></div>
-    <button class="t-follow" data-follow="${t.id}" aria-pressed="${S.favs.has(t.id)}">${ICON.star}${S.favs.has(t.id) ? 'Following' : 'Follow'}</button>
   </div>`;
   const live = S.events.find((e) => e.state === 'in' && (e.home.id === t.id || e.away.id === t.id));
   const rows = T.sched.map((ev) => {

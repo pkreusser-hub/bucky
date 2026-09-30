@@ -10167,3 +10167,72 @@ Bite (`lg-ui.js` + `league.html` at `main`, new suite, `--only AT,RGL`): **262 p
 - the pre-existing AD8.
 
 Every other pre-existing check passed, including the restaged AV2 links check.
+
+---
+
+## GFFL — My Team PROJ/LAST/AVG, a bench Swap that lists players, Smack talk under the bench (2026-09-30)
+
+User: "on the my team page, we need to shrink the QB/RB/WR box to make room for three columns of
+data: projection, last and average. when clicking swap on a bench player, it lists positions, it
+should instead lists players so you pick who you are swapping with. we dont have to show current
+score for a player on my team page. on matchup page, move trash talk (rename it to smack talk) to
+right below bench and above the feed."
+
+**My Team rows.** The live score is gone from the owner's lineup rows. In its place are three
+fixed-width cells, PROJ / LAST / AVG. Each cell is a number with its label under it, so the
+columns line up down every card without a header row.
+- LAST and AVG are the same `D.gameLog` figures the Moves table's LAST/AVG columns show. The fetch
+  moved to a module-level `ensurePlayerStats()` that both pages share (`UI._faStats` is still the
+  cache). The locker paints `…` first, then writes the numbers into the cells already on screen
+  once they land. It never rebuilds the page, so a swap card opened in the meantime stays open.
+- The slot chip went from 52px to 36px, and BENCH reads **BN** inside it (the card heading already
+  says Bench). FLEX is the widest label and still fits.
+- **Phone:** the cells sit on their own line under the name. Measured at 390px with the cells
+  beside the name, the name column fell to 51px and names wrapped three or four lines. Stacked,
+  the name keeps all of `.linfo`, which the narrower chip made wider: 149px, against AD8's 140px
+  floor (it read 133px before, the pre-existing AD8 failure, which now passes).
+- **Desktop:** the cells sit beside the name, just left of Swap / Drop.
+
+**Bench Swap.** The card used to offer "→ RB", "→ FLEX", a slot. Tapping one bumped whoever sat in
+that slot last. It now lists every starter whose slot the bench player can legally fill, each as a
+real player row with projection, ownership and the slot in the meta line. The tap swaps exactly
+those two players (`swap(starter, benchMan, slot)`). A starter whose game has begun is shown
+disabled with "Game started". Two kinds of row are not swaps and keep the slot-row shape: an
+empty eligible slot ("Empty RB slot") and "→ IR".
+
+**Matchup.** The thread card is `#muSmack`, headed "Smack talk", and sits directly after the
+bench card, above the head-to-head line, the feed and the AI read. The alerts card's row and blurb
+say "matchup smack talk" too. The push kind was already `smack`.
+
+`gffl-v` and the scripts → `20260930c`.
+
+Files: `assets/league/lg-ui.js`, `league.html`, `tools/_verify-gffl.cjs`, this file.
+
+RESTAGED, reasons at the checks:
+- E "projection column … (TE 8.5)" and AT "the locker row reads proj 10.0" now read the PROJ
+  cell (`8.5 Proj`) instead of the `· proj` tail.
+- E "healthy player … can move into a WR slot" now expects the starting WRs by name, not
+  "→ WR".
+- AI's healthy-on-IR card counts the starter rows (`data-si`) and the slot rows (`data-to`)
+  together. The IR refusal is still read off the `data-to` rows.
+- TN's alert-label check reads "Matchup smack talk".
+
+**VERIFY:** new section **MTC** 29/29, at 390px and 1440px:
+- P. Passer last 1.0 / avg 10.3 and T. Tight 8.5 / 9.0 / 9.0, hand-computed from
+  `seedWithWeeklyHistory`;
+- no live score;
+- a 36px chip with every label's ink inside it (Range);
+- one Proj x for every row;
+- number ink inside its cell, no overflow;
+- phone: cells under a name ≥140px; desktop: cells beside the name;
+- B. Backup's Swap lists R. Rusher, S. Second and F. Flexman plus the empty third RB slot;
+  R. Rusher (locked) is disabled with the reason;
+- tapping S. Second persists exactly that swap;
+- I. Injured still gets → IR;
+- Smack talk is the bench card's next sibling and above the feed, and "trash talk" appears
+  nowhere on the page.
+
+Bite (`lg-ui.js` + `league.html` at HEAD, new suite, `--only MTC`): **6 pass / 23 fail**. Every
+content check fails. The six that pass are the page-error, overflow and single-x checks, which
+hold either way. With the restaged sections added (`--only MTC,E,AI,TN,AT`), the E, AT and TN
+restages also fail on HEAD.

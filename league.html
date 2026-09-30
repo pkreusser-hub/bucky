@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260930b">
+<meta name="gffl-v" content="20260930c">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -1070,7 +1070,7 @@
   .delta { font:700 13px var(--font-display); font-variant-numeric:tabular-nums; }
   .delta.up { color:var(--green); } .delta.down { color:var(--accent); }
   /* ---- the matchup feed (item 1, 2026-08-09) ----
-     A bounded scroll box so the feed can't push the AI read and the trash-talk thread miles
+     A bounded scroll box so the feed can't push the AI read miles
      down the page, with overscroll-behavior:contain so a rubber-band drag at its own edge
      stops there instead of chaining to the document (the house convention). Each line carries
      its team's short tag AND a matching left accent — the tag is what actually answers "which
@@ -1092,7 +1092,9 @@
           text-transform:none; letter-spacing:normal; }
   .lrow:hover { border-color:var(--border-hover); background:var(--row-hover2); }
   .lrow.locked { opacity:.72; }
-  .slotchip { flex:0 0 52px; text-align:center; font:600 11px var(--font-display); letter-spacing:.5px; color:var(--mut);
+  /* 36px, was 52 (2026-09-30): the width went to the row's three stat cells. "FLEX", the
+     widest label, still fits; BENCH reads BN in the locker. */
+  .slotchip { flex:0 0 36px; text-align:center; font:600 11px var(--font-display); letter-spacing:.5px; color:var(--mut);
               background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:4px 0; }
   /* Slot chips carry the position colours (--pos-*) at EVERY width (2026-09-08; user: "apply
      the same colors to positions in mobile that we have in desktop view"). These seven rules
@@ -1110,7 +1112,12 @@
   .slotchip[data-pos="X"]  { background:var(--pos-X);  color:var(--ink2); border-color:transparent; }
   .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body); }
   .lname .inj { margin-left:4px; }
-  .lpts { font:700 14px var(--font-display); white-space:nowrap; }
+  /* PROJ / LAST / AVG (2026-09-30), replacing the live score. Each cell is its number over its
+     own label, at a fixed width, so the columns line up down a card without a header row. */
+  .lstats { flex:0 0 auto; display:flex; gap:2px; }
+  .lst { width:34px; display:flex; flex-direction:column; align-items:center; line-height:1.15; }
+  .lst b { font:700 14px var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .lst small { font:600 9.5px var(--font-display); letter-spacing:.4px; text-transform:uppercase; color:var(--mut); }
   /* ITEM 24's other half: Q / D / OUT is the app's one genuine "this might not happen" flag,
      so it takes --accent, the alarm colour the live clock just gave up. It used to be
      ffdraft's own softer coral (#ef6a4d), which read as a third, weaker signal beside the
@@ -2018,12 +2025,18 @@
      gives the name the WHOLE remaining width and puts the points on their own line beneath it,
      which is also the natural reading order for a lineup row. */
   @media (max-width:700px) {
-    .linfo { flex-direction:column; align-items:stretch; justify-content:center; gap:1px; }
+    /* Still stacked on a phone (2026-09-30): the three stat cells sit on their own line under
+       the name. Measured at 390px with them beside the name instead, the name column fell to
+       51px and every name wrapped three or four lines. Stacked, the name keeps the whole width
+       of .linfo, which the narrower slot chip made 16px wider. */
+    .linfo { flex-direction:column; align-items:stretch; justify-content:center; gap:3px; }
+    .lstats { align-self:flex-start; }
     .lname { white-space:normal; overflow:visible; text-overflow:clip; }
     /* the meta wraps as a UNIT — otherwise a long name breaks the line right after
        "QB ·" and leaves the team abbreviation stranded on its own */
     .lname small { white-space:nowrap; }
-    .lpts { font-size:13px; }
+    .lst { width:30px; }
+    .lst b { font-size:13px; }
   }
   .lswap { flex:0 0 auto; }
   /* Item 9: the LOCKED word is gone — a greyed-out Swap is the whole signal. It must READ as
@@ -2462,9 +2475,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260930b"></script>
-  <script src="assets/league/lg-data.js?v=20260930b"></script>
-  <script src="assets/league/lg-ui.js?v=20260930b"></script>
+  <script src="assets/league/lg-core.js?v=20260930c"></script>
+  <script src="assets/league/lg-data.js?v=20260930c"></script>
+  <script src="assets/league/lg-ui.js?v=20260930c"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

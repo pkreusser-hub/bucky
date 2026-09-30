@@ -3274,7 +3274,10 @@ async function openDetails(page, id) {
       const el = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("T. Tight"));
       return el ? el.textContent : "";
     });
-    ok(/proj 8\.5/.test(tightRow), "projection column league-scored from Sleeper proj stats (TE 8.5)");
+    // RESTAGED 2026-09-30: the row's "· proj 8.5" tail became a PROJ cell (number over its own
+    // "Proj" label) beside LAST and AVG, and the live score is gone (user: "we dont have to show
+    // current score for a player on my team page"). Same 8.5, read from the row's text.
+    ok(/8\.5\s*Proj/.test(tightRow), "projection column league-scored from Sleeper proj stats (TE 8.5)");
     // Locked tap refuses. RESTAGED (2026-08-08, player-card split): a filled .lrow's own
     // click now opens the stats card, not the swap sheet — the swap affordance is its own
     // .lswap button (item 3's "keep the existing swap affordance as its own button").
@@ -3301,7 +3304,11 @@ async function openDetails(page, id) {
     await page.waitForSelector(".swaprow", { timeout: 5000 });
     const opts2 = await page.$$eval(".swaprow", (els) => els.map((e) => e.textContent));
     ok(!opts2.some((t) => t.includes("→ IR")), "healthy player is NOT IR-eligible");
-    ok(opts2.some((t) => t.includes("→ WR")), "…but can move into a WR slot");
+    // RESTAGED 2026-09-30: a bench Swap lists PLAYERS, not slots (user: "it lists positions, it
+    // should instead lists players so you pick who you are swapping with"). H. Healthy is a WR,
+    // so the rows include the two starting WRs by name (seedRosterT1: W. Receiver, W. Two).
+    ok(["W. Receiver", "W. Two"].every((n) => opts2.some((t) => t.includes(n))) && !opts2.some((t) => /→ WR/.test(t)),
+      "…but is offered the two starting WRs by name, not a \"→ WR\" slot row (" + JSON.stringify(opts2.map((t) => t.replace(/\s+/g, " ").trim())) + ")");
     // RESTAGED (S10, 2026-08-11): Cancel is the card's footer ghost button now, not a row in
     // the list — dismissing is what is under test, not which element carries it.
     await cancelRosterCard(page);
@@ -14595,7 +14602,10 @@ async function openDetails(page, id) {
         // T. Tight is healthy and on the bench. Tap his row -> the destination sheet.
         await clickChildIn(page, ".lrow", ".lswap", "T. Tight");
         await waitOr(page, "#rosterCard", 9000);
-        const opts = await evalOr(page, () => [...document.querySelectorAll("#rosterCard [data-to]")].map((b) => b.dataset.to)) || [];
+        // RESTAGED 2026-09-30: a bench Swap offers the STARTERS he can replace (data-si rows)
+        // and only empty slots / IR as data-to rows. "His real slots" is now either kind; the
+        // IR refusal this check exists for is still read off the data-to rows.
+        const opts = await evalOr(page, () => [...document.querySelectorAll("#rosterCard [data-to], #rosterCard [data-si]")].map((b) => b.dataset.to || "si")) || [];
         ok(opts.length > 0 && !opts.includes("IR"),
           "a healthy player's move sheet offers his real slots but NOT IR (" + JSON.stringify(opts) + ")");
         await evalOr(page, () => window.__GFFL__.UI.closeRosterCard());
@@ -20745,7 +20755,9 @@ async function openDetails(page, id) {
       await clickIn(page, '.bnav button[data-v="team"]');
       await waitOr(page, ".lrow");
       const lkTxt = (await evalOr(page, () => [...document.querySelectorAll(".lrow")].map((r) => r.textContent).find((t) => /T\. Tight/.test(t)))) || "";
-      ok(/proj 10\.0/.test(lkTxt), "…the locker row reads proj 10.0 (was Sleeper's 8.5)");
+      // RESTAGED 2026-09-30: the locker's projection is a PROJ cell now (number over its "Proj"
+      // label), not a "· proj" tail after the live score. Same adjusted number.
+      ok(/10\.0\s*Proj/.test(lkTxt), "…the locker row reads proj 10.0 (was Sleeper's 8.5)");
       // …and the stats card says WHY.
       await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("111222"));
       await waitOr(page, "#playerCard .pcadj");
@@ -27428,9 +27440,11 @@ async function openDetails(page, id) {
         "the ON card lists every kind, seven default on (" + JSON.stringify(card.labels) + ")");
       ok(movesRow && movesRow.on === false && movesRow.checked === "false" && movesRow.sw === "Off",
         "…and League moves is Off until they turn it on");
-      ok(card.labels && card.labels.includes("League chat") && card.labels.includes("Matchup trash talk")
+      // RESTAGED 2026-09-30: the matchup thread is "Smack talk" now (user: "rename it to smack
+      // talk"), and its alert row follows the card's name. The kind was already "smack".
+      ok(card.labels && card.labels.includes("League chat") && card.labels.includes("Matchup smack talk")
         && card.labels.includes("League moves"),
-        "…including league chat, matchup trash talk, and league moves");
+        "…including league chat, matchup smack talk, and league moves");
       ok(card.emoji === false, "…with no emoji in the card");
       const seeded = await evalOr(page, () => window.__GFFL__.UI._notifMutes());
       ok(Array.isArray(seeded) && seeded.join() === "moves",
@@ -31860,6 +31874,135 @@ async function openDetails(page, id) {
       await ctx.close();
     }
     } finally { uhRestore(); }
+  }
+
+  if (section("MTC · My Team PROJ/LAST/AVG cells, a bench Swap that lists players, Smack talk under the bench")) {
+  // User, 2026-09-30: "on the my team page, we need to shrink the QB/RB/WR box to make room for
+  // three columns of data: projection, last and average. when clicking swap on a bench player,
+  // it lists positions, it should instead lists players so you pick who you are swapping with.
+  // we dont have to show current score for a player on my team page. on matchup page, move
+  // trash talk (rename it to smack talk) to right below bench and above the feed."
+  // Hand-computed season lines are seedWithWeeklyHistory()'s, the same ones the Moves table's
+  // AVG/LAST block asserts: P. Passer avg 10.3 / last 1.0, T. Tight avg 9.0 / last 9.0, and
+  // T. Tight's projection 8.5 (the fixture's one real Sleeper projection).
+  const cellsOf = (page, name) => evalOr(page, (n) => {
+    const row = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes(n));
+    if (!row) return null;
+    return [...row.querySelectorAll(".lst")].map((c) => ({
+      v: (c.querySelector("b") || {}).textContent, l: (c.querySelector("small") || {}).textContent }));
+  }, name);
+  for (const vw of [{ width: 390, height: 844 }, { width: 1440, height: 980 }]) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory(), { vw });
+    await bootPage(page);
+    await waitOr(page, ".mucard", 12000);
+    await waitLive(page);
+    await evalOr(page, () => window.__GFFL__.UI.show("team"));
+    await waitOr(page, ".lrow", 9000);
+    const landed = await waitFnOr(page, () => {
+      const row = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("P. Passer"));
+      const b = row && row.querySelector('[data-lstat="avg"]');
+      return !!b && b.textContent.trim() === "10.3";
+    });
+    const W = vw.width;
+    ok(landed, "MTC " + W + "px: P. Passer's AVG cell fills in after the paint (10.3)");
+    const pp = await cellsOf(page, "P. Passer"), tt = await cellsOf(page, "T. Tight");
+    ok(JSON.stringify((pp || []).map((c) => c.l)) === '["Proj","Last","Avg"]',
+      "…each row carries three cells, labelled Proj, Last, Avg in that order (" + JSON.stringify(pp) + ")");
+    ok(pp && pp[1]?.v === "1.0" && pp[2]?.v === "10.3", "…P. Passer: last 1.0, avg 10.3, hand-computed from the four seeded weeks (" + JSON.stringify(pp) + ")");
+    ok(tt && tt[0]?.v === "8.5" && tt[1]?.v === "9.0" && tt[2]?.v === "9.0", "…T. Tight: proj 8.5, last 9.0, avg 9.0 (" + JSON.stringify(tt) + ")");
+    const g = await evalOr(page, () => {
+      const rows = [...document.querySelectorAll("#lockerStarters .lrow, #lockerBench .lrow")].filter((r) => r.querySelector(".linfo"));
+      const ink = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };
+      const chips = [...document.querySelectorAll("#lockerStarters .slotchip, #lockerBench .slotchip")];
+      return {
+        live: document.querySelectorAll(".lrow .lpts").length,
+        chipW: Math.max(...chips.map((c) => c.getBoundingClientRect().width)),
+        chipInk: chips.every((c) => { const a = ink(c), b = c.getBoundingClientRect(); return a.left >= b.left - 0.5 && a.right <= b.right + 0.5; }),
+        chipTxt: [...new Set(chips.map((c) => c.textContent.trim()))],
+        projX: [...new Set(rows.map((r) => r.querySelector(".lst") ? Math.round(r.querySelector(".lst").getBoundingClientRect().left) : null))],
+        cellInk: rows.every((r) => [...r.querySelectorAll(".lst b")].every((b) => { const a = ink(b), c = b.parentElement.getBoundingClientRect(); return a.width === 0 || (a.left >= c.left - 0.5 && a.right <= c.right + 0.5); })),
+        rowsFit: rows.every((r) => r.scrollWidth <= r.clientWidth + 1),
+        sideways: document.documentElement.scrollWidth - window.innerWidth,
+        beside: rows.map((r) => { const st = r.querySelector(".lstats"); if (!st) return false; const n = r.querySelector(".lname").getBoundingClientRect(), s = st.getBoundingClientRect(); return s.left >= n.right - 0.5 && s.top < n.bottom; }),
+        under: rows.map((r) => { const st = r.querySelector(".lstats"); if (!st) return false; const n = r.querySelector(".lname").getBoundingClientRect(), s = st.getBoundingClientRect(); return s.top >= n.bottom - 0.5; }),
+        minName: Math.min(...rows.map((r) => Math.round(r.querySelector(".lname").clientWidth))),
+      };
+    }) || {};
+    ok(g.live === 0 && !(await evalOr(page, () => [...document.querySelectorAll(".lrow")].some((r) => /·\s*proj/.test(r.textContent)))),
+      "…and the live score is gone from the row (" + g.live + " score cells)");
+    ok(g.chipW <= 36.5 && g.chipInk === true, "…the slot chip is 36px (was 52), every label's ink inside it (" + g.chipW + "px, " + JSON.stringify(g.chipTxt) + ")");
+    ok((g.chipTxt || []).includes("BN") && !(g.chipTxt || []).includes("BENCH") && (g.chipTxt || []).includes("FLEX"), "…with BENCH reading BN and FLEX still whole");
+    ok((g.projX || []).length === 1, "…the Proj cells line up down the lineup and bench, one x for every row (" + JSON.stringify(g.projX) + ")");
+    ok(g.cellInk === true && g.rowsFit === true && g.sideways <= 1, "…every number's ink inside its cell, no row overflowing, no sideways scroll");
+    if (W < 700) {
+      ok((g.under || []).every(Boolean) && g.minName >= 140,
+        "…on a phone the cells sit under the name, which keeps AD8's 140px floor (" + g.minName + "px)");
+    } else {
+      ok((g.beside || []).every(Boolean), "…on a desktop the cells sit beside the name, on the same line");
+    }
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "gffl_mtc_locker_" + W + ".png"), fullPage: true });
+
+    if (W < 700) {
+      // ---- the bench Swap card lists PLAYERS. B. Backup is an RB: the starters he can replace
+      // are the two RBs and the FLEX (seedRosterT1: R. Rusher, S. Second, F. Flexman). The league
+      // starts three RBs and the fixture fields two, so the open third slot is offered as a slot
+      // row: nobody is in it to swap with.
+      await clickChildIn(page, ".lrow", ".lswap", "B. Backup");
+      await waitOr(page, "#rosterCard .swaprow", 5000);
+      const card = await evalOr(page, () => {
+        const rows = [...document.querySelectorAll("#rosterCard .rclist .swaprow")];
+        return {
+          rows: rows.map((r) => ({ t: r.textContent.replace(/\s+/g, " ").trim(), dis: r.disabled, si: r.dataset.si != null })),
+          q: (document.querySelector("#rosterCard .rcq") || {}).textContent,
+        };
+      }) || { rows: [] };
+      const names = ["R. Rusher", "S. Second", "F. Flexman"];
+      ok(names.every((n) => card.rows.some((r) => r.si && r.t.includes(n))) && card.rows.filter((r) => r.si).length === 3
+        && card.rows.filter((r) => !r.si).map((r) => r.t).join("|") === "Empty RB slot",
+        "a bench player's Swap lists the three starters he can replace, by name (" + JSON.stringify(card.rows.map((r) => r.t)) + ")");
+      ok(!card.rows.some((r) => /→/.test(r.t)) && /Swap with who/.test(card.q || ""), "…no \"→ RB\" slot rows, and it asks who to swap with");
+      const lockedNames = await evalOr(page, () => [...document.querySelectorAll("#lockerStarters .lrow.locked")].map((r) => r.querySelector(".lname b").textContent));
+      const disNames = card.rows.filter((r) => r.dis).map((r) => names.find((n) => r.t.includes(n)));
+      ok(disNames.length >= 1 && disNames.every((n) => (lockedNames || []).includes(n)) && card.rows.filter((r) => r.dis).every((r) => /Game started/.test(r.t)),
+        "…a starter whose game has begun is shown disabled with the reason (" + JSON.stringify(disNames) + ")");
+      await evalOr(page, () => { const r = [...document.querySelectorAll("#rosterCard .swaprow")].find((x) => x.textContent.includes("S. Second")); if (r) r.click(); else window.__GFFL__.UI.closeRosterCard(); });
+      const swapped = await waitFnOr(page, () => {
+        const st = document.querySelector("#lockerStarters"), bn = document.querySelector("#lockerBench");
+        return !!st && !!bn && st.textContent.includes("B. Backup") && bn.textContent.includes("S. Second");
+      });
+      const doc = await evalOr(page, (k) => JSON.parse(localStorage.getItem(k)), LSPFX + "roster_2026_w1_t1") || { players: [] };
+      const slotOf = (n) => (doc.players.find((p) => p.name === n) || {}).slot;
+      ok(swapped && slotOf("B. Backup") === "RB" && slotOf("S. Second") === "BENCH" && slotOf("F. Flexman") === "FLEX" && slotOf("R. Rusher") === "RB",
+        "…tapping S. Second swaps exactly those two: B. Backup to RB, S. Second to the bench, nobody else moved (" + JSON.stringify(["B. Backup", "S. Second", "F. Flexman", "R. Rusher"].map(slotOf)) + ")");
+      // An injured bench man still gets IR, beside the starters he could replace.
+      await clickChildIn(page, ".lrow", ".lswap", "I. Injured");
+      await waitOr(page, "#rosterCard .swaprow", 5000);
+      const inj = await evalOr(page, () => [...document.querySelectorAll("#rosterCard .rclist .swaprow")].map((r) => r.textContent.replace(/\s+/g, " ").trim())) || [];
+      ok(inj.some((t) => /→ IR/.test(t)) && inj.some((t) => t.includes("W. Receiver")), "…an Out bench player is offered IR as well as the WRs he could replace (" + JSON.stringify(inj) + ")");
+      await cancelRosterCard(page);
+
+      // ---- the matchup: Smack talk directly under the bench, above the feed.
+      await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+      await waitOr(page, "#muSmack", 9000);
+      const mu = await evalOr(page, () => {
+        const smack = document.getElementById("muSmack"), bench = document.getElementById("muBench");
+        const feed = document.getElementById("mufeed");
+        return {
+          next: bench && bench.nextElementSibling === smack,
+          head: smack && smack.querySelector("h2").textContent.trim(),
+          aboveFeed: !!(smack && feed && (smack.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING)),
+          composer: !!(smack && smack.querySelector("#muThreadText")),
+          trash: /trash talk/i.test(document.body.textContent),
+        };
+      }) || {};
+      ok(mu.next === true && mu.head === "Smack talk", "the matchup's thread is \"Smack talk\", the card straight after the bench (" + JSON.stringify(mu) + ")");
+      ok(mu.aboveFeed === true && mu.composer === true && mu.trash === false, "…above the feed, with its composer, and \"trash talk\" appears nowhere on the page");
+      if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "gffl_mtc_matchup_390.png"), fullPage: true });
+    }
+    ok(errors.length === 0, "0 page errors (" + W + "px)");
+    await ctx.close();
+  }
   }
 
   await browser.close();

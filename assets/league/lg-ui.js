@@ -4982,6 +4982,8 @@
       <div class="card muwpcard" id="muWp"${muWpInner ? "" : " hidden"}>${muWpInner}</div>
       <div class="card lineupcard" id="muLineup">${muLineupInner}</div>
       ${muBenchInner ? `<div class="card lineupcard" id="muBench">${muBenchInner}</div>` : ""}
+      ${"" /* 2026-09-30, user: "move trash talk (rename it to smack talk) to right below bench and above the feed". It sat last on the page, under the feed and the AI read. */}
+      <div class="card" id="muSmack"><h2>Smack talk</h2>${chatWidgetHtml("muThread")}</div>
       ${h2hLine(UI._h2h, H, A) /* cosmetic pass 2026-08-11: the all-time series reads BELOW the player matchups now */}
       ${browsing ? "" : `<div class="card"><h2>The feed</h2>
         <div class="poschips feedfilter" id="mufeedFilter">
@@ -4991,8 +4993,7 @@
       <div class="card" id="aiReadCard"><h2>AI read</h2>
         <button id="aiReadBtn" ${UI._aiRead && UI._aiRead.busy ? "disabled" : ""}>${UI._aiRead && UI._aiRead.busy ? "Reading the game…" : "Get an AI read"}</button>
         <div id="aiReadOut">${aiReadHtml()}</div>
-      </div>`}
-      <div class="card"><h2>Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
+      </div>`}`;
     if (!browsing) paintFeed();
     wireMuWeekNav();
     wireMuSwitch();
@@ -5618,6 +5619,17 @@
   // has no position color to take, so it falls back to the neutral --pos-X the players table's
   // own badge already uses for exactly the same case.
   const POS_SLOTS = ["QB", "RB", "WR", "TE", "K", "DST"];
+  // Season figures per player — {total, avg, last} from D.gameLog, null for a player with no
+  // finalized games — cached in UI._faStats for the session. Read by the Moves table's
+  // FPTS/AVG/LAST columns, the trade suggestion, and the My Team rows' LAST/AVG cells.
+  function ensurePlayerStats(list) {
+    UI._faStats = UI._faStats || new Map();
+    const need = list.filter((p) => !UI._faStats.has(p.key));
+    if (!need.length) return Promise.resolve();
+    return Promise.all(need.map((p) => D().gameLog(p.key).then((log) => {
+      UI._faStats.set(p.key, log.rows.length ? { total: log.total, avg: log.avg, last: log.rows[log.rows.length - 1].pts } : null);
+    }).catch(() => { UI._faStats.set(p.key, null); })));
+  }
   function slotPos(slot) { return POS_SLOTS.includes(String(slot)) ? String(slot) : "X"; }
 
   // ---------------- team / lineup ----------------
@@ -7008,14 +7020,9 @@
     // Split out of ensureFaStatsBatch (2026-08-09) so "Suggest a trade" can await the SAME
     // season figures the table paints — the suggestion values players by their season average
     // and must never guess at one it could have had for free. The repaint stays in the
-    // table's own wrapper; a suggestion has no table to repaint.
-    function ensureStats(list) {
-      const need = list.filter((p) => !UI._faStats.has(p.key));
-      if (!need.length) return Promise.resolve();
-      return Promise.all(need.map((p) => D().gameLog(p.key).then((log) => {
-        UI._faStats.set(p.key, log.rows.length ? { total: log.total, avg: log.avg, last: log.rows[log.rows.length - 1].pts } : null);
-      }).catch(() => { UI._faStats.set(p.key, null); })));
-    }
+    // table's own wrapper; a suggestion has no table to repaint. The fetch itself lives in
+    // ensurePlayerStats (module scope) since the My Team rows read the same figures.
+    const ensureStats = ensurePlayerStats;
     function ensureFaStatsBatch(list) {
       const need = list.filter((p) => !UI._faStats.has(p.key));
       if (!need.length) return;
@@ -8566,7 +8573,7 @@
     { kind: "injury", label: "Injuries" },
     { kind: "mention", label: "Chat mentions" },
     { kind: "chat", label: "League chat" },
-    { kind: "smack", label: "Matchup trash talk" },
+    { kind: "smack", label: "Matchup smack talk" },
     { kind: "moves", label: "League moves", defaultOn: false },
   ];
   function defaultOffKinds() {
@@ -8680,7 +8687,7 @@
     }
     return `<div class="card alertcard" id="alertCard">${head}
       <p class="small">Get league alerts on this phone.</p>
-      <p class="mut small">Trades, waivers, recaps, injuries, mentions, league chat and matchup trash talk. League moves stays off until you turn it on.</p>
+      <p class="mut small">Trades, waivers, recaps, injuries, mentions, league chat and matchup smack talk. League moves stays off until you turn it on.</p>
       <div class="alertrow"><button id="alertOn" class="primary">Turn on league alerts</button></div></div>`;
   }
   function wireAlertsCard(T) {
@@ -8951,13 +8958,34 @@
       // floor at 390px is a real usability bar this app already paid to reach, and a face plus
       // its gap costs exactly the width that bar protects. On a desktop the row has room to
       // spare.
+      // THREE COLUMNS, NO LIVE SCORE (2026-09-30, user: "shrink the QB/RB/WR box to make room
+      // for three columns of data: projection, last and average … we dont have to show current
+      // score for a player on my team page"). The row used to end in the live score with the
+      // projection tucked beside it; it now ends in three fixed-width cells, each a number over
+      // its own label, so no card needs a header row to line up with. LAST and AVG are the same
+      // D.gameLog figures the Moves table's LAST/AVG columns paint (UI._faStats, shared), so the
+      // two pages can never disagree about a player. The slot chip went from 52px to 36px to pay
+      // for them, and BENCH reads BN inside it — the card's own heading already says Bench.
+      const lstat = (key, which) => {
+        const st = UI._faStats && UI._faStats.get(key); // undefined = loading | null = no games
+        return st === undefined ? "…" : (st && st[which] != null ? LG.fmtPts(st[which]) : "—");
+      };
+      const statsHtml = (p) => {
+        const proj = d.projFor(p.key);
+        return `<span class="lstats">
+                <span class="lst"><b>${proj != null ? LG.fmtPts(proj) : "—"}</b><small>Proj</small></span>
+                <span class="lst"><b data-lstat="last" data-lk="${esc(p.key)}">${lstat(p.key, "last")}</b><small>Last</small></span>
+                <span class="lst"><b data-lstat="avg" data-lk="${esc(p.key)}">${lstat(p.key, "avg")}</b><small>Avg</small></span>
+              </span>`;
+      };
+      const chipTxt = (slot) => (slot === "BENCH" ? "BN" : slot);
       const rowHtml = (slot, p, idx) => p
         ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}${hasBall(p) ? " hasball" : ""}${inRedZone(p) ? " rz" : ""}" data-slot="${slot}" data-idx="${idx}">
-            <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
+            <span class="slotchip" data-pos="${slotPos(slot)}">${chipTxt(slot)}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
               ${pshotHtml(p.key, "lkshot")}
               <span class="lname"><b>${escn(p.name)}</b>${injChip(d, p)} <small class="mut">${esc(p.pos)} · ${esc(p.team)}</small></span>
-              <span class="lpts">${LG.fmtPts(d.livePts(p.key))}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
+              ${statsHtml(p)}
             </button>
             <button type="button" class="lswap" data-slot="${slot}" data-idx="${idx}"${playerLocked(p)
               ? ' disabled title="Game started — this slot is locked" aria-label="Swap unavailable — this game has started"' : ""}>Swap</button>
@@ -8966,7 +8994,7 @@
               : ` title="Drop ${esc(p.name)}" aria-label="Drop ${esc(p.name)}"`}><span class="ldroptxt">Drop</span></button>` : ""}
           </div>`
         : `<div class="lrow" data-slot="${slot}" data-idx="${idx}">
-            <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
+            <span class="slotchip" data-pos="${slotPos(slot)}">${chipTxt(slot)}</span>
             <button type="button" class="lswap lswapfill" data-slot="${slot}" data-idx="${idx}"><span class="mut">Empty — tap to fill</span></button>
           </div>`;
       // 2026-09-08 (user: "get rid of the lineup instructions"): the how-to paragraph that sat
@@ -9042,7 +9070,18 @@
     // non-commissioner's copy unwired would only hide the gate, not add one.
     wireLockerEdit(T, isOwner);
     if (!isOwner) wireLockerPinReset(T);
-    if (isOwner) { wireLockerLineup(teamId, roster); wireAlertsCard(T); maybeOfferOwnerPin(T); }
+    if (isOwner) {
+      wireLockerLineup(teamId, roster); wireAlertsCard(T); maybeOfferOwnerPin(T);
+      // LAST / AVG land after the paint, as text writes into the cells already there — never a
+      // rebuild, so a swap card opened meanwhile stays open.
+      ensurePlayerStats(roster).then(() => {
+        document.querySelectorAll("#main [data-lstat]").forEach((el) => {
+          const st = UI._faStats.get(el.dataset.lk);
+          const v = st === undefined ? "…" : (st && st[el.dataset.lstat] != null ? LG.fmtPts(st[el.dataset.lstat]) : "—");
+          if (el.textContent !== v) el.textContent = v;
+        });
+      });
+    }
     paintHealth();
     fitHeroNames(); hookFitOnFonts(); // the hero name fits, never clips
   }
@@ -9147,23 +9186,40 @@
       else if (slot === "IR") cur = ir[idx];
       else cur = (starters[idx] || {}).p || null;
       if (cur && playerLocked(cur)) { toast(cur.name + "'s game already started."); return; }
-      // A bench tap picks a DESTINATION SLOT, not a player, so those rows carry no projection
-      // or ownership — there is no player on them to have any.
+      // A BENCH SWAP PICKS A PLAYER (2026-09-30, user: "when clicking swap on a bench player, it
+      // lists positions, it should instead lists players so you pick who you are swapping
+      // with"). This card used to offer "→ RB", "→ FLEX" — a slot, which then bumped whoever
+      // sat there last. It now lists every starter whose slot the bench man can legally fill,
+      // each as a real player row (projection, ownership, his slot in the meta line), and the
+      // tap swaps exactly those two. A locked starter is shown disabled with the reason, the
+      // same rule as the starter-side card below. An EMPTY eligible slot has nobody to swap
+      // with, so it stays a slot row; "→ IR" is not a swap either, and stays as it was.
       if (slot === "BENCH" && cur) {
-        const opts = starterSlotList().filter((s) => LG.slotEligible(cur.pos, s));
+        const targets = starters.filter((s) => LG.slotEligible(cur.pos, s.slot));
+        const filled = targets.filter((s) => s.p);
+        const openSlots = [...new Set(targets.filter((s) => !s.p).map((s) => s.slot))];
         const irOk = ir.length < irMax && LG.irEligibleFor(cur); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
         openRosterCard(`<div class="pccard rccard">
           <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
-          <div class="pchead"><h2 class="pcname">Move ${escn(cur.name)}</h2>
+          <div class="pchead"><h2 class="pcname">Swap ${escn(cur.name)}</h2>
             <div class="pcmeta"><span class="posbadge" data-pos="${esc(cur.pos)}">${esc(cur.pos || "?")}</span>
               <span class="mut">${esc(cur.team || "")}</span>${injChip(d, cur)}</div></div>
-          <h2 class="rcq">Move him where?</h2>
+          <h2 class="rcq">Swap with who?</h2>
+          ${filled.length ? rcHeadHtml() : ""}
           <div class="rclist">
-            ${[...new Set(opts)].map((s) => `<button type="button" class="swaprow rcslot" data-to="${s}">→ ${s}</button>`).join("")}
+            ${filled.map((s, i) => rcRowHtml(s.p, `data-si="${i}"`, { blocked: playerLocked(s.p) ? "Game started" : "" })).join("")}
+            ${openSlots.map((s) => `<button type="button" class="swaprow rcslot" data-to="${s}">Empty ${s} slot</button>`).join("")}
             ${irOk ? '<button type="button" class="swaprow rcslot" data-to="IR">→ IR</button>' : ""}
+            ${filled.length || openSlots.length || irOk ? "" : '<p class="mut">No starting slot takes a ' + esc(cur.pos || "player") + ".</p>"}
           </div>
           <div class="rcfoot"><button type="button" class="rcghost" data-to="">Cancel</button></div>
         </div>`);
+        ensurePctOwned(filled.map((s) => s.p.key)).then(paintPctOwned).catch(() => {});
+        $("#rosterCard").querySelectorAll("[data-si]").forEach((b) => b.addEventListener("click", async () => {
+          closeSwap();
+          const t = filled[Number(b.dataset.si)];
+          if (t) await swap(t.p, cur, t.slot);
+        }));
         $("#rosterCard").querySelectorAll("[data-to]").forEach((b) => b.addEventListener("click", () => {
           closeSwap();
           if (b.dataset.to) doMove(cur, b.dataset.to);
