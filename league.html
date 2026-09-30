@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260930a">
+<meta name="gffl-v" content="20260930b">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -1282,6 +1282,19 @@
                 font:600 13px var(--font-display); letter-spacing:.6px; text-transform:uppercase; }
   .navlinkbtn:hover { border-color:var(--border-hover); color:var(--ink); }
   .navlinkbtn .small { font:400 11px var(--font-body); letter-spacing:0; text-transform:none; }
+  /* RoboGoat (2026-09-30): the newest column, directly above this week's games. One link, the
+     whole card. The kicker is gold, not the accent red: #d50a0a on this card measures ~3.2:1,
+     short of 4.5:1 for 11px text. The portrait sits on the newsletter's own paper tint so his
+     navy suit does not sink into the dark card. */
+  .rgcard { padding:10px 12px 10px 10px; border-left:4px solid var(--accent); }
+  .rgmain { display:flex; align-items:center; gap:12px; min-height:58px; color:var(--ink); text-decoration:none; }
+  .rgface { flex:none; width:48px; height:58px; object-fit:contain; object-position:center bottom;
+            border-radius:var(--radius-sm); background:linear-gradient(180deg,#fbfaf7 40%,#dfe5ee); }
+  .rgtext { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+  .rgkick { font:700 11px/1.2 var(--font-body); letter-spacing:.12em; text-transform:uppercase; color:var(--gold); }
+  .rghed { font:700 19px/1.12 var(--font-display); letter-spacing:.2px; text-transform:uppercase; color:var(--ink); overflow-wrap:anywhere; }
+  .rgchev { flex:none; color:var(--mut); }
+  .rgmain:hover .rghed { text-decoration:underline; text-underline-offset:3px; }
   /* S2's quiet "Drafted ✓" line — appended AFTER the two buttons above, on its own row. */
   .draftedline { flex:1 1 100%; margin:2px 0 0; }
   /* Device-session footer — last card on league home, after Rules/Draft. Not a
@@ -2449,9 +2462,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260930a"></script>
-  <script src="assets/league/lg-data.js?v=20260930a"></script>
-  <script src="assets/league/lg-ui.js?v=20260930a"></script>
+  <script src="assets/league/lg-core.js?v=20260930b"></script>
+  <script src="assets/league/lg-data.js?v=20260930b"></script>
+  <script src="assets/league/lg-ui.js?v=20260930b"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

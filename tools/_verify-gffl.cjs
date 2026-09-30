@@ -2311,6 +2311,15 @@ async function newTestPage(browser, seed, opts) {
               .replace(/env\(safe-area-inset-right\)/g, sa.right + "px");
             return req.respond({ status: 200, contentType: "text/html", headers: cors, body: raw });
           }
+          // RGL (2026-09-30): the league home's RoboGoat card reads /robogoat/issues.json. The
+          // repo's real file is served by default; opts.robogoatIssues answers in its place with
+          // the given status and body, so the card's fallbacks (no file; a path that is not a
+          // plain relative one) can be exercised.
+          if (opts.robogoatIssues && /\/robogoat\/issues\.json(\?|$)/.test(u)) {
+            const ri = opts.robogoatIssues;
+            return req.respond({ status: ri.status || 200, contentType: "application/json", headers: cors,
+              body: typeof ri.body === "string" ? ri.body : JSON.stringify(ri.body || {}) });
+          }
           return req.continue();
         }
         // The Firestore REST transport. A page that armed a wire fixture (opts.rest) gets it;
@@ -19965,8 +19974,9 @@ async function openDetails(page, id) {
       }))) || {};
       ok(edit.editingGrid === true, "…the grid enters edit mode");
       // RESTAGED 2026-09-08: 12 → 13 — the AI power rankings card ("power") joined MAIN.
-      ok(edit.strips === edit.wrappers && edit.wrappers === 13,
-        "…every registered card carries an edit strip — all 13, hidden none (" + edit.strips + "/" + edit.wrappers + ")");
+      // RESTAGED 2026-09-30: 13 → 14 — the RoboGoat card ("robogoat") joined MAIN above "week" (RGL).
+      ok(edit.strips === edit.wrappers && edit.wrappers === 14,
+        "…every registered card carries an edit strip — all 14, hidden none (" + edit.strips + "/" + edit.wrappers + ")");
       ok(edit.empties >= 1, "…a self-hiding card renders as a labelled placeholder so it can still be positioned (" + edit.empties + ")");
       ok(/Text size/.test(edit.barBits) && /Spacing/.test(edit.barBits) && /Done/.test(edit.barBits),
         "…and the bar carries the global text-size and spacing controls");
@@ -20074,15 +20084,19 @@ async function openDetails(page, id) {
           bogusGone: !all.includes("bogusCard"), hiddenClean: l.hidden.length === 0,
           // RESTAGED 2026-09-08: 12 → 13 with the AI power rankings card; and "power" itself is
           // the live case of the append rule — this saved layout predates it.
-          complete: all.length === 13 && new Set(all).size === 13,
+          // RESTAGED 2026-09-30: 13 → 14 with the RoboGoat card. It is the live case of the OTHER
+          // rule — the one-time migration that puts a card this layout never named directly above
+          // "week" instead of appending it (RGL has the full set of cases).
+          complete: all.length === 14 && new Set(all).size === 14,
           movesAppended: l.rail.includes("moves"), powerAppended: l.main.includes("power"), scale: l.scale, cz: Object.keys(l.cz).length,
-          rendered: document.querySelectorAll(".deskcard").length === 13 - l.hidden.length,
+          rgAboveWeek: l.main.indexOf("robogoat") >= 0 && l.main.indexOf("robogoat") === l.main.indexOf("week") - 1,
+          rendered: document.querySelectorAll(".deskcard").length === 14 - l.hidden.length,
         };
       });
-      ok(sane && sane.bogusGone && sane.hiddenClean && sane.complete && sane.movesAppended && sane.powerAppended,
-        "AU9: unknown ids are dropped and every card the saved layout never heard of lands back in its default column — nothing can vanish (power included)");
+      ok(sane && sane.bogusGone && sane.hiddenClean && sane.complete && sane.movesAppended && sane.powerAppended && sane.rgAboveWeek,
+        "AU9: unknown ids are dropped and every card the saved layout never heard of lands back in its default column — nothing can vanish (power appended, robogoat above week)");
       ok(sane && sane.scale === 100 && sane.cz === 0, "…and an off-step scale or size snaps to 100% instead of rendering garbage");
-      ok(sane && sane.rendered === true, "…with all 13 wrappers on the page");
+      ok(sane && sane.rendered === true, "…with all 14 wrappers on the page");
       // THE CHAT CONTRACT, WHEREVER CHAT SITS: move it into MAIN, type, force a live repaint.
       await evalOr(page, () => { window.__GFFL__.UI.deskLayoutAction("side", "chat"); });
       await waitFnOr(page, () => [...document.querySelectorAll(".lgmain .deskcard")].some((w) => w.dataset.card === "chat"));
@@ -20097,7 +20111,8 @@ async function openDetails(page, id) {
       await evalOr(page, () => window.__GFFL__.UI.renderLeague(true));
       await new Promise((r) => setTimeout(r, 250));
       // RESTAGED 2026-09-08: 12 → 13 with the AI power rankings card.
-      ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 13)) === true,
+      // RESTAGED 2026-09-30: 13 → 14 with the RoboGoat card.
+      ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 14)) === true,
         "AU9c: a live repaint while the editor is open changes nothing — the strips stand");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -20229,7 +20244,11 @@ async function openDetails(page, id) {
       }) || {};
       ok(mig.old && mig.old[mig.old.length - 1] === "links" && mig.old[1] !== "links",
         "a layout saved under the OLD default migrates links to the end (" + (mig.old || []).join(",") + ")");
-      ok(mig.custom && mig.custom[2] === "links",
+      // RESTAGED 2026-09-30: this read mig.custom[2] === "links". A saved layout that predates the
+      // RoboGoat card now gets it inserted directly above "week" (deskLayout's one-time migration,
+      // section RGL), which shifts every card after it by one. The rule under test is unchanged —
+      // links stays where its owner put it, straight after "week" — so the check now says exactly that.
+      ok(mig.custom && mig.custom[mig.custom.indexOf("week") + 1] === "links" && mig.custom.indexOf("links") < mig.custom.indexOf("countdown"),
         "…while a layout where links was deliberately MOVED keeps the owner's placement (" + (mig.custom || []).join(",") + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -28282,55 +28301,128 @@ async function openDetails(page, id) {
     await ctx.close();
   }
   }
-  if (section("RGL · RoboGoat — the league links card opens the newsletter archive")) {
-  // User, 2026-09-29: an archive of every RoboGoat column at goatfantasyleague.com/robogoat/,
-  // "plus a link from the GFFL app". It is a third entry in the Rules / Draft card — a real
-  // <a href>, like Draft, because it leaves league.html for a static page.
+  if (section("RGL · RoboGoat — the newest column heads the league page, above this week's games")) {
+  // User, 2026-09-29: an archive of every RoboGoat column, "plus a link from the GFFL app". That
+  // first shipped as a third entry in the Rules / Draft card at the BOTTOM of the league page.
+  // RESTAGED 2026-09-30 (user: "put the robogoat button at the top of the league page above the
+  // matchups so everyone can see it"): the link is now its own card directly above the week card,
+  // naming the NEWEST column and opening it, and the links card is back to Rules and Draft. The
+  // expected link and headline are read from the repo's own robogoat/issues.json here — a new
+  // column every few days must not turn this section red.
+  const RG = JSON.parse(fs.readFileSync(path.join(ROOT, "robogoat/issues.json"), "utf8")).issues[0];
+  const RG_KICK = "RoboGoat · Week " + RG.week + " " + (RG.type === "preview" ? "preview" : "recap");
+  const rgWait = (page) => waitFnOr(page, (k) => {
+    const el = document.querySelector("#rgCard .rgkick");
+    return !!el && el.textContent.trim() === k;
+  }, RG_KICK);
   {
+    // ---- RGL1: phone. Place, content, geometry, contrast, and where the tap goes.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await waitOr(page, ".mucard");
+    const loaded = await rgWait(page);
     const r = await evalOr(page, () => {
-      const a = document.getElementById("lnkRobogoat");
-      if (!a) return { found: false };
-      const card = a.closest(".leaguelinks");
-      const kids = card ? [...card.querySelectorAll(".navlinkbtn")].map((e) => e.id) : [];
-      const b = a.getBoundingClientRect(), c = card.getBoundingClientRect();
+      const card = document.getElementById("rgCard");
+      if (!card) return { found: false };
+      const a = card.querySelector("#lnkRobogoat"), img = card.querySelector("img.rgface");
+      const hed = card.querySelector(".rghed"), kick = card.querySelector(".rgkick");
+      const week = (document.querySelector("main .mugrid") || {}).closest ? document.querySelector("main .mugrid").closest(".card") : null;
+      const rgb = (s) => (String(s).match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(Number);
+      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+      const ratio = (x, y) => { const [hi, lo] = [lum(rgb(x)), lum(rgb(y))].sort((p, q) => q - p); return (hi + 0.05) / (lo + 0.05); };
+      const bg = getComputedStyle(card).backgroundColor;
+      const rg = document.createRange(); rg.selectNodeContents(hed);
+      const ink = rg.getBoundingClientRect(), cb = card.getBoundingClientRect(), ab = a.getBoundingClientRect();
+      const links = document.querySelector(".leaguelinks");
       return {
-        found: true, tag: a.tagName, href: a.getAttribute("href"), resolved: new URL(a.getAttribute("href"), location.href).pathname,
-        title: a.firstChild.nodeValue.trim(), sub: (a.querySelector(".small") || {}).textContent, kids,
-        h: Math.round(b.height), inside: b.left >= c.left - 0.5 && b.right <= c.right + 0.5, shown: a.offsetParent !== null,
-        clipped: a.scrollWidth > a.clientWidth + 1, text: a.textContent,
+        found: true, href: a.getAttribute("href"), kick: kick.textContent.trim(), hed: hed.textContent.trim(),
+        aboveWeek: !!week && card.nextElementSibling === week, top: Math.round(cb.top), vh: innerHeight,
+        tapH: Math.round(ab.height), inkInside: ink.left >= cb.left && ink.right <= cb.right + 0.5,
+        clipped: hed.scrollWidth > hed.clientWidth + 1 || card.scrollWidth > card.clientWidth + 1, rightEdge: Math.round(cb.right),
+        img: !!img && img.complete && img.naturalWidth > 0, kickRatio: +ratio(getComputedStyle(kick).color, bg).toFixed(2),
+        hedRatio: +ratio(getComputedStyle(hed).color, bg).toFixed(2), kickPx: parseFloat(getComputedStyle(kick).fontSize),
+        text: card.textContent, linksIds: links ? [...links.querySelectorAll(".navlinkbtn")].map((e) => e.id) : null,
+        sideways: document.documentElement.scrollWidth - innerWidth,
       };
     }) || { found: false };
-    ok(r.found && r.tag === "A" && r.href === "robogoat/" && r.resolved === "/robogoat/",
-      "phone: the league links card has a RoboGoat <a href=\"robogoat/\">, resolving to /robogoat/ (" + JSON.stringify({ tag: r.tag, href: r.href, resolved: r.resolved }) + ")");
-    ok(r.title === "RoboGoat" && r.sub === "Weekly previews and recaps", "…labelled \"RoboGoat\" / \"Weekly previews and recaps\" (" + JSON.stringify([r.title, r.sub]) + ")");
-    ok(JSON.stringify(r.kids) === JSON.stringify(["lnkRules", "lnkDraft", "lnkRobogoat"]), "…third, after Rules and Draft, in the same card (" + JSON.stringify(r.kids) + ")");
-    ok(r.shown && r.h >= 44 && r.inside && !r.clipped, "…visible, ≥44px tall, inside the card, nothing clipped (" + JSON.stringify({ h: r.h, inside: r.inside, clipped: r.clipped }) + ")");
-    ok(r.found && !/\p{Extended_Pictographic}/u.test(r.text || ""), "…and no emoji in app chrome (" + JSON.stringify(r.text) + ")");
-    // Following it lands on the archive itself: its masthead and at least one issue link.
-    // (Guarded: with no link there is nothing to tap, and a thrown click would end the battery.)
-    let arc = {};
+    ok(r.found && r.aboveWeek, "phone: the RoboGoat card sits directly above this week's games (" + JSON.stringify({ found: r.found, aboveWeek: r.aboveWeek }) + ")");
+    ok(r.top >= 0 && r.top < r.vh / 2, "…in the top half of the first screen, so everyone sees it (top " + r.top + "px of " + r.vh + ")");
+    ok(loaded && r.kick === RG_KICK && r.hed === RG.headline && r.href === "robogoat/" + RG.path,
+      "…naming the newest column from robogoat/issues.json and linking to it (" + JSON.stringify({ kick: r.kick, hed: r.hed, href: r.href }) + ")");
+    ok(r.tapH >= 44 && r.inkInside && !r.clipped && r.rightEdge <= 390 && r.sideways <= 0,
+      "…one ≥44px link, the headline's ink inside the card, nothing clipped, no sideways scroll (" + JSON.stringify({ tapH: r.tapH, inkInside: r.inkInside, clipped: r.clipped, sideways: r.sideways }) + ")");
+    ok(r.img, "…with RoboGoat's portrait loaded (robogoat/robogoat-sm.png)");
+    ok(r.kickRatio >= 4.5 && r.hedRatio >= 4.5, "…kicker and headline both clear 4.5:1 on the card (" + r.kickRatio + ", " + r.hedRatio + " at " + r.kickPx + "px)");
+    ok(r.found && !/\p{Extended_Pictographic}/u.test(r.text || ""), "…and no emoji in app chrome");
+    ok(JSON.stringify(r.linksIds) === JSON.stringify(["lnkRules", "lnkDraft"]), "the bottom links card is back to Rules and Draft only (" + JSON.stringify(r.linksIds) + ")");
+    if (SHOTS) { fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true }); await page.screenshot({ path: path.join(ROOT, "shots", "gffl_robogoat_390.png") }); console.log("  📸 shots/gffl_robogoat_390.png"); }
+    // Tapping it opens that column. (Guarded: with no card there is nothing to tap, and a thrown
+    // click would end the whole battery.)
+    let dest = {};
     if (r.found) {
       await Promise.all([page.waitForNavigation({ timeout: 9000 }).catch(() => null), page.click("#lnkRobogoat")]);
-      arc = await evalOr(page, () => ({ path: location.pathname, name: (document.querySelector(".mast .name") || {}).textContent,
-        issues: document.querySelectorAll("a.issue").length })) || {};
+      dest = await evalOr(page, () => ({ path: location.pathname, hed: !!document.querySelector(".hed h1"), rg: !!document.querySelector("header.mast img.robogoat") })) || {};
     }
-    ok(arc.path === "/robogoat/" && arc.name === "ROBOGOAT" && arc.issues >= 1, "…and tapping it opens the archive, which lists the issues (" + JSON.stringify(arc) + ")");
+    ok(dest.path === "/robogoat/" + RG.path && dest.hed && dest.rg, "…and tapping it opens that column (" + JSON.stringify(dest) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
+  for (const [label, fake] of [
+    ["issues.json missing (404)", { status: 404, body: "{}" }],
+    ["a path that is not a plain relative one", { body: { issues: [{ season: 2026, week: 9, type: "recap", path: "//evil.example/", headline: "Not ours" }] } }],
+  ]) {
+    // ---- RGL2: the fallback. The card never disappears and never points anywhere but the archive.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { robogoatIssues: fake });
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await sleep(600); // the fetch has answered; there is no later state to wait for
+    const f = await evalOr(page, () => {
+      const c = document.getElementById("rgCard");
+      return c ? { href: c.querySelector("#lnkRobogoat").getAttribute("href"), kick: c.querySelector(".rgkick").textContent.trim(),
+        hed: c.querySelector(".rghed").textContent.trim() } : null;
+    }) || {};
+    ok(f.href === "robogoat/" && f.kick === "RoboGoat" && f.hed === "Weekly previews and recaps",
+      label + ": the card stays, reading \"Weekly previews and recaps\" and linking to the archive (" + JSON.stringify(f) + ")");
+    ok(errors.length === 0, "…0 page errors");
+    await ctx.close();
+  }
   {
+    // ---- RGL3: desktop. A registry card, directly above "week" in MAIN by default.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
     await bootPage(page);
     await waitOr(page, ".lgdesk");
+    const loaded = await rgWait(page);
     const d = await evalOr(page, () => {
+      const ids = [...document.querySelectorAll(".lgmain .deskcard")].map((w) => w.dataset.card);
       const a = document.getElementById("lnkRobogoat");
       const card = a && a.closest(".deskcard");
-      return { card: card && card.dataset.card, shown: !!a && a.offsetParent !== null, h: a ? Math.round(a.getBoundingClientRect().height) : 0 };
+      return { ids, card: card && card.dataset.card, shown: !!a && a.offsetParent !== null,
+        h: a ? Math.round(a.getBoundingClientRect().height) : 0, hed: (document.querySelector("#rgCard .rghed") || {}).textContent };
     }) || {};
-    ok(d.card === "links" && d.shown && d.h >= 44, "desktop: the same link is in MAIN's links card, visible and ≥44px (" + JSON.stringify(d) + ")");
+    ok(d.card === "robogoat" && d.ids && d.ids.indexOf("robogoat") === d.ids.indexOf("week") - 1 && d.ids.indexOf("robogoat") > 0,
+      "desktop: 'robogoat' is a MAIN card directly above 'week' (" + (d.ids || []).join(",") + ")");
+    ok(loaded && d.shown && d.h >= 44 && (d.hed || "").trim() === RG.headline, "…visible, ≥44px, naming the newest column (" + JSON.stringify({ h: d.h, hed: d.hed }) + ")");
+    if (SHOTS) { fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true }); await page.screenshot({ path: path.join(ROOT, "shots", "gffl_robogoat_1440.png") }); console.log("  📸 shots/gffl_robogoat_1440.png"); }
+    // A SAVED layout from before this card: it lands above "week" too (not at the end of MAIN),
+    // follows "week" into the rail if the owner moved it there, and a layout that already names
+    // the card — moved or hidden — keeps the owner's choice.
+    const mig = await evalOr(page, () => {
+      const L = (o) => { localStorage.setItem("gffl_desklayout", JSON.stringify(Object.assign({ hidden: [], scale: 100, density: "comfortable", cz: {} }, o))); return window.__GFFL__.UI.deskLayout(); };
+      const RAIL = ["chat", "injury", "hot", "accuracy", "moves"];
+      const old = L({ main: ["countdown", "stale", "week", "playoffs", "standings", "power", "alltime", "links"], rail: RAIL });
+      const inRail = L({ main: ["countdown", "stale", "playoffs", "standings", "power", "alltime", "links"], rail: ["week"].concat(RAIL) });
+      const moved = L({ main: ["countdown", "stale", "week", "playoffs", "standings", "power", "alltime", "links", "robogoat"], rail: RAIL });
+      const hidden = L({ main: ["countdown", "stale", "week", "playoffs", "standings", "power", "alltime", "links"], rail: RAIL, hidden: ["robogoat"] });
+      localStorage.removeItem("gffl_desklayout");
+      return { old: old.main, inRail: inRail.rail, moved: moved.main, hiddenMain: hidden.main, hidden: hidden.hidden };
+    }) || {};
+    ok(mig.old && mig.old.indexOf("robogoat") === mig.old.indexOf("week") - 1,
+      "a layout saved before the card gets it directly above 'week', not at the end (" + (mig.old || []).join(",") + ")");
+    ok(mig.inRail && mig.inRail[0] === "robogoat" && mig.inRail[1] === "week", "…and follows 'week' into the rail when the owner moved it there (" + (mig.inRail || []).join(",") + ")");
+    ok(mig.moved && mig.moved[mig.moved.length - 1] === "robogoat", "…while a layout that already placed it keeps the owner's placement (" + (mig.moved || []).join(",") + ")");
+    ok(mig.hidden && mig.hidden.includes("robogoat") && (mig.hiddenMain || []).indexOf("robogoat") !== (mig.hiddenMain || []).indexOf("week") - 1,
+      "…and a layout that hid it keeps it hidden, not re-inserted (" + JSON.stringify(mig.hidden) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
