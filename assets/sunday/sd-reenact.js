@@ -1314,7 +1314,7 @@ function raBuild(p, ev, qbs, opts = {}) {
       const tOff = tUp + Math.abs(xOut - xArr) / 4.2;                   // a brisk walk off
       const crewPath = (dz) => [[0, xSide, zi + dz, 0], [tIn, xSide, zi + dz, 0], [tArr, xArr, zi + dz, 2], [tUp, xArr, zi + dz, 0], [tOff, xOut, zi + dz, 0]];
       const str = { side: 'm', role: 'STR', showFrom: tIn, k: crewPath(0), hk: [[0, 0.8], [tArr, 0.8], [tArr + 0.35, 0.05], [tLoad + 0.2, 0.05], [tUp, 0.8]] };
-      const medics = [-1.45, 1.45].map((dz, i) => ({ side: 'm', role: 'MED', idx: 900 + n * 2 + i, showFrom: tIn, str, k: crewPath(dz), acts: [[tArr + 0.35, tLoad + 0.1, 'hold']] }));
+      const medics = [-1.45 * RA_PK, 1.45 * RA_PK].map((dz, i) => ({ side: 'm', role: 'MED', idx: 900 + n * 2 + i, showFrom: tIn, str, k: crewPath(dz), acts: [[tArr + 0.35, tLoad + 0.1, 'hold']] }));
       sc.actors.push(str, ...medics);
       a.k.push([tLoad - 0.45, xi, zi, 0], [tLoad, xArr, zi, 2], [tUp, xArr, zi, 0], [tOff, xOut, zi, 0]);
       a.onStr = { str, from: tLoad - 0.2 };
@@ -2090,7 +2090,9 @@ function bigLabel(s, k, col, shadow) {
    the ground: hip `h`, the top of the spine `s`, the head's centre `c`, three points for each arm
    (shoulder, elbow, hand: `fa` near, `ba` far) and leg (hip, knee, ankle: `fl`, `bl`), the feet's
    directions (`ff`, `bf`) and the head's tilt (`hr`, degrees forward; else it follows the neck). It is
-   rasterised once into a 34×40 grid of shade codes, then coloured per uniform (raSprite):
+   rasterised once into a grid of shade codes, then coloured per uniform (raSprite). Since 2026-09-30
+   (user: "lets go with the 20% change", to get more room for logos on the helmets) the skeleton is
+   drawn RA_PK = 1.2 sprite pixels to its unit, into a 42×52 grid (34×40 before):
    - football proportions: a big helmet, shoulder pads wider than the chest, a narrow waist, thick
      thighs, the pants ending under the knee over the socks
    - the helmet is one solid shell colour (2026-09-28, user: "make the helmet 1 solid color") with the
@@ -2233,7 +2235,10 @@ function raRig(P) {
     fl: solve(hpN, P.fl[1], P.fl[2], RA_BONE.thigh, RA_BONE.shin), bl: solve(hpF, P.bl[1], P.bl[2], RA_BONE.thigh, RA_BONE.shin) };
 }
 for (const k of Object.keys(RA_SKEL)) RA_SKEL[k] = raRig(RA_SKEL[k]);
-const RA_FW = 34, RA_FH = 40, RA_FAX = 17, RA_FAY = 38;   // sprite grid; the feet stand on (17, 38)
+const RA_PK = 1.2;                                        // sprite pixels to the rig's unit (players 20% bigger)
+const RA_FAX = Math.ceil(17 * RA_PK), RA_FW = 2 * RA_FAX, RA_FAY = Math.ceil(38 * RA_PK), RA_FH = RA_FAY + 6;   // 42×52; the feet stand on (21, 46)
+// (Six rows under the feet: a man lying face down has his helmet and its facemask below the line his feet
+// stand on, down to the fifth row and its outline.)
 const RA_FIG = new Map();
 function raFig(pose, variant = 'p') {
   const key = pose + '|' + variant;
@@ -2245,11 +2250,11 @@ function raFig(pose, variant = 'p') {
   const Lx = 0.45, Ly = 0.89;                                    // light: from above, a little in front
   const MAT = { J: 'J', j: 'J', L: 'J', P: 'P', p: 'P', Q: 'P', S: 'S', s: 'S', F: 'F', f: 'F', E: 'F', B: 'B', b: 'B', C: 'C', c: 'C' };
   const SHADE = { J: 'j', P: 'p', S: 's', F: 'f', B: 'B', C: 'c' };
-  // fn(x, y) at each cell's centre: a code to paint, 0 for nothing, 1 for the part's rim (a cast
-  // shadow in the shade of whatever is already there, or a dark line with `dark`).
+  // fn(x, y) at each cell's centre, in the rig's units: a code to paint, 0 for nothing, 1 for the
+  // part's rim (a cast shadow in the shade of whatever is already there, or a dark line with `dark`).
   const paint = (fn, dark) => {
     for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
-      const i = gy * W + gx, v = fn(gx + 0.5 - AX, AY - gy - 0.5);
+      const i = gy * W + gx, v = fn((gx + 0.5 - AX) / RA_PK, (AY - gy - 0.5) / RA_PK);
       if (v === 1) { const c = g[i]; if (c !== '.' && c !== 'O') g[i] = dark ? 'O' : SHADE[MAT[c]] || c; }
       else if (v) g[i] = v;
     }
@@ -2263,7 +2268,7 @@ function raFig(pose, variant = 'p') {
   const limb = (a, b, r0, r1, T, rim, lo = -0.3, hi = 0.6) => paint((x, y) => {
     const [dx, dy, u] = near(x, y, a, b), r = r0 + (r1 - r0) * u, d = Math.hypot(dx, dy);
     if (d <= r) { const k = (dx * Lx + dy * Ly) / r; return k < lo ? T[1] : T[2] && k > hi ? T[2] : T[0]; }
-    return rim && d <= r + 0.95 ? 1 : 0;
+    return rim && d <= r + 0.95 / RA_PK ? 1 : 0;                   // (a rim one pixel wide)
   });
   const lerp = (a, b, u) => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
   const TJ = ['J', 'j', 'L'], TP = ['P', 'p', null], TS = ['S', 's', null], TF = ['F', 'f', null], TB = ['B', 'B', 'b'];
@@ -2314,11 +2319,15 @@ function raFig(pose, variant = 'p') {
   // Head, tilted `hr` degrees forward (or as the neck leans): x forward, y up in its own frame. A tilt
   // under 14 degrees is drawn upright on the same sub-pixel footing in every frame, so the helmet, its
   // mask and its logo come out the same pixels frame to frame instead of shimmering. A head tilted
-  // further (diving, lying down) keeps its exact place, which that pose's mask was laid out for.
-  const hl = [];                                                    // the shell's cells: index, x, y in the head's frame
+  // further (diving, lying down) keeps its exact place, which that pose's mask was laid out for, except
+  // one within 14 degrees of face down: drawn face down, on the footing that puts the cage's bars on
+  // whole pixel rows turned a quarter (2026-09-30: at the bigger size its bars fell between rows,
+  // leaving 2 pixels of mask).
+  const hl = [];                                                    // the shell's cells: index, then x, y in the helmet's pixels
   {
     const lean0 = S.hr != null ? S.hr * Math.PI / 180 : Math.atan2(S.c[0] - S.s[0], S.c[1] - S.s[1]) * 0.6;
-    const up = Math.abs(lean0) < 14 * Math.PI / 180, lean = up ? 0 : lean0;
+    const up = Math.abs(lean0) < 14 * Math.PI / 180, prone = Math.abs(lean0 - Math.PI / 2) < 14 * Math.PI / 180;
+    const lean = up ? 0 : prone ? Math.PI / 2 : lean0;
     const cx = up ? Math.round(S.c[0] - 0.9) + 0.9 : S.c[0], cy = up ? Math.round(S.c[1] - 0.5) + 0.5 : S.c[1];
     const cs = Math.cos(lean), sn = Math.sin(lean);
     const loc = (x, y) => { const dx = x - cx, dy = y - cy; return [dx * cs - dy * sn, dx * sn + dy * cs]; };
@@ -2337,22 +2346,30 @@ function raFig(pose, variant = 'p') {
       if (lx > 1.5 && lx < 2.5 && ly > -0.5 && ly < 0.5) return 'e';
       return lx < -0.4 || ly < -2.4 ? 'f' : 'F';
     }, true);
-    else paint((x, y) => {
-      const [lx, ly] = loc(x, y);
-      // The facemask, light grey, one pixel thick with dark gaps between its bars: a front bar standing off
-      // the face, joined to the brow at the top, a short bar across at the nose and one under the chin.
-      // (Sized to the upright head's pixel rows, which fall on whole numbers here.)
-      if (lx > 5.1 && lx < 6.1 && ly > -4.5 && ly < 1.5) return 'm';
-      if (lx > 4.1 && lx < 6.1 && ((ly > 0.5 && ly < 1.5) || (ly > -2.5 && ly < -1.5))) return 'm';
-      if (lx > 2.1 && lx < 6.1 && ly > -4.5 && ly < -3.5) return 'm';
-      const nx = (lx + 0.5) / 5.2, ny = (ly - 0.35) / 4.8, d = Math.hypot(nx, ny);
-      if (d > 1) return d <= 1.18 ? 1 : 0;
-      // The opening: the brow's shadow across its top, the eye under it, the face (shaded toward the
-      // ear and at the chin), the jaw pad of the shell below.
-      if (lx > 0.9 && ly > -3.5 && ly < 0.5) return ly > -0.5 ? 'k' : lx > 2.1 && lx < 3.1 && ly > -1.5 ? 'e' : lx < 2.1 || ly < -2.5 ? 'f' : 'F';
-      hl.push((AY - y - 0.5) * W + (x + AX - 0.5), lx, ly);          // (where on the helmet's side it is, for the logo)
-      return 'H';
-    }, true);
+    else {
+      // The player's helmet is laid out in the sprite's own pixels (x forward, y up from the head's
+      // centre), where the upright head's pixel rows fall on whole numbers, so every one-pixel detail
+      // lands on a row of its own: a shell 12.5 × 11.5 across, and the opening and the cage 2026-09-30
+      // redrew for the bigger head.
+      const px = S.c[0] * RA_PK, py = S.c[1] * RA_PK;
+      const hx = up ? Math.round(px - 0.9) + 0.9 : prone ? Math.round(px - 0.5) + 0.5 : px, hy = up ? Math.round(py - 0.5) + 0.5 : prone ? Math.round(py - 0.1) + 0.1 : py;
+      paint((x, y) => {
+        const dx = x * RA_PK - hx, dy = y * RA_PK - hy, lx = dx * cs - dy * sn, ly = dx * sn + dy * cs;
+        // The facemask, light grey, one pixel thick with dark gaps between its bars: a front bar standing
+        // off the face, a bar back to the brow at the top, a short bar across at the nose and one under
+        // the chin.
+        if (lx > 6.1 && lx < 7.1 && ly > -5.5 && ly < 1.5) return 'm';
+        if (lx > 5.1 && lx < 7.1 && ((ly > 0.5 && ly < 1.5) || (ly > -2.5 && ly < -1.5))) return 'm';
+        if (lx > 2.1 && lx < 7.1 && ly > -5.5 && ly < -4.5) return 'm';
+        const nx = (lx + 0.6) / 6.24, ny = (ly - 0.42) / 5.76, d = Math.hypot(nx, ny);
+        if (d > 1) return d <= 1.16 ? 1 : 0;
+        // The opening: the brow's shadow across its top, the eye under it, the face (shaded toward the
+        // ear and at the chin), the jaw pad of the shell below.
+        if (lx > 1.1 && ly > -4.5 && ly < 0.5) return ly > -0.5 ? 'k' : lx > 3.1 && lx < 4.1 && ly > -1.5 ? 'e' : lx < 2.1 || ly < -3.5 ? 'f' : 'F';
+        hl.push(Math.round(AY - y * RA_PK - 0.5) * W + Math.round(x * RA_PK + AX - 0.5), lx, ly);   // (for the logo)
+        return 'H';
+      }, true);
+    }
   }
   arm(S.fa, false);
   // A lone pixel of a tone in a patch of another tone of the same colour takes the patch's tone.
@@ -2375,7 +2392,7 @@ function raFig(pose, variant = 'p') {
   }
   // Where the number goes: on the jersey, a little behind the middle of the back.
   let num = null;
-  if (!S.noNum) { const c = lerp(S.h, S.s, 0.56); num = [Math.round(AX + c[0] - 1.1), Math.round(AY - c[1] - 2.5)]; }
+  if (!S.noNum) { const c = lerp(S.h, S.s, 0.56); num = [Math.round(AX + c[0] * RA_PK - 1.1), Math.round(AY - c[1] * RA_PK - 2.5)]; }
   f = { g: out, W, H, ax: AX, ay: AY, num, hl };
   RA_FIG.set(key, f);
   return f;
@@ -2461,10 +2478,11 @@ function raSprite(pose, pal, flip, num) {
       for (let k = 0; k < f.hl.length; k += 3) {
         const i = f.hl[k];
         if (f.g[i] !== 'H') continue;                               // (an arm across the helmet)
-        let u = Math.floor(f.hl[k + 1] - RA_LOGO_BOX[0]);
-        const v = Math.floor(RA_LOGO_BOX[1] - f.hl[k + 2]);
-        if (u < 0 || v < 0 || u >= RA_LOGO_W || v >= RA_LOGO_H) continue;
-        if (lg.text && flip) u = RA_LOGO_W - 1 - u;
+        const at = lg.at || RA_LOGO_BOX, pw = lg.px[0].length, ph = lg.px.length;
+        let u = Math.floor(f.hl[k + 1] - at[0]);
+        const v = Math.floor(at[1] - f.hl[k + 2]);
+        if (u < 0 || v < 0 || u >= pw || v >= ph) continue;
+        if (lg.text && flip) u = pw - 1 - u;
         const ch = lg.px[v][u];
         if (ch === '.') continue;
         const x = i % f.W, y = (i - x) / f.W;
@@ -2511,13 +2529,13 @@ function raBallSprite(k) {
 let RA_STRETCHER = null;
 function raStretcherSprite() {
   if (RA_STRETCHER) return RA_STRETCHER;
-  const W = 46, H = 12, c = document.createElement('canvas');
+  const W = 55, H = 12, c = document.createElement('canvas');   // (46 before the players grew 20%)
   c.width = W; c.height = H;
   const g = c.getContext('2d'), img = g.createImageData(W, H), d = img.data;
   const grid = Array.from({ length: H }, () => new Array(W).fill(''));
-  for (let y = 3; y <= 7; y++) for (let x = 4; x <= 41; x++) grid[y][x] = y === 3 ? 'l' : y === 7 ? 's' : 'b';   // the bed
-  for (const y of [2, 8]) for (let x = 0; x <= 45; x++) grid[y][x] = x < 3 || x > 42 ? 'h' : 'p';                 // poles and handles
-  for (const x of [6, 39]) for (let y = 9; y <= 10; y++) grid[y][x] = 'p';                                           // little feet
+  for (let y = 3; y <= 7; y++) for (let x = 4; x <= W - 5; x++) grid[y][x] = y === 3 ? 'l' : y === 7 ? 's' : 'b';   // the bed
+  for (const y of [2, 8]) for (let x = 0; x < W; x++) grid[y][x] = x < 3 || x > W - 4 ? 'h' : 'p';                 // poles and handles
+  for (const x of [6, W - 7]) for (let y = 9; y <= 10; y++) grid[y][x] = 'p';                                         // little feet
   const col = { l: [250, 250, 246], b: [226, 223, 212], s: [178, 172, 160], p: [96, 100, 110], h: [40, 42, 48], o: [13, 14, 19] };
   const put = (x, y, c3) => { const i = (y * W + x) * 4; d[i] = c3[0]; d[i + 1] = c3[1]; d[i + 2] = c3[2]; d[i + 3] = 255; };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -2698,7 +2716,7 @@ const RA_KITS = {
   BUF: { home: { jersey: '#00338D', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#00338D', helmet: '#f2f2f0', num: '#00338D' } },
   CAR: { home: { jersey: '#101820', pants: '#FFFFFF', helmet: '#a5acaf', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#a5acaf', num: '#101820' } },
   CHI: { home: { jersey: '#0B162A', pants: '#FFFFFF', helmet: '#0b162a', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#0B162A', helmet: '#0b162a', num: '#0B162A' } },
-  CIN: { home: { jersey: '#101820', pants: '#101820', helmet: '#101014', num: '#FB4F14' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#101014', num: '#101820' } }, // standard set is all-black, not the orange "Open in Orange" one-off
+  CIN: { home: { jersey: '#101820', pants: '#101820', helmet: '#fb4f14', num: '#FB4F14' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#fb4f14', num: '#101820' } }, // standard set is all-black, not the orange "Open in Orange" one-off; the helmet is orange with black tiger stripes, as since 1981 (2026-09-30: it was black)
   CLE: { home: { jersey: '#311D00', pants: '#FFFFFF', helmet: '#ff3c00', num: '#FF3C00' }, road: { jersey: '#FFFFFF', pants: '#311D00', helmet: '#ff3c00', num: '#311D00' } },
   DAL: { home: { jersey: '#FFFFFF', pants: '#8a98a8', helmet: '#8a98a8', num: '#002244' }, road: { jersey: '#002244', pants: '#8a98a8', helmet: '#8a98a8', num: '#FFFFFF' }, homeWhite: true }, // white at home since the 1960s
   DEN: { home: { jersey: '#FB4F14', pants: '#FFFFFF', helmet: '#0a2343', num: '#0a2343' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#0a2343', num: '#FB4F14' } }, // 2024 "Mile High": orange jersey/white pants at home, navy helmet — the case the user flagged
@@ -2726,47 +2744,118 @@ const RA_KITS = {
   WSH: { home: { jersey: '#5A1414', pants: '#FFB612', helmet: '#5a1414', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFB612', helmet: '#5a1414', num: '#5A1414' } }, // Apr 2026 rebrand: gloss-burgundy helmet, gold facemask, gold pants both ways
 };
 // Helmet logos (2026-09-29, user: "i know we dont have a lot of pixels to work with but lets take a run
-// at making logos on the helmets"). Each is drawn facing forward (right) in a 7-by-7 box on the side
-// of the shell behind the face opening (RA_LOGO_BOX: its top-left corner in the head's own frame),
-// one character a pixel, '.' the shell. On an upright helmet the shell's curve trims five cells, the
-// top-left corner (row 0 columns 0-1, rows 1-2 column 0) and row 6 column 0; the rest all show.
-// `text` logos (letters) never mirror; the rest turn with the player so they face forward on both
-// sides. `side: 'r'`: worn on the right side only (the Steelers), so seen only when he faces right.
-// The Browns' helmet has no logo. 2026 designs: the Titans' sword-T on a light-blue shield, the
-// Commanders' gold W, the Falcons' falcon on low-gloss black, the Ravens' raven head (sources:
-// docs/sunday.md, 2026-09-29). Two are stand-ins: the Texans' bull is drawn head-on, horns up (the
-// real one is side-on, and at seven pixels a side-on bull read as a red heart), and the Jets' wordmark
-// has four letters too many for seven pixels, so they wear a jet.
-const RA_LOGO_BOX = [-5.9, 4.5], RA_LOGO_W = 7, RA_LOGO_H = 7;
+// at making logos on the helmets"), redrawn 2026-09-30 on the 20% bigger helmet (user: "lets go with
+// the 20% change and do the same process you did for the broncos but for the other teams"): each one
+// drawn from the real logo, its colours and silhouette first, then a detail or two (an eye, a letter),
+// checked at phone size. Each is drawn facing forward (right), one character a pixel, '.' the shell,
+// and placed by `at`: its top-left pixel's corner on the side of the helmet, in the helmet's pixels
+// (x forward, y up from the head's centre; RA_LOGO_BOX for a logo without one). Its size and place
+// follow the real logo's proportions: a round logo sits behind the face opening, 8 by 8 at
+// [-6.9, 4.5]; a wide one runs up to 12 across the top of the shell above the brow (the Broncos' horse
+// reaches forward over the face opening). A pixel off the shell (its curve, the face opening) isn't
+// drawn. `text` logos (letters) never mirror; the rest turn with the player so they face forward on
+// both sides, as on real helmets. `side: 'r'`: worn on the right side only (the Steelers), so seen
+// only when he faces right. The Browns' helmet has no logo. Where the helmet itself carries the
+// design, it is drawn as the helmet is, not as the team's logo: the Bengals' tiger stripes (on an
+// orange shell), the Rams' horn, the Vikings' horn, the Eagles' wings, the Bears' C, the Jets' "JETS"
+// with its jet. 2026 designs: the Titans' sword-T on a light-blue roundel, the Commanders' gold W,
+// the Falcons' falcon on low-gloss black, the Ravens' raven head (sources: docs/sunday.md).
+const RA_LOGO_BOX = [-6.9, 4.5];                          // where a logo without its own `at` goes
 const RA_LOGO = {
   ARI: { c: { r: '#97233F', k: '#101010', y: '#FFB612', w: '#ffffff' }, px: ['...rr..', '..rrr..', '.rrrrk.', 'rrrrkwy', '.rrrkyy', '..rrr..', '...r...'] },
   ATL: { c: { r: '#A71930', w: '#ffffff' }, px: ['....rrr', '...rrw.', 'rrrrrr.', '.rrrrrw', '..rr...', '.rr....', '.r.....'] },
   BAL: { c: { p: '#5b3fb0', g: '#C9A227', w: '#ffffff', q: '#b8a6e0' }, px: ['..ppp..', '.ppppp.', '.pppwpp', '.pgpppq', '.pggppq', '..ppp..', '.......'] },
   BUF: { c: { b: '#00338D', r: '#C60C30' }, px: ['.......', 'rrrrr..', '.bbbbrr', 'bbbbbbb', '.bbbbbb', '.b.b.bb', '.b.b...'] },
   CAR: { c: { k: '#101820', b: '#0085CA', w: '#ffffff' }, px: ['..b....', '.bkbbb.', '.bkkkkb', '.bkbkkk', '.bkkkk.', '..bkww.', '...bb..'] },
-  CHI: { c: { o: '#C83803' }, text: 1, px: ['...ooo.', '..oo.oo', '.oo....', '.oo....', '.oo....', '..oo.oo', '...ooo.'] },
-  CIN: { c: { o: '#FB4F14' }, px: ['..ooo.o', '.oo..oo', 'oo..oo.', 'o..oo..', '..oo..o', '.oo..oo', 'oo..oo.'] },
-  DAL: { c: { n: '#041E42' }, px: ['...n...', '...n...', '..nnn..', 'nnnnnnn', '.nnnnn.', '.nn.nn.', '.n...n.'] },
-  DEN: { c: { o: '#FB4F14', w: '#ffffff' }, px: ['...oo..', '..oooo.', '.ooowoo', '.oooooo', '..ooooo', '..oo.oo', '..o....'] },
+  CHI: { c: { o: '#C83803', w: '#ffffff' }, at: [-6.9, 4.5], text: 1, px: [
+    '..wwww..',
+    '.woooow.',
+    'woo..oow',
+    'wo......',
+    'wo......',
+    'woo..oow',
+    '.woooow.',
+    '..wwww..',
+  ] },
+  CIN: { c: { k: '#101820' }, at: [-5.9, 6.5], px: [
+    '....kkk....',
+    '...kkkk....',
+    '..kkk..kkk.',
+    '.kkk.kkkk..',
+    '.kk.kkk....',
+    'kkk.kk..kkk',
+    'kk.kk......',
+    'kk.kk.k....',
+    'kk.k..k....',
+    'kk.k..k....',
+    '.k.k..k....',
+    '....k......',
+  ] },
+  DAL: { c: { n: '#041e42', w: '#ffffff' }, at: [-6.9, 5.5], px: [
+    '....w....',
+    '...wnw...',
+    '...wnw...',
+    '.wwnnnww.',
+    'wnnnnnnnw',
+    '.wnnnnnw.',
+    '..wnnnw..',
+    '.wnnwnnw.',
+    '.wnw.wnw.',
+    '..w...w..',
+  ] },
+  DEN: { c: { o: '#FB4F14', w: '#ffffff' }, at: [-6.9, 4.5], px: [
+    '...oooo....',
+    '.ooo..oow..',
+    'oo.wwwwwwow',
+    '.wwwww.wwww',
+    '...wwww....',
+    '....www....',
+    '.....w.....',
+  ] },
   DET: { c: { b: '#0076B6' }, px: ['.....bb', '....bbb', '..bbbbb', '.bbbbb.', 'bb.b.bb', 'b.....b', '.......'] },
   GB: { c: { g: '#203731', w: '#ffffff' }, text: 1, px: ['.ggggg.', 'gwwwwwg', 'gwggggg', 'gwggwwg', 'gwgggwg', 'gwwwwwg', '.ggggg.'] },
   HOU: { c: { r: '#A71930', w: '#ffffff' }, px: ['.......', '.w....w', '.ww..ww', '..rrrr.', '.rrrrrr', '..rrrr.', '...rr..'] },
   IND: { c: { b: '#002C5F' }, px: ['..bbbb.', '.bbbbbb', '.bb..bb', '.b....b', '.b....b', '.b....b', '.bb..bb'] },
   JAX: { c: { g: '#D7A22A', t: '#006778', k: '#101820' }, px: ['.gg....', '.ggggg.', 'gggkggg', '.gggggg', '..ggtgg', '...ggg.', '.......'] },
   KC: { c: { w: '#ffffff', r: '#E31837' }, px: ['.......', '.wwww..', '.wrwrw.', '.wrrwrw', '.wrwrw.', '.wwww..', '.......'] },
-  LV: { c: { k: '#101820', w: '#ffffff' }, text: 1, px: ['.kkkkk.', '.kwwwk.', '.kwkwk.', '.kkkkk.', '.kkkkk.', '..kkk..', '...k...'] },
   LAC: { c: { y: '#FFC20E', b: '#0080C6' }, px: ['.......', 'bbbbb..', 'byyyyb.', '.byyyyb', '...byyy', '....byy', '.....by'] },
-  LAR: { c: { y: '#FFD100' }, px: ['..yyyyy', '.yy....', 'yy.yy..', 'y.y..y.', 'y..yy..', '.yy....', '.......'] },
+  LAR: { c: { y: '#FFD100' }, at: [-6.9, 5.5], px: [
+    '...yyyyyy...',
+    '..yyyyyyyyy.',
+    '.yy.....yyyy',
+    '.y........y.',
+    'yy..........',
+    'yy...y......',
+    '.yy..y......',
+    '.yyyyy......',
+    '..yyy.......',
+  ] },
+  LV: { c: { k: '#101820', w: '#ffffff' }, text: 1, px: ['.kkkkk.', '.kwwwk.', '.kwkwk.', '.kkkkk.', '.kkkkk.', '..kkk..', '...k...'] },
   MIA: { c: { a: '#008E97', o: '#FC4C02' }, px: ['.......', '..ooo..', '.ooaaa.', 'ooaaaaa', '.aaa.oo', '..ooo..', '.......'] },
-  MIN: { c: { w: '#ffffff', g: '#FFC62F' }, px: ['.......', '.....ww', '....wwg', '...wwg.', '.wwwg..', 'wwgg...', 'gg.....'] },
+  MIN: { c: { g: '#FFC62F', w: '#ffffff' }, at: [-5.9, 5.5], px: [
+    '..gg......',
+    'gwwwgg....',
+    '.gwwwwgggg',
+    '..gwwwwwwg',
+    '...ggwwwwg',
+    '.....gg...',
+  ] },
   NE: { c: { n: '#002244', r: '#C60C30', w: '#ffffff' }, px: ['.......', '..rrrr.', '.rwwwnn', 'rwnnnnn', '.nnnnnn', '..nnnn.', '.......'] },
   NO: { c: { k: '#101820' }, px: ['.......', '...k...', '..kkk..', 'k.kkk.k', 'kk.k.kk', '.kkkkk.', '...k...'] },
   NYG: { c: { w: '#ffffff' }, text: 1, px: ['.......', '.......', '.......', 'ww..w.w', 'w.w.w.w', 'w.w..ww', '....ww.'] },
   NYJ: { c: { w: '#ffffff' }, px: ['...w...', '...ww..', '.w..ww.', '.wwwwww', '.w..ww.', '...ww..', '...w...'] },
-  PHI: { c: { s: '#A5ACAF', w: '#ffffff' }, px: ['..sssss', '.ssswww', 'sswww..', 'sww....', 'w......', '.......', '.......'] },
+  PHI: { c: { s: '#A5ACAF', w: '#ffffff' }, at: [-6.9, 5.5], px: [
+    '....sswwww.',
+    '..sssssswww',
+    '.ssssssss.w',
+    'ssss.sss...',
+    'sss.ss.s...',
+    'ss.s.s.....',
+    '.s..s......',
+  ] },
   PIT: { c: { w: '#ffffff', k: '#101820', y: '#FFB612', r: '#C8102E', b: '#00539B' }, side: 'r', text: 1, px: ['..www..', '.wwwyw.', 'wwwwwww', 'wkkkwrw', 'wwwwwww', '.wwwbw.', '..www..'] },
-  SF: { c: { r: '#AA0000', w: '#ffffff' }, text: 1, px: ['.rrrrr.', 'rwwrwwr', 'rwrrwrr', 'rwwrwwr', 'rrwrwrr', 'rwwrwrr', '.rrrrr.'] },
   SEA: { c: { s: '#A5ACAF', w: '#ffffff', g: '#69BE28' }, px: ['.......', '..ssss.', '.ssgssw', 'sssssww', '.sss...', '.......', '.......'] },
+  SF: { c: { r: '#AA0000', w: '#ffffff' }, text: 1, px: ['.rrrrr.', 'rwwrwwr', 'rwrrwrr', 'rwwrwwr', 'rrwrwrr', 'rwwrwrr', '.rrrrr.'] },
   TB: { c: { r: '#D50A0A', w: '#ffffff', k: '#1e1b18' }, px: ['.rrrrrk', 'rrwwrrk', 'rwwwrrk', 'rrwrrrk', '.rrrr.k', '......k', '.......'] },
   TEN: { c: { b: '#4B92DB', w: '#ffffff' }, text: 1, px: ['..bbb..', '.bbbbb.', 'bbbbbbb', 'bwwwwwb', 'bbbwbbb', '.bbwbb.', '..bbb..'] },
   WSH: { c: { y: '#FFB612' }, text: 1, px: ['.......', '.......', '.......', 'y.....y', 'y..y..y', 'y.y.y.y', '.y...y.'] },
@@ -2953,15 +3042,15 @@ const RA_HOLD = {};
   const two = ['catch', 'secure', 'qbSet', 'gun', 'qbUnder', 'hold', 'hold2', 'stance'], far = ['throw1', 'throw2', 'throw3'];
   for (const [k, S] of Object.entries(RA_SKEL)) {
     const n = S.fa[2], f = S.ba[2];
-    RA_HOLD[k] = far.includes(k) ? [f[0] + 0.4, f[1] + 0.6] : two.includes(k) ? [(n[0] + f[0]) / 2 + 0.6, (n[1] + f[1]) / 2 + 0.3] : [n[0] + 0.6, n[1] + 0.4];
+    RA_HOLD[k] = (far.includes(k) ? [f[0] + 0.4, f[1] + 0.6] : two.includes(k) ? [(n[0] + f[0]) / 2 + 0.6, (n[1] + f[1]) / 2 + 0.3] : [n[0] + 0.6, n[1] + 0.4]).map((v) => v * RA_PK);
   }
-  RA_HOLD.snap = [8, 1.6];
+  RA_HOLD.snap = [8 * RA_PK, 1.6 * RA_PK];
 }
 // A man's shadow on the grass: a small pixel ellipse under his feet, longer under a man lying down,
 // smaller the higher he is off the ground.
 const RA_FLAT = new Set(['down', 'dive', 'fall2']);
 function raShadow(g, X, Y, lift, flat) {
-  const k = clamp(1 - lift / (26 * RA_K), 0.55, 1), w = Math.round((flat ? 14 : 9) * k), w1 = Math.round((flat ? 11 : 6) * k);
+  const k = clamp(1 - lift / (26 * RA_K * RA_PK), 0.55, 1), w = Math.round((flat ? 14 : 9) * RA_PK * k), w1 = Math.round((flat ? 11 : 6) * RA_PK * k);
   g.fillStyle = 'rgba(0,30,0,0.35)';
   g.fillRect(X - w1, Y - 2, 2 * w1 + 1, 1); g.fillRect(X - w, Y - 1, 2 * w + 1, 2); g.fillRect(X - w1, Y + 1, 2 * w1 + 1, 1);
 }
@@ -3036,8 +3125,8 @@ function raDraw(g, W, st) {
       const h = raStrH(a, t);
       items.push({ y: sy - 0.01, draw: () => {
         const spr = raStretcherSprite(), X = Math.round(sx), Y = Math.round(sy);
-        g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 22, Y - 2, 45, 5);
-        g.drawImage(spr, X - spr.width / 2, Y - spr.height + 2 - Math.round(h * HK));
+        g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 27, Y - 2, 55, 5);
+        g.drawImage(spr, X - Math.floor(spr.width / 2), Y - spr.height + 2 - Math.round(h * HK * RA_PK));
       } });
       continue;
     }
@@ -3074,14 +3163,14 @@ function raDraw(g, W, st) {
       let pose = raFrame(sc, a, t, raPoseAt(sc, a, t), { speed, held: b.held === a, back, after });
       let lift = 0, flip = a.face === 'l';
       if (a.jumpAt != null && t > a.jumpAt && t < a.jumpAt + 5) {           // jumping around the scorer: a squat between jumps
-        lift = Math.round(Math.abs(Math.sin((t - a.jumpAt) * 7)) * 7 * K);
+        lift = Math.round(Math.abs(Math.sin((t - a.jumpAt) * 7)) * 7 * K * RA_PK);
         if (a.cheer) pose = lift > K ? 'cheer' : 'crouch';
       }
       if (a.danceAt != null && t > a.danceAt && !down) {       // the scorer's end-zone dance: four steps, then arms up twice
         const beat = Math.floor((t - a.danceAt) * 4);
         pose = ['dance2', 'dance3', 'dance2', 'dance3', 'dance', 'cheer', 'dance', 'cheer'][beat % 8];
         flip = Math.floor(beat / 4) % 2 === 1;
-        lift = beat % 8 === 5 || beat % 8 === 7 ? 3 * K : 0;
+        lift = beat % 8 === 5 || beat % 8 === 7 ? Math.round(3 * K * RA_PK) : 0;
       }
       if (sc.huddle && a.side === 'o' && t > sc.arrived && !down) {   // bouncing on their toes (the defense just stands)
         const upNow = Math.floor(t * 2.4 + a.phase * 3) % 2;
@@ -3102,9 +3191,9 @@ function raDraw(g, W, st) {
         pose = raPoseAt(sc, a, t) === 'hold' ? 'hold' : speed > 0.6 ? raGaitFrame(a, t, 'crun', speed) : 'carry';
         lift = 0;
       }
-      if (a.onStr && t >= a.onStr.from) lift = Math.round(raStrH(a.onStr.str, t) * HK) + 3;   // on the stretcher
+      if (a.onStr && t >= a.onStr.from) lift = Math.round(raStrH(a.onStr.str, t) * HK * RA_PK) + 4;   // on the stretcher
       // (Last, so no idle bounce or cheer overrides it.)
-      if (a.hoist && t >= a.hoist.t0 && t <= a.hoist.t1) { lift = Math.round(raHoistLift(a.hoist, t) * K); pose = 'cheer'; }
+      if (a.hoist && t >= a.hoist.t0 && t <= a.hoist.t1) { lift = Math.round(raHoistLift(a.hoist, t) * K * RA_PK); pose = 'cheer'; }
       else if (a.carrying && t >= a.carrying[0] && t <= a.carrying[1]) { pose = 'signal'; lift = 0; }   // arms straight up, holding him
       a.drawn = { pose, flip, lift };
       if (!(a.hoist && t >= a.hoist.t0 && t <= a.hoist.t1) && !(a.onStr && t >= a.onStr.from)) raShadow(g, X, Y, lift, RA_FLAT.has(pose));   // (up on shoulders or a stretcher, theirs is his)
@@ -3192,7 +3281,7 @@ function raDraw(g, W, st) {
     const txt = a.who.last.toUpperCase();
     const w = pixW(txt, K) + 4 * K, h = 9 * K;
     const lx = clamp(Math.round(sx - w / 2), K, W - w - K);
-    let ly = Math.round(sy) - 40 - h;
+    let ly = Math.round(sy) - Math.round(40 * RA_PK) - h;
     // Carried off along the far sideline he is at the top edge, under the banner: tag him from below.
     if (hurtTag && ly < 28 * K) ly = Math.round(sy0) + 4 * K;
     for (let n = 0; n < 4; n++) { const hit = placed.find((r) => lx < r[0] + r[2] && lx + w > r[0] && ly < r[1] + r[3] && ly + h > r[1]); if (!hit) break; ly = hit[1] - h - K; }
