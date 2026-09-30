@@ -43,11 +43,10 @@ const DIVISION_LABEL = {
   'nfc-east': 'NFC East', 'nfc-north': 'NFC North', 'nfc-south': 'NFC South', 'nfc-west': 'NFC West',
 };
 
-const MAIN_FILTERS = ['all', 'upsets', 'mine', 'afc', 'nfc'];
+const MAIN_FILTERS = ['all', 'upsets', 'afc', 'nfc'];
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'upsets', label: 'Upsets' },
-  { id: 'mine', label: 'My Teams' },
   { id: 'afc', label: 'AFC' },
   { id: 'nfc', label: 'NFC' },
   { id: 'afc-east', label: 'AFC East' },
@@ -335,7 +334,6 @@ function ydBadge(y, kind) {
 const penBadge = (n) => (n ? `<span class="yd pen">PEN ${n > 0 ? '+' : ''}${n}</span>` : '');
 const ICON = {
   back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
-  star: '<svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>',
   play: '<svg viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z"/></svg>',
   pause: '<svg viewBox="0 0 12 12"><path d="M2 1h3v10H2zM7 1h3v10H7z"/></svg>',
   prev: '<svg viewBox="0 0 12 12"><path d="M2 1h2v10H2zM11 1v10L4.5 6z"/></svg>',
@@ -545,19 +543,15 @@ const S = {
   calendar: [],
   cur: null,          // {st, wk} ESPN's current week
   week: null,         // {st, wk} when the viewer picked another week
-  // The filter chips are gone (2026-09-27): the board always shows every game. A 'mine' or
-  // division filter saved by an earlier visit must not keep hiding games with no way to clear it.
+  // The filter chips are gone (2026-09-27): the board always shows every game. A division
+  // filter saved by an earlier visit must not keep hiding games with no way to clear it.
   filter: 'all',
-  favs: new Set(store.get('favs', [])),
   loaded: false,
   error: null,
   updated: 0,
   prevScores: new Map(),
 };
 let G = null; // open game
-
-const isFav = (t) => S.favs.has(t.id);
-const isFavGame = (ev) => isFav(ev.home) || isFav(ev.away);
 
 /* ───────────── pregame lines + upset detection ───────────── */
 // ESPN drops the betting line from the scoreboard at kickoff, so lines are cached while
@@ -727,7 +721,6 @@ boardPoller.onSchedule = (ms, ok) => {
 
 function filterEvents(evs, f) {
   if (f === 'all') return evs;
-  if (f === 'mine') return evs.filter(isFavGame);
   if (f === 'upsets') return evs.filter((e) => upsetInfo(e));
   if (f === 'afc' || f === 'nfc') return evs.filter((e) => (e.home.conf || '').startsWith(f) || (e.away.conf || '').startsWith(f));
   return evs.filter((e) => e.home.conf === f || e.away.conf === f);
@@ -740,7 +733,6 @@ function excitement(ev) {
   if (ev.sit?.isRedZone) s += 6;
   const u = upsetInfo(ev);
   if (u) s += (u.level === 'alert' ? 18 : 8) + (u.big ? 8 : 0);
-  if (isFavGame(ev)) s += 100;
   if (typeof ffGameWeight === 'function') s += ffGameWeight(ev) || 0;
   return s;
 }
@@ -902,7 +894,7 @@ function liveCard(ev, featured = false) {
   const lp = playLine(s.lastPlay);
   const ffx = typeof ffCardExtra === 'function' ? ffCardExtra(ev) || '' : '';
   return `<a class="card${u?.level === 'alert' ? ' upset-alert' : ''}${featured ? ' featured' : ''}" href="#g${ev.id}" data-key="${featured ? 'hero-' : ''}${ev.id}">
-    <div class="card-head is-live"><span class="clock">${esc(statusText(ev))}</span>${upsetTag(u)}${s.isRedZone && !half ? '<span class="tag rz">Red zone</span>' : ''}${isFavGame(ev) ? '<span class="tag fav">Following</span>' : ''}${featured ? '' : `<span class="tv">${esc(tvShort(ev.tv))}</span>`}</div>
+    <div class="card-head is-live"><span class="clock">${esc(statusText(ev))}</span>${upsetTag(u)}${s.isRedZone && !half ? '<span class="tag rz">Red zone</span>' : ''}${featured ? '' : `<span class="tv">${esc(tvShort(ev.tv))}</span>`}</div>
     <div class="teams">${teamRow(ev, ev.away, 'a')}${teamRow(ev, ev.home, 'h')}</div>
     ${miniField(ev)}
     <div class="sit">${dd || `<span class="quiet">${between}</span>`}</div>
@@ -1056,10 +1048,9 @@ function defaultGameId(evs) {
   if (!evs.length) return null;
   const live = evs.filter((e) => e.state === 'in').sort((a, b) => excitement(b) - excitement(a));
   if (live.length) return live[0].id;
-  const fav = (e) => (isFavGame(e) ? 1 : 0);
-  const pre = evs.filter((e) => e.state === 'pre').sort((a, b) => a.date - b.date || fav(b) - fav(a));
+  const pre = evs.filter((e) => e.state === 'pre').sort((a, b) => a.date - b.date);
   if (pre.length && pre[0].date - Date.now() < 3 * 3600e3) return pre[0].id;
-  const post = evs.filter((e) => e.state === 'post').sort((a, b) => b.date - a.date || fav(b) - fav(a));
+  const post = evs.filter((e) => e.state === 'post').sort((a, b) => b.date - a.date);
   if (post.length) return post[0].id;
   return (pre[0] || evs[0]).id;
 }
@@ -1094,15 +1085,13 @@ function renderBoard() {
   }
   const sections = buildSections(filterEvents(S.events, S.filter));
   if (!sections.length) {
-    board.innerHTML = S.filter === 'mine'
-      ? `<div class="empty"><h3>No teams followed yet</h3><p>Open any game and tap the <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg> on a team’s logo. Their games show up here and jump to the top of every list.</p><button class="btn ghost" data-goto="all">Browse all games</button></div>`
-      : `<div class="empty"><h3>No games here</h3><p>Nothing in this filter for the selected week.</p><button class="btn ghost" data-goto="all">Show all games</button></div>`;
+    board.innerHTML = `<div class="empty"><h3>No games here</h3><p>Nothing in this filter for the selected week.</p><button class="btn ghost" data-goto="all">Show all games</button></div>`;
   } else applySections(board, sections);
   if (G) { renderSide(); renderStrip(); }
   if (typeof afterBoard === 'function') afterBoard();
   if (typeof ffAfterRender === 'function') ffAfterRender();
 
-  // Score changes since last poll: flash, and toast for followed teams.
+  // Score changes since last poll: flash the score that moved.
   const first = S.prevScores.size === 0;
   // Upset toasts only compare states computed with betting lines loaded; the first such pass is the baseline.
   const upsetBaseline = S.linesReady && !S.upsetPrimed;
@@ -1112,7 +1101,7 @@ function renderBoard() {
     const lvl = u?.level || null;
     const was = S.prevUpset.get(ev.id);
     if (!S.linesReady || upsetBaseline) { S.prevUpset.set(ev.id, lvl); continue; }
-    if (was !== undefined && lvl !== was && u && (u.big || isFavGame(ev)) && (!G || G.id !== ev.id)) {
+    if (was !== undefined && lvl !== was && u && u.big && (!G || G.id !== ev.id)) {
       const fav = u.F.name;
       if (lvl === 'alert' && was !== 'alert') toast(u.D, 'Upset alert', `${u.D.name} ${u.D.score ?? 0}, ${fav} ${u.F.score ?? 0} · ${statusText(ev)}`, ev.id);
       if (lvl === 'upset') toast(u.D, 'Upset!', `${u.D.name} beat ${fav} ${u.D.score}–${u.F.score}`, ev.id);
@@ -1126,11 +1115,6 @@ function renderBoard() {
       const old = S.prevScores.get(k);
       if (!first && old != null && t.score != null && t.score > old) {
         document.querySelectorAll(`[data-sc="${k}"]`).forEach((n) => { n.classList.remove('bump'); void n.offsetWidth; n.classList.add('bump'); });
-        if (isFav(t) && (!G || G.id !== ev.id)) {
-          const diff = t.score - old;
-          const what = diff >= 6 ? 'Touchdown' : diff === 3 ? 'Field goal' : diff === 2 ? 'Safety' : 'Score';
-          toast(t, `${what}, ${t.abbr}`, `${ev.away.abbr} ${ev.away.score} – ${ev.home.abbr} ${ev.home.score} · ${statusText(ev)}`, ev.id);
-        }
       }
       if (t.score != null) S.prevScores.set(k, t.score);
     }
@@ -1505,7 +1489,7 @@ function renderHero(old) {
     const tos = side === 'a' ? s.awayTimeouts : s.homeTimeouts;
     const showTO = live && tos != null && !at && !isHalftime(ev);
     const tone = ink(side === 'a' ? pc.aRaw : pc.hRaw);
-    return `<div class="gt ${side} on-${tone}"><div class="lgw"><a href="#t${t.id}" class="lg-link" aria-label="${esc(t.name)} team page">${logoImg(t, 60, 'lg', tone === 'light')}</a><button class="follow" data-follow="${t.id}" aria-pressed="${isFav(t)}" aria-label="${isFav(t) ? 'Following' : 'Follow'} ${esc(t.name)}" title="${isFav(t) ? 'Following' : 'Follow'}">${ICON.star}</button></div>
+    return `<div class="gt ${side} on-${tone}"><div class="lgw"><a href="#t${t.id}" class="lg-link" aria-label="${esc(t.name)} team page">${logoImg(t, 60, 'lg', tone === 'light')}</a></div>
       <div class="nm" data-abbr="${esc(t.abbr)}">${esc(t.name)}</div>
       <div class="meta"><span>${esc(t.record)}</span></div>
       ${live && !at ? (showTO ? to(tos) : '<span class="to" aria-hidden="true" style="visibility:hidden"><b>TO</b><i></i><i></i><i></i></span>') : ''}
@@ -1560,15 +1544,6 @@ document.addEventListener('click', (e) => {
     else toggleReplay();
     return;
   }
-  const f = e.target.closest('[data-follow]');
-  if (!f) return;
-  e.preventDefault();
-  const id = f.dataset.follow;
-  if (S.favs.has(id)) S.favs.delete(id); else S.favs.add(id);
-  store.set('favs', [...S.favs]);
-  if (G) renderHero();
-  if (typeof T !== 'undefined' && T) renderTeam();
-
 });
 
 /* ───────────── the field ───────────── */
