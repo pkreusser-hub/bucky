@@ -31910,7 +31910,12 @@ async function openDetails(page, id) {
     ok(JSON.stringify((pp || []).map((c) => c.l)) === '["Proj","Last","Avg"]',
       "…each row carries three cells, labelled Proj, Last, Avg in that order (" + JSON.stringify(pp) + ")");
     ok(pp && pp[1]?.v === "1.0" && pp[2]?.v === "10.3", "…P. Passer: last 1.0, avg 10.3, hand-computed from the four seeded weeks (" + JSON.stringify(pp) + ")");
-    ok(tt && tt[0]?.v === "8.5" && tt[1]?.v === "9.0" && tt[2]?.v === "9.0", "…T. Tight: proj 8.5, last 9.0, avg 9.0 (" + JSON.stringify(tt) + ")");
+    // PROJ is compared with the app's own D.projFor, not a typed 8.5: in the full battery AT's
+    // projection adjuster has already moved T. Tight to 10.0 by the time this runs (--only MTC
+    // reads 8.5). The number itself is hand-checked by E and AT; this check is that the cell shows it.
+    const ttProj = await evalOr(page, () => window.__GFFL__.LG.fmtPts(window.__GFFL__.D.projFor("111222")));
+    ok(tt && /^\d/.test(ttProj || "") && tt[0]?.v === ttProj && tt[1]?.v === "9.0" && tt[2]?.v === "9.0",
+      "…T. Tight: proj " + ttProj + " (the app's projection), last 9.0, avg 9.0 (" + JSON.stringify(tt) + ")");
     const g = await evalOr(page, () => {
       const rows = [...document.querySelectorAll("#lockerStarters .lrow, #lockerBench .lrow")].filter((r) => r.querySelector(".linfo"));
       const ink = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };
