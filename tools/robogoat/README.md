@@ -16,6 +16,11 @@ Everything that turns a week of GFFL into a RoboGoat column page at
 
 Nothing in this kit writes league data. The only outbound write is `announce.mjs --send`.
 
+`.claude/settings.json` allows `node tools/robogoat/announce.mjs …` to run without a permission
+prompt (Perry, 2026-09-30), so a session can send the push once he says so. The allow rule
+removes the tool gate, not the rule: send only on his say-so for that issue, and run the command
+on its own (not chained after other commands), or the rule will not match.
+
 ## Layout
 
 ```
