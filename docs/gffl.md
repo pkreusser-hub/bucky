@@ -10098,3 +10098,57 @@ then deleted.
     were already failing in this container's fallback fonts and are left for their own fix.
   - The eighth was TG's "a freeze-gap pulse reports the page was frozen", a timing check. That run
     shared the CPU with a RoboGoat build. `--only TG` alone with the change: **46/46**, twice.
+
+---
+
+## GFFL — RoboGoat card at the top of the league page (2026-09-30)
+
+User: "Lets put the robogoat button at the top of the league page above the matchups so everyone
+can see it."
+
+This reverses where yesterday's entry put the link: it was a third button in the Rules / Draft
+card, which closes the page. That button is gone. The link is now its own card, **directly above
+this week's games**, and it names the **newest column** instead of pointing at the archive.
+
+- `robogoatCardHtml()` in `lg-ui.js`: RoboGoat's portrait
+  (`robogoat/robogoat-sm.png`, a 95×116 copy of the masthead image), a gold kicker such as
+  "RoboGoat · Week 3 recap", the column's headline, and a chevron. The whole card is one link,
+  `robogoat/<path>`.
+- The headline comes from `robogoat/issues.json` (written by `tools/robogoat/archive.mjs`),
+  fetched once per page load with `cache: "no-cache"`. Until it answers, or if it never does,
+  the card reads "Weekly previews and recaps" and links to the archive. A `path` that isn't
+  plain relative characters (`^[\w-][\w/-]*/$`) is refused, so the file can't point the link at
+  another host or scheme.
+- **Phone:** the card goes after the draft countdown and the unsettled-weeks alarm, the two
+  interruptions the 2026-08-14 phone order keeps above the week card. Both render nothing most of
+  the season, so in practice the card heads the page, 64px down at 390px.
+- **Desktop:** `robogoat` is a registry card in MAIN, directly above `week`. A one-time
+  migration in `deskLayout()` puts it above `week` in a layout saved before this card existed,
+  rather than at the end of MAIN where the append rule sends new cards. If the owner moved `week`
+  into the rail, the card follows it there. A saved layout that already names the card, moved or
+  hidden, keeps the owner's choice.
+- **Kicker colour:** it is gold, not the accent red. `#d50a0a` on the card measures about 3.2:1,
+  short of 4.5:1 at 11px. Gold measures 9.8:1 and the headline 14.7:1.
+- `gffl-v` and the scripts → `20260930b`.
+
+Files: `assets/league/lg-ui.js`, `league.html`, `robogoat/robogoat-sm.png`,
+`tools/_verify-gffl.cjs`, this file.
+
+RESTAGED, reasons at the checks:
+- RGL now proves the card, not a links-card entry.
+- AV2's saved-layout migration check read `custom[2] === "links"`. The RoboGoat insertion shifts
+  every card after `week` by one, so it now checks that links still sits straight after `week`,
+  which is the rule it was guarding.
+- The harness serves `opts.robogoatIssues` in place of `robogoat/issues.json` when a test arms it,
+  so the fallbacks can be exercised.
+
+**VERIFY:** `--only RGL` **21/21**. It checks the following, with every expected link and
+headline read from the repo's own `issues.json` rather than typed in:
+- the card directly above the week card, in the top half of the first screen;
+- the newest column's kicker, headline and link;
+- one ≥44px link, headline ink inside the card by Range, nothing clipped, no sideways scroll;
+- the portrait loaded, contrast ≥4.5:1, no emoji, the links card back to Rules and Draft;
+- the tap opens the column;
+- the 404 and bad-path fallbacks;
+- desktop: above `week`, ≥44px;
+- the four saved-layout cases.

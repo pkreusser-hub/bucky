@@ -2190,10 +2190,13 @@
   // "power" (2026-09-08): the AI power rankings, directly beneath Standings — the user's own
   // placement. A device with a SAVED layout from before this card lands it at the END of MAIN
   // (deskLayout's append rule for unknown ids), where the pencil can move it up.
-  const DESK_MAIN = ["countdown", "stale", "week", "playoffs", "standings", "power", "alltime", "links"];
+  // "robogoat" (2026-09-30): the newest RoboGoat column, directly above this week's games — the
+  // user's placement ("above the matchups so everyone can see it"). A SAVED layout gets it there
+  // too, by the one-time migration in deskLayout(), not the append-at-the-end rule.
+  const DESK_MAIN = ["countdown", "stale", "robogoat", "week", "playoffs", "standings", "power", "alltime", "links"];
   const DESK_RAIL = ["chat", "injury", "hot", "accuracy", "moves"];
   const DESK_LABELS = {
-    countdown: "Draft countdown", links: "Rules & Draft links", stale: "Unsettled weeks",
+    countdown: "Draft countdown", links: "Rules & Draft links", stale: "Unsettled weeks", robogoat: "RoboGoat",
     week: "This week's games", playoffs: "Playoffs", standings: "Standings", power: "Power rankings", alltime: "All-time",
     chat: "League chat", injury: "Injury report", hot: "Hot pickups",
     accuracy: "Projection accuracy", moves: "Recent moves",
@@ -2221,6 +2224,17 @@
       density: raw.density === "compact" ? "compact" : "comfortable",
       cz: {},
     };
+    // ONE-TIME MIGRATION (2026-09-30): a layout saved before the RoboGoat card existed gets it
+    // directly above "This week's games", wherever that card sits, instead of at the end of MAIN
+    // (the append rule below) — the point of the card is that everyone sees it. Keyed on the saved
+    // layout never having named the id at all: once it has been moved or hidden, that choice stands.
+    const namesRg = [raw.main, raw.rail, raw.hidden].some((a) => Array.isArray(a) && a.includes("robogoat"));
+    if (!namesRg) {
+      for (const c of [out.main, out.rail]) {
+        const wi = c.indexOf("week");
+        if (wi >= 0) { c.splice(wi, 0, "robogoat"); seen.add("robogoat"); break; }
+      }
+    }
     for (const id of DESK_MAIN) if (!seen.has(id)) { out.main.push(id); seen.add(id); }
     for (const id of DESK_RAIL) if (!seen.has(id)) { out.rail.push(id); seen.add(id); }
     // ONE-TIME MIGRATION (2026-08-13): a layout saved under the OLD default still opens with
@@ -2481,11 +2495,44 @@
         <span class="mut small">Scoring, roster, waivers, keepers</span></button>
       <a class="navlinkbtn" id="lnkDraft" href="ffdraft.html">Draft room
         <span class="mut small">Opens the keeper draft board</span></a>
-      <a class="navlinkbtn" id="lnkRobogoat" href="robogoat/">RoboGoat
-        <span class="mut small">Weekly previews and recaps</span></a>
       ${draftedLine}
     </div>`;
   }
+  // RoboGoat (2026-09-30, user: "put the robogoat button at the top of the league page above
+  // the matchups so everyone can see it"). It started as a third entry in the Rules / Draft card
+  // at the BOTTOM of this page; it is now its own card directly above this week's games, and it
+  // links to the NEWEST column by name rather than to the archive. The headline comes from
+  // robogoat/issues.json (written by tools/robogoat/archive.mjs), fetched once per page load.
+  // Until that lands — or if it never does — the card reads "Weekly previews and recaps" and
+  // links to the archive, so it is never missing and never a dead link.
+  UI._robogoat = undefined; // undefined = not asked yet; null = asked, nothing usable (yet)
+  function robogoatCardHtml() {
+    const x = UI._robogoat;
+    const href = x ? "robogoat/" + x.path : "robogoat/";
+    const kick = x ? "RoboGoat · Week " + x.week + " " + (x.type === "preview" ? "preview" : "recap") : "RoboGoat";
+    const hed = x ? x.headline : "Weekly previews and recaps";
+    return `<div class="card rgcard" id="rgCard">
+      <a class="rgmain" id="lnkRobogoat" href="${esc(href)}">
+        <img class="rgface" src="robogoat/robogoat-sm.png" alt="" width="48" height="58">
+        <span class="rgtext"><span class="rgkick">${esc(kick)}</span><b class="rghed">${esc(hed)}</b></span>
+        <svg class="rgchev" viewBox="0 0 8 14" width="8" height="14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </a>
+    </div>`;
+  }
+  function loadRobogoat() {
+    if (UI._robogoat !== undefined) return;
+    UI._robogoat = null;
+    fetch("robogoat/issues.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+      const x = j && Array.isArray(j.issues) ? j.issues[0] : null;
+      // path is relative to robogoat/ ("2026/week-3/"): word characters, hyphens and slashes
+      // only, so nothing in the file can turn this link into another scheme or another host.
+      if (!x || typeof x.path !== "string" || !/^[\w-][\w/-]*\/$/.test(x.path) || !x.headline) return;
+      UI._robogoat = { path: x.path, week: Number(x.week) || "", type: x.type, headline: String(x.headline) };
+      const el = document.getElementById("rgCard");
+      if (el) el.outerHTML = robogoatCardHtml();
+    }).catch(() => { /* the fallback card stays: archive link, generic line */ });
+  }
+  UI._robogoatCardHtml = robogoatCardHtml; // test hook
   function logoutHtml() {
     if (!LG.myTeamId()) return "";
     return `<div class="card logoutfoot">
@@ -2811,6 +2858,7 @@
       // rail-balance design: MAIN is the league's STATE, the RAIL its PULSE.
       const renderCard = {
         countdown: () => draftCountdownCardHtml(LG.rules),
+        robogoat: () => robogoatCardHtml(),
         links: () => leagueLinksHtml(LG.rules),
         stale: () => staleWeeksHtml(UI._staleWeeks, isCommish()),
         week: () => weekCard,
@@ -2893,9 +2941,13 @@
       // the draft countdown (the page's hero while it lasts) and the stale-weeks alarm (the one
       // card that asks somebody to DO something). Recent moves is a lazy <details> — putting it
       // second costs nothing until it is opened (wireLazyLeagueDetails).
+      // 2026-09-30 (user: "put the robogoat button at the top of the league page above the
+      // matchups"): the RoboGoat card sits directly above the week card, beneath those two
+      // interruptions — which render nothing most of the season, so in practice it heads the page.
       main().innerHTML = `
         ${draftCountdownCardHtml(LG.rules)}
         ${staleWeeksHtml(UI._staleWeeks, isCommish())}
+        ${robogoatCardHtml()}
         ${weekCard}
         ${recentMovesHtml(UI._tx)}
         ${standingsHtml(rows, st, { provisional: provisionalTeams })}
@@ -2908,6 +2960,7 @@
         ${leagueLinksHtml(LG.rules)}
         ${logoutHtml()}`;
     }
+    loadRobogoat();
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI._muWeek = null;
       UI.matchup = el.dataset.mu.split("-").map(Number);
