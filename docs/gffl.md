@@ -9940,6 +9940,13 @@ User: "to preserve our images, lets build it as an html and then we will email t
 newsletter to the league … it still needs to be mobile friendly." The Tuesday recap (and later the
 Saturday preview) is a static page on this site, and the Gmail draft carries only a link to it.
 
+**Schedule (user, 2026-09-30: "Lets move our week 4 preview to Thursday morning").** From Week 4 on,
+the preview comes out **Thursday morning**, before Thursday Night Football, instead of Saturday.
+Recaps stay on Tuesday. Previews live at `robogoat/<season>/week-<n>-preview/`, recaps at
+`robogoat/<season>/week-<n>/`. The preview has the same masthead with RoboGoat, the same copy rules
+and the same link-only email. Its picks are made before TNF, so any Thursday-night starter's game
+is still to come.
+
 **Why not an HTML email:** the Gmail connector strips every image at storage. It removes `<img>`
 with https, `data:` and `cid:` sources (even a `cid:` matching the Content-ID Gmail itself assigned),
 and `background-image`. A ~52 KB HTML body also 500s the connector; ~38 KB went through.
