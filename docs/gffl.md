@@ -10236,3 +10236,12 @@ Bite (`lg-ui.js` + `league.html` at HEAD, new suite, `--only MTC`): **6 pass / 2
 content check fails. The six that pass are the page-error, overflow and single-x checks, which
 hold either way. With the restaged sections added (`--only MTC,E,AI,TN,AT`), the E, AT and TN
 restages also fail on HEAD.
+
+**Full battery** (after the merge): **4130 pass / 14 fail**.
+- Twelve of the failures are pre-existing. With the tree at the commit before this change,
+  `--only AE,RS,SU,TT,I2` fails the same 12 checks with the same numbers. They are the
+  fallback-font width checks this container has always failed, plus I2's `%START` header.
+- The other two were MTC's own T. Tight projection check, once per viewport. In the full
+  battery, AT's projection adjuster has already moved him to 10.0 before MTC runs. RESTAGED: the
+  PROJ cell is now compared with the app's `D.projFor`, which E and AT already hand-check.
+  LAST/AVG stay hand-computed. `--only AT,MTC` **292/292**.
