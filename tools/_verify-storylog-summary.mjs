@@ -555,7 +555,8 @@ console.log("— family canon: kids' characters evolve the universe sheet —");
   await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART OF THE STORY:\nBree flew beside Hiccup and Toothless to Dragon's Edge.\n\nRewrite the continuity notes now." }] });
   ok(canonReqs.length === 1, "an HTTYD-story summary triggers exactly one canon update");
   const cq = canonReqs[0];
-  ok(cq.model === "claude-sonnet-5", "canon bookkeeper runs on Sonnet");
+  // RESTAGED 2026-09-28: claude-sonnet-5 → claude-sonnet-5-5, with the rest of Story Time.
+  ok(cq.model === "claude-sonnet-5-5", "canon bookkeeper runs on Sonnet 5.5");
   ok(cq.system.includes("never drop a reader-created character"), "bookkeeper is told kids' characters are forever");
   ok(cq.messages[0].content.includes("(empty — nothing recorded yet)"), "first fold starts from an empty canon");
   ok(cq.messages[0].content.includes("LATEST STORY BIBLE"), "bookkeeper receives the fresh story bible");

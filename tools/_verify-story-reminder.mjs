@@ -146,7 +146,11 @@ console.log("— summary mode: story-bible format —");
   await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART:\nA scene.\n\nRewrite the continuity notes now." }] });
   const a = lastAnt();
   ok(a.max_tokens === 1200, "summary budget raised to 1200 tokens (bible needs room)");
-  ok(a.model === "claude-sonnet-5", "bible runs on Sonnet (memory accuracy over cost)");
+  // RESTAGED 2026-09-28: claude-sonnet-5 → claude-sonnet-5-5, with the rest of Story Time. Still
+  // Sonnet, for the same reason. Its thinking stays off, spelled the way Sonnet 5.5 accepts it —
+  // "disabled" is a 400 on this model.
+  ok(a.model === "claude-sonnet-5-5", "bible runs on Sonnet 5.5 (memory accuracy over cost)");
+  ok(JSON.stringify(a.thinking) === '{"type":"between_tools"}', "…with thinking off as between_tools, not the 400ing \"disabled\"");
   const sys = typeof a.system === "string" ? a.system : JSON.stringify(a.system || "");
   for (const h of ["CHARACTERS:", "NOW:", "GOALS & MOTIVATIONS:", "FACTS & SECRETS:", "THREADS:"])
     ok(sys.includes(h), "bible prompt has section " + h);

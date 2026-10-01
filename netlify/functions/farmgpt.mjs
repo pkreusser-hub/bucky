@@ -28,6 +28,11 @@
 //     47.8s against the client's 45s abort and lost 3 of 8 scenes' bookkeeping in a real run.
 //     KEEPER_PROVIDER exists so that can be re-measured; it must stay defaulted to haiku.
 //   · RESEARCH stays on Sonnet 5 (stronger homework/coding reasoning).
+//   · 2026-09-28: every STORY TIME job that ran on Sonnet 5 moved to Sonnet 5.5 (user's call) —
+//     the narrator, its chain's first hop, the story bible, the family-canon merge, the audit and
+//     the little-kid pictures, all through STORY_SONNET_MODEL below. Research, the Dungeon
+//     Master, calories and the fantasy/GFFL fallbacks stay on Sonnet 5 (RESEARCH_MODEL). The
+//     adversarial battery above ran on Sonnet 5, NOT 5.5 — re-run it (_probe-storyship.mjs).
 // EVERY xAI route DEGRADES TO HAIKU BY ITSELF — a missing XAI_API_KEY resolves to Anthropic
 // before the request is built, and an xAI outage mid-request retries once on Anthropic — so a
 // site with no xAI key configured is a working site, just a Haiku-narrated one.
@@ -52,6 +57,10 @@
 //   XAI_BASE_URL         - override for local testing against a fake xAI server
 
 const RESEARCH_MODEL = "claude-sonnet-5";   // research mode (Anthropic)
+// Story Time's Sonnet (2026-09-28). Same price as Sonnet 5 ($2/$10, $0.20 cached), but it refuses
+// `thinking: {type: "disabled"}` with a 400 — see thinkingFor(), which every Anthropic request
+// goes through, before pointing any other mode at it.
+const STORY_SONNET_MODEL = "claude-sonnet-5-5";
 const STORY_MODEL = "claude-haiku-4-5";     // story + summary (Anthropic, default)
 const GEMINI_MODEL = "gemini-2.5-flash";    // story + summary when STORY_PROVIDER=gemini
 const FABLE_MODEL = "claude-fable-5";       // the ledger seeder until 2026-08-22
@@ -67,7 +76,7 @@ const XAI_MODEL = process.env.XAI_MODEL || "grok-4.5";
 // checks this list against the dashboard's rate table, which is why the list lives here (the
 // function's own truth) rather than being copied into the test.
 export const ROUTABLE_MODELS = [
-  "claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "gemini-2.5-flash",
+  "claude-haiku-4-5", "claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5", "gemini-2.5-flash",
   "grok-4.5", "grok-4.6", "grok-4.3",
   "grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning", "grok-4.20-multi-agent-0309",
   // NOT listed: grok-build-0.1 (named in the XAI_MODEL comment above as selectable). It has no
@@ -90,7 +99,9 @@ export { modelSlug };
 // until one hop has answered, so a fallback is structurally incapable of double-writing a scene.
 // Once bytes are flowing there is no going back and none is attempted.
 const STORY_FALLBACK_CHAIN = [
-  { hop: "sonnet", provider: "anthropic", model: RESEARCH_MODEL },
+  // Sonnet 5.5 since 2026-09-28 (was Sonnet 5). The hop name stays "sonnet": it is the counter
+  // key on Dad's dashboard, and renaming it would orphan the history under the old key.
+  { hop: "sonnet", provider: "anthropic", model: STORY_SONNET_MODEL },
   { hop: "grok",   provider: "xai",       model: XAI_MODEL },
   { hop: "haiku",  provider: "anthropic", model: STORY_MODEL },
 ];
@@ -528,9 +539,9 @@ async function mergeUniverseCanon(key, title, material, extra) {
   const input = "CURRENT FAMILY CANON:\n" + (doc.text || "(empty — nothing recorded yet)") +
     "\n\nLATEST STORY BIBLE:\n" + String(material).slice(0, 12000) +
     "\n\nRewrite the family canon now.";
-  const r = await callAnthropicOnce(RESEARCH_MODEL, CANON_UPDATE_SYSTEM(title), input, 1000);
+  const r = await callAnthropicOnce(STORY_SONNET_MODEL, CANON_UPDATE_SYSTEM(title), input, 1000);
   if (!r) return false;
-  await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, RESEARCH_MODEL);
+  await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, STORY_SONNET_MODEL);
   const out = (r.text || "").trim();
   // NO_CHANGES still clears the counter and stamps the day — the material HAS been looked at,
   // and re-paying for the same nothing tomorrow is the failure mode this whole rule exists for.
@@ -1744,7 +1755,21 @@ const MODES = {
   // output bills only for what is produced.
   gffladjust:  { system: GFFLADJUST_SYSTEM, maxTokens: 6000, thinking: { type: "disabled" }, cache: false },
 };
-const KID_ART_MODEL = RESEARCH_MODEL;   // Sonnet 5 — better at clean, readable vector art
+const KID_ART_MODEL = STORY_SONNET_MODEL;   // Sonnet 5.5 — better at clean, readable vector art
+
+// THE THINKING SETTING IS TRANSLATED PER MODEL, NOT PER MODE (2026-09-28). Sonnet 5.5 answers
+// `thinking: {type: "disabled"}` with a 400 invalid_request_error; its lowest setting is
+// `{type: "between_tools"}` (no extended thinking; no other field allowed beside it; effort must
+// be high or below, and the default IS high). Every OTHER model refuses "between_tools" with a
+// 400 of its own. So the swap cannot live in MODES: the story chain sends the SAME mode to Sonnet
+// 5.5 and then, on an outage, to Haiku, and each hop has to get the spelling its model accepts.
+// A 400 is not a fallback trigger either — without this, every story scene would have died on
+// hop one with an error page rather than falling through to grok.
+const BETWEEN_TOOLS_MODELS = new Set([STORY_SONNET_MODEL]);
+function thinkingFor(model, thinking) {
+  if (thinking && thinking.type === "disabled" && BETWEEN_TOOLS_MODELS.has(model)) return { type: "between_tools" };
+  return thinking;
+}
 
 // Server-side history caps — the client is untrusted, so bound everything here.
 const MAX_MESSAGES = 60;        // ~15-30 story chapters or a long research chat
@@ -3971,7 +3996,7 @@ export default async (req) => {
     }
   }
 
-  // Resolve provider + model. The NARRATOR is Sonnet 5 by default since 2026-08-22 — RESTAGED
+  // Resolve provider + model. The NARRATOR is Sonnet (5 from 2026-08-22, 5.5 from 2026-09-28) — RESTAGED
   // from grok-4.5, which held this line since 2026-08-04. Both cleared the adversarial battery at
   // 0/16; Sonnet honoured 9 of 16 reader write-ins where grok-4.5 ignored 6, and a write-in is
   // LAW here (see STORY_RULES_REMINDER's COLLABORATION clause), so obedience to the reader is the
@@ -3986,11 +4011,11 @@ export default async (req) => {
     if (STORY_PROVIDER === "gemini") { provider = "gemini"; model = GEMINI_MODEL; }
     else if (STORY_PROVIDER === "grok") { provider = "xai"; model = XAI_MODEL; }
     else if (STORY_PROVIDER === "haiku") { provider = "anthropic"; model = STORY_MODEL; }
-    else { provider = "anthropic"; model = RESEARCH_MODEL; }   // sonnet
+    else { provider = "anthropic"; model = STORY_SONNET_MODEL; }   // sonnet (5.5 since 2026-09-28)
   }
   // The story bible IS the story's long-term memory — run it on Sonnet regardless of the story
   // provider (user-approved token spend: continuity accuracy beats the ~3x summary cost).
-  else if (body.mode === "summary") { provider = "anthropic"; model = RESEARCH_MODEL; }
+  else if (body.mode === "summary") { provider = "anthropic"; model = STORY_SONNET_MODEL; }
   // Little-kid story: Haiku is plenty for 4 short sentences and keeps it fast for a child
   // waiting. Its illustration runs on Sonnet, which draws far cleaner shapes.
   else if (body.mode === "kidstory") { provider = "anthropic"; model = STORY_MODEL; }
@@ -4001,7 +4026,7 @@ export default async (req) => {
   else if (body.mode === "ledger") {
     const kp = (process.env.KEEPER_PROVIDER || "haiku").toLowerCase();
     if (kp === "grok") { provider = "xai"; model = process.env.KEEPER_MODEL || XAI_MODEL; }
-    else if (kp === "sonnet") { provider = "anthropic"; model = process.env.KEEPER_MODEL || RESEARCH_MODEL; }
+    else if (kp === "sonnet") { provider = "anthropic"; model = process.env.KEEPER_MODEL || STORY_SONNET_MODEL; }
     else { provider = "anthropic"; model = process.env.KEEPER_MODEL || STORY_MODEL; }
   }
   // The seeder. OPUS 5 by default since 2026-08-22 — RESTAGED from Fable 5, and the reason is
@@ -4012,13 +4037,13 @@ export default async (req) => {
   // watching a screen that had nothing true to say. `fable` stays reachable by name.
   else if (body.mode === "storyseed") {
     if (SEED_PROVIDER_ENV === "grok") { provider = "xai"; model = process.env.STORY_SEED_MODEL || XAI_MODEL; }
-    else if (SEED_PROVIDER_ENV === "sonnet") { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || RESEARCH_MODEL; }
+    else if (SEED_PROVIDER_ENV === "sonnet") { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || STORY_SONNET_MODEL; }
     else if (SEED_PROVIDER_ENV === "fable") { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || FABLE_MODEL; }
     else { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || OPUS_MODEL; }
   }
   // The audit is pinned to Sonnet for the same reason the keeper is pinned to Haiku: which model
   // reads the story is a prose decision, and which model checks it is not.
-  else if (body.mode === "audit") { provider = "anthropic"; model = RESEARCH_MODEL; }
+  else if (body.mode === "audit") { provider = "anthropic"; model = STORY_SONNET_MODEL; }
   else if (body.mode === "kidart") { provider = "anthropic"; model = KID_ART_MODEL; }
   // The fantasy analyst + the league columnist: Grok 4.5 (the user's pick — its voice suits
   // trash talk and hot takes), falling back to Sonnet, the quality tier for advice.
@@ -4128,7 +4153,7 @@ export default async (req) => {
       else if (mode.cacheSystem && system) {
         apiReq.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
       }
-      if (mode.thinking) apiReq.thinking = mode.thinking;
+      if (mode.thinking) apiReq.thinking = thinkingFor(mdl, mode.thinking);
       try {
         resp = await fetch(`${apiBase}/v1/messages`, {
           method: "POST",

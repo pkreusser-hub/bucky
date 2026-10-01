@@ -138,7 +138,10 @@ console.log("— kidart: drawn SVG (default, no key needed) —");
   const r = await call({ mode: "kidart", messages: [{ role: "user", content: "Draw this page:\nBo ran fast." }], scene: "Bo ran fast." });
   const a = lastAnt();
   ok(r.status === 200 && r.text.includes("<svg"), "kidart returns an SVG drawing");
-  ok(a.model === "claude-sonnet-5", "art runs on Sonnet (cleaner shapes than Haiku)");
+  // RESTAGED 2026-09-28: claude-sonnet-5 → claude-sonnet-5-5, with the rest of Story Time. The
+  // art call keeps thinking off, and on Sonnet 5.5 that is spelled between_tools ("disabled" 400s).
+  ok(a.model === "claude-sonnet-5-5", "art runs on Sonnet 5.5 (cleaner shapes than Haiku)");
+  ok(JSON.stringify(a.thinking) === '{"type":"between_tools"}', "…with thinking off as between_tools, not the 400ing \"disabled\"");
   ok(/viewBox="0 0 400 300"/.test(a.system), "art prompt pins the page-shaped viewBox");
   ok(/Never use <script>|no text or letters/i.test(a.system), "art prompt bans scripts + text in the picture");
   ok(geminiReqs.length === 0, "no image API called while the provider is the default svg");
@@ -233,7 +236,9 @@ console.log("— the other modes are untouched —");
   // degradation to observe at all — this suite sees the shipped narrator. The budget is still
   // 1600 from the truncation fix, and what this check is really for is "little-kid mode did not
   // disturb big-kid mode", which is exactly as true as it was.
-  ok(r.status === 200 && a.model === "claude-sonnet-5" && a.max_tokens === 1600, "big-kid story unchanged (Sonnet 5, 1600 tok)");
+  // RESTAGED again 2026-09-28: Sonnet 5 → Sonnet 5.5. Same property — little-kid mode did not
+  // disturb big-kid mode — only the narrator's model id moved.
+  ok(r.status === 200 && a.model === "claude-sonnet-5-5" && a.max_tokens === 1600, "big-kid story unchanged (Sonnet 5.5, 1600 tok)");
   ok(a.system.includes("CONTENT RULES") && !a.system.includes("LITTLE-KID SAFETY"), "…and does NOT get the little-kid rules");
   const longOk = await call({ mode: "story", messages: [{ role: "user", content: "y".repeat(3000) }] });
   // Big-kid story turns now also carry the appended STORY_RULES_REMINDER (2026-07-31), so

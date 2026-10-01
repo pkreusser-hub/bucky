@@ -4662,6 +4662,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // WHICH model did the work, and the bucket fallbacks below still carry the old numbers for
     // rows written before per-model logging.
     claudesonnet5:  { in: 2,  out: 10, cached: 0.20 },     // Sonnet 5
+    // Sonnet 5.5 — Story Time's Sonnet since 2026-09-28. Same list price as Sonnet 5 ($2/$10,
+    // cached input $0.20), but its own slug, so its rows need their own entry or they price at $0.
+    claudesonnet55: { in: 2,  out: 10, cached: 0.20 },     // Sonnet 5.5
     claudeopus5:    { in: 5,  out: 25 },                   // Opus 5
     claudefable5:   { in: 10, out: 50 },                    // Fable 5 — the ledger seeder
     // The grok family. XAI_MODEL can be switched to any of these without a code change, so each
@@ -4790,7 +4793,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     const seedTotal = seedOk + sum(monthDays, "f_fallback") + sum(monthDays, "f_timeout") + sum(monthDays, "f_httperr");
     const storyFallbacks = sum(monthDays, "s_fb");
     // WHICH backup answered. The narrator's chain is three deep since 2026-08-22
-    // (Sonnet 5 → grok-4.5 → Haiku 4.5), so a bare count no longer names the model that wrote the
+    // (Sonnet → grok-4.5 → Haiku 4.5; Sonnet 5.5 since 2026-09-28), so a bare count no longer names the model that wrote the
     // scene — and "12 scenes were quietly Haiku" is a different piece of news from "12 were grok".
     // Hops are only named when one has actually fired; the line reads as it always did otherwise.
     const FB_HOP_LABELS = { grok: "grok-4.5", haiku: "Haiku 4.5" };
@@ -4842,7 +4845,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       (ALWAYS_SHOW.includes(b.p) || !minor ? shown : folded).push(t);
     }
     const MODEL_LABEL = {
-      claudehaiku45: "Haiku 4.5", claudesonnet5: "Sonnet 5", claudeopus5: "Opus 5",
+      claudehaiku45: "Haiku 4.5", claudesonnet5: "Sonnet 5", claudesonnet55: "Sonnet 5.5", claudeopus5: "Opus 5",
       claudefable5: "Fable 5", grok45: "Grok 4.5", gemini25flash: "Gemini 2.5 Flash",
     };
     const modelNote = (t) => t.b.perImage ? "Gemini · ~$" + IMG_EACH.toFixed(3) + " each"
@@ -4936,8 +4939,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
     const note = document.createElement("div");
     note.id = "usageNote";
+    // Sonnet reads RATES, not R_IN/R_OUT: those are the $3/$15 fallback for rows written before
+    // per-model logging, and the note had been quoting them as Sonnet's live price (2026-09-28).
     note.textContent = "Estimated at list pricing, per model: Grok 4.5 $2/$6 · Haiku 4.5 $" + S_IN + "/$" + S_OUT +
-      " · Sonnet 5 $" + R_IN + "/$" + R_OUT + " · Opus 5 $" + O_IN + "/$" + O_OUT + " · Fable 5 $" + F_IN + "/$" + F_OUT +
+      " · Sonnet 5 and 5.5 $" + RATES.claudesonnet55.in + "/$" + RATES.claudesonnet55.out + " · Opus 5 $" + O_IN + "/$" + O_OUT + " · Fable 5 $" + F_IN + "/$" + F_OUT +
       " per MTok (in/out); cached tokens 💰 re-read at 10% of the input rate. Quiet features are folded " +
       "into 🧩 Other. Exact billing is at console.anthropic.com and console.x.ai.";
     body.appendChild(note);

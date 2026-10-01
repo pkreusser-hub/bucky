@@ -10,6 +10,9 @@
  * Real prose, real money — a few cents of Opus + Sonnet + Grok + Haiku — and no contact whatsoever
  * with the family's Story Log, usage documents or grant records.
  *
+ * 2026-09-28: the narrator is Sonnet 5.5 now (was Sonnet 5). The 2026-08-22 battery ran on 5, so
+ * THIS probe on 5.5 is the re-run the docs call for before a narrator switch goes to the family.
+ *
  * 2026-08-22: the stack under test is Opus 5 seeding, Sonnet 5 narrating, and a three-deep
  * narrator fallback (Sonnet → grok-4.5 → Haiku). Gate 4 drives every hop of that chain for real,
  * through a local Anthropic PROXY that refuses one named model with a 529 and forwards everything
@@ -200,7 +203,7 @@ if (want("seed") || want("narrate") || want("grant")) {
 
 // ===========================================================================
 if (want("narrate")) {
-  rule("GATE 2 — SONNET 5 NARRATES (no flags set: the shipping default)");
+  rule("GATE 2 — SONNET 5.5 NARRATES (no flags set: the shipping default)");
   const before = usedModels();
   const t0 = Date.now();
   const scene = await call({ mode: "story", newChapter: true, ledger: LEDGER, messages: [
@@ -215,8 +218,9 @@ if (want("narrate")) {
   // adversarial battery (grok-4.5 ignored 6 of 16 reader write-ins; Sonnet ignored none of the 9
   // it was scored on). The SHAPE of the check is unchanged and is the point — whoever writes the
   // scene must be the model the usage record bills, or the dashboard prices the wrong rate.
-  ok(usedModels().some((m) => /^s_claudesonnet5_req$/.test(m)),
-    "the scene was written by SONNET 5 and the usage record says so");
+  // RESTAGED 2026-09-28: s_claudesonnet5_req → s_claudesonnet55_req, the narrator moved to 5.5.
+  ok(usedModels().some((m) => /^s_claudesonnet55_req$/.test(m)),
+    "the scene was written by SONNET 5.5 and the usage record says so");
   ok(usedModels().every((m) => !/^s_grok45_req$/.test(m)),
     "…and grok was not called at all — it is the FALLBACK now, not the narrator");
   ok(/===CHAPTER===/.test(scene.text), "…opening a titled chapter, as asked");
@@ -284,7 +288,7 @@ if (want("fallback")) {
   // (a) HOP ONE. Anthropic answers 529 for Sonnet — a real capacity event — and grok-4.5 takes
   // the scene. This is the case the old chain could not handle at all: its guard was
   // (provider !== "anthropic"), so an Anthropic narrator had no fallback whatsoever.
-  refuse.add("claude-sonnet-5"); refusedCount = 0;
+  refuse.add("claude-sonnet-5-5"); refusedCount = 0;   // the narrator's id since 2026-09-28
   const fb0 = counter("s_fb"), fbG0 = counter("s_fb_grok");
   const hop1 = await call({ mode: "story", messages: [
     { role: "user", content: SETUP + " My name is Nell." }] });
@@ -324,7 +328,7 @@ if (want("fallback")) {
   const nokey = await call({ mode: "story", messages: [{ role: "user", content: "A short story about a cat." }] });
   ok(nokey.status === 200 && /===CHOICES===/.test(nokey.text),
     "with NO xAI key at all the site still tells stories, on Sonnet — shipping the code is safe");
-  ok(usedModels().some((m) => /^s_claudesonnet5_req$/.test(m)),
+  ok(usedModels().some((m) => /^s_claudesonnet55_req$/.test(m)),
     "…and it is the FULL-QUALITY narrator, not a degraded one");
   process.env.XAI_API_KEY = key;
   delete process.env.ANTHROPIC_BASE_URL;
