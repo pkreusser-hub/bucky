@@ -241,19 +241,21 @@ export function buildIssue(dir) {
     const hiPlayer = playerHi.map((h) =>
       `<li><span class="hv">${f1(h.pts)}</span><span>${esc(h.name)} <small>${tm(h.team).owner}, Week ${h.week}</small></span></li>`).join("");
     let pw = 0, pl = 0;
-    const picks = Object.keys(S.picks || {}).map(Number).sort((a, b) => a - b).filter((w) => w <= through).map((w) => {
+    // A preview also lists its own week's picks, still open (rings with no result yet).
+    const picks = Object.keys(S.picks || {}).map(Number).sort((a, b) => a - b).filter((w) => w <= through || (!RECAP && w === W)).map((w) => {
       const list = S.picks[String(w)];
       const wn = list.filter((p) => p.result === "W").length, ln = list.filter((p) => p.result === "L").length;
       pw += wn; pl += ln;
       const marks = list.map((p) => `<i class="pk ${p.result === "W" ? "hit" : p.result === "L" ? "miss" : "open"}" title="${attr(tm(p.team).owner)}"></i>`).join("");
-      return `<li><b>Week ${w}</b><span class="pks">${marks}</span><span class="nw">${wn}-${ln}</span></li>`;
+      const open = list.every((p) => p.result !== "W" && p.result !== "L");
+      return `<li${open ? ' class="open"' : ""}><b>Week ${w}</b><span class="pks">${marks}</span><span class="nw">${open ? "this week" : `${wn}-${ln}`}</span></li>`;
     }).join("");
     return `<section class="panel season"><span class="kick">Season so far</span><h3>Through Week ${through}</h3>` +
       `<h4>Points left on the bench</h4><p class="dek">Every week’s best possible lineup, minus the lineup each team started, added up.</p>` +
       `<div class="legend">${legend}</div><div class="bench">${bars}</div>` +
       `<div class="highs"><div><h4>Top team scores</h4><ol class="hi">${hiTeam}</ol></div>` +
       `<div><h4>Top starters</h4><ol class="hi">${hiPlayer}</ol></div></div>` +
-      `<h4>RoboGoat’s picks</h4><p class="dek">One mark per pick: filled if it won, a ring if it lost.</p><ul class="picks">${picks}<li class="tot"><b>Season</b><span class="pks"></span><span class="nw">${pw}-${pl}</span></li></ul>` +
+      `<h4>RoboGoat’s picks</h4><p class="dek">One mark per pick: filled if it won, a red ring if it lost${RECAP ? "" : ", a grey ring until it is played"}.</p><ul class="picks">${picks}<li class="tot"><b>Season</b><span class="pks"></span><span class="nw">${pw}-${pl}</span></li></ul>` +
       `<p class="src">Team scores are the app’s final totals. Bench and starter points are from each week’s final stat lines, scored by league rules.</p></section>`;
   }
 

@@ -145,3 +145,4 @@ ol.hi,ul.picks{list-style:none;margin:0;padding:0}
 .picks .nw{font-weight:700;font-variant-numeric:tabular-nums}
 /* preview scoreboard: nobody has won or lost yet, so every team reads in full ink */
 .board.pre .tn b{color:var(--ink)}
+.picks li.open .nw{font-weight:600;color:var(--mut)}

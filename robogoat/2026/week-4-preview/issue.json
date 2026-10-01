@@ -1,0 +1,149 @@
+{
+ "season": 2026,
+ "week": 4,
+ "type": "preview",
+ "published": "2026-10-01",
+ "subject": "RoboGoat: Sandy gets Perry, and Elan starts a torn ACL (Week 4 preview)",
+ "description": "Sandy and Perry meet at 2-1, De’Von Achane is still in Elan’s lineup, and six GFFL starters play tonight in Cleveland.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-4-preview/share.png",
+ "window": "Oct. 1 to 5, 2026",
+ "picksRecord": "7-1",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "2-1",
+  "2": "1-2",
+  "3": "1-2",
+  "4": "1-2",
+  "5": "2-1",
+  "9": "2-1",
+  "11": "2-1",
+  "12": "1-2"
+ },
+ "games": [
+  {
+   "away": 5,
+   "home": 1,
+   "note": "Pick: Sandy. Both 2-1; the app has her at 53 percent."
+  },
+  {
+   "away": 4,
+   "home": 9,
+   "note": "Pick: John. He has won the last four meetings."
+  },
+  {
+   "away": 3,
+   "home": 11,
+   "note": "Pick: Calvin. Chicago has not named Joe’s quarterback."
+  },
+  {
+   "away": 2,
+   "home": 12,
+   "note": "Pick: Elan, provided he benches De’Von Achane."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 2,
+   "l": 1,
+   "pf": 466.06
+  },
+  {
+   "team": 5,
+   "w": 2,
+   "l": 1,
+   "pf": 403.44
+  },
+  {
+   "team": 1,
+   "w": 2,
+   "l": 1,
+   "pf": 397.68
+  },
+  {
+   "team": 11,
+   "w": 2,
+   "l": 1,
+   "pf": 362.9
+  },
+  {
+   "team": 3,
+   "w": 1,
+   "l": 2,
+   "pf": 414.82
+  },
+  {
+   "team": 12,
+   "w": 1,
+   "l": 2,
+   "pf": 402.32
+  },
+  {
+   "team": 2,
+   "w": 1,
+   "l": 2,
+   "pf": 363.16
+  },
+  {
+   "team": 4,
+   "w": 1,
+   "l": 2,
+   "pf": 351.4
+  }
+ ],
+ "picks": [
+  5,
+  9,
+  11,
+  2
+ ]
+}
