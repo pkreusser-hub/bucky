@@ -10245,3 +10245,72 @@ restages also fail on HEAD.
   battery, AT's projection adjuster has already moved him to 10.0 before MTC runs. RESTAGED: the
   PROJ cell is now compared with the app's `D.projFor`, which E and AT already hand-check.
   LAST/AVG stay hand-computed. `--only AT,MTC` **292/292**.
+
+---
+
+## GFFL — power rankings: This week is the best lineup, Rest of season counts the bench (2026-10-01)
+
+User: "revisit how we handle gffl power rankings on the league page, and how we evaluate each
+position. The current week rating should reflect the ranking of the optimal lineup for that week
+at each position and then a total score. The rest of season should consider both starters and
+bench strength."
+
+This changes two rules from the 2026-09-23 entry ("power rankings are computed from the app's own
+numbers"): This week's Proj was the lineup each team **set**, and Rest of season's roster was the
+optimal lineup **alone**, with the bench only in its own BN column.
+
+**THIS WEEK** (`LG.powerWeekBoard`). Each team is ranked on its **best legal lineup** this week:
+`LG.optimalLineup` over the non-IR roster, each player at `D.liveProj` (the same per-player
+expected finish the matchup header sums). A player whose game is over counts what he scored,
+wherever he sat. The input is now `{teams, active, rules, projOf, pairs, winOf, lastRanks}`; rows
+carry `best` and `picks` instead of `proj`.
+- Columns: `# · Team · Score · Best · Opp · Win% · LW · QB · RB · WR · TE · K · DST`.
+  Score = round(100 × best / top best). BN is gone from this tab. K and DST joined so the rooms
+  add up to Best. A FLEX counts in his real position, as before.
+- Win% is still the game as the lineups are **set** (`D.winProb` over `teamStarters`). It is the
+  real game's odds, so a team can rank above its opponent and still trail in Win%.
+
+**REST OF SEASON** (`LG.powerRosBoard`). roster = optimal lineup + `LG.POWER_BENCH_WEIGHT` (0.25) ×
+the best three players outside it (`LG.POWER_BENCH_DEPTH`). Rows now also carry `starters` and
+`bench`. The rating blend with points per game is unchanged.
+- Each room = its starters + 0.25 × the bench men at that position among those three, so the six
+  rooms add up to roster exactly. BN still ranks the three-man bench on its own.
+- Columns: `# · Team · Score · Rating · Rec · PO% · LW · QB · RB · WR · TE · K · DST · BN`.
+- **Why 0.25.** A starter misses about one week in five (his bye plus the usual injury rate).
+  When he does, the bench man only beats the waiver wire by part of his score. A quarter is that,
+  rounded. It is one constant, and the user may want it tuned.
+
+`LG.POWER_WEEK_CATS` / `LG.POWER_ROS_CATS` replace the single `LG.POWER_CATS`. That name is kept
+as an alias of the ROS list.
+
+**Desktop width.** At 1024px, Rest of season's fourteen columns ran 46px past MAIN (measured). The
+desktop rule now uses 3px side padding instead of 5px. With that alone the table was still 13px
+too wide, held there by the longest fixture name (218px on one line), so the team name may now wrap
+(`white-space:normal`). At 1440px nothing wraps. The phone is unchanged: it
+pans inside the card.
+
+**K / DST header colours** use the existing `--pos-K` / `--pos-DST`. On the dark card they measure
+3.29:1 and 2.85:1. That is inside the range the existing headers already sit in (QB 2.53, RB 3.84,
+WR 3.50, TE 5.06), so the palette was not changed here. It is short of 4.5:1 for all but TE, which
+is a separate fix.
+
+Scripts and `gffl-v` → `20261001a`.
+
+Files: `assets/league/lg-{core,ui}.js`, `league.html`, `tools/_verify-gffl.cjs`, this file.
+
+RESTAGED, reasons at the checks:
+- UH1 is a new fixture: T1 and T3 have bench men who belong in the lineup (78 → 82, 78 → 86), and
+  T4 has an IR QB at 40 who is left out. It covers K / DST ranks, a DST tie that falls to the
+  lower id, and no BN room.
+- UH2: T2 gains a backup QB. Bench weight 0.25; rooms add up to roster. The bench flips the g = 0
+  order (T2 passes T1, whose starters alone are 2 better) and the QB room (T2 passes T1).
+- UH3: T1's set lineup leaves a WR slot empty. Best fills it and FLEX from the bench, 101 → 110,
+  which ties T5 and goes to PF. Win% stays 66/34 off the set lineup. Columns read Best and the six
+  positions.
+- UH4: the card no longer equals the matchup header. It equals the header's per-player number
+  summed over the board's picks, and is never below the header. The +7 live play still lands.
+- UH7 measures **both** tabs at 1440 and 1024, with every cell's ink inside the card by Range, and
+  takes desktop plates under `--shots`.
+- TB4 and TB6: column lists.
+
+**VERIFY:**
