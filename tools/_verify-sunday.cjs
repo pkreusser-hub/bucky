@@ -708,7 +708,9 @@ async function main() {
       `white-vs-white clash: Dallas stays in its white home jersey, the visitors (NYG) switch to their own colour jersey instead of also wearing white (${JSON.stringify(ra.kitClash.home)} / ${JSON.stringify(ra.kitClash.road)})`]);
     // Resolution: the 168px stage at RA_K = 2 → 336px, 18/14/10 px per yard; a standing player was
     // 17 rows of ink plus outline (19); now he is at least 32 rows tall and 12 wide.
-    chk(() => [ra.res.RA_H === 336 && ra.res.PX === 18 && ra.res.PY === 14 && ra.res.HK === 10 && ra.res.inkH >= 32 && ra.res.inkH <= 40 && ra.res.inkW >= 12 && ra.res.poses >= 20,
+    // RESTAGED 2026-09-30, user: "lets go with the 20% change" (players drawn 20% bigger, for room for
+    // logos on the helmets): the 32-40 rows and 12 columns times 1.2 are 38-48 rows and at least 14.
+    chk(() => [ra.res.RA_H === 336 && ra.res.PX === 18 && ra.res.PY === 14 && ra.res.HK === 10 && ra.res.inkH >= 38 && ra.res.inkH <= 48 && ra.res.inkW >= 14 && ra.res.poses >= 20,
       `the stage is twice the old resolution and a standing player is drawn in ${ra.res.inkW}×${ra.res.inkH} px (${ra.res.poses} poses)`]);
     chk(() => [ra.helmet1.length === 2 && ra.helmet1.every((h) => h.other === 0 && h.shell >= 20 && h.logoOffShell === 0),
       `helmets are one solid colour: no shadow, highlight or stripe pixels in the head, only the shell, and the team's logo painted only over shell (${JSON.stringify(ra.helmet1)})`]);
@@ -798,12 +800,14 @@ async function main() {
       tryIt("lines", () => {
         let n = 0, frames_ = 0, most = 0, at = "";
         for (const [k, S] of Object.entries(RA_SKEL)) {
-          const f = raFig(k, "p"), cx = f.ax + S.c[0], cy = f.ay - S.c[1];
+          // (RESTAGED 2026-09-30: since the players grew 20% a rig unit is RA_PK sprite pixels, so the
+          // head's centre and the helmet's reach are taken in sprite pixels, where the helmet is drawn.)
+          const PK = typeof RA_PK === "number" ? RA_PK : 1, f = raFig(k, "p"), cx = f.ax + S.c[0] * PK, cy = f.ay - S.c[1] * PK;
           let m = 0; frames_++;
           for (let y = 1; y < f.H - 1; y++) for (let x = 1; x < f.W - 1; x++) {
             if (f.g[y * f.W + x] !== "O") continue;
             if ([f.g[y * f.W + x - 1], f.g[y * f.W + x + 1], f.g[(y - 1) * f.W + x], f.g[(y + 1) * f.W + x]].includes(".")) continue;
-            if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 7.5) continue;           // (the helmet's own dark rim)
+            if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 7.5 * PK) continue;      // (the helmet's own dark rim)
             m++;
           }
           n += m; if (m > most) { most = m; at = k; }
@@ -827,7 +831,10 @@ async function main() {
           if (t > sc.tS + 0.3 && t < tThrow - 0.4) { const g_ = gait(qb.drawn.pose); if (g_ === "back") qbDrop.back++; else if (g_) qbDrop.fwd++; }
           if (t > sc.tS && t < tThrow) for (const a of sc.actors) if (a.side === "d" && (a.role === "DB" || a.role === "LB") && gait(a.drawn?.pose) === "back" && a.drawn.flip === attackRight) dbBack.add(sc.actors.indexOf(a));
         });
-        out.pass = { seq, olFace, olPoses: [...olPoses], dbBack: dbBack.size, qbDrop, tackler: !!tk?.tackler, hold: { throw1: RA_HOLD.throw1, far: RA_SKEL.throw1?.ba?.[2] } };
+        // (RESTAGED 2026-09-30: the ball's offsets are sprite pixels, RA_PK to the rig's unit since the
+        // players grew 20%, so the hand is compared in sprite pixels too.)
+        const pk = typeof RA_PK === "number" ? RA_PK : 1;
+        out.pass = { seq, olFace, olPoses: [...olPoses], dbBack: dbBack.size, qbDrop, tackler: !!tk?.tackler, hold: { throw1: RA_HOLD.throw1, far: RA_SKEL.throw1?.ba?.[2]?.map((v) => v * pk) } };
       });
       // ── No moonwalking: across the game's first 14 completions and incompletions, every frame of a man
       // moving against the way he faces (faster than a walk) is a backpedal, never a forward stride.
@@ -862,8 +869,8 @@ async function main() {
           if (Math.hypot(x - px, z - pz) / 0.1 < 2.4) return;
           n++;
           if (gait(car.drawn.pose) === "carry") tucked++;
-          const S = RA_SKEL[car.drawn.pose], h = RA_HOLD[car.drawn.pose];
-          if (!S || !h || Math.hypot(h[0] - S.fa[2][0], h[1] - S.fa[2][1]) > 1.2) atHand = false;
+          const S = RA_SKEL[car.drawn.pose], h = RA_HOLD[car.drawn.pose], pk = typeof RA_PK === "number" ? RA_PK : 1;   // (hand in sprite pixels: as 885)
+          if (!S || !h || Math.hypot(h[0] - S.fa[2][0] * pk, h[1] - S.fa[2][1] * pk) > 1.2) atHand = false;
         });
         out.carry = { n, tucked, atHand };
       });
@@ -876,7 +883,7 @@ async function main() {
         const sk = raBuild(np("4018729484399"), ev, new Set()), qk = sk.actors.find((a) => a.role === "QB" && a.side === "o");
         let kneel = null;
         frames(sk, qk.downAt + 0.6, (t) => { if (t > qk.downAt + 0.5 && kneel == null) kneel = { frame: qk.drawn.pose, pose: raPoseAt(sk, qk, t), held: raBall(sk, t).held === qk }; });
-        out.up = { seq, kneel, holdKneel: RA_HOLD.kneel, kneeHand: RA_SKEL.kneel?.fa?.[2] };
+        out.up = { seq, kneel, holdKneel: RA_HOLD.kneel, kneeHand: RA_SKEL.kneel?.fa?.[2]?.map((v) => v * (typeof RA_PK === "number" ? RA_PK : 1)) };   // (as 885)
       });
       // ── Standing around after the whistle (885's last seconds): breathing, and hands on hips.
       tryIt("idle", () => {
@@ -940,18 +947,36 @@ async function main() {
         for (const k of Object.keys(RA_SKEL)) { const n = raFig(k, "p").g.filter((c) => c === "m").length; if (n < fewest) { fewest = n; fewestAt = k; } }
         out.helmet = { n: masks.length, colours: [...new Set(masks)], darkest: +Math.min(...masks.map((c) => lum(c))).toFixed(3), front: best, inFront: face.every(([x]) => x < fx), gap, bars, browOverEye: eye ? at(eye[0], eye[1] - 1) : null, fewest, fewestAt };
       });
+      // ── Nothing cut off (2026-09-30, with the players 20% bigger: the face-down frame's facemask fell
+      // below the grid and was clipped to 2 pixels). Every frame of players, officials and trainers keeps
+      // a clear pixel between its ink, outline included, and every edge of its grid.
+      tryIt("fit", () => {
+        let tight = 99, at = "";
+        for (const v of ["p", "r", "m"]) for (const k of Object.keys(RA_SKEL)) {
+          const f = raFig(k, v); let l = f.W, r = -1, t = f.H, b = -1;
+          for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) if (f.g[y * f.W + x] !== ".") { l = Math.min(l, x); r = Math.max(r, x); t = Math.min(t, y); b = Math.max(b, y); }
+          const m = Math.min(l, f.W - 1 - r, t, f.H - 1 - b);
+          if (m < tight) { tight = m; at = `${k}/${v} (${f.W}×${f.H}, ink ${l}-${r} × ${t}-${b})`; }
+        }
+        out.fit = { tight, at };
+      });
       // ── Helmet logos (2026-09-29, user: "i know we dont have a lot of pixels to work with but lets
       // take a run at making logos on the helmets"). Each team's standing player is drawn with and
       // without his logo, facing each way; the pixels that differ are the logo. What should show is
-      // worked out here from the designs in RA_LOGO: a 7-by-7 box whose cell in row v, column u is the
-      // pixel centred at (u − 5.4, 4 − v) in an upright head's own frame (x forward, y up). Five of
-      // those centres fall outside the shell's 5.2 × 4.8 ellipse about (−0.5, 0.35), so the shell's
-      // curve trims them: row,column 0,0 (1.21 of the way out), 0,1 (1.07), 1,0 (1.09), 2,0 (1.003)
-      // and 6,0 (1.06). Facing left, a mark that turns with him keeps its cells; a lettered logo is
-      // read the other way along each row, so the trimmed cells take the other end of it. A cell the
-      // shell's own colour changes no pixel.
+      // worked out here from the designs in RA_LOGO.
+      // RESTAGED 2026-09-30 (user: "lets go with the 20% change and do the same process you did for the
+      // broncos but for the other teams"): the helmet is bigger and each logo has its own size and place
+      // (`at`, the top-left pixel's centre less half a pixel, in the helmet's pixels, x forward, y up),
+      // so the old 7-by-7 box and its five trimmed cells no longer apply. SHELL is the side of the
+      // upright helmet, hand-computed from its geometry: an ellipse 6.24 × 5.76 about (−0.6, 0.42), less
+      // the face opening in front of x 1.1 from y 0.5 down to −4.5 and the mask's bar at y 1 from x 5.1.
+      // Column c is x = c − 6.4 and row r is y = 6 − r (the upright head's pixel centres). A design cell
+      // off SHELL is dropped; facing left, a mark that turns with him keeps its cells, a lettered logo
+      // is read the other way along each row. A cell the shell's own colour changes no pixel.
       tryIt("logos", () => {
-        const TRIM = new Set(["0,0", "0,1", "1,0", "2,0", "6,0"]);
+        const SHELL = [".....111....", "...1111111..", ".1111111111.", ".11111111111", "111111111111", "111111111111",
+          "11111111....", "11111111....", ".1111111....", ".1111111....", "..111111....", "....1111...."];
+        const onShell = (x, y) => SHELL[Math.round(6 - y)]?.[Math.round(x + 6.4)] === "1";
         const pal = (A) => raPalette({ offHome: true, offT: { id: "t" + A, abbr: A, color: "#444444", alt: "#999999" }, defT: { id: "u", abbr: "ZZZ", color: "#777777", alt: "#bbbbbb" }, actors: [] }, { side: "o", role: "WR", idx: 3 });
         const data = (spr) => spr.getContext("2d").getImageData(0, 0, spr.width, spr.height).data;
         const decal = (pose, o, flip) => {
@@ -961,18 +986,21 @@ async function main() {
         };
         const want = (L, H, flip) => {
           if (!L || (L.side === "r" && flip)) return 0;
+          const at = L.at || RA_LOGO_BOX, pw = L.px[0].length;
           let n = 0;
-          for (let v = 0; v < 7; v++) for (let u = 0; u < 7; u++) {
-            if (TRIM.has(v + "," + u)) continue;
-            const ch = L.px[v][flip && L.text ? 6 - u : u];
+          for (let v = 0; v < L.px.length; v++) for (let u = 0; u < pw; u++) {
+            if (!onShell(at[0] + u + 0.5, at[1] - v - 0.5)) continue;
+            const ch = L.px[v][flip && L.text ? pw - 1 - u : u];
             if (ch !== "." && L.c[ch].toLowerCase() !== H.toLowerCase()) n++;
           }
           return n;
         };
+        // (A design whose corner is off the pixel grid would land between pixels.)
+        const onGrid = (L) => { const at = L.at || RA_LOGO_BOX; return Math.abs((at[0] + 6.9) - Math.round(at[0] + 6.9)) < 1e-9 && Math.abs((at[1] - 0.5) - Math.round(at[1] - 0.5)) < 1e-9; };
         const fig = raFig("stand", "p"), rows = [];
         for (const A of [...Object.keys(RA_KITS), "ZZZ"]) {
           const o = pal(A), L = RA_LOGO[A] || null;
-          const is7 = !L || (L.px.length === 7 && L.px.every((r) => r.length === 7 && [...r].every((ch) => ch === "." || L.c[ch])));
+          const is7 = !L || (onGrid(L) && L.px.every((r) => r.length === L.px[0].length && [...r].every((ch) => ch === "." || L.c[ch])));   // (well formed)
           for (const flip of [false, true]) {
             const d = decal("stand", o, flip);
             rows.push({ A, flip, got: d.length, want: is7 ? want(L, o.H, flip) : -1, is7, onShell: d.every(([x, y]) => fig.g[y * fig.W + (flip ? fig.W - 1 - x : x)] === "H") });
@@ -981,7 +1009,7 @@ async function main() {
         const right = rows.filter((r) => !r.flip && RA_LOGO[r.A]).sort((p, q) => p.want - q.want);
         out.logos = {
           teams: right.length, plain: rows.filter((r) => !r.flip && !RA_LOGO[r.A]).map((r) => r.A),
-          wrong: rows.filter((r) => r.got !== r.want || !r.is7).map((r) => `${r.A}${r.flip ? " facing left" : ""} ${r.got} px, design ${r.want}`),
+          wrong: rows.filter((r) => r.got !== r.want || !r.is7).map((r) => `${r.A}${r.flip ? " facing left" : ""} ${r.got} px, design ${r.want}${r.is7 ? "" : " (malformed or off the pixel grid)"}`),
           offShell: rows.filter((r) => !r.onShell).map((r) => r.A + (r.flip ? " facing left" : "")),
           smallest: right[0].want, smallestAt: right[0].A, pix: rows.filter((r) => !r.flip).reduce((s, r) => s + r.got, 0),
           pit: [rows.find((r) => r.A === "PIT" && !r.flip).got, rows.find((r) => r.A === "PIT" && r.flip).got],
@@ -1044,7 +1072,9 @@ async function main() {
       `after the whistle the men standing around breathe (${pl.idle.breathing} seen in both frames) and some stand hands on hips (${pl.idle.hips})`]);
     pchk(() => [pl.names.n > 10000 && pl.names.missing.length === 0,
       `every frame drawn over the game's 184 plays is a real frame, none falling back to standing (${pl.names.n} checked${pl.names.missing.length ? ", missing " + pl.names.missing.join(", ") : ""})`]);
-    pchk(() => [pl.shadow.ground === 19 && pl.shadow.up < pl.shadow.ground && pl.shadow.lying > pl.shadow.ground,
+    // RESTAGED 2026-09-30 (players 20% bigger): the shadow is as wide as the man, 2 × round(9 × 1.2) + 1
+    // = 23 px on the ground where it was 2 × 9 + 1 = 19.
+    pchk(() => [pl.shadow.ground === 23 && pl.shadow.up < pl.shadow.ground && pl.shadow.lying > pl.shadow.ground,
       `each man's shadow is a small ellipse under his feet: ${pl.shadow.ground} px across on the ground, ${pl.shadow.up} px when he is 40 px up, ${pl.shadow.lying} px under a man lying down`]);
     // RESTAGED 2026-09-29 (user, after seeing the white masks: "Lets go with light Grey face masks"): this
     // asserted white, relative luminance at least 0.85 (the white was 0.90). The mask is now one light
@@ -1055,11 +1085,13 @@ async function main() {
       `a cage you can read on an upright helmet: a front bar ${pl.helmet.front} px tall standing in front of the whole face, a dark gap between it and the eye (${pl.helmet.gap}), ${pl.helmet.bars} bars reaching back from it, the brow's shadow over the eye ("${pl.helmet.browOverEye}")`]);
     pchk(() => [pl.helmet.fewest >= 5,
       `the facemask shows in every one of the frames, arms up and lying down included (at least ${pl.helmet.fewest} mask pixels, ${pl.helmet.fewestAt})`]);
+    pchk(() => [pl.fit.tight >= 1,
+      `nothing cut off: every frame's ink, outline included, keeps at least a pixel clear of its grid's edges (closest ${pl.fit.tight} px: ${pl.fit.at})`]);
     // Helmet logos: what each one should draw is worked out from its design in the probe above.
     pchk(() => [pl.logos.teams === 31 && pl.logos.plain.join() === "CLE,ZZZ" && pl.logos.smallest >= 10,
       `a logo on every team's helmet but the Browns', whose helmet has none, and none for a team with no art (ZZZ): ${pl.logos.teams} logos, the smallest ${pl.logos.smallest} px (${pl.logos.smallestAt}); plain: ${pl.logos.plain.join(", ")}`]);
     pchk(() => [pl.logos.wrong.length === 0 && pl.logos.pix >= 31 * 10,
-      `every logo draws exactly the pixels its 7-by-7 design puts on the shell, less the five cells the shell's curve trims, facing right and facing left (${pl.logos.pix} px across the standing helmets; wrong: ${pl.logos.wrong.join("; ") || "none"})`]);
+      `every logo draws exactly the pixels its design puts on the shell at its own place on the helmet, facing right and facing left (${pl.logos.pix} px across the standing helmets; wrong: ${pl.logos.wrong.join("; ") || "none"})`]);
     pchk(() => [pl.logos.offShell.length === 0,
       `a logo paints only the helmet's shell, never the face, the mask, the outline or the jersey (${pl.logos.offShell.join(", ") || "none off the shell"})`]);
     pchk(() => [pl.logos.pit[0] > 0 && pl.logos.pit[1] === 0 && pl.logoTurn.n.every((n) => n === 10) && pl.logoTurn.textReads && !pl.logoTurn.textTurned && pl.logoTurn.markTurns && !pl.logoTurn.markSame,
