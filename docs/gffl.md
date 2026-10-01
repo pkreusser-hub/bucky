@@ -10314,3 +10314,11 @@ RESTAGED, reasons at the checks:
 - TB4 and TB6: column lists.
 
 **VERIFY:**
+- `--only UH1,UH2,UH3,UH4,UH5,UH6,UH7,TB` **109/109**.
+- Bite (`lg-core.js`, `lg-ui.js`, `league.html` at HEAD, new suite kept, same `--only`): **80 pass /
+  29 fail**. Every failure is a new or restaged check. UH1's opponent and LW checks fail at HEAD
+  only as collateral: the old board cannot read the new input shape. App files restored, hashes
+  identical.
+- Full battery: **4139 pass / 12 fail**. The 12 are the pre-existing ones from the 2026-09-30
+  entry: the fallback-font width checks (AE, RS, SU, TT) and I2's `%START` header. None is a power
+  check.
