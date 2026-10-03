@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260930c">
+<meta name="gffl-v" content="20261001a">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -1389,6 +1389,8 @@
   .pwtbl th.pwcat[data-pos="RB"] { color:var(--pos-RB); }
   .pwtbl th.pwcat[data-pos="WR"] { color:var(--pos-WR); }
   .pwtbl th.pwcat[data-pos="TE"] { color:var(--pos-TE); }
+  .pwtbl th.pwcat[data-pos="K"] { color:var(--pos-K); }
+  .pwtbl th.pwcat[data-pos="DST"] { color:var(--pos-DST); }
   .powercard .pwfoot { margin:8px 0 0; }
 
   /* S2: the draft-day card, first on the league home while the draft is still ahead. Centered,
@@ -2329,9 +2331,16 @@
        still fit at 1024px without it, so there is no reason to spend the one place in this app
        where most people meet most teams. */
     .standtbl .tname { font-size:13px; }
-    /* Power rankings: same MAIN width as standings — twelve columns, no pan, name not sticky. */
+    /* Power rankings: same MAIN width as standings — twelve columns, no pan, name not sticky.
+       2026-10-01: thirteen on This week, fourteen on Rest of season (K and DST joined). At
+       1024px the 5px side padding ran Rest of season 46px past the card; 3px pays for it. */
     .powercard .panner { overflow:visible; }
     .pwtbl { min-width:0; width:100%; }
+    .pwtbl th, .pwtbl td { padding-left:3px; padding-right:3px; }
+    /* …and the team name may wrap to a second line instead of holding the whole table to its
+       one-line width (218px for the longest name at 1024px, 13px short). It still sits on one
+       line wherever the card has the room, 1440px included. */
+    .pwtbl .pwname { white-space:normal; overflow-wrap:anywhere; }
     .pwtbl th:nth-child(2), .pwtbl td.pwteamcell { position:static; box-shadow:none; }
   }
   @media (min-width:1360px) {
@@ -2475,9 +2484,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260930c"></script>
-  <script src="assets/league/lg-data.js?v=20260930c"></script>
-  <script src="assets/league/lg-ui.js?v=20260930c"></script>
+  <script src="assets/league/lg-core.js?v=20261001a"></script>
+  <script src="assets/league/lg-data.js?v=20261001a"></script>
+  <script src="assets/league/lg-ui.js?v=20261001a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

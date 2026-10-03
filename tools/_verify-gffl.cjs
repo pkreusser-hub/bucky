@@ -24449,8 +24449,9 @@ async function openDetails(page, id) {
     ok(card.board === "week" && Array.isArray(card.tabs) && card.tabs.join("|") === "week:on|ros",
       "the card opens on This week, with a Rest of season tab beside it (" + (card.tabs || []).join("|") + ")");
     // RESTAGED 2026-09-23: This week gains Proj / Opp / Win% between Score and LW.
-    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN" && card.blurbs === 0,
-      "the columns are Team, Score, Proj, Opp, Win%, last week, and the five rooms — no blurb column (" + (card.heads || []).join("|") + ")");
+    // RESTAGED 2026-10-01: This week ranks the best lineup — Proj becomes Best, BN leaves, K / DST join.
+    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|Best|Opp|Win%|LW|QB|RB|WR|TE|K|DST" && card.blurbs === 0,
+      "the columns are Team, Score, Best, Opp, Win%, last week, and the six positions — no blurb column (" + (card.heads || []).join("|") + ")");
     ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows.every((r, i) => r.rank === String(i + 1) && r.lw === "–" && r.move === "none" && String(r.locker) === String(r.team)),
       "week 1: ranks 1..8 in order, last-week is a dash, each name opens that locker");
     // RESTAGED 2026-09-23: the footer no longer credits Grok or promises a Tuesday re-rank.
@@ -24504,8 +24505,9 @@ async function openDetails(page, id) {
       };
     }) || {};
     // RESTAGED 2026-09-23: the same twelve columns as the phone's This week.
-    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN" && dkw.blurbs === 0,
-      "…desktop paints the same columns (Score, Proj, Opp, Win% included), still no blurb (" + (dkw.heads || []).join("|") + ")");
+    // RESTAGED 2026-10-01: still the phone's columns, which are now Best and the six positions.
+    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|Score|Best|Opp|Win%|LW|QB|RB|WR|TE|K|DST" && dkw.blurbs === 0,
+      "…desktop paints the same columns (Score, Best, Opp, Win% included), still no blurb (" + (dkw.heads || []).join("|") + ")");
     ok(dkw.board === "week" && Array.isArray(dkw.tabs) && dkw.tabs.join("|") === "week:on|ros",
       "…and the same two tabs, opening on This week (" + (dkw.tabs || []).join("|") + ")");
     ok(dkw.sideways <= 1 && dkw.pans !== true, "…and MAIN does not pan or scroll sideways for them");
@@ -31394,31 +31396,42 @@ async function openDetails(page, id) {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await waitOr(page, ".mucard");
-    // Four teams. PF 300 / 250 / 250 / 200. Each starter's expected finish:
-    //   T1  QB 20 · RB 15 · WR 12 · TE 8 · FLEX(WR) 10 · K 7 · DST 6        = 78   bench 9,5,3,1 → top 3 = 17
-    //   T2  QB 18 · RB 20 · WR 14 · TE 6 · FLEX(RB) 11 · K 8 · DST 5        = 82   bench 4,4,9   → 17
-    //   T3  QB 25 · RB 10 · WR 16 · TE 9 · FLEX(TE) 4  · K 9 · DST 5        = 78   bench 12,2,2,2 → 16
-    //   T4  QB 15 · RB 12 · WR 18 · TE 5 · FLEX(WR) 8  · K 6 · DST null(0)  = 64   no bench → 0
-    // Rank by proj: T2 82 #1; T1 and T3 tie at 78 → season PF 300 > 250, T1 #2, T3 #3; T4 #4.
-    // Score = round(100·proj/82): T2 100, T1 95 (95.12), T3 95, T4 78 (78.05).
-    // Rooms (FLEX in his real position): QB 20/18/25/15 → T3 1, T1 2, T2 3, T4 4.
-    //   RB 15/31/10/12 → T2 1, T1 2, T4 3, T3 4.  WR 22/14/16/26 → T4 1, T1 2, T3 3, T2 4.
-    //   TE 8/6/13/5 → T3 1, T1 2, T2 3, T4 4.  BN 17/17/16/0 → T1 1 (PF 300 beats T2's 250), T2 2, T3 3, T4 4.
+    // RESTAGED 2026-10-01 (user: "the current week rating should reflect the ranking of the
+    // optimal lineup for that week at each position and then a total score"). The board used
+    // to sum the lineup each team SET and carry a BN room; it now ranks each team's BEST legal
+    // lineup over its non-IR roster, rooms QB/RB/WR/TE/K/DST, no bench room. The fixture now
+    // has bench men who belong in the lineup, so the old rule and the new one disagree.
+    // Rules QB 1 · RB 1 · WR 1 · TE 1 · FLEX 1 · K 1 · DST 1. PF 300 / 250 / 250 / 200.
+    //   T1  set QB 20 · RB 15 · WR 12 · TE 8 · FLEX(WR) 10 · K 7 · DST 6 = 78; bench RB 14,5,3,1
+    //       best: FLEX goes to the bench RB 14 → 20+15+12+8+14+7+6 = 82
+    //   T2  set QB 18 · RB 20 · WR 14 · TE 6 · FLEX(RB) 11 · K 8 · DST 5 = 82; bench WR 4,4,9 → best 82
+    //   T3  set QB 25 · RB 10 · WR 16 · TE 9 · FLEX(TE) 4 · K 9 · DST 5 = 78; bench WR 12, QB 2,2,2
+    //       best: FLEX goes to the bench WR 12 → 25+10+16+9+12+9+5 = 86
+    //   T4  set QB 15 · RB 12 · WR 18 · TE 5 · FLEX(WR) 8 · K 6 · DST null(0) = 64; an IR QB at 40
+    //       is left out (89 if he counted) → best 64
+    // Rank by best: T3 86 #1; T1 and T2 tie at 82 → PF 300 > 250, T1 #2, T2 #3; T4 #4.
+    // Score = round(100·best/86): T3 100, T1 95 (95.35), T2 95, T4 74 (74.42).
+    // Rooms off the best lineup (FLEX in his real position):
+    //   QB 20/18/25/15 → T1 2, T2 3, T3 1, T4 4.   RB 29/31/10/12 → 2,1,4,3.
+    //   WR 12/14/28/26 → 4,3,1,2.   TE 8/6/9/5 → 2,3,1,4.   K 7/8/9/6 → 3,2,1,4.
+    //   DST 6/5/5/0 → T1 1, T2 and T3 tie at 5 with the same PF → lower id, T2 2, T3 3; T4 4.
     // Last week's actual points 100 / 120 / 90 / 120 → T2 and T4 tie at 120, PF 250 > 200:
-    //   T2 1, T4 2, T1 3, T3 4. Against today: T2 1→1 same, T1 3→2 up, T3 4→3 up, T4 2→4 down.
+    //   T2 1, T4 2, T1 3, T3 4.
     // Pairs [[1,2]] only: T1 opp T2, T2 opp T1, T3 and T4 BYE (Win% null). No pairs at all → opp null.
     const r = await evalOr(page, () => {
       const LG = window.__GFFL__.LG;
-      const P = { a1: 20, a2: 15, a3: 12, a4: 8, a5: 10, a6: 7, a7: 6, ab1: 9, ab2: 5, ab3: 3, ab4: 1,
+      const P = { a1: 20, a2: 15, a3: 12, a4: 8, a5: 10, a6: 7, a7: 6, ab1: 14, ab2: 5, ab3: 3, ab4: 1,
         b1: 18, b2: 20, b3: 14, b4: 6, b5: 11, b6: 8, b7: 5, bb1: 4, bb2: 4, bb3: 9,
         c1: 25, c2: 10, c3: 16, c4: 9, c5: 4, c6: 9, c7: 5, cb1: 12, cb2: 2, cb3: 2, cb4: 2,
-        d1: 15, d2: 12, d3: 18, d4: 5, d5: 8, d6: 6, d7: null };
-      const lineup = (x, flex) => [["1", "QB"], ["2", "RB"], ["3", "WR"], ["4", "TE"], ["5", flex], ["6", "K"], ["7", "DST"]].map(([i, pos]) => ({ key: x + i, pos }));
+        d1: 15, d2: 12, d3: 18, d4: 5, d5: 8, d6: 6, d7: null, dir: 40 };
+      const lineup = (x, flex) => [["1", "QB", "QB"], ["2", "RB", "RB"], ["3", "WR", "WR"], ["4", "TE", "TE"], ["5", flex, "FLEX"], ["6", "K", "K"], ["7", "DST", "DST"]]
+        .map(([i, pos, slot]) => ({ key: x + i, pos, slot }));
+      const bn = (keys, pos) => keys.map((key) => ({ key, pos, slot: "BENCH" }));
       const inp = {
         teams: [{ id: 1, pf: 300 }, { id: 2, pf: 250 }, { id: 3, pf: 250 }, { id: 4, pf: 200 }],
-        starters: { 1: lineup("a", "WR"), 2: lineup("b", "RB"), 3: lineup("c", "TE"), 4: lineup("d", "WR") },
-        bench: { 1: ["ab1", "ab2", "ab3", "ab4"].map((key) => ({ key, pos: "RB" })), 2: ["bb1", "bb2", "bb3"].map((key) => ({ key, pos: "WR" })),
-          3: ["cb1", "cb2", "cb3", "cb4"].map((key) => ({ key, pos: "QB" })), 4: [] },
+        active: { 1: [...lineup("a", "WR"), ...bn(["ab1", "ab2", "ab3", "ab4"], "RB")], 2: [...lineup("b", "RB"), ...bn(["bb1", "bb2", "bb3"], "WR")],
+          3: [...lineup("c", "TE"), ...bn(["cb1"], "WR"), ...bn(["cb2", "cb3", "cb4"], "QB")], 4: [...lineup("d", "WR"), { key: "dir", pos: "QB", slot: "IR" }] },
+        rules: { QB: 1, RB: 1, WR: 1, TE: 1, FLEX: 1, K: 1, DST: 1 },
         projOf: (k) => P[k],
         pairs: [[1, 2]],
         winOf: (id, o) => (id === 1 && o === 2 ? 0.4 : id === 2 && o === 1 ? 0.6 : null),
@@ -31428,23 +31441,28 @@ async function openDetails(page, id) {
       const rows = LG.powerWeekBoard(inp);
       const none = LG.powerWeekBoard({ ...inp, pairs: [], lastRanks: null });
       return {
-        rows: rows.map((x) => ({ id: x.teamId, rank: x.rank, score: x.score, proj: x.proj, opp: x.opp, win: x.win, cats: x.cats, lw: x.lw })),
+        rows: rows.map((x) => ({ id: x.teamId, rank: x.rank, score: x.score, best: x.best, opp: x.opp, win: x.win, cats: x.cats, lw: x.lw,
+          flex: (x.picks.find((e) => e.slot === "FLEX") || {}).key, picks: x.picks.length })),
+        weekCats: LG.POWER_WEEK_CATS,
         noneOpp: none.map((x) => x.opp), noneLw: none.map((x) => x.lw),
         week1: LG.powerLastWeekRanks(null, () => 0),
         voidDoc: LG.powerLastWeekRanks({ kind: "weekly", week: 1, matchups: [] }, () => 0),
       };
     }) || {};
     const by = {}; for (const x of r.rows || []) by[x.id] = x;
-    ok((r.rows || []).map((x) => x.id).join(",") === "2,1,3,4" && [2, 1, 3, 4].every((id, i) => by[id].rank === i + 1),
-      "UH1: ranked by the sum of the starters' expected finish, a 78–78 tie broken by season PF: T2, T1, T3, T4 (" + (r.rows || []).map((x) => x.id + "#" + x.rank).join(" ") + ")");
-    ok(by[1] && by[1].proj === 78 && by[2].proj === 82 && by[3].proj === 78 && by[4].proj === 64,
-      "…Proj is the plain sum, K / D/ST included, a null finish counting 0: 78 / 82 / 78 / 64");
-    ok(by[2] && by[2].score === 100 && by[1].score === 95 && by[3].score === 95 && by[4].score === 78,
-      "…Score = round(100 × proj / 82): 100 / 95 / 95 / 78 (" + [1, 2, 3, 4].map((id) => by[id] && by[id].score).join("/") + ")");
+    ok((r.rows || []).map((x) => x.id).join(",") === "3,1,2,4" && [3, 1, 2, 4].every((id, i) => by[id].rank === i + 1),
+      "UH1: ranked by each team's BEST lineup, an 82–82 tie broken by season PF: T3, T1, T2, T4 (" + (r.rows || []).map((x) => x.id + "#" + x.rank).join(" ") + ")");
+    ok(by[1] && by[1].best === 82 && by[2].best === 82 && by[3].best === 86 && by[4].best === 64,
+      "…Best is the optimal legal lineup, not the one set: T1 78 → 82 and T3 78 → 86 with a bench man at FLEX, T4's IR QB left out, a null finish counting 0 (" + [1, 2, 3, 4].map((id) => by[id] && by[id].best).join("/") + ")");
+    ok(by[1] && by[1].flex === "ab1" && by[3].flex === "cb1" && by[2].flex === "b5" && [1, 2, 3, 4].every((id) => by[id].picks === 7),
+      "…the FLEX it picks is the bench RB 14 for T1 and the bench WR 12 for T3; every lineup is seven players");
+    ok(by[3] && by[3].score === 100 && by[1].score === 95 && by[2].score === 95 && by[4].score === 74,
+      "…Score = round(100 × best / 86): 100 / 95 / 95 / 74 (" + [3, 1, 2, 4].map((id) => by[id] && by[id].score).join("/") + ")");
     const cat = (k) => [1, 2, 3, 4].map((id) => by[id] && by[id].cats[k]).join("");
-    ok(cat("QB") === "2314" && cat("RB") === "2143" && cat("WR") === "2431" && cat("TE") === "2314",
-      "…QB/RB/WR/TE rooms are each their own 1..4, a FLEX counted in his real position (T1..T4 QB " + cat("QB") + " RB " + cat("RB") + " WR " + cat("WR") + " TE " + cat("TE") + ")");
-    ok(cat("BN") === "1234", "…BN is the best three bench finishes (17 / 17 / 16 / 0), the 17–17 tie to the higher PF (" + cat("BN") + ")");
+    ok(cat("QB") === "2314" && cat("RB") === "2143" && cat("WR") === "4312" && cat("TE") === "2314" && cat("K") === "3214" && cat("DST") === "1234",
+      "…each position is its own 1..4 on the best lineup, a FLEX in his real position, DST's 5–5 tie to the lower id (QB " + cat("QB") + " RB " + cat("RB") + " WR " + cat("WR") + " TE " + cat("TE") + " K " + cat("K") + " DST " + cat("DST") + ")");
+    ok(by[1] && by[1].cats.BN === undefined && (r.weekCats || []).join(",") === "QB,RB,WR,TE,K,DST",
+      "…and This week has no bench room any more: the rooms are QB, RB, WR, TE, K, DST (" + (r.weekCats || []).join(",") + ")");
     ok(by[1] && by[1].opp === 2 && by[2].opp === 1 && by[3].opp === "BYE" && by[4].opp === "BYE" && by[1].win === 0.4 && by[2].win === 0.6 && by[3].win === null,
       "…Opp from the week's pairs, Win% from each team's own side, BYE for the unpaired (" + JSON.stringify([1, 2, 3, 4].map((id) => by[id] && [by[id].opp, by[id].win])) + ")");
     ok((r.noneOpp || []).length === 4 && r.noneOpp.every((o) => o === null), "…and with nobody scheduled at all, no opponent is invented (" + JSON.stringify(r.noneOpp) + ")");
@@ -31459,35 +31477,46 @@ async function openDetails(page, id) {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await waitOr(page, ".mucard");
+    // RESTAGED 2026-10-01 (user: "the rest of season should consider both starters and bench
+    // strength"). roster used to be the optimal lineup alone; it is now that lineup plus ¼ of the
+    // best three players outside it (LG.POWER_BENCH_WEIGHT), and every room counts its share of
+    // that bench. T2 gains a backup QB (q5, 10) so the bench visibly moves both the overall
+    // order (T2 passes T1 at g = 0) and a room (T2 passes T1 at QB). K / DST rooms join.
     // Roster rules for the fixture: QB 1, RB 1, WR 1, TE 1, FLEX 1 (no K / DST, to keep it short).
     // v = ½p + ½a with both; Out (p 0 / null) → a; rookie (no a) → p; neither → 0.
     //   T1  Q QB 20/16 → 18 · R1 RB 10/14 → 12 · R2 RB OUT 0/13 → 13 · W1 WR rookie 12/— → 12
     //       T TE 6/8 → 7 · W2 WR on IR 30/30 (EXCLUDED) · R3 RB bench —/— → 0
-    //       lineup QB 18 + RB R2 13 + WR 12 + TE 7 + FLEX R1 12 = 62. Rooms QB 18, RB 25, WR 12, TE 7; BN 0.
+    //       lineup QB 18 + RB R2 13 + WR 12 + TE 7 + FLEX R1 12 = 62. Bench R3 0 → roster 62.
+    //       Rooms QB 18, RB 25, WR 12, TE 7, K 0, DST 0; BN 0.
     //       (With the IR man counted the lineup would read 80: W2 30 in the WR slot, W1 12 at FLEX.)
     //   T2  QB 15/17 → 16 · RB 16/12 → 14 · WR 14/16 → 15 · WR 9/11 → 10 · TE 5/5 → 5
-    //       bench TE 4/6 → 5 · bench RB rookie 3/— → 3
-    //       lineup 16 + 14 + 15 + 5 + FLEX WR 10 = 60. Rooms QB 16, RB 14, WR 25, TE 5; BN 5 + 3 = 8.
+    //       bench QB q5 10/10 → 10 · TE 4/6 → 5 · RB rookie 3/— → 3 = 18
+    //       lineup 16 + 14 + 15 + 5 + FLEX WR 10 = 60; roster 60 + ¼·18 = 64.5.
+    //       Rooms QB 16 + 2.5 = 18.5, RB 14 + .75 = 14.75, WR 25, TE 5 + 1.25 = 6.25 (sum 64.5); BN 18.
     //   T3  QB 22/20 → 21 · RB 18/18 → 18 · WR 11/9 → 10 · TE 9/11 → 10 · RB 7/9 → 8
-    //       bench WR 6 · QB 10 · RB 2 · WR 1
-    //       lineup 21 + 18 + 10 + 10 + FLEX RB 8 = 67. Rooms QB 21, RB 26, WR 10, TE 10; BN 10 + 6 + 2 = 18.
-    // g = 0: wR = 3/3 = 1, rating = roster 62 / 60 / 67 → T3 #1 100, T1 #2 93 (92.54), T2 #3 90 (89.55).
+    //       bench WR 6 · QB 10 · RB 2 · WR 1 → best three 10 + 6 + 2 = 18 (WR 1 is the fourth, left out)
+    //       lineup 21 + 18 + 10 + 10 + FLEX RB 8 = 67; roster 67 + 4.5 = 71.5.
+    //       Rooms QB 21 + 2.5 = 23.5, RB 26 + .5 = 26.5, WR 10 + 1.5 = 11.5, TE 10 (sum 71.5); BN 18.
+    // g = 0: wR = 3/3 = 1, rating = roster 62 / 64.5 / 71.5 → T3 #1 100, T2 #2 90 (90.21), T1 #3 87 (86.71).
+    //   (Starters alone it was T1 62 over T2 60: the backup QB and the bench behind him flip them.)
     // g = 3 (PF 330 / 360 / 270, W-L 2-1, 3-0, 1-1-1): wR = 3/6 = 0.5; results 110 / 120 / 90.
-    //   rating T1 31 + 55 = 86.0 · T2 30 + 60 = 90.0 · T3 33.5 + 45 = 78.5
-    //   → T2 #1 100, T1 #2 96 (95.56), T3 #3 87 (87.22).
-    // Rooms by v: QB T3 1, T1 2, T2 3 · RB T3 1, T1 2, T2 3 · WR T2 1, T1 2, T3 3 · TE T3 1, T1 2, T2 3 · BN T3 1, T2 2, T1 3.
+    //   rating T1 31 + 55 = 86.0 · T2 32.25 + 60 = 92.25 · T3 35.75 + 45 = 80.75
+    //   → T2 #1 100, T1 #2 93 (93.22), T3 #3 88 (87.53).
+    // Rooms: QB 18 / 18.5 / 23.5 → T3 1, T2 2, T1 3 (starters alone T1 was 2nd) · RB 25 / 14.75 / 26.5 → 2,3,1
+    //   · WR 12 / 25 / 11.5 → 2,1,3 · TE 7 / 6.25 / 10 → 2,3,1 · K and DST all 0 → by PF 360 > 330 > 270: 2,1,3
+    //   · BN 0 / 18 / 18 → the 18–18 tie to PF 360 > 270: T2 1, T3 2, T1 3.
     // LW from a seeded snapshot {1: 3, 2: 1, 3: 2}: T2 1→1 same, T1 3→2 up, T3 2→3 down.
     const r = await evalOr(page, () => {
       const LG = window.__GFFL__.LG;
       const V = {
         q1: [20, 16], r1: [10, 14], r2: [0, 13], w1: [12, null], t1: [6, 8], w2: [30, 30], r3: [null, null],
-        q2: [15, 17], r4: [16, 12], w3: [14, 16], w4: [9, 11], t2: [5, 5], t3: [4, 6], r5: [3, null],
+        q2: [15, 17], r4: [16, 12], w3: [14, 16], w4: [9, 11], t2: [5, 5], t3: [4, 6], r5: [3, null], q5: [10, 10],
         q3: [22, 20], r6: [18, 18], w5: [11, 9], t4: [9, 11], r7: [7, 9], w6: [6, 6], q4: [10, 10], r8: [2, 2], w7: [1, 1],
       };
       const pl = (key, pos, slot) => ({ key, pos, slot: slot || pos });
       const active = {
         1: [pl("q1", "QB"), pl("r1", "RB"), pl("r2", "RB", "BENCH"), pl("w1", "WR"), pl("t1", "TE"), pl("w2", "WR", "IR"), pl("r3", "RB", "BENCH")],
-        2: [pl("q2", "QB"), pl("r4", "RB"), pl("w3", "WR"), pl("w4", "WR", "FLEX"), pl("t2", "TE"), pl("t3", "TE", "BENCH"), pl("r5", "RB", "BENCH")],
+        2: [pl("q2", "QB"), pl("r4", "RB"), pl("w3", "WR"), pl("w4", "WR", "FLEX"), pl("t2", "TE"), pl("t3", "TE", "BENCH"), pl("r5", "RB", "BENCH"), pl("q5", "QB", "BENCH")],
         3: [pl("q3", "QB"), pl("r6", "RB"), pl("w5", "WR"), pl("t4", "TE"), pl("r7", "RB", "FLEX"), pl("w6", "WR", "BENCH"), pl("q4", "QB", "BENCH"), pl("r8", "RB", "BENCH"), pl("w7", "WR", "BENCH")],
       };
       const rules = { QB: 1, RB: 1, WR: 1, TE: 1, FLEX: 1, DST: 0, K: 0 };
@@ -31500,8 +31529,9 @@ async function openDetails(page, id) {
       // fzOptimalTotal always did); handed T1 with the IR man it reads 80.
       const irCounted = LG.optimalLineup(active[1], valueOf, rules).total;
       const avg = LG.seasonAverages([new Map([["k1", 10], [3915511, 12]]), null, new Map([["k1", 20]])]);
-      const pack = (b) => ({ g: b.g, wR: b.wR, rows: b.rows.map((x) => ({ id: x.teamId, rank: x.rank, score: x.score, rating: x.rating, roster: x.roster, results: x.results, rec: x.rec, po: x.po, cats: x.cats, lw: x.lw })) });
-      return { vals, g0: pack(g0), g3: pack(g3), irCounted, avgK1: avg.get("k1"), avgNum: avg.get("3915511"),
+      const pack = (b) => ({ g: b.g, wR: b.wR, rows: b.rows.map((x) => ({ id: x.teamId, rank: x.rank, score: x.score, rating: x.rating, roster: x.roster,
+        starters: x.starters, bench: x.bench, rooms: x.rooms, results: x.results, rec: x.rec, po: x.po, cats: x.cats, lw: x.lw })) });
+      return { vals, bw: LG.POWER_BENCH_WEIGHT, rosCats: LG.POWER_ROS_CATS, g0: pack(g0), g3: pack(g3), irCounted, avgK1: avg.get("k1"), avgNum: avg.get("3915511"),
         odd: [LG.rosValue(-1, 5), LG.rosValue(null, null), LG.rosValue("x", 4), LG.rosValue(8, NaN)] };
     }) || {};
     const v = r.vals || {};
@@ -31513,20 +31543,27 @@ async function openDetails(page, id) {
     ok(r.avgK1 === 15 && r.avgNum === 12, "LG.seasonAverages skips a week with no line (and an unanswered week), keys as strings: (10+20)/2 = 15, espn id 12");
     const g0 = r.g0 || { rows: [] }, g3 = r.g3 || { rows: [] };
     const b0 = {}; for (const x of g0.rows) b0[x.id] = x;
-    ok(b0[1] && b0[1].roster === 62 && r.irCounted === 80, "T1's roster is its optimal legal lineup with the IR man left out, 62 (the same solver handed him reads 80)");
+    ok(b0[1] && b0[1].starters === 62 && r.irCounted === 80, "T1's starters are its optimal legal lineup with the IR man left out, 62 (the same solver handed him reads 80)");
     const b3 = {}; for (const x of g3.rows) b3[x.id] = x;
-    ok(g0.g === 0 && g0.wR === 1 && b0[1] && b0[1].roster === 62 && b0[2].roster === 60 && b0[3].roster === 67 && b0[1].rating === 62,
-      "g = 0: wR = 1, the rating IS the roster — 62 / 60 / 67");
-    ok(g0.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") === "3:1:100 1:2:93 2:3:90",
-      "…T3 #1 100, T1 #2 93, T2 #3 90 (" + g0.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") + ")");
+    ok(r.bw === 0.25 && b0[2] && b0[2].starters === 60 && b0[2].bench === 18 && b0[3].starters === 67 && b0[3].bench === 18 && b0[1].bench === 0,
+      "roster = starters + ¼ × the best three outside the lineup: T2 60 + ¼·18, T3 67 + ¼·18 (WR 1, the fourth, left out), T1 62 + 0");
+    ok(g0.g === 0 && g0.wR === 1 && b0[1] && b0[1].roster === 62 && b0[2].roster === 64.5 && b0[3].roster === 71.5 && b0[2].rating === 64.5,
+      "g = 0: wR = 1, the rating IS the roster — 62 / 64.5 / 71.5");
+    ok(g0.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") === "3:1:100 2:2:90 1:3:87",
+      "…T3 #1 100, T2 #2 90, T1 #3 87 — T2's bench lifts it past T1, whose starters alone are 2 better (" + g0.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") + ")");
+    const roomSum = (x) => ["QB", "RB", "WR", "TE", "K", "DST"].reduce((s, k) => s + x.rooms[k], 0);
+    ok(b0[2] && b0[2].rooms.QB === 18.5 && b0[2].rooms.RB === 14.75 && b0[2].rooms.TE === 6.25 && b0[3].rooms.WR === 11.5
+      && [1, 2, 3].every((id) => Math.abs(roomSum(b0[id]) - b0[id].roster) < 1e-9),
+      "…each room is its starters plus its share of that bench (T2 QB 16 + 2.5, RB 14 + .75, TE 5 + 1.25; T3 WR 10 + 1.5), and the six rooms add up to roster");
     ok(g3.g === 3 && g3.wR === 0.5 && b3[1] && b3[1].results === 110 && b3[2].results === 120 && b3[3].results === 90,
       "g = 3: wR = 3/6 = 0.5, results = PF per game 110 / 120 / 90");
-    ok(b3[1] && b3[1].rating === 86 && b3[2].rating === 90 && b3[3].rating === 78.5
-      && g3.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") === "2:1:100 1:2:96 3:3:87",
-      "…rating ½·roster + ½·results = 86 / 90 / 78.5 → T2 #1 100, T1 #2 96, T3 #3 87 (" + g3.rows.map((x) => x.id + ":" + x.rating + ":" + x.score).join(" ") + ")");
+    ok(b3[1] && b3[1].rating === 86 && b3[2].rating === 92.25 && b3[3].rating === 80.75
+      && g3.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") === "2:1:100 1:2:93 3:3:88",
+      "…rating ½·roster + ½·results = 86 / 92.25 / 80.75 → T2 #1 100, T1 #2 93, T3 #3 88 (" + g3.rows.map((x) => x.id + ":" + x.rating + ":" + x.score).join(" ") + ")");
     const c3 = (k) => [1, 2, 3].map((id) => b3[id] && b3[id].cats[k]).join("");
-    ok(c3("QB") === "231" && c3("RB") === "231" && c3("WR") === "213" && c3("TE") === "231" && c3("BN") === "321",
-      "…rooms by value off the optimal lineup (FLEX in his real position), BN the next best three (QB " + c3("QB") + " RB " + c3("RB") + " WR " + c3("WR") + " TE " + c3("TE") + " BN " + c3("BN") + ")");
+    ok(c3("QB") === "321" && c3("RB") === "231" && c3("WR") === "213" && c3("TE") === "231" && c3("K") === "213" && c3("DST") === "213" && c3("BN") === "312",
+      "…rooms count starters and bench: T2's backup QB puts it 2nd at QB over T1's better starter; K / D/ST all 0 fall to PF; BN's 18–18 tie to PF (QB " + c3("QB") + " RB " + c3("RB") + " WR " + c3("WR") + " TE " + c3("TE") + " K " + c3("K") + " DST " + c3("DST") + " BN " + c3("BN") + ")");
+    ok((r.rosCats || []).join(",") === "QB,RB,WR,TE,K,DST,BN", "…Rest of season's rooms are QB, RB, WR, TE, K, DST and BN (" + (r.rosCats || []).join(",") + ")");
     ok(b3[1] && b3[1].rec === "2-1" && b3[2].rec === "3-0" && b3[3].rec === "1-1-1" && b3[1].po === 61 && b3[3].po === 0,
       "…Rec W-L with a tie only when there is one; PO% passed straight through, a real 0 kept");
     ok(b3[1] && b3[1].lw === 3 && b3[2].lw === 1 && b3[3].lw === 2 && g0.rows.every((x) => x.lw === null),
@@ -31538,19 +31575,23 @@ async function openDetails(page, id) {
     const uhRestore = uhNoAdjuster();
     try {
     // Eight teams (seedAllFielded), a two-week schedule, week 1 finalized, the board on week 2.
-    // Each starter's expected finish (D.liveProj) is pinned to a table:
-    //   T1  Passer 20 · Rusher 15 · Second 12 · Receiver 14 · Two 9 · Tight 8 · Flexman(RB, FLEX) 10 · PHI 6 · Kicker 7 = 101
-    //       bench Backup 5 · Injured 0 · Healthy 4 → BN 9
-    //   T2  Rival 25 · Wideout 18 · DAL 5 = 48
-    //   T3..T8 fillers: slot i (0..10) finishes t + i → 11t + 55 = 88 / 99 / 110 / 121 / 132 / 143
-    //       QB t · RB (t+1)+(t+2)+(t+3)+FLEX(t+8) = 4t+14 · WR 3t+15 · TE t+7 · no bench
-    // Rank: T8 143, T7 132, T6 121, T5 110, T1 101, T4 99, T3 88, T2 48.
-    // Score round(100·x/143): 100, 92, 85, 77, 71, 69, 62, 34.
+    // RESTAGED 2026-10-01: the board ranks each team's BEST legal lineup (rooms QB..DST, no BN),
+    // not the lineup it set. Rules are the league's: QB 1, RB 3, WR 3, TE 1, FLEX 1, DST 1, K 1.
+    // Each player's expected finish (D.liveProj) is pinned to a table:
+    //   T1  set: Passer 20 · Rusher 15 · Second 12 · Receiver 14 · Two 9 · Tight 8 · Flexman(RB, FLEX) 10
+    //       · PHI 6 · Kicker 7 = 101, with the third WR slot EMPTY; bench Backup RB 5 · Injured WR 0 · Healthy WR 4
+    //       best: Healthy fills WR3 (4) and Backup takes FLEX (5) → 101 + 9 = 110
+    //       rooms QB 20 · RB 15+12+10+5 = 42 · WR 14+9+4 = 27 · TE 8 · K 7 · DST 6
+    //   T2  Rival 25 · Wideout 18 · DAL 5 = 48 (nothing else on the roster)
+    //   T3..T8 fillers: slot i (0..10) finishes t + i → 11t + 55 = 88 / 99 / 110 / 121 / 132 / 143,
+    //       best = set (every slot full, no bench). QB t · RB 4t+14 · WR 3t+15 · TE t+7 · DST t+9 · K t+10
+    // Season PF (week 1): T4 130, T2 120, T5 110, T6 110, T1 100, T8 95, T3 90, T7 80.
+    // Rank: T8 143, T7 132, T6 121, then T5 and T1 tie at 110 → PF 110 > 100, T5 4th, T1 5th; T4 99, T3 88, T2 48.
+    // Score round(100·x/143): 100, 92, 85, 77, 77, 69, 62, 34.
     // QB 20 / 25 / t → T2 1, T1 2, T8 3, T7 4, T6 5, T5 6, T4 7, T3 8.
-    // RB T1 15+12+10 = 37 sits between T6 38 and T5 34 → T8 1, T7 2, T6 3, T1 4, T5 5, T4 6, T3 7, T2 8.
-    // WR T1 23 below T3 24 → T8..T3 1..6, T1 7, T2 8.   TE T1 8 below T3 10 → T8..T3 1..6, T1 7, T2 8.
-    // BN: T1 9, everyone else 0 → by season PF (week 1: T4 130, T2 120, T5 110, T6 110, T8 95, T3 90, T7 80)
-    //   → T1 1, T4 2, T2 3, T5 4, T6 5, T8 6, T3 7, T7 8.
+    // RB T1 42 ties T7 42 → PF 100 > 80, T1 first: T8 1, T1 2, T7 3, T6 4, T5 5, T4 6, T3 7, T2 8.
+    // WR T1 27 ties T4 27 → PF 130 > 100, T4 first: T8 1, T7 2, T6 3, T5 4, T4 5, T1 6, T3 7, T2 8.
+    // TE / K / DST: T1 8 / 7 / 6 below every filler (T3's 10 / 13 / 12), T2 0 / 0 / 5 last → T8..T3 1..6, T1 7, T2 8.
     // LW = week 1's actual points (1v2 100–120, 3v4 90–130, 5v6 110–110, 7v8 80–95):
     //   T4 1, T2 2, T5 3 (110 tie, same PF, lower id), T6 4, T1 5, T8 6, T3 7, T7 8.
     //   Today vs LW: T8 6▲ · T7 8▲ · T6 4▲ · T5 3▼ · T1 5– · T4 1▼ · T3 7– · T2 2▼.
@@ -31597,32 +31638,34 @@ async function openDetails(page, id) {
         heads: [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()),
         rows: [...c.querySelectorAll(".pwrow")].map((r) => ({ team: Number(r.dataset.team), rank: txt(r, ".pwrank"), score: txt(r, ".pwscore"),
           proj: txt(r, ".pwproj"), opp: txt(r, ".pwopp"), win: txt(r, ".pwwin"), lw: txt(r, ".pwlw"), move: r.dataset.move,
-          cats: ["QB", "RB", "WR", "TE", "BN"].map((k) => txt(r, '.pwcat[data-pos="' + k + '"]')).join(",") })),
+          cats: ["QB", "RB", "WR", "TE", "K", "DST"].map((k) => txt(r, '.pwcat[data-pos="' + k + '"]')).join(","), bn: !!r.querySelector('.pwcat[data-pos="BN"]') })),
         tabs: [...c.querySelectorAll("#pwTabs [data-pw]")].map((b) => b.dataset.pw + (b.classList.contains("on") ? ":on" : "")),
         foot: txt(c, ".pwfoot"),
       };
     }) || {};
     const want = [
       // team, rank, score, proj, opp, win, lw, cats QB,RB,WR,TE,BN
-      [8, 1, 100, "143.0", "BYE", "—", "6▲", "3,1,1,1,6"],
-      [7, 2, 92, "132.0", "T5", "100%", "8▲", "4,2,2,2,8"],
-      [6, 3, 85, "121.0", "BYE", "—", "4▲", "5,3,3,3,5"],
-      [5, 4, 77, "110.0", "T7", "0%", "3▼", "6,5,4,4,4"],
-      [1, 5, 71, "101.0", "T3", "66%", "5–", "2,4,7,7,1"],
-      [4, 6, 69, "99.0", "T2", "97%", "1▼", "7,6,5,5,2"],
-      [3, 7, 62, "88.0", "T1", "34%", "7–", "8,7,6,6,7"],
-      [2, 8, 34, "48.0", "T4", "3%", "2▼", "1,8,8,8,3"],
+      [8, 1, 100, "143.0", "BYE", "—", "6▲", "3,1,1,1,1,1"],
+      [7, 2, 92, "132.0", "T5", "100%", "8▲", "4,3,2,2,2,2"],
+      [6, 3, 85, "121.0", "BYE", "—", "4▲", "5,4,3,3,3,3"],
+      [5, 4, 77, "110.0", "T7", "0%", "3▼", "6,5,4,4,4,4"],
+      [1, 5, 77, "110.0", "T3", "66%", "5–", "2,2,6,7,7,7"],
+      [4, 6, 69, "99.0", "T2", "97%", "1▼", "7,6,5,5,5,5"],
+      [3, 7, 62, "88.0", "T1", "34%", "7–", "8,7,7,6,6,6"],
+      [2, 8, 34, "48.0", "T4", "3%", "2▼", "1,8,8,8,8,8"],
     ];
     const got = (card.rows || []).map((r) => [r.team, Number(r.rank), Number(r.score), r.proj, r.opp, r.win, r.lw, r.cats]);
     ok(card.under === true && /^Powerrankings—week2$/.test(card.h2 || ""), "UH3: the card sits under Standings and names the week on the board (" + card.h2 + ")");
-    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN",
-      "…This week columns: rank, Team, Score, Proj, Opp, Win%, LW, then the five rooms (" + (card.heads || []).join("|") + ")");
+    // RESTAGED 2026-10-01: Proj (the lineup as set) is now Best (the optimal lineup); BN leaves
+    // This week and K / DST join, so every room of the total is on the row.
+    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|Best|Opp|Win%|LW|QB|RB|WR|TE|K|DST",
+      "…This week columns: rank, Team, Score, Best, Opp, Win%, LW, then the six positions, no BN (" + (card.heads || []).join("|") + ")");
     ok(got.length === 8 && got.every((g, i) => g[0] === want[i][0] && g[1] === want[i][1] && g[2] === want[i][2] && g[3] === want[i][3]),
-      "…rank, score and Proj match the hand count: T8 143 · T7 132 · T6 121 · T5 110 · T1 101 · T4 99 · T3 88 · T2 48 (" + got.map((g) => g[0] + ":" + g[2] + ":" + g[3]).join(" ") + ")");
+      "…rank, score and Best match the hand count: T8 143 · T7 132 · T6 121 · T5 110 · T1 110 (101 as set, +9 from the bench, PF breaks the tie) · T4 99 · T3 88 · T2 48 (" + got.map((g) => g[0] + ":" + g[2] + ":" + g[3]).join(" ") + ")");
     ok(got.length === 8 && got.every((g, i) => g[4] === want[i][4] && g[5] === want[i][5]),
-      "…Opp from week 2's schedule (BYE for the unpaired) and Win% = D.winProb from each side: 66/34, 3/97, 0/100 (" + got.map((g) => g[0] + ":" + g[4] + ":" + g[5]).join(" ") + ")");
-    ok(got.length === 8 && got.every((g, i) => g[7] === want[i][7]),
-      "…room ranks match, a FLEX in his real position and BN's zero-ties to season PF (" + got.map((g) => g[0] + "=" + g[7]).join(" ") + ")");
+      "…Opp from week 2's schedule (BYE for the unpaired) and Win% = D.winProb from each side AS SET (T1's 101, not its best 110): 66/34, 3/97, 0/100 (" + got.map((g) => g[0] + ":" + g[4] + ":" + g[5]).join(" ") + ")");
+    ok(got.length === 8 && got.every((g, i) => g[7] === want[i][7]) && (card.rows || []).every((x) => x.bn === false),
+      "…position ranks off the best lineup match, a FLEX in his real position, ties to season PF, and no BN cell (" + got.map((g) => g[0] + "=" + g[7]).join(" ") + ")");
     ok(got.length === 8 && got.every((g, i) => g[6] === want[i][6]),
       "…LW is week 1's actual-points rank with the arrow against today (" + got.map((g) => g[0] + ":" + g[6]).join(" ") + ")");
     ok((card.tabs || []).join("|") === "week:on|ros" && /matchuppage/.test(card.foot || "") && !/Grok/i.test(card.foot || ""),
@@ -31643,8 +31686,9 @@ async function openDetails(page, id) {
       out.back = document.getElementById("powerCard").dataset.board;
       return out;
     }) || {};
-    ok(ros.board === "ros" && (ros.heads || []).join("|") === "|Team|Score|Rating|Rec|PO%|LW|QB|RB|WR|TE|BN" && ros.rows === 8,
-      "…Rest of season swaps in its own columns: Rating, Rec, PO% (" + (ros.heads || []).join("|") + ")");
+    // RESTAGED 2026-10-01: K and DST join Rest of season's rooms; BN stays there.
+    ok(ros.board === "ros" && (ros.heads || []).join("|") === "|Team|Score|Rating|Rec|PO%|LW|QB|RB|WR|TE|K|DST|BN" && ros.rows === 8,
+      "…Rest of season swaps in its own columns: Rating, Rec, PO%, and the rooms with BN (" + (ros.heads || []).join("|") + ")");
     ok(ros.afterRepaint === "ros" && ros.back === "week", "…a live repaint keeps the tab the reader chose; tapping This week goes back");
     // Pan: the table is wider than the card, the page is not.
     const pan = await evalOr(page, () => {
@@ -31653,7 +31697,7 @@ async function openDetails(page, id) {
         pict: (document.getElementById("powerCard").textContent.match(/\p{Extended_Pictographic}/gu) || []).length };
     }) || {};
     ok(pan.pans === true && pan.sideways <= 1 && pan.pict === 0,
-      "…at 390px the twelve columns pan INSIDE the card, the page never scrolls sideways, no pictographs (" + JSON.stringify(pan) + ")");
+      "…at 390px the columns pan INSIDE the card, the page never scrolls sideways, no pictographs (" + JSON.stringify(pan) + ")");
     if (SHOTS) {
       fs.mkdirSync(SCRATCH, { recursive: true });
       const el = await page.$("#powerCard");
@@ -31679,22 +31723,38 @@ async function openDetails(page, id) {
     await waitOr(page, ".mucard");
     await waitLive(page);
     await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
+    // RESTAGED 2026-10-01: the card's number is now Best — the optimal lineup — so it equals the
+    // matchup header only when the team set its best lineup. What still holds, and is checked:
+    // every player is priced at the header's own per-player expected finish (D.liveProj), so
+    // Best is that number summed over the board's picks, and it is never below the header.
+    // (fullSeed's bench projects nothing, so here the two meet; UH3 pins a bench that lifts T1
+    // from 101 as set to a Best of 110.)
     const cellOf = (id) => evalOr(page, (id) => {
       const r = document.querySelector('#powerCard .pwrow[data-team="' + id + '"]');
       return r ? r.querySelector(".pwproj").textContent.trim() : null;
     }, id);
-    // The header's own expected finish, read off the real matchup page (1 is home, 2 away).
     const t1Card = await cellOf(1), t2Card = await cellOf(2);
+    const picked = await evalOr(page, () => {
+      const { LG, D, UI } = window.__GFFL__;
+      const out = {};
+      for (const id of [1, 2]) {
+        const row = UI._pwBoards.week.find((x) => x.teamId === id);
+        out[id] = LG.fmtPts(row.picks.reduce((s, e) => s + LG.n(D.liveProj(e.key)), 0));
+      }
+      return out;
+    }) || {};
     await evalOr(page, () => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.show("matchup"); });
     await waitOr(page, ".muhproj");
     const hdr = await evalOr(page, () => [...document.querySelectorAll(".muhproj")].map((e) => e.textContent.trim())) || [];
-    ok(t1Card && hdr.length === 2 && hdr[1] === t1Card && hdr[0] === t2Card,
-      "UH4: Proj on the card is the matchup header's expected finish, digit for digit (card " + t1Card + "/" + t2Card + ", header home " + hdr[1] + " away " + hdr[0] + ")");
+    ok(t1Card && t1Card === picked[1] && t2Card === picked[2],
+      "UH4: Best on the card is the matchup page's per-player expected finish summed over the best lineup, digit for digit (card " + t1Card + "/" + t2Card + ", picks " + picked[1] + "/" + picked[2] + ")");
+    ok(hdr.length === 2 && Number(t1Card) >= Number(hdr[1]) && Number(t2Card) >= Number(hdr[0]),
+      "…and never below the header's lineup as set (card " + t1Card + "/" + t2Card + ", header home " + hdr[1] + " away " + hdr[0] + ")");
     await evalOr(page, () => window.__GFFL__.UI.show("league"));
     await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
     // The live path: a starter's points move in the engine and the poll's own onUpdate fires.
     // P. Passer (PHI) in a game under way: liveProj = points + the unplayed share of his projection,
-    // so +7 points is exactly +7.0 on T1's Proj.
+    // so +7 points is exactly +7.0 on T1's Best (he is T1's only QB, so always in its best lineup).
     const live = await evalOr(page, async () => {
       const { D } = window.__GFFL__;
       const key = "3915511";
@@ -31868,8 +31928,46 @@ async function openDetails(page, id) {
       }) || {};
       ok(m.ids && m.ids.indexOf("power") === m.ids.indexOf("standings") + 1 && m.ids.indexOf("power") > 0,
         "UH7 " + vw.width + "px: 'power' still follows 'standings' in MAIN (" + (m.ids || []).join(",") + ")");
-      ok(m.heads === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN" && m.pans === false && m.over != null && m.over <= 0 && m.sideways <= 1,
-        "…twelve columns fit the MAIN card without a pan (" + JSON.stringify({ pans: m.pans, over: m.over, sideways: m.sideways }) + ")");
+      // RESTAGED 2026-10-01: This week is now Best + six positions (13 columns) and Rest of season
+      // carries K / DST / BN (14), so both tabs are measured, not only the one the card opens on.
+      ok(m.heads === "|Team|Score|Best|Opp|Win%|LW|QB|RB|WR|TE|K|DST" && m.pans === false && m.over != null && m.over <= 0 && m.sideways <= 1,
+        "…This week's thirteen columns fit the MAIN card without a pan (" + JSON.stringify({ pans: m.pans, over: m.over, sideways: m.sideways }) + ")");
+      const mr = await evalOr(page, async () => {
+        const b = document.querySelector('#powerCard [data-pw="ros"]');
+        if (b) b.click();
+        for (let i = 0; i < 60 && !document.querySelector("#powerCard .pwrating"); i++) await new Promise((x) => setTimeout(x, 50));
+        const c = document.getElementById("powerCard");
+        const p = c && c.querySelector(".panner");
+        const t = c && c.querySelector("table");
+        // Every cell's ink inside the card (Range), not just the table's box.
+        let inkOver = -999;
+        if (c) for (const td of c.querySelectorAll("th, td")) {
+          const rg = document.createRange(); rg.selectNodeContents(td);
+          const rr = rg.getBoundingClientRect();
+          if (rr.width) inkOver = Math.max(inkOver, Math.round(rr.right - c.getBoundingClientRect().right));
+        }
+        const out = { heads: c ? [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()).join("|") : "",
+          pans: !!(p && p.scrollWidth > p.clientWidth + 1), over: t && c ? Math.round(t.getBoundingClientRect().right - c.getBoundingClientRect().right) : null,
+          inkOver, sideways: document.documentElement.scrollWidth - window.innerWidth };
+        const w = document.querySelector('#powerCard [data-pw="week"]');
+        if (w) w.click();
+        return out;
+      }) || {};
+      ok(mr.heads === "|Team|Score|Rating|Rec|PO%|LW|QB|RB|WR|TE|K|DST|BN" && mr.pans === false && mr.over != null && mr.over <= 0 && mr.inkOver <= 0 && mr.sideways <= 1,
+        "…and Rest of season's fourteen fit too, every cell's ink inside the card (" + JSON.stringify(mr) + ")");
+      if (SHOTS) {
+        fs.mkdirSync(SCRATCH, { recursive: true });
+        for (const tab of ["week", "ros"]) {
+          await evalOr(page, async (tab) => {
+            const b = document.querySelector('#powerCard [data-pw="' + tab + '"]');
+            if (b) b.click();
+            for (let i = 0; i < 60 && tab === "ros" && !document.querySelector("#powerCard .pwrating"); i++) await new Promise((x) => setTimeout(x, 50));
+          }, tab);
+          const el = await page.$("#powerCard");
+          if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_" + tab + "_" + vw.width + ".png") });
+        }
+        await evalOr(page, () => { const b = document.querySelector('#powerCard [data-pw="week"]'); if (b) b.click(); });
+      }
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }

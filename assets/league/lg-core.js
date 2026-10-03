@@ -5609,8 +5609,19 @@
   //
   // ONE TIEBREAK everywhere — overall rank, every room rank, last week's rank: higher value,
   // then higher season points-for, then lower teamId. Returns {teamId: rank}.
-  LG.POWER_CATS = ["QB", "RB", "WR", "TE", "BN"];
+  // 2026-10-01 (user: "the current week rating should reflect the ranking of the optimal lineup
+  // for that week at each position and then a total score. The rest of season should consider
+  // both starters and bench strength"): This week has no bench column any more — it is the
+  // best legal lineup only, room by room, K and D/ST included so the rooms add up to the
+  // total. Rest of season keeps BN and also counts the bench inside each room and the rating.
+  LG.POWER_WEEK_CATS = ["QB", "RB", "WR", "TE", "K", "DST"];
+  LG.POWER_ROS_CATS = ["QB", "RB", "WR", "TE", "K", "DST", "BN"];
+  LG.POWER_CATS = LG.POWER_ROS_CATS;
   LG.POWER_BENCH_DEPTH = 3; // BN is the best three players NOT starting — depth, not the whole bench
+  // A bench player's rest-of-season points count at a quarter. A starter misses about one week
+  // in five (his bye plus the league's usual injury rate), and when he does, the man who comes
+  // in off the bench only beats the waiver wire by part of his score. A quarter is that, rounded.
+  LG.POWER_BENCH_WEIGHT = 0.25;
   LG.powerRankBy = function (ids, valOf, pfOf) {
     const order = [...ids].sort((a, b) => (LG.n(valOf(b)) - LG.n(valOf(a)))
       || (LG.n(pfOf(b)) - LG.n(pfOf(a))) || (Number(a) - Number(b)));
@@ -5621,18 +5632,17 @@
   // score = round(100 × value / best value in the league), floored at 0. A league whose best
   // value is 0 (nothing projected yet) scores everyone 0 rather than dividing by it.
   LG.powerScore = (v, max) => (max > 0 ? Math.max(0, Math.round((100 * LG.n(v)) / max)) : 0);
-  const sumTop = (vals, n) => [...vals].sort((a, b) => b - a).slice(0, n).reduce((s, v) => s + v, 0);
-  function roomsFrom(picks) {
-    const out = { QB: 0, RB: 0, WR: 0, TE: 0 };
-    // A FLEX counts in his REAL position; K and D/ST only feed the total.
-    for (const e of picks) if (out[e.pos] != null) out[e.pos] += LG.n(e.pts);
+  function roomsFrom(picks, w) {
+    const out = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DST: 0 };
+    // A FLEX counts in his REAL position.
+    for (const e of picks) if (out[e.pos] != null) out[e.pos] += (w == null ? 1 : w) * LG.n(e.pts);
     return out;
   }
-  // Rank each room 1..N on its own; returns {teamId: {QB, RB, WR, TE, BN}}.
-  function roomRanks(ids, rooms, pfOf) {
+  // Rank each room 1..N on its own; returns {teamId: {QB, RB, …}} for the board's own cats.
+  function roomRanks(ids, rooms, pfOf, cats) {
     const out = {};
     for (const id of ids) out[id] = {};
-    for (const k of LG.POWER_CATS) {
+    for (const k of cats) {
       const r = LG.powerRankBy(ids, (id) => rooms[id][k], pfOf);
       for (const id of ids) out[id][k] = r[id];
     }
@@ -5650,12 +5660,15 @@
     const ids = Object.keys(pts).map(Number);
     return ids.length ? LG.powerRankBy(ids, (id) => pts[id], pfOf || (() => 0)) : null;
   };
-  // THIS WEEK — live, recomputed on every paint. `projOf` is the matchup page's own per-player
-  // expected finish (live points + the unplayed share of the projection), so a team's Proj here
-  // is the number its matchup header shows.
-  //   in: { teams:[{id, pf}], starters:{id:[{key,pos}]}, bench:{id:[{key,pos}]}, projOf(key),
+  // THIS WEEK — live, recomputed on every paint. Since 2026-10-01 a team is ranked on its BEST
+  // legal lineup this week (LG.optimalLineup over the non-IR roster), not the lineup it set:
+  // the board is about what each roster can put up, and a lineup mistake shows on the matchup
+  // page, not here. `projOf` is the matchup page's own per-player expected finish (live points
+  // + the unplayed share of the projection), so a player whose game is over counts what he
+  // actually scored, wherever he sat. Win% stays the real game: the lineups as set.
+  //   in: { teams:[{id, pf}], active:{id:[{key,pos,slot}]}, rules (slot counts), projOf(key),
   //         pairs:[[h,a]], winOf(id, oppId) → 0..1 | null, lastRanks:{id: rank} | null }
-  //   out: rows sorted by rank — {teamId, rank, score, proj, opp, win, cats, rooms, lw}
+  //   out: rows sorted by rank — {teamId, rank, score, best, picks, opp, win, cats, rooms, lw}
   //   opp: the opponent's teamId, "BYE" when others play and this team does not, null when
   //   nobody is scheduled at all.
   LG.powerWeekBoard = function (inp) {
@@ -5665,16 +5678,17 @@
     for (const t of teams) pf[t.id] = LG.n(t.pf);
     const pfOf = (id) => pf[id];
     const projOf = (key) => LG.n(inp.projOf(key));
-    const proj = {}, rooms = {};
+    const best = {}, rooms = {}, picks = {};
     for (const id of ids) {
-      const picks = ((inp.starters || {})[id] || []).map((p) => ({ key: p.key, pos: p.pos, pts: projOf(p.key) }));
-      proj[id] = picks.reduce((s, e) => s + e.pts, 0);
-      const bn = ((inp.bench || {})[id] || []).map((p) => projOf(p.key));
-      rooms[id] = { ...roomsFrom(picks), BN: sumTop(bn, LG.POWER_BENCH_DEPTH) };
+      const active = ((inp.active || {})[id] || []).filter((p) => p && p.slot !== "IR");
+      const lu = LG.optimalLineup(active, projOf, inp.rules);
+      best[id] = lu.total;
+      picks[id] = lu.picks;
+      rooms[id] = roomsFrom(lu.picks);
     }
-    const max = Math.max(0, ...ids.map((id) => proj[id]));
-    const rank = LG.powerRankBy(ids, (id) => proj[id], pfOf);
-    const cats = roomRanks(ids, rooms, pfOf);
+    const max = Math.max(0, ...ids.map((id) => best[id]));
+    const rank = LG.powerRankBy(ids, (id) => best[id], pfOf);
+    const cats = roomRanks(ids, rooms, pfOf, LG.POWER_WEEK_CATS);
     const pairs = inp.pairs || [];
     const opp = {};
     for (const [h, a] of pairs) { opp[h] = a; opp[a] = h; }
@@ -5682,7 +5696,7 @@
       const o = opp[id] != null ? opp[id] : (pairs.length ? "BYE" : null);
       const w = typeof o === "number" && inp.winOf ? inp.winOf(id, o) : null;
       const last = inp.lastRanks && inp.lastRanks[id] != null ? inp.lastRanks[id] : null;
-      return { teamId: id, rank: rank[id], score: LG.powerScore(proj[id], max), proj: proj[id],
+      return { teamId: id, rank: rank[id], score: LG.powerScore(best[id], max), best: best[id], picks: picks[id],
         opp: o, win: w != null && Number.isFinite(w) ? w : null, cats: cats[id], rooms: rooms[id], lw: last };
     });
     return rows.sort((a, b) => a.rank - b.rank);
@@ -5715,14 +5729,17 @@
     sum.forEach((s, k) => out.set(k, s / n.get(k)));
     return out;
   };
-  // rating = wR·roster + (1 − wR)·results, wR = 3 / (3 + g). roster is the optimal LEGAL lineup
-  // of the ACTIVE roster (IR excluded) at rest-of-season values; results is points-for per
-  // finalized game; g is finalized games per team, league average. g = 0 is pure roster; three
-  // games in, the two weigh the same. A team with no game of its own yet falls back to roster.
+  // rating = wR·roster + (1 − wR)·results, wR = 3 / (3 + g). roster (since 2026-10-01) is the
+  // optimal LEGAL lineup of the ACTIVE roster (IR excluded) at rest-of-season values PLUS the
+  // bench: the best three players outside that lineup at LG.POWER_BENCH_WEIGHT each. results is
+  // points-for per finalized game; g is finalized games per team, league average. g = 0 is pure
+  // roster; three games in, the two weigh the same. A team with no game of its own yet falls
+  // back to roster. Each room is its starters plus its share of that weighted bench, so the
+  // six rooms add up to roster exactly; BN ranks the bench on its own.
   //   in: { teams:[{id, pf, w, l, t}], active:{id:[{key,pos,slot}]}, valueOf(key), rules (slot
   //         counts), odds:{id: pct} | null, lastRanks:{id: rank} | null }
-  //   out: { g, wR, rows sorted by rank — {teamId, rank, score, rating, roster, results, rec,
-  //         po, cats, rooms, lw} }
+  //   out: { g, wR, rows sorted by rank — {teamId, rank, score, rating, roster, starters, bench,
+  //         results, rec, po, cats, rooms, lw} }
   LG.powerRosWeight = (g) => 3 / (3 + Math.max(0, LG.n(g)));
   LG.powerRosBoard = function (inp) {
     const teams = inp.teams || [];
@@ -5732,28 +5749,35 @@
     const pfOf = (id) => pf[id];
     const g = ids.length ? ids.reduce((s, id) => s + games[id], 0) / ids.length : 0;
     const wR = LG.powerRosWeight(g);
+    const bw = LG.POWER_BENCH_WEIGHT;
     const valueOf = (key) => LG.n(inp.valueOf(key));
-    const roster = {}, results = {}, rating = {}, rooms = {};
+    const roster = {}, starters = {}, bench = {}, results = {}, rating = {}, rooms = {};
     for (const id of ids) {
       const active = ((inp.active || {})[id] || []).filter((p) => p && p.slot !== "IR");
       const lu = LG.optimalLineup(active, valueOf, inp.rules);
       const inLineup = new Set(lu.picks.map((e) => e.key));
-      roster[id] = lu.total;
-      results[id] = games[id] > 0 ? pf[id] / games[id] : lu.total;
+      // Ties on value keep roster order, so the same three come out on every device.
+      const depth = active.filter((p) => !inLineup.has(p.key)).map((p) => ({ key: p.key, pos: p.pos, pts: valueOf(p.key) }))
+        .sort((a, b) => b.pts - a.pts).slice(0, LG.POWER_BENCH_DEPTH);
+      starters[id] = lu.total;
+      bench[id] = depth.reduce((s, e) => s + e.pts, 0);
+      roster[id] = lu.total + bw * bench[id];
+      results[id] = games[id] > 0 ? pf[id] / games[id] : roster[id];
       rating[id] = wR * roster[id] + (1 - wR) * results[id];
-      const rest = active.filter((p) => !inLineup.has(p.key)).map((p) => valueOf(p.key));
-      rooms[id] = { ...roomsFrom(lu.picks), BN: sumTop(rest, LG.POWER_BENCH_DEPTH) };
+      const r0 = roomsFrom(lu.picks), r1 = roomsFrom(depth, bw);
+      rooms[id] = { BN: bench[id] };
+      for (const k of Object.keys(r0)) rooms[id][k] = r0[k] + r1[k];
     }
     const max = Math.max(0, ...ids.map((id) => rating[id]));
     const rank = LG.powerRankBy(ids, (id) => rating[id], pfOf);
-    const cats = roomRanks(ids, rooms, pfOf);
+    const cats = roomRanks(ids, rooms, pfOf, LG.POWER_ROS_CATS);
     const rows = teams.map((t) => {
       const id = t.id;
       const rec = LG.n(t.w) + "-" + LG.n(t.l) + (LG.n(t.t) ? "-" + LG.n(t.t) : "");
       const po = inp.odds && inp.odds[id] != null && Number.isFinite(Number(inp.odds[id])) ? Number(inp.odds[id]) : null;
       const last = inp.lastRanks && inp.lastRanks[id] != null ? Number(inp.lastRanks[id]) : null;
       return { teamId: id, rank: rank[id], score: LG.powerScore(rating[id], max), rating: rating[id],
-        roster: roster[id], results: results[id], rec, po, cats: cats[id], rooms: rooms[id], lw: last };
+        roster: roster[id], starters: starters[id], bench: bench[id], results: results[id], rec, po, cats: cats[id], rooms: rooms[id], lw: last };
     });
     return { g, wR, rows: rows.sort((a, b) => a.rank - b.rank) };
   };

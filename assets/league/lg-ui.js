@@ -1899,8 +1899,10 @@
   // the app's own numbers. Same shell as before: This week / Rest of season chips, the table
   // pans inside the card on a phone, a MAIN registry entry (`power`) on the desktop, and the
   // visit remembers the tab (UI._pwTab) through live repaints.
-  //   THIS WEEK is recomputed on EVERY paint, the live repaint included — Proj is each
-  //   starter's expected finish, the very number the matchup header sums (expectedFinish).
+  //   THIS WEEK is recomputed on EVERY paint, the live repaint included. Since 2026-10-01 it
+  //   ranks each team's BEST legal lineup (column Best, rooms QB..D/ST, no bench), each player
+  //   at the expected finish the matchup header sums (expectedFinish); Win% stays the lineups
+  //   as set. REST OF SEASON counts the bench too (LG.POWER_BENCH_WEIGHT).
   //   REST OF SEASON needs each player's season average (D.weekStats, one cached fetch per
   //   finalized week), playoff odds on the phone, and last week's snapshot for LW. All three
   //   load AFTER the first paint (refreshPowerData) and repaint the card once they land; until
@@ -1917,15 +1919,15 @@
       return { id: t.id, pf: LG.n(s.pf), w: LG.n(s.w), l: LG.n(s.l), t: LG.n(s.t) };
     });
     const pfOf = (id) => LG.n((st[id] || {}).pf);
-    const starters = {}, bench = {}, active = {};
+    const starters = {}, active = {};
+    const rules = (LG.rules || LG.DEFAULT_RULES).roster;
     for (const t of LG.teams) {
       starters[t.id] = teamStarters(t.id);
-      bench[t.id] = teamBench(t.id);
       active[t.id] = ((UI._rosters && UI._rosters[t.id]) || []).filter((p) => p && p.slot !== "IR");
     }
     const lastDoc = UI.week > 1 ? (UI._allWeekly || []).find((w) => w && w.kind === "weekly" && Number(w.week) === UI.week - 1) : null;
     const week = LG.powerWeekBoard({
-      teams, starters, bench, projOf: finishOf, pairs: UI._wkGames || [],
+      teams, active, rules, projOf: finishOf, pairs: UI._wkGames || [],
       winOf: (id, o) => {
         const a = (starters[id] || []).map((p) => p.key), b = (starters[o] || []).map((p) => p.key);
         return a.length && b.length ? d.winProb(a, b) : null;
@@ -1936,7 +1938,7 @@
     const avg = key === "" ? new Map() : (UI._pwAvg && UI._pwAvg.key === key ? UI._pwAvg.avg : null);
     const snap = UI._pwPrevSnap && UI._pwPrevSnap.week === UI.week - 1 ? UI._pwPrevSnap.doc : null;
     const ros = avg ? LG.powerRosBoard({
-      teams, active, rules: (LG.rules || LG.DEFAULT_RULES).roster,
+      teams, active, rules,
       valueOf: (k) => LG.rosValue(d.projFor(k), avg.get(String(k))),
       odds: UI._odds || null, lastRanks: snap ? snap.ros : null,
     }) : null;
@@ -1953,7 +1955,8 @@
     const tab = UI._pwTab === "ros" ? "ros" : "week";
     const boards = powerBoards();
     UI._pwBoards = boards; // the suite reads the numbers behind the cells
-    const cats = LG.POWER_CATS;
+    const cats = tab === "week" ? LG.POWER_WEEK_CATS : LG.POWER_ROS_CATS;
+    const catName = { BN: "Bench", DST: "D/ST", K: "Kicker" };
     const lwCell = (pr, rank) => {
       const move = pr == null ? "none" : pr > rank ? "up" : pr < rank ? "down" : "same";
       const html = pr == null ? '<span class="mut">–</span>'
@@ -1962,11 +1965,11 @@
       return { move, html };
     };
     const extra = tab === "week"
-      ? [["Proj", "Expected finish"], ["Opp", "Opponent"], ["Win%", "Chance to win"]]
+      ? [["Best", "Best lineup's expected finish"], ["Opp", "Opponent"], ["Win%", "Chance to win"]]
       : [["Rating", "Roster and results"], ["Rec", "Record"], ["PO%", "Playoff odds"]];
     const head = `<tr><th class="num"></th><th>Team</th><th class="num" title="0 to 100">Score</th>${
       extra.map(([k, t]) => `<th class="num pwx" title="${t}">${k}</th>`).join("")}<th class="num" title="Last week">LW</th>${
-      cats.map((k) => `<th class="num pwcat" data-pos="${k}" title="${k === "BN" ? "Bench" : k}">${k}</th>`).join("")}</tr>`;
+      cats.map((k) => `<th class="num pwcat" data-pos="${k}" title="${catName[k] || k}">${k}</th>`).join("")}</tr>`;
     const rowHtml = (r, extraCells) => {
       const T = LG.teamById(r.teamId);
       if (!T) return "";
@@ -1986,7 +1989,7 @@
         const O = typeof r.opp === "number" ? LG.teamById(r.opp) : null;
         const opp = O ? esc(teamTag(O)) : r.opp === "BYE" ? "BYE" : "—";
         const win = r.win == null ? "—" : Math.round(r.win * 100) + "%";
-        return rowHtml(r, `<td class="num pwproj">${LG.fmtPts(r.proj)}</td><td class="num pwopp">${opp}</td><td class="num pwwin">${win}</td>`);
+        return rowHtml(r, `<td class="num pwproj">${LG.fmtPts(r.best)}</td><td class="num pwopp">${opp}</td><td class="num pwwin">${win}</td>`);
       }).join("");
     } else if (boards.ros) {
       body = boards.ros.rows.map((r) => rowHtml(r, `<td class="num pwrating">${LG.fmtNum(r.rating, 1)}</td><td class="num pwrec">${esc(r.rec)}</td><td class="num pwpo">${r.po == null ? "—" : r.po + "%"}</td>`)).join("");
@@ -1999,8 +2002,8 @@
       ? '<p class="mut small pwwait">Adding up the season so far…</p>'
       : `<div class="panner"><table class="tbl pwtbl"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
     const foot = tab === "week"
-      ? "Proj is each starter's expected finish, the same number as the matchup page, live. Score is out of 100 against the top team. Rooms rank 1–" + boards.week.length + "; BN is the best three on the bench."
-      : "Rating is each team's best legal lineup (this week's projection and season average, half each) blended with points per game. After three games the two count the same. Score is out of 100 against the top team.";
+      ? "Best is each team's best legal lineup this week, live, using the matchup page's expected finish for every player. Score is out of 100 against the top team. Each position ranks 1–" + boards.week.length + " on that lineup. Win% is the game as the lineups are set."
+      : "Rating is each team's best legal lineup plus a quarter of its three best bench players (this week's projection and season average, half each), blended with points per game. After three games the two count the same. Each position counts its starters and its share of that bench; BN ranks the bench alone. Score is out of 100 against the top team.";
     return `<div class="card powercard" id="powerCard" data-board="${tab}"><h2>Power rankings <span class="mut">— week ${UI.week}</span></h2>
       ${tabs}
       ${table}
