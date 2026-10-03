@@ -8,7 +8,7 @@
 //   * numbers: one decimal unless the second one decides something (user, 2026-09-29) — the only
 //     two-decimal values allowed are the ones an issue lists in issue.json allowTwoDecimals;
 //   * names: owners by first name; Laws Rule is Sandy, never "Mom" outside a verbatim chat quote;
-//     matchups read "Joe versus Calvin", never "Joe at Calvin";
+//     matchups read "Joe versus Calvin", never "Joe at Calvin"; the app is "GFFL", never "the app";
 //   * every page rebuilds byte-identical from its sources (column.md, issue.json, wp.json,
 //     season.json) — a hand edit to index.html, or a source edit never built, fails here;
 //   * the archive lists every issue and every link on it resolves;
@@ -220,6 +220,7 @@ const PICKS = { 2: "3-1", 3: "4-0" };
           bodyPx: parseFloat(getComputedStyle(document.querySelector("main > p, main section > p")).fontSize),
           archive: arch ? arch.href : "",
           text: document.querySelector(".wrap").innerText,
+          captions: [...document.querySelectorAll(".panel .dek, .panel .src")].map((e) => e.textContent),
           // a score or record ("35-27", "2-1") in copy must sit inside a no-wrap element, or phones split it at the hyphen
           hyphenBreaks: (() => {
             const out = [], w = document.createTreeWalker(document.querySelector("main"), NodeFilter.SHOW_TEXT);
@@ -256,6 +257,14 @@ const PICKS = { 2: "3-1", 3: "4-0" };
         check(`${dir}: owner matchups read "Joe versus Calvin", never "Joe at Calvin" (user, 2026-09-29)`, atPairs.length === 0, atPairs.join(", "));
         check(`${dir}: every owner is named`, OWNERS.every((o) => new RegExp("\\b" + o + "\\b").test(text)), OWNERS.filter((o) => !new RegExp("\\b" + o + "\\b").test(text)).join(","));
         check(`${dir}: curly quotes only (no straight double quotes in the copy)`, !/"/.test(text));
+        // The app is "GFFL" (user, 2026-10-03: "since the app is GFFL, I would call it GFFL"). The
+        // captions come from build.mjs, so every issue is held to that. The column prose is held to it
+        // from that date on: the Week 3 recap went out on 2026-09-29 saying "the app" and stays as sent.
+        // A chat quote may say "app"; it is somebody's words, so quotes are exempt, as for "Mom".
+        check(`${dir}: chart captions call the app "GFFL"`, m.captions.length > 0 && m.captions.every((c) => !/\bapp\b/i.test(c)), m.captions.filter((c) => /\bapp\b/i.test(c)).join(" | "));
+        if (issue.published >= "2026-10-03") {
+          check(`${dir}: the column calls the app "GFFL", never "the app"`, !/\bapps?\b/i.test(unquoted), (unquoted.match(/.{0,40}\bapps?\b.{0,40}/i) || [""])[0]);
+        }
         check(`${dir}: scores and records never split at the hyphen (each is in a no-wrap span)`, m.hyphenBreaks.length === 0, m.hyphenBreaks.join(" | "));
       }
       await page.close();
