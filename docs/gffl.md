@@ -10351,3 +10351,41 @@ starting), Sandy had switched back to Josh Allen, Tom had benched Justin Jeffers
 - `tools/robogoat/README.md`'s "Thursday preview" section is now "Saturday preview".
 - The Week 4 preview keeps its directory, `robogoat/2026/week-4-preview/`, and is rewritten in
   place with `published` 2026-10-03. It had not been merged, so no live page changes meaning.
+
+---
+
+## RoboGoat gets funnier, and the app is "GFFL" (2026-10-03)
+
+User, on the Saturday rewrite of the Week 4 preview: "its a bit dry, more humor I think would make
+it better. also when you refer to the app projections, since the app is GFFL, I would call it GFFL."
+
+- **Voice.** `tools/robogoat/README.md` has a new "Voice" section: every section carries at least
+  one joke, and each one stands on a real fact from the facts file or the research (a transaction
+  log, a projection, a chat quote, a timing mismatch). Rib, never wound. Both routine prompts
+  (`trig_01N9Ldn1iyNtpEnhrkvwkcTB` Saturday preview, `trig_01UCGRdwQ4y56zciu9NqrEYg` Tuesday recap)
+  now ask the editor pass to check for laughs as well as numbers.
+- **"GFFL", never "the app".** "GFFL projects him for 22.4", "GFFL gives her 59 percent". The three
+  chart captions `build.mjs` writes said "the GFFL app" and "the app's"; they now say "GFFL", which
+  changes those three lines on the Week 3 page and nothing else on it. Week 3's own prose still says
+  "the app" four times. It went out on 2026-09-29 and stays as sent.
+- **Lineups move on Saturday morning.** Facts were pulled at 8:07 a.m.; Joe's roster doc was
+  written again at 8:49:20 (Bryce Young in at QB for Case Keenum, Darren Waller in the flex for Kyle
+  Pitts), the same minute GFFL's reading for Joe versus Calvin went from 35 to 49 percent for Joe.
+  GFFL's projection for Calvin's Jadarian Price went to zero at 8:36. Neither was in the first
+  rewrite. The README and the Saturday routine now say to run `facts.mjs` again just before
+  building and to diff the lineups by player and slot; raw JSON of two reads differs on key order
+  alone (see CLAUDE.md's production-data rule, which says the same about re-reads).
+- A roster doc's `updateTime` (Firestore REST metadata, read-only) is the time of that team's last
+  lineup or roster change. The column uses it: Calvin's has not changed since the week opened
+  (Tuesday 6:05 a.m.), John's since his second Isaiah Likely pickup of the week (Thursday 10:57
+  a.m.), a day before DeVonta Smith was ruled out.
+- The editor pass caught two claims that the first funnier draft got wrong. It said Elan took the
+  Week 3 advice "one week late"; the Week 3 recap says he benched Nacua as asked. It said GFFL
+  "calls it even" in Tom versus John; the reading was Tom 50.5. Keep running the editor pass on
+  jokes too: a joke built on a wrong fact is still a wrong fact.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **119/119**. Three new checks: chart captions say
+"GFFL" (every issue), and the column never says "app" outside a chat quote (issues published from
+2026-10-03). Bite: the new suite run in a worktree of `origin/main` (the old captions, the earlier
+Week 4 column) gave **116 pass / 3 fail**. The three failures were exactly the new checks, and every
+pre-existing check passed.

@@ -144,7 +144,7 @@ export function buildIssue(dir) {
     });
     return `<section class="panel"><span class="kick">Week ${W}</span><h3>Points left on the bench</h3>` +
       `<p class="dek">Best possible lineup, minus the lineup each team started.</p><div class="bench">${rows}</div>` +
-      `<p class="src">Lineups from the GFFL app; points from the week’s final stat lines.</p></section>`;
+      `<p class="src">Lineups from GFFL; points from the week’s final stat lines.</p></section>`;
   }
 
   function wpsvg(spec, cls, Wd, H, L, R, T, B, fs) {
@@ -204,7 +204,7 @@ export function buildIssue(dir) {
     const spec = issue.wp;
     const svg = wpsvg(spec, "wp-lg", 600, 300, 58, 586, 18, 246, 16) + wpsvg(spec, "wp-sm", 360, 300, 50, 350, 16, 250, 14);
     return `<section class="panel"><span class="kick">${typo(spec.kick)}</span><h3>${typo(spec.title)}</h3>` +
-      `<p class="dek">The GFFL app’s live win probability. Dashed where the app recorded no readings.</p>${svg}</section>`;
+      `<p class="dek">GFFL’s live win probability. Dashed where GFFL recorded no readings.</p>${svg}</section>`;
   }
 
   // Season so far: bench left by week (stacked), season highs, RoboGoat's picks by week — cut at
@@ -256,7 +256,7 @@ export function buildIssue(dir) {
       `<div class="highs"><div><h4>Top team scores</h4><ol class="hi">${hiTeam}</ol></div>` +
       `<div><h4>Top starters</h4><ol class="hi">${hiPlayer}</ol></div></div>` +
       `<h4>RoboGoat’s picks</h4><p class="dek">One mark per pick: filled if it won, a red ring if it lost${RECAP ? "" : ", a grey ring until it is played"}.</p><ul class="picks">${picks}<li class="tot"><b>Season</b><span class="pks"></span><span class="nw">${pw}-${pl}</span></li></ul>` +
-      `<p class="src">Team scores are the app’s final totals. Bench and starter points are from each week’s final stat lines, scored by league rules.</p></section>`;
+      `<p class="src">Team scores are GFFL’s final totals. Bench and starter points are from each week’s final stat lines, scored by league rules.</p></section>`;
   }
 
   const GRAPHICS = { board, stars, bench, wp: wpchart, season: seasonPanel };

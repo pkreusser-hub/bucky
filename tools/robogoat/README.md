@@ -36,8 +36,8 @@ robogoat/
 
 1. Facts, into the session scratchpad (`$SP`), with the season file updated:
    `node tools/robogoat/facts.mjs --season 2026 --week N --type recap --since <last issue's date> --out $SP/kit --season-file robogoat/2026/season.json`
-   The recap's own team totals are `weekly[N].matchups` (the app's). Player points come from the
-   shadow scorer and can differ from the app's by a stat correction; quote the app for team totals.
+   The recap's own team totals are `weekly[N].matchups` (GFFL's). Player points come from the
+   shadow scorer and can differ from GFFL's by a stat correction; quote GFFL for team totals.
 2. Research the real NFL games, write the column, have an editor agent revise it. Public league
    chat only (`facts.chat`); never private email or `act_*`/`trade_*` docs.
 3. `mkdir robogoat/2026/week-N`, write `column.md`, copy `$SP/kit/issue.skeleton.json` to
@@ -60,13 +60,27 @@ robogoat/
 Saturday morning, after Thursday night's game and before Sunday's (Perry, 2026-10-03; it ran on
 Thursday mornings for Week 4 only). Same steps with `--type preview` and the directory
 `robogoat/2026/week-N-preview`. The facts file's `thisWeek` has each team's points so far from
-Thursday's game and who scored them, and the lineups are as set that morning; the app's current
+Thursday's game and who scored them, and the lineups are as set that morning; GFFL's current
 win probabilities are the latest reading in `wpgraph_<season>_w<n>` (`p` is the away team's
-chance). Open the column with a "Thursday night, briefly" section. The skeleton has no scores,
-bench or chart. Fill `picksRecord` (the season so far), each game's `note` (it
-carries the pick, e.g. "Pick: Sandy."), `picks` (the picked team ids, for the share image), and
-add `picks.N` to `season.json` with `"result": ""` for each. Previews carry no power rankings
-(the arrows compare recap to recap). `[IMAGE: season]` shows the season through week N-1.
+chance). Lineups move on Saturday morning (on Week 4's, Joe changed quarterbacks within an hour
+of the first pull), so run `facts.mjs` again just before building and diff the lineups by player
+and slot. Raw JSON compares unequal on key order alone. Open the column with a "Thursday night,
+briefly" section. The skeleton has no scores, bench or chart. Fill `picksRecord` (the season so
+far), each game's `note` (it carries the pick, e.g. "Pick: Sandy."), `picks` (the picked team
+ids, for the share image), and add `picks.N` to `season.json` with `"result": ""` for each.
+Previews carry no power rankings (the arrows compare recap to recap). `[IMAGE: season]` shows the
+season through week N-1.
+
+## Voice
+
+RoboGoat is funny. Perry on the first Week 4 preview (2026-10-03): "its a bit dry, more humor I
+think would make it better." Every section carries at least one joke, and each one is built on a
+real fact from the facts file or the research: a transaction log, a projection, a chat quote, a
+timing mismatch (a questionable player who kicks off after his whole bench). Rib, never wound;
+it is a family league. The editor pass checks for laughs as well as numbers.
+
+The app is **GFFL**: "GFFL projects him for 22.4", "GFFL gives her 59 percent", never "the app"
+(Perry, same day: "since the app is GFFL, I would call it GFFL"). The suite checks it.
 
 ## column.md
 
