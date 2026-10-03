@@ -10377,4 +10377,15 @@ it better. also when you refer to the app projections, since the app is GFFL, I 
   alone (see CLAUDE.md's production-data rule, which says the same about re-reads).
 - A roster doc's `updateTime` (Firestore REST metadata, read-only) is the time of that team's last
   lineup or roster change. The column uses it: Calvin's has not changed since the week opened
-  (Tuesday 6:05 a.m.), John's since his third Isaiah Likely pickup (Thursday 10:57 a.m.).
+  (Tuesday 6:05 a.m.), John's since his second Isaiah Likely pickup of the week (Thursday 10:57
+  a.m.), a day before DeVonta Smith was ruled out.
+- The editor pass caught two claims that the first funnier draft got wrong. It said Elan took the
+  Week 3 advice "one week late"; the Week 3 recap says he benched Nacua as asked. It said GFFL
+  "calls it even" in Tom versus John; the reading was Tom 50.5. Keep running the editor pass on
+  jokes too: a joke built on a wrong fact is still a wrong fact.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **119/119**. Three new checks: chart captions say
+"GFFL" (every issue), and the column never says "app" outside a chat quote (issues published from
+2026-10-03). Bite: the new suite run in a worktree of `origin/main` (the old captions, the earlier
+Week 4 column) gave **116 pass / 3 fail**. The three failures were exactly the new checks, and every
+pre-existing check passed.
