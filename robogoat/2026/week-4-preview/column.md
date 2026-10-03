@@ -1,22 +1,24 @@
-SUBJECT: RoboGoat: Sandy gets Perry, and Elan starts a torn ACL (Week 4 preview)
+SUBJECT: RoboGoat: Isaac banks 35.2, and Elan benches Achane (Week 4 preview)
 
 KICKER: Goat Fantasy Football League
 MASTHEAD: THE GFFL
-SUBHEAD: Week 4 · Sandy Gets Perry, and Elan Is Starting a Torn ACL
+SUBHEAD: Week 4 · Isaac Banks 35.2, and Elan Benches Achane
 
 [IMAGE: board]
 
-RoboGoat here. Picks record: 7-1. The preview moved to Thursday morning, so it now arrives before the first game instead of after it.
+RoboGoat here. Picks record: 7-1. Four teams are 2-1 and four are 1-2, and two of the 2-1 teams play each other. One of them is praying about it in the league chat.
 
-Four teams are 2-1 and four are 1-2. Two of the 2-1 teams play each other, and one of them is praying about it in the league chat.
+Thursday night is in the books, and so are three of the four lineups that needed fixing.
 
-## Tonight
+## Thursday Night, Briefly
 
-Steelers at Browns, 7:15 Central, Pittsburgh a 2.5-point favorite. Six GFFL starters play: Harold Fannin, Denzel Boston and Jaylen Warren for the GOAT Kids, Quinshon Judkins for Laws Rule, DK Metcalf for the Cowboys, and the Steelers defense for the Kreussers.
+Browns 27, Steelers 24. Cleveland led 21-10 at halftime, Aaron Rodgers threw two fourth-quarter touchdowns and ran in a two-point conversion to tie it with under two minutes left. Deshaun Watson completed four of five passes on the next drive, and Andre Szmyt kicked a 56-yard field goal with 10 seconds left, the longest of his career. Pittsburgh's last throw, a Hail Mary, was intercepted at the Cleveland 18. Watson on the kick: "I knew it was money."
 
-Rico Dowdle is out with a toe injury for the second straight game. Without him last week, Warren had 20 touches for 176 yards from scrimmage. Isaac starts the Steelers' running back and two Browns, so the GOAT Kids score no matter who has the ball.
+The GOAT Kids scored 35.2 from both sidelines. Jaylen Warren ran 17 times for 93 yards and caught three for 33 (14.1). Denzel Boston caught four for 89, including a 60-yarder that set up a touchdown (10.9). Harold Fannin caught three for 27 and a touchdown, his third in two games (10.2).
 
-Perry's Steelers defense spends the evening against Sandy's running back. Judkins is averaging just under three yards a carry. Sandy versus Perry starts early.
+Quinshon Judkins ran for a touchdown and caught six passes for Laws Rule (18.6). DK Metcalf caught five for 115 for the Cowboys (17.0), which earns the 100-yard bonus and, separately, a taunting penalty. The Steelers defense had two sacks, an interception and a fumble recovery for the Kreussers (7.0). It allowed 27 points, which this league does not count.
+
+Going into Sunday: Laws Rule 18.6, Kreussers 7.0. Cowboys 17.0, Kruz Control 0.0. GOAT Kids 35.2, Skywalkers 0.0. The Jaguarrams and Nerfherders have not started.
 
 ## Matchup 1
 ### Laws Rule (2-1) at Battle Kreussers (2-1)
@@ -27,77 +29,75 @@ Perry answered with a GIF.
 
 These two last met in 2017. Laws Rule leads the series 3-2, including a 124.5 to 74.1 win in 2016, when the team was called IN LAWS and went on to win the title.
 
-For the first time this season, Sandy has benched Josh Allen, for Patrick Mahomes at Las Vegas. Allen was not on Buffalo's Wednesday injury report. He took a hit to the knee late in Week 3, played every snap, and his coach said, "I'm not concerned with Josh." The app projects Mahomes at 20.8 and Allen at 19.6, so it agrees with her by 1.2 points.
+Sandy started Patrick Mahomes on Thursday morning and Josh Allen by Saturday. Allen has no injury designation, the app projects him for 24.0 against the Patriots, and Mahomes is back on the bench. Juwan Johnson replaced Dalton Kincaid at tight end. Jonathan Taylor and Spencer Shrader play first, at 8:30 Sunday morning in London.
 
-On Wednesday Laws Rule added the Bears defense, which plays the Jets, and Alvin Kamara, whose Saints will be without Travis Etienne and his hamstring. Jonathan Taylor and Spencer Shrader play at 8:30 Sunday morning in London. Taylor carried 23 times for 68 yards last week, worth 8.2 points.
+Perry spent $60 on Ollie Gordon in Wednesday's waivers and released Drake Maye to make room. Miami's unofficial depth chart now lists Jaylen Wright, healthy again, first and Gordon second, and the Dolphins expect to split the carries. Perry also dropped Josh Jacobs for Woody Marks and Chris Godwin for Brian Robinson.
 
-Perry spent $60 on Ollie Gordon in Wednesday's waivers and released Drake Maye to make room. Maye spent three weeks on Perry's bench and the end of Week 3 on the Patriots'. Gordon starts at running back for Perry. Miami has no clear starter, just a committee of Gordon and Jaylen Wright now that De'Von Achane is out for the season. Perry also dropped Josh Jacobs for Woody Marks and Chris Godwin for Brian Robinson.
+Sam Darnold starts at home against the Chargers. Garrett Wilson plays the Bears, whose defense Sandy picked up on Wednesday. Bijan Robinson plays Monday night in New Orleans, which gives Perry the last word if he needs one.
 
-Sam Darnold starts at home against the Chargers. Bijan Robinson plays Monday night in New Orleans. Garrett Wilson, who saw 13 targets last week, plays the Bears, whose defense now belongs to Sandy.
-
-Pick: Laws Rule. The app has her at 53 percent. The prayers are her department.
+Pick: Laws Rule. She leads by 11.6 and the app has her at 62 percent. The prayers are her department.
 
 ## Matchup 2
 ### Chula Vista Jaguarrams (1-2) at Scruffy Looking Nerfherders (2-1)
 
 John leads the series 14-13 and has won the last four, including 209.5 to 142.7 in Week 16 of 2024.
 
-At 7:19 a.m. Wednesday John dropped Xavier Worthy. Waivers then brought Braelon Allen for $27, now the Jets' lead back with Breece Hall not expected to play, and tight end Kenyon Sadiq for $18, with Isaiah Likely released to make room. At 3:34 p.m. John picked Likely back up. At 3:36 he released him again for the Raiders defense. Likely's second stint as a Nerfherder lasted one minute and 55 seconds. John now carries two defenses and starts Seattle's.
+John's week so far: on Wednesday he released Isaiah Likely in waivers, picked him back up at 3:34 p.m., and released him again at 3:36 for the Raiders defense. At 10:31 Thursday morning he dropped the Raiders defense. At 10:57 he added Isaiah Likely again, his third stint on the roster this week. Likely is on the bench.
 
-Jahmyr Gibbs plays Sunday night at Carolina. He has six touchdowns in three games, the Panthers have allowed more rushing yards than anyone, and on Wednesday they put two cornerbacks on injured reserve. Jaxon Smith-Njigba, who has 405 yards and six touchdowns so far, gets the Chargers at home. Kyler Murray starts again, for a Vikings team that is 3-0.
+DeVonta Smith is in John's starting lineup. The Eagles ruled him out Friday with a hamstring; he did not practice all week. Carnell Tate is on the bench, or Josh Downs can move from the flex to receiver with Kyle Monangai or Likely taking the flex.
 
-Tom has Justin Jefferson in the flex. Jefferson sprained his ankle on his seventh snap last week, missed Wednesday's practice and is day-to-day. Jordan Addison, who caught five for 90 and a touchdown last week, starts at receiver. Mike Evans, also hurt, sits on the bench.
+The rest of the lineup is loud. Jahmyr Gibbs plays Sunday night at Carolina with six touchdowns in three games, against a defense that has allowed more rushing yards than anyone and just put two cornerbacks on injured reserve. Jaxon Smith-Njigba gets the Chargers at home with 405 yards and six touchdowns so far. Kyler Murray starts for a Vikings team that is 3-0 with the league's worst total offense.
 
-Jared Goff starts over Jalen Hurts and plays Sunday night in Carolina, in the same game as Gibbs. Tom picked up the Ravens defense and Minnesota kicker Will Reichard. Derrick Henry gets Tennessee with Baltimore favored by 11.5, and Tom now owns both the Ravens' running back and the Ravens' defense.
+Tom has already done what John hasn't. Justin Jefferson was ruled out Friday, his first missed game since 2023, and he is on Tom's bench. Friday night he picked up Jauan Jennings, another Viking, to join Jordan Addison and kicker Will Reichard. Jared Goff starts over Jalen Hurts. Derrick Henry gets Tennessee in Baltimore, in the rain, with Tom's Ravens defense on the same field.
 
-Pick: Scruffy Looking Nerfherders. Four straight is a habit.
+Pick: Scruffy Looking Nerfherders, with the app at 51 percent. The app already projects DeVonta Smith for zero. So do I.
 
 ## Matchup 3
 ### Wyoming Cowboys (1-2) at Kruz Control (2-1)
 
-Calvin leads the series 14-13. Joe has won the last three, by 24.4, 42.5 and 2.2 points.
+Calvin leads the series 14-13. Joe has won the last three, by 24.4, 42.5 and 2.2 points, and Metcalf has him up 17.0 to nothing.
 
-Joe's quarterback this week is Case Keenum, signed Wednesday. Chicago has not said whether Keenum or Tyson Bagent starts against the Jets. Trevor Lawrence, projected for 20.8 at Cincinnati, is on the bench. Last week Joe had Lawrence on the bench Saturday and in the lineup by Sunday, and Lawrence threw three touchdowns.
+Joe's lineup has not changed since Thursday morning. Case Keenum is still the quarterback. The Bears have not named their starter. Coach Ben Johnson said Friday, "We'll find out on Sunday," and NFL Network reports Tyson Bagent is likely after taking most of the first-team snaps. Trevor Lawrence, projected 18.5 at Cincinnati, is on the bench.
 
-Kyle Pitts is in the flex at 4.5 projected, a week after one catch for five yards. Omarion Hampton, projected 9.4, is on the bench. Joe picked up the Vikings defense for $2 to play a Miami team that is 0-3 and just lost Achane for the season.
+Kyle Pitts is still in the flex, projected 4.8, a week after one catch for five yards. Omarion Hampton, projected 10.0, is on the bench. Joe's Vikings defense gets a Miami team that is 0-3 and just lost De'Von Achane for the season.
 
-Kenneth Walker leads the NFL with 360 rushing yards and plays at Las Vegas, where Calvin's other running back, Ashton Jeanty, plays for the Raiders. The Chiefs and Raiders are both 3-0. Calvin wins that game as long as somebody runs the ball.
+Kenneth Walker leads the NFL with 360 rushing yards and plays at Las Vegas, where Calvin's other running back, Ashton Jeanty, plays for the Raiders. The Chiefs and Raiders are both 3-0, and Calvin wins that game as long as somebody runs the ball. Lamar Jackson is off the injury report.
 
-Lamar Jackson was limited Wednesday with a back injury and is expected to play against Tennessee. Jalen Coker did not practice Wednesday with a quad strain and is in the lineup. Deebo Samuel, who had 80 receiving yards last week without a catch, is on the bench.
+Jalen Coker is questionable with a quad and has a workout Saturday before Carolina decides. He plays Sunday night. Every receiver on Calvin's bench plays earlier: Rome Odunze and Brian Thomas at noon, Deebo Samuel, Courtland Sutton and Quentin Johnston at 3:25. If Calvin waits for Carolina's inactive list, he will have nobody left to put in.
 
-Pick: Kruz Control. Joe can make it close by starting a quarterback his NFL team has named.
+Pick: Kruz Control, at 63 percent in the app. Joe can make it close by starting a quarterback his NFL team has named.
 
 ## Matchup 4
 ### Elanikan Skywalkers (1-2) at The GOAT Kids (1-2)
 
 This is a rematch of last year's championship game, which Elan won 183.9 to 139.5. Elan leads the series 11-5. Isaac won their meetings in Week 8 of 2024 and Week 1 of 2025, and Elan has won both since.
 
-De'Von Achane tore his ACL in Miami in Week 3 and went on injured reserve Monday. As of Thursday morning he is in Elan's starting lineup. Drake London, projected 15.5, and Terry McLaurin, 12.0, are on the bench, and Rhamondre Stevenson can slide from the flex to running back.
+On Thursday morning De'Von Achane, out for the season with a torn ACL, was still in Elan's starting lineup. By Saturday he was on injured reserve, and Drake London, Terry McLaurin and Puka Nacua were in. Two weeks ago this column asked Elan to bench Nacua. Nacua practiced fully Friday, has no injury designation, and starts in the flex. Zay Flowers, questionable with a hamstring, moved to the bench.
 
-Last Saturday's pick ended with "Please bench Puka Nacua," and Elan benched Puka Nacua. Nacua was limited in Wednesday's practice, his first since Sept. 18, and Sean McVay expects him to play Sunday. He is on the bench. Zay Flowers was limited Wednesday with a hamstring and starts.
+McLaurin is questionable with a hamstring and plays in London at 8:30 Sunday morning, before anything else in this matchup. Malik Nabers and Stefon Diggs are on the bench.
 
-Isaac gets a head start tonight, and Fannin had nine targets and two touchdowns last week. Joe Burrow gets Jacksonville at home. The app has the GOAT Kids at 59 percent, with Achane's zero already counted.
+Isaac has 35.2 in the bank and Nico Collins back, off the injury report after missing two games, in place of Matthew Golden. Christian McCaffrey gets Denver and Joe Burrow gets Jacksonville. The app now calls it even, 50 percent each, with Isaac's lead already counted.
 
-Pick: Skywalkers, over the app's objection. Please bench De'Von Achane.
+Pick: Skywalkers. Elan fixed his lineup, and London and Chris Olave both play Monday night, so he gets the last word.
 
 ## The Rest of the Weekend
 
-London, 8:30 Sunday morning Central: Colts at Commanders. Jonathan Taylor and Spencer Shrader for Laws Rule, Tyler Warren for the Skywalkers, Josh Downs for the Nerfherders.
+London, 8:30 Sunday morning Central, Colts at Commanders: Jonathan Taylor and Spencer Shrader for Laws Rule, Tyler Warren and Terry McLaurin for the Skywalkers, Josh Downs for the Nerfherders, and Jacory Croskey-Merritt for the Jaguarrams.
 
-Chiefs at Raiders, 3:25: Mahomes for Laws Rule, Rashee Rice for the Kreussers, Walker and Jeanty for Kruz Control, Brock Bowers for the Nerfherders.
+Rain is in the forecast for two noon games: Titans at Ravens, with Henry, Lamar Jackson, Mark Andrews and Tom's Ravens defense, and Rams at Eagles, with Saquon Barkley, Davante Adams, Nacua, Kyren Williams and Calvin's Eagles defense.
 
-Lions at Panthers, Sunday night, has seven GFFL starters: Gibbs, Goff, Amon-Ra St. Brown, Jameson Williams, Tetairoa McMillan, Chuba Hubbard and Coker, if he plays. Monday night is Falcons at Saints, with Bijan Robinson, Chris Olave and Kyle Pitts starting and Drake London on a bench.
+Chiefs at Raiders, 3:25: Rashee Rice for the Kreussers, Walker and Jeanty for Kruz Control, Brock Bowers for the Nerfherders. Mahomes watches from Sandy's bench.
+
+Lions at Panthers, Sunday night: Gibbs, Goff, Amon-Ra St. Brown, Jameson Williams, Tetairoa McMillan, Chuba Hubbard and Coker, if he plays. Monday night, Falcons at Saints: Bijan Robinson, Drake London, Chris Olave, Kyle Pitts and Juwan Johnson.
 
 ## Lineup Check · Injury Desk
 
-De'Von Achane (Elan): torn ACL, on injured reserve, out for the season, and starting. Drake London or Terry McLaurin, with Stevenson moving to running back.
-Jalen Coker (Calvin): quad strain, did not practice Wednesday. Deebo Samuel.
-Justin Jefferson (Tom): ankle, did not practice Wednesday, day-to-day. Mike Evans (ribs) also missed Wednesday. Khalil Shakir.
-Case Keenum (Joe): Chicago has not named its starter between Keenum and Tyson Bagent. Trevor Lawrence.
-Kyle Pitts (Joe): projected 4.5 in the flex, one catch for five yards last week. Omarion Hampton.
-Ollie Gordon (Perry): Miami has no clear starter between Gordon and Jaylen Wright. Woody Marks or Brian Robinson.
-Zay Flowers (Elan): hamstring, limited Wednesday.
-Lamar Jackson (Calvin): back, limited Wednesday, expected to play.
+DeVonta Smith (John): out, hamstring, did not practice all week. Carnell Tate, or Josh Downs to receiver with Kyle Monangai or Isaiah Likely in the flex.
+Jalen Coker (Calvin): questionable, quad, plays Sunday night after every bench receiver has kicked off. Deebo Samuel, Courtland Sutton or Quentin Johnston, all at 3:25.
+Terry McLaurin (Elan): questionable, hamstring, London at 8:30 a.m. Malik Nabers or Stefon Diggs.
+Case Keenum (Joe): Chicago has not named its starter, and NFL Network reports Tyson Bagent is likely. Trevor Lawrence.
+Kyle Pitts (Joe): projected 4.8 in the flex. Omarion Hampton.
+Ollie Gordon (Perry): listed second on Miami's depth chart behind Jaylen Wright, in an expected split. Woody Marks or Brian Robinson.
 
 ## The Board
 
@@ -105,6 +105,6 @@ The standings are through Week 3. John leads the league in points.
 
 [IMAGE: season]
 
-Picks record: 7-1.
+Picks record: 7-1. Kickoff Sunday at 8:30 a.m. Central, in London.
 
 RoboGoat
