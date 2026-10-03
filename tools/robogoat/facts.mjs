@@ -29,7 +29,7 @@
 //                                               trade_* (offers are private)
 "use strict";
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { ROOT, fsGet, fsIndex, firstName, shortName, r2 } from "./lib.mjs";
@@ -77,8 +77,18 @@ for (let w = 1; w <= LAST; w++) {
 // ---------------- per-week player points (the shadow scorer, --dump) ----------------
 function dumpWeek(w) {
   const file = join(OUT, `players-${SEASON}-w${w}.json`);
-  execFileSync(process.execPath, [join(ROOT, "tools/_gffl_shadow_score.mjs"), "--season", String(SEASON), "--week", String(w),
-    "--no-live", "--quiet", "--dump", file], { stdio: ["ignore", "ignore", "inherit"] });
+  rmSync(file, { force: true }); // a stale dump from an earlier run must never pass for this one
+  try {
+    execFileSync(process.execPath, [join(ROOT, "tools/_gffl_shadow_score.mjs"), "--season", String(SEASON), "--week", String(w),
+      "--no-live", "--quiet", "--dump", file], { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", maxBuffer: 16 << 20 });
+  } catch (e) {
+    // The scorer exits 1 when one of ITS OWN health checks fails — e.g. a starter whose game is
+    // final has no stat line (Puka Nacua, Week 2, ruled out and left in a lineup). That is its
+    // report on the feed, not a failed dump: when the dump was written, use it and pass the
+    // FAIL lines on so the column's author sees them. No dump at all is a real failure.
+    if (!existsSync(file)) throw e;
+    for (const l of String(e.stdout || "").split("\n").filter((x) => /^FAIL:/.test(x))) console.error(`week ${w} scorer: ${l}`);
+  }
   return JSON.parse(readFileSync(file, "utf8"));
 }
 const players = {};
@@ -220,12 +230,28 @@ if (TYPE === "preview") {
   proj = await fsGet(`proj_${SEASON}_w${WEEK}`);
 }
 
+// A preview written after Thursday night (the Saturday preview) needs the week so far: each
+// team's points from games already played, and who scored them. Players whose games have not
+// started have no stat line yet (pts null) and are left out.
+let thisWeek = null;
+if (TYPE === "preview") {
+  const d = dumpWeek(WEEK);
+  thisWeek = Object.fromEntries(Object.entries(d.teams).map(([t, x]) => {
+    const played = x.players.filter((p) => p.pts != null && p.slot !== "IR");
+    return [t, {
+      soFar: x.startersTotal,
+      starters: played.filter((p) => p.slot !== "BENCH").map(({ name, nfl, pos, pts, line }) => ({ name, nfl, pos, pts, line })),
+      bench: played.filter((p) => p.slot === "BENCH").map(({ name, nfl, pos, pts, line }) => ({ name, nfl, pos, pts, line })),
+    }];
+  }));
+}
+
 const facts = {
   season: SEASON, week: WEEK, type: TYPE, lastFinished: LAST, pulledAt: new Date().toISOString(), since: new Date(since).toISOString(),
   teams, slots, games, next,
   weekly: Object.fromEntries(Object.entries(weekly).map(([w, d]) => [w, { matchups: d.matchups, awards: d.awards, power: d.power }])),
   standings, bench, benchYTD, teamHighs: teamHighs.slice(0, 8), playerHighs: playerHighs.slice(0, 10),
-  wp, chat, tx, lineups, proj,
+  wp, chat, tx, lineups, proj, thisWeek,
 };
 const file = join(OUT, `facts-${SEASON}-w${WEEK}-${TYPE}.json`);
 writeFileSync(file, JSON.stringify(facts, null, 1));

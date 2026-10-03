@@ -55,10 +55,15 @@ robogoat/
 9. After Perry merges and Netlify deploys: `node tools/robogoat/announce.mjs robogoat/2026/week-N`
    shows the push; send it with `--send` only when Perry says so.
 
-## Thursday preview (week N)
+## Saturday preview (week N)
 
-Same steps with `--type preview` and the directory `robogoat/2026/week-N-preview`. The skeleton
-has no scores, bench or chart. Fill `picksRecord` (the season so far), each game's `note` (it
+Saturday morning, after Thursday night's game and before Sunday's (Perry, 2026-10-03; it ran on
+Thursday mornings for Week 4 only). Same steps with `--type preview` and the directory
+`robogoat/2026/week-N-preview`. The facts file's `thisWeek` has each team's points so far from
+Thursday's game and who scored them, and the lineups are as set that morning; the app's current
+win probabilities are the latest reading in `wpgraph_<season>_w<n>` (`p` is the away team's
+chance). Open the column with a "Thursday night, briefly" section. The skeleton has no scores,
+bench or chart. Fill `picksRecord` (the season so far), each game's `note` (it
 carries the pick, e.g. "Pick: Sandy."), `picks` (the picked team ids, for the share image), and
 add `picks.N` to `season.json` with `"result": ""` for each. Previews carry no power rankings
 (the arrows compare recap to recap). `[IMAGE: season]` shows the season through week N-1.
