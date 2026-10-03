@@ -10322,3 +10322,32 @@ RESTAGED, reasons at the checks:
 - Full battery: **4139 pass / 12 fail**. The 12 are the pre-existing ones from the 2026-09-30
   entry: the fallback-font width checks (AE, RS, SU, TT) and I2's `%START` header. None is a power
   check.
+
+---
+
+## RoboGoat previews go back to Saturday morning; Week 4 rewritten after Thursday (2026-10-03)
+
+User, Saturday morning: "rewrite the preview now based on the thursday game being done and the way
+lineups are set right now, and in future lets have preview be saturday morning."
+
+This reverses the 2026-09-30 schedule entry, which moved the preview to Thursday morning. That
+schedule lasted one issue. The Thursday preview went out before anyone had finished setting a
+lineup. By Saturday, Elan had moved De'Von Achane to IR (the Thursday headline was about him
+starting), Sandy had switched back to Josh Allen, Tom had benched Justin Jefferson, and Isaac had
+35.2 points in the bank from Thursday night.
+
+- The routine `trig_01N9Ldn1iyNtpEnhrkvwkcTB` is now "RoboGoat Saturday preview",
+  `CRON_TZ=America/Chicago 51 6 * * 6`; the first Saturday run is 2026-10-10. Its prompt opens
+  the column with "Thursday night, briefly", then the matchups, a lineup check and The Board.
+- `facts.mjs --type preview` now also scores the current week so far: `thisWeek[team]` has the
+  points from games already played (Thursday's) and who scored them. It reuses the shadow scorer's
+  `--dump` for week N.
+- `facts.mjs` no longer dies when the shadow scorer exits 1. The scorer exits 1 when one of its
+  own health checks fails; Week 2's "a starter whose game is final has no stat line" (Puka
+  Nacua, ruled out and left in Elan's lineup, his injury tag since cleared) started tripping it.
+  That is a report on the feed, not a failed dump. If the dump was written, facts uses it and
+  prints the FAIL line; no dump is still fatal. Stale dumps are deleted before each run, so a
+  failed run can never reuse an old file.
+- `tools/robogoat/README.md`'s "Thursday preview" section is now "Saturday preview".
+- The Week 4 preview keeps its directory, `robogoat/2026/week-4-preview/`, and is rewritten in
+  place with `published` 2026-10-03. It had not been merged, so no live page changes meaning.

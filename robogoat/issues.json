@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 4,
+   "type": "preview",
+   "path": "2026/week-4-preview/",
+   "published": "2026-10-03",
+   "headline": "Isaac Banks 35.2, and Elan Puts Achane on IR",
+   "description": "Thursday night is done: Isaac banks 35.2, Sandy leads Perry, Elan puts Achane on IR, and John is still starting DeVonta Smith.",
+   "subject": "RoboGoat: Isaac banks 35.2, and Elan puts Achane on IR (Week 4 preview)",
+   "share": "2026/week-4-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 3,
    "type": "recap",
    "path": "2026/week-3/",

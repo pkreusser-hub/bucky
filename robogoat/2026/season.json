@@ -36,6 +36,24 @@
     "team": 2,
     "result": "W"
    }
+  ],
+  "4": [
+   {
+    "team": 5,
+    "result": ""
+   },
+   {
+    "team": 9,
+    "result": ""
+   },
+   {
+    "team": 11,
+    "result": ""
+   },
+   {
+    "team": 2,
+    "result": ""
+   }
   ]
  },
  "rankings": {
