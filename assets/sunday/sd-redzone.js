@@ -25,7 +25,8 @@
 
 const RZ = {
   MIN: 7000,        // a play stays on screen at least this long
-  HOLD_SCORE: 14000, // a score (or a viewer's own pick) stays this long
+  HOLD_SCORE: 8000, // a score stays this long; then its game is between drives and the card moves on
+  HOLD_PICK: 14000, // a game the viewer tapped stays this long
   MAX: 30000,       // nothing new anywhere for this long: move on to the next game worth watching
   RZ_MAX: 90000,    // ...unless the game on screen is inside the 20; then it may hold this long
   TIE: 20000,       // equal news elsewhere takes the card once the current game has had this long
@@ -35,12 +36,16 @@ const RZ = {
   pending: new Map(), // gameId -> {play, kind, prio, at}: something happened there, not shown yet
   cur: null,        // {gid, play, kind, prio, since, at, manual}
   shown: new Map(), // gameId -> when the card last left it (the rotation favours games not seen lately)
+  dead: new Set(),  // games between drives: a score, a try, a kickoff, a punt or a turnover was their last play
+  lastNews: new Map(), // gameId -> when it last had a real snap (the rotation goes where the action is)
   cuts: 0,          // bumped on every cut, so the stage can play its wipe
   feedTimer: null,
 };
 // What a play is worth to the director. Higher wins the card.
-const RZ_PRIO = { score: 100, turnover: 80, redzone: 60, big: 50, gffl: 35, play: 15, pat: 10, meta: -1 };
-const RZ_LABEL = { score: '', turnover: '', redzone: 'Red zone', big: 'Big play', gffl: '', play: '', pat: '', meta: '' };
+// A kickoff, punt or try ('dead') is shown when it happens in the game on screen but never pulls the
+// card to its game.
+const RZ_PRIO = { score: 100, turnover: 80, redzone: 60, big: 50, gffl: 35, play: 15, pat: 0, dead: 0, meta: -1 };
+const RZ_LABEL = { score: '', turnover: '', redzone: 'Red zone', big: 'Big play', gffl: '', play: '', pat: '', dead: '', meta: '' };
 
 // Is the board on the NFL's current week? (S.week is set only when the viewer picked another.)
 function rzThisWeek() {
@@ -64,6 +69,12 @@ function rzOwners(ev, lp) {
   return out;
 }
 
+// Inside the 20 for real. ESPN leaves isRedZone set after the drive is over: recorded 2026-10-04,
+// DAL @ HOU still read red zone through 95 s of TV timeout after its field goal, until the kickoff,
+// and the card sat on a game with nothing happening (user: "as soon as a field goal is kicked that
+// game should no longer be the redzone feature, it should bounce around to games with activity").
+// A game whose last play ended a drive is not in the red zone, whatever the flag says.
+const rzInRZ = (ev) => !!(ev?.sit?.isRedZone && !RZ.dead.has(ev.id) && !isHalftime(ev));
 const rzIsMeta = (lp) => /timeout|end of|end period|two-minute|coin toss|^end /.test(String(lp?.type?.text || '').toLowerCase());
 // Sort one new scoreboard play into the director's buckets. `scored` is the rise in the game's total
 // points since the last poll. A score can land between two polls with the last play already moved
@@ -74,11 +85,12 @@ function rzClassify(ev, lp, scored = 0) {
   const text = String(lp?.text || '');
   if (rzIsMeta(lp) || !lp) return scored >= 2 ? 'score' : 'meta';
   if (/extra point|two-point|2pt|conversion/.test(t)) return 'pat';
+  if (/kickoff|punt|touchback|fair catch/.test(t) && !(+lp.scoreValue > 0) && !/touchdown|fumble|interception|blocked|safety/.test(t)) return 'dead';
   if ((+lp.scoreValue > 0) || /touchdown|field goal good|safety/.test(t) || (scored >= 2 && !/no good|missed|blocked/.test(t))) {
     if (!/nullified|no play/i.test(text)) return 'score';
   }
   if (/interception|fumble recovery \(opp|turnover on downs|blocked|missed field goal|field goal missed/.test(t)) return 'turnover';
-  if (ev.sit?.isRedZone) return 'redzone';
+  if (rzInRZ(ev)) return 'redzone';
   if (Math.abs(+lp.statYardage || 0) >= 20) return 'big';
   if (rzOwners(ev, lp).some((o) => o.starter)) return 'gffl';
   return 'play';
@@ -103,15 +115,24 @@ function rzOnBoard(evs, now = Date.now()) {
       continue;
     }
     const delta = was != null ? total - was : 0;
+    // Drive state first: a score, try, kickoff, punt or turnover ends the drive; the next snap from
+    // scrimmage starts one. (A score behind a timeout ends it too.)
+    const ends = (k) => k === 'score' || k === 'pat' || k === 'dead' || k === 'turnover';
+    if (rzIsMeta(lp) && delta >= 2) RZ.dead.add(ev.id);
+    else if (!rzIsMeta(lp)) {
+      const k0 = /kickoff|punt|extra point|two-point|conversion|touchdown|field goal good|safety|interception|fumble recovery \(opp|turnover on downs|missed field goal|field goal missed|blocked/i.test(String(lp.type?.text || '')) || +lp.scoreValue > 0 || delta >= 2;
+      if (k0) RZ.dead.add(ev.id); else RZ.dead.delete(ev.id);
+    }
     const kind = rzClassify(ev, lp, delta);
     if (kind === 'meta') continue;
+    if (!ends(kind)) RZ.lastNews.set(ev.id, now);
     const news = { play: lp, kind, prio: RZ_PRIO[kind], at: now, delta: kind === 'score' ? delta : 0 };
     const big = (k) => k === 'score' || k === 'turnover';
     if (RZ.cur?.gid === ev.id) {
       // The game on screen shows its new play where it is. A score restarts the hold; a lesser play
       // inside the hold doesn't replace it, and the try after a touchdown never does (recorded
       // 2026-10-04: TEN @ BAL's touchdown, then "Extra Point Good" two polls, 31 s, later).
-      if (big(RZ.cur.kind) && (kind === 'pat' || now - RZ.cur.since < RZ.HOLD_SCORE) && news.prio < RZ.cur.prio) { RZ.cur.at = now; continue; }
+      if (big(RZ.cur.kind) && (kind === 'pat' || kind === 'dead' || now - RZ.cur.since < RZ.HOLD_SCORE) && news.prio < RZ.cur.prio) continue;
       Object.assign(RZ.cur, { play: lp, kind, prio: news.prio, at: now, delta: news.delta });
       if (kind === 'score') RZ.cur.since = now;
       RZ.pending.delete(ev.id);
@@ -130,20 +151,24 @@ function rzHold(now) {
   const c = RZ.cur;
   if (!c) return -Infinity;
   const ev = S.byId.get(c.gid);
-  if ((c.kind === 'score' || c.manual) && now - c.since < RZ.HOLD_SCORE) return Infinity;
-  if (ev?.sit?.isRedZone) return RZ_PRIO.redzone;
+  if (c.manual && now - c.since < RZ.HOLD_PICK) return Infinity;
+  if (c.kind === 'score' && now - c.since < RZ.HOLD_SCORE) return Infinity;
+  if (rzInRZ(ev)) return RZ_PRIO.redzone;
   return 0;
 }
-// The game to fall back to when nothing new is happening: the red zone first, then the game
-// the scoreboard already ranks highest (close, late, upset watch, your GFFL players), less the
-// longer-ago it was on.
+// The game to go to when no play is waiting: the red zone first, then a game that just ran a snap,
+// then the game the scoreboard already ranks highest (close, late, upset watch, your GFFL players),
+// less the more recently it was on. A game between drives is last.
 function rzBestGame(now, except) {
   let best = null, bestS = -Infinity;
   for (const ev of S.events || []) {
     if (!rzOnAir(ev) || ev.id === except) continue;
     const s = ev.sit || {};
     const ytg = s.yardLine != null && s.possession ? (s.possession === ev.home.id ? s.yardLine : 100 - s.yardLine) : null;
-    let sc = excitement(ev) + (s.isRedZone ? 60 + (ytg != null ? Math.max(0, 20 - ytg) : 0) : 0);
+    let sc = excitement(ev) + (rzInRZ(ev) ? 60 + (ytg != null ? Math.max(0, 20 - ytg) : 0) : 0);
+    const act = RZ.lastNews.get(ev.id);
+    if (act != null && now - act < 20000) sc += 30;
+    if (RZ.dead.has(ev.id)) sc -= 80;
     const last = RZ.shown.get(ev.id);
     if (last != null) sc -= Math.max(0, 40 - (now - last) / 3000);  // just left it: 40 down, back to even after 2 minutes
     if (sc > bestS) { bestS = sc; best = ev; }
@@ -188,9 +213,15 @@ function rzTick(now = Date.now()) {
     if (!best || n.prio > best.n.prio || (n.prio === best.n.prio && n.at > best.n.at)) best = { gid, n };
   }
   if (best && (best.n.prio > hold || (best.n.prio === hold && dwell >= RZ.TIE))) { rzCut(best.gid, best.n, now); return rzRender(); }
+  // The drive on screen is over (its score has had its 8 s, or a punt, kickoff or turnover): go
+  // where the action is now, without waiting for a quiet spell. Unless the viewer picked this game.
+  if (RZ.dead.has(c.gid) && hold !== Infinity) {
+    const ev = rzBestGame(now, c.gid);
+    if (ev && !RZ.dead.has(ev.id)) { rzCut(ev.id, null, now); return rzRender(); }
+  }
   // Nothing new worth a cut. Rotate after a quiet spell, but a game in the red zone keeps the card.
   const quiet = now - Math.max(c.since, c.at);
-  const limit = curEv.sit?.isRedZone ? RZ.RZ_MAX : RZ.MAX;
+  const limit = rzInRZ(curEv) ? RZ.RZ_MAX : RZ.MAX;
   if (quiet >= limit && !RZ.pending.size) {
     const ev = rzBestGame(now, c.gid);
     if (ev) rzCut(ev.id, null, now);
@@ -283,7 +314,7 @@ function rzMoment(ev, c) {
     return /field goal/.test(t) ? `Field goal${by}` : /safety/.test(t) ? `Safety${by}` : `Touchdown${by}`;
   }
   if (c.kind === 'turnover') return /interception/.test(t) ? `Interception` : /fumble/.test(t) ? 'Fumble lost' : /downs/.test(t) ? 'Turnover on downs' : /block/.test(t) ? 'Blocked' : 'No good';
-  if (ev.sit?.isRedZone) return 'Red zone';
+  if (rzInRZ(ev)) return 'Red zone';
   return RZ_LABEL[c.kind] || '';
 }
 function rzStageHTML(ev, c) {
@@ -299,7 +330,7 @@ function rzStageHTML(ev, c) {
       : rzOwners(ev, c.play).map((o) => `<span class="ffp ${ffSide(o.teamId)}${o.starter ? '' : ' bench'}" style="--c:${ffColor(o.teamId)}">${ffTag(o.teamId, !o.starter, 16)}${esc(ffShort(o.name))}</span>`).join('');
   }
   const text = c.play && !rzIsMeta(c.play) ? playLine(c.play) : '';
-  return `<a class="rzn-stage${s.isRedZone ? ' in-rz' : ''}${c.kind === 'score' ? ' scored' : ''}" href="#g${esc(ev.id)}" aria-label="${esc(`${ev.away.name} at ${ev.home.name}. Open this game`)}">
+  return `<a class="rzn-stage${rzInRZ(ev) ? ' in-rz' : ''}${c.kind === 'score' ? ' scored' : ''}" href="#g${esc(ev.id)}" aria-label="${esc(`${ev.away.name} at ${ev.home.name}. Open this game`)}">
     <div class="rzn-bug">${side(ev.away)}${side(ev.home)}<span class="rzn-clk">${esc(statusText(ev))}</span></div>
     ${miniField(ev)}
     <div class="rzn-sit">${moment ? `<span class="rzn-mo k-${c.kind}">${esc(moment)}</span>` : ''}<span class="rzn-dd">${dd}</span></div>
@@ -310,7 +341,7 @@ function rzStageHTML(ev, c) {
 function rzChannels() {
   const live = (S.events || []).filter((e) => e.state === 'in').sort((a, b) => a.date - b.date || (a.id > b.id ? 1 : -1));
   return live.map((ev) => {
-    const on = RZ.cur?.gid === ev.id, rz = ev.sit?.isRedZone && !isHalftime(ev), news = RZ.pending.has(ev.id);
+    const on = RZ.cur?.gid === ev.id, rz = rzInRZ(ev), news = RZ.pending.has(ev.id);
     return `<button class="rzn-ch${on ? ' on' : ''}${rz ? ' rz' : ''}${news ? ' news' : ''}${isHalftime(ev) ? ' half' : ''}" data-rz-game="${esc(ev.id)}" aria-pressed="${on}" aria-label="${esc(`${ev.away.name} at ${ev.home.name}${rz ? ', in the red zone' : ''}`)}">${esc(ev.away.abbr)} ${ev.away.score ?? 0}<i>·</i>${esc(ev.home.abbr)} ${ev.home.score ?? 0}</button>`;
   }).join('');
 }

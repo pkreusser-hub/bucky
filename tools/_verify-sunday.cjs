@@ -2801,7 +2801,7 @@ async function main() {
       // ── the director, on the real polls. Each poll is ingested at its own recorded time.
       const real = await probe((snaps) => {
         if (typeof rzOnBoard !== "function") return { err: "no rzOnBoard" };
-        RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.cur = null;
+        RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.dead?.clear(); RZ.lastNews?.clear(); RZ.cur = null;
         const out = [];
         for (const s of snaps) {
           const evs = s.sb.events.map(normEvent);
@@ -2819,12 +2819,20 @@ async function main() {
       // rise of 3 is the field goal, and the card goes there.
       ok(R[1] && R[1].gid === "401872967" && R[1].kind === "score" && R[1].moment === "Field goal",
         `a field goal that lands between two polls (the last play already a timeout) is still a score: the card cuts to DAL @ HOU on "Field goal" (${JSON.stringify(R[1])})`);
+      // 17:20:32 and 17:20:47 — 16 and 31 s after the field goal. DAL @ HOU's scoreboard still says red
+      // zone (it does until the kickoff, 95 s of TV timeout later on this recording), but the drive is
+      // over. RESTAGED 2026-10-04 (user: "its not switching to games with action, for example as soon
+      // as a field goal is kicked that game should no longer be the redzone feature, it should bounce
+      // around to games with activity"): the first version took the stale flag as a red-zone hold and
+      // sat on DAL @ HOU until TEN @ BAL's touchdown pulled it away 49 s later.
+      ok(R[2] && R[3] && R[2].gid !== "401872967" && R[3].gid !== "401872967",
+        `once the field goal has had its 8 s, the card leaves DAL @ HOU for games still playing, stale red-zone flag or not (17:20:32 on ${R[2]?.gid}, 17:20:47 on ${R[3]?.gid})`);
       // 17:21:05 — TEN @ BAL: Pollard's 3-yard touchdown (play 401872973543) as the last play.
       ok(R[4] && R[4].gid === "401872973" && R[4].kind === "score" && R[4].play === "401872973543" && /^Touchdown/.test(R[4].moment || ""),
-        `a red-zone touchdown takes the card from the field goal 49 s after it (${JSON.stringify(R[4])})`);
-      // 17:21:20 — 15 s on, the TD's 14 s hold has run, but BAL's situation still reads red zone, so
-      // the touchdown holds against the ordinary plays elsewhere.
-      ok(R[5] && R[5].gid === "401872973" && R[5].play === "401872973543", `15 s later the touchdown is still up: the red zone holds it against ordinary plays elsewhere (${JSON.stringify(R[5])})`);
+        `a red-zone touchdown takes the card (${JSON.stringify(R[4])})`);
+      // 17:21:20 — 15 s on. RESTAGED 2026-10-04, same ruling as above: the touchdown used to stay up
+      // because BAL still read red zone. The drive is over, so the card has moved to a game in play.
+      ok(R[5] && R[5].gid !== "401872973", `15 s after the touchdown the card is on another game, not the finished drive (${JSON.stringify(R[5])})`);
       // 17:21:36 — the try ("Extra Point Good", odd id -427760) arrives 31 s after the TD, and the
       // situation no longer reads red zone. The try is never what the card shows; a new play
       // elsewhere takes the card instead (the TD's hold is over and nothing holds TEN @ BAL now).
@@ -2837,7 +2845,7 @@ async function main() {
         if (typeof rzOnBoard !== "function") return { err: "no rzOnBoard" };
         const base = sb.events.map(normEvent).filter((e) => e.state === "in");
         const [A, B, C] = base.map((e) => structuredClone(e));
-        const reset = () => { RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.cur = null; };
+        const reset = () => { RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.dead?.clear(); RZ.lastNews?.clear(); RZ.cur = null; };
         const setEvs = (evs) => { S.events = evs; S.byId = new Map(evs.map((e) => [e.id, e])); };
         const sit = (ev, o) => { ev.sit = { ...(ev.sit || {}), ...o }; ev.name = "STATUS_IN_PROGRESS"; ev.period = 2; ev.detail = "5:00 - 2nd"; return ev; };
         let n = 0;
@@ -2861,13 +2869,38 @@ async function main() {
         sit(B, { isRedZone: true, yardLine: 88 }); play(B, "Rush"); rzOnBoard([A, B, C], s(10));
         out.t3a = RZ.cur.gid === A.id;
         rzTick(s(20)); out.t3b = RZ.cur.gid === B.id;
-        // T4 · a score holds the card 14 s, even against another score
+        // T4 · a score holds the card 8 s, even against another score (RESTAGED 2026-10-04 from 14 s:
+        // "as soon as a field goal is kicked that game should no longer be the redzone feature")
         start(false);
         A.home.score = (A.home.score || 0) + 3; play(A, "Field Goal Good", { scoreValue: 3 }); rzOnBoard([A, B, C], s(1));
         out.t4k = RZ.cur.gid === A.id && RZ.cur.kind === "score";
-        C.away.score = (C.away.score || 0) + 7; play(C, "Rushing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(9));
+        C.away.score = (C.away.score || 0) + 7; play(C, "Rushing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(8));
         out.t4a = RZ.cur.gid === A.id;
-        rzTick(s(15)); out.t4b = RZ.cur.gid === C.id;
+        rzTick(s(9)); out.t4b = RZ.cur.gid === C.id;
+        // T4b · a field goal with the red-zone flag left on and nothing waiting anywhere: after its 8 s
+        // the card still leaves for a game in play
+        start(false);
+        sit(A, { isRedZone: true, yardLine: 85 }); A.home.score += 3; play(A, "Field Goal Good", { scoreValue: 3 }); rzOnBoard([A, B, C], s(1));
+        rzTick(s(8)); out.t4c = RZ.cur.gid === A.id;
+        rzTick(s(9)); out.t4d = RZ.cur.gid !== A.id && RZ.pending.size === 0;
+        // T4c · the scoring team's kickoff (and a punt elsewhere) are not news
+        start(false);
+        play(B, "Kickoff"); play(C, "Punt"); rzOnBoard([A, B, C], s(2)); rzTick(s(10));
+        out.t4e = RZ.cur.gid === A.id && [...RZ.pending.values()].every((n) => n.prio === 0);
+        // T4d · a new drive in the red zone holds again: after the FG and kickoff, a snap from the 15
+        start(false);
+        A.home.score += 3; play(A, "Field Goal Good", { scoreValue: 3 }); rzOnBoard([A, B, C], s(1));
+        // (Guarded so code without these helpers fails this check, not the whole probe.)
+        const inRZ = typeof rzInRZ === "function" ? rzInRZ : () => null, isDead = (e) => !!RZ.dead?.has(e.id);
+        const deadAfterFg = inRZ(A) === false && isDead(A);
+        sit(A, { isRedZone: true, yardLine: 85 }); play(A, "Pass Reception"); rzOnBoard([A, B, C], s(30));
+        out.t4f = deadAfterFg && inRZ(A) === true && !isDead(A);
+        // T4e · from a finished drive, the card goes to the game that just ran a snap
+        start(false);
+        for (const e of [B, C]) { e.away.score = 10; e.home.score = 10; }
+        A.home.score += 3; play(A, "Field Goal Good", { scoreValue: 3 }); rzOnBoard([A, B, C], s(1));
+        RZ.lastNews?.set(C.id, s(4)); RZ.lastNews?.delete(B.id);
+        rzTick(s(9)); out.t4g = RZ.cur.gid === C.id;
         // T5 · nothing new anywhere for 30 s: on to the next game, and a game in the red zone first
         start(false);
         sit(C, { isRedZone: true, yardLine: 90 }); setEvs([A, B, C]);
@@ -2885,19 +2918,21 @@ async function main() {
         B.home.score += 7; play(B, "Passing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(2));
         play(B, "Extra Point Good", { scoreValue: 1 }); rzOnBoard([A, B, C], s(4));
         out.t8 = RZ.pending.get(B.id)?.kind === "score";
-        // T8b · the game on screen scores, and its try shows up 31 s later: the touchdown stays up
+        // T8b · the game on screen scores and its try shows up 4 s later: the touchdown stays up; at 8 s
+        // the card moves on (RESTAGED 2026-10-04: the try used to arrive 31 s in with the TD still up)
         start(false);
         A.home.score += 7; play(A, "Passing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(1));
         const tdId = RZ.cur.play.id;
-        A.home.score += 1; play(A, "Extra Point Good", { scoreValue: 1 }); rzOnBoard([A, B, C], s(32));
+        A.home.score += 1; play(A, "Extra Point Good", { scoreValue: 1 }); rzOnBoard([A, B, C], s(5));
         out.t8b = RZ.cur.gid === A.id && RZ.cur.play.id === tdId && RZ.cur.kind === "score";
+        rzTick(s(9)); out.t8c = RZ.cur.gid !== A.id;
         // T9 · timeouts and quarter ends aren't news
         start(false);
         play(B, "Timeout"); rzOnBoard([A, B, C], s(9)); play(C, "End Period"); rzOnBoard([A, B, C], s(10));
         out.t9 = RZ.pending.size === 0 && RZ.cur.gid === A.id;
         // T10 · what a play is
         const k = (type, o = {}, d = 0, rz = false) => rzClassify({ ...A, sit: { ...A.sit, isRedZone: rz } }, { id: "1", type: { text: type }, text: "", scoreValue: 0, statYardage: 3, ...o }, d);
-        out.t10 = [k("Official Timeout"), k("Official Timeout", {}, 3), k("Rushing Touchdown"), k("Extra Point Good", { scoreValue: 1 }, 1), k("Interception Return"), k("Pass Reception", { statYardage: 25 }), k("Rush", {}, 0, true), k("Rush")].join(",");
+        out.t10 = [k("Official Timeout"), k("Official Timeout", {}, 3), k("Rushing Touchdown"), k("Extra Point Good", { scoreValue: 1 }, 1), k("Interception Return"), k("Pass Reception", { statYardage: 25 }), k("Rush", {}, 0, true), k("Rush"), k("Kickoff"), k("Punt")].join(",");
         reset(); setEvs(sb.events.map(normEvent));
         return out;
       }, rzFix.snaps[0].sb);
@@ -2905,14 +2940,18 @@ async function main() {
       ok(RU.t1a === true && RU.t1b === true, `a play in another game waits until the one on screen has had 7 s, then the card cuts to it (${RU.t1a}, ${RU.t1b})`);
       ok(RU.t2a === true && RU.t2b === true, `a game in the red zone keeps the card against an ordinary play elsewhere (25 s on: ${RU.t2a}), not against a touchdown (${RU.t2b})`);
       ok(RU.t3a === true && RU.t3b === true, `red zone against red zone: the other game takes the card once this one has had 20 s (at 10 s ${RU.t3a}, at 20 s ${RU.t3b})`);
-      ok(RU.t4k === true && RU.t4a === true && RU.t4b === true, `a score holds the card 14 s, even against a touchdown elsewhere at 9 s, which follows at 15 s (${RU.t4k}, ${RU.t4a}, ${RU.t4b})`);
+      ok(RU.t4k === true && RU.t4a === true && RU.t4b === true, `a score holds the card 8 s, even against a touchdown elsewhere at 7 s in, which follows at 8 s (${RU.t4k}, ${RU.t4a}, ${RU.t4b})`);
+      ok(RU.t4c === true && RU.t4d === true, `a field goal with the red-zone flag still on: 7 s in it's up, at 8 s the card moves to a game in play with nothing waiting (${RU.t4c}, ${RU.t4d})`);
+      ok(RU.t4e === true, `a kickoff or a punt in another game doesn't pull the card (${RU.t4e})`);
+      ok(RU.t4f === true, `after a score the game isn't "in the red zone" until a new drive snaps inside the 20 (${RU.t4f})`);
+      ok(RU.t4g === true, `leaving a finished drive, the card goes to the game that just ran a play (${RU.t4g})`);
       ok(RU.t5a === true && RU.t5b === true, `with nothing new for 30 s the card moves on, to the game in the red zone (29 s ${RU.t5a}, 30 s ${RU.t5b})`);
       ok(RU.t6a === true && RU.t6b === true, `a quiet game inside the 20 keeps the card past 30 s (${RU.t6a}) up to 90 s (${RU.t6b})`);
       ok(RU.t7 === true, `a game that goes to halftime loses the card at once (${RU.t7})`);
       ok(RU.t8 === true, `a touchdown and its extra point both unseen: the touchdown is what waits (${RU.t8})`);
-      ok(RU.t8b === true, `the touchdown on screen stays up when its try arrives 31 s later (${RU.t8b})`);
+      ok(RU.t8b === true && RU.t8c === true, `the touchdown on screen stays up when its try arrives, then the card moves on at 8 s (${RU.t8b}, ${RU.t8c})`);
       ok(RU.t9 === true, `timeouts and quarter ends are not news (${RU.t9})`);
-      ok(RU.t10 === "meta,score,score,pat,turnover,big,redzone,play", `play kinds: timeout, timeout +3 points, TD, try, INT, 25-yd catch, red-zone run, run (${RU.t10})`);
+      ok(RU.t10 === "meta,score,score,pat,turnover,big,redzone,play,dead,dead", `play kinds: timeout, timeout +3 points, TD, try, INT, 25-yd catch, red-zone run, run, kickoff, punt (${RU.t10})`);
 
       // ── a channel tapped: that game, held 14 s; the cut plays the wipe
       const tap = await probe(() => {

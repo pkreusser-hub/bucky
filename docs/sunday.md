@@ -1454,3 +1454,42 @@ failing all 34 new checks and the same webfont check, every pre-existing check s
 container has no `chrome` channel, so the suite ran from a scratch copy launched on
 `/opt/pw-browsers/chromium`.
 
+
+## RedZone goes where the action is: a finished drive gives up the card (2026-10-04)
+
+User: "its not switching to games with action, for example as soon as a field goal is kicked that
+game should no longer be the redzone feature, it should bounce around to games with activity".
+
+The recording shows the cause. After DAL @ HOU's field goal (17:20:16Z), ESPN kept the game's
+`isRedZone` set through 95 s of TV timeout, until the kickoff. The director read the flag as a
+red-zone hold, so only a score or turnover elsewhere could take the card, and it sat on a game with
+nothing happening until TEN @ BAL's touchdown 49 s later. Kickoffs and tries in the game on screen
+also counted as news there and kept resetting its quiet timer.
+
+- **Drive state** (`RZ.dead`). A score (including one that lands behind a timeout), a try, a kickoff,
+  a punt or a turnover ends the game's drive; its next snap from scrimmage starts one. `rzInRZ(ev)` is
+  `isRedZone` and not between drives. Every red-zone rule (the hold, the 90 s quiet hold, the rotation
+  bonus, the moment tag, the stage's red edge, the channel's red dot) now reads that, not the raw flag.
+- **A score holds 8 s, down from 14.** Then, with its drive over, the card leaves at once for a game that
+  is playing. It doesn't wait for news or a quiet spell. A game the viewer tapped still holds 14 s
+  (`HOLD_PICK`).
+- **Kickoffs and punts are `dead` (priority 0), and tries are priority 0.** They show when they happen in
+  the game on screen but never pull the card to their own game, and they don't keep a finished drive on
+  screen.
+- **The rotation** (`rzBestGame`) adds 30 for a game that ran a snap in the last 20 s
+  (`RZ.lastNews`) and takes 80 off a game between drives.
+
+Cache-bust ?v=20261004c.
+
+VERIFY: sunday 376/377 (the one failure is the webfont ink check that fails the same way on HEAD in
+this container), sunday-ff 56/56. RESTAGED, with the reason at each check: on the real polls, "15 s
+later the touchdown is still up" is now "15 s after the touchdown the card is on another game"; "a
+score holds the card 14 s" is now 8 s; "the touchdown stays up when its try arrives 31 s later" is
+now "stays up when its try arrives 4 s in, then moves on at 8 s"; the play-kinds check adds kickoff and
+punt as `dead`. New: on the real polls the card is off DAL @ HOU 16 s and 31 s after the field goal
+(17:20:32 and 17:20:47); a field goal with the flag still on and nothing waiting anywhere still leaves
+at 8 s; a kickoff or punt elsewhere doesn't pull the card; a scoring game isn't in the red zone again
+until a new drive snaps inside the 20; leaving a finished drive, the card goes to the game that just
+ran a play. Bite: main's sd-redzone.js with the new suite scores 367/377. The 9 failures are the new
+and restaged checks plus the same webfont check. Main stays on DAL @ HOU at 17:20:32 and 17:20:47, as
+the user saw.
