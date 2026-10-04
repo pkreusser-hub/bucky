@@ -1898,7 +1898,10 @@ async function main() {
       const L = await probe(() => {
         const gv = document.getElementById("game-view"), nav = document.getElementById("gnav"), link = nav.querySelector("a");
         const lr = link.getBoundingClientRect(), hit = document.elementFromPoint(lr.left + lr.width / 2, lr.top + lr.height / 2);
-        const strip = document.getElementById("g-strip"), items = [...strip.querySelectorAll("a")], cur = strip.querySelector(".current");
+        // RESTAGED 2026-10-04: the strip's first item is now RedZone's entry (sd-redzone.js; user: "its like
+        // its own game that appears in the top scroll bar"), so the games are the strip's #g links, not
+        // every link in it; and "another game" to tap is another #g link, not the first unlit item.
+        const strip = document.getElementById("g-strip"), items = [...strip.querySelectorAll('a[href^="#g"]')], cur = strip.querySelector(".current");
         const sr = strip.getBoundingClientRect(), cr = cur?.getBoundingClientRect();
         return { hash: location.hash, id: G.id, want: defaultGameId(S.events), n: S.events.length, gvShown: !gv.hidden && gv.offsetParent !== null || getComputedStyle(gv).position === "fixed" && !gv.hidden,
           board: getComputedStyle(document.getElementById("board-view")).visibility, back: !!document.getElementById("g-back"),
@@ -2782,29 +2785,25 @@ async function main() {
       const probe = (fn, arg) => page.evaluate(fn, arg).catch((e) => ({ err: e.message.split("\n")[0] }));
       const liveN = rzFix.snaps[0].sb.events.filter((e) => e.status.type.state === "in").length;   // 8 on the recording
       await page.setViewport({ width: 1440, height: 900 });
-      // The big screen following the card is checked on its own at the end; until then it stays put,
-      // so the director's checks below don't swap the open game under the rest of the section.
-      await page.evaluate(() => localStorage.setItem("sun.rzFollow", "false"));
       await page.goto(BASE + "/sunday.html#g401872972", { waitUntil: "domcontentloaded" });
       let up = true;
-      try { await page.waitForFunction(() => G && S.loaded && document.querySelector("#redzone .rzn-stage, #redzone .rzn-idle"), { timeout: 15000 }); } catch { up = false; }
+      try { await page.waitForFunction(() => G && S.loaded && !document.getElementById("rzn-entry")?.hidden, { timeout: 15000 }); } catch { up = false; }
       await wait(300);
-      const geo = await probe(() => {
-        const rz = document.getElementById("redzone"), side = document.querySelector(".gv-side"), main = document.querySelector(".gv-main"), h = document.querySelector(".gv-side-h");
-        const r = rz.getBoundingClientRect(), m = main.getBoundingClientRect();
-        return { shown: rz.offsetParent !== null, first: side.firstElementChild === rz, left: Math.round(r.left), mainRight: Math.round(m.right), top: Math.round(r.top), right: Math.round(r.right), vw: innerWidth, hTop: Math.round(h.getBoundingClientRect().top),
-          chs: rz.querySelectorAll(".rzn-ch").length, n: document.getElementById("rzn-n")?.textContent, stage: !!rz.querySelector(".rzn-stage"), cut: document.getElementById("rzn-screen")?.classList.contains("cut"),
-          logo: rz.querySelector(".rzn-logo")?.textContent.replace(/\s+/g, "") };
+      // RESTAGED 2026-10-04 (user: "the redzone shouldn't appear on every games screen, its like its own
+      // game that appears in the top scroll bar"): the card used to sit at the top of every game's sidebar.
+      // Now a game's own screen has no RedZone on it; the top of the sidebar is RedZone's entry, which
+      // opens it like a game. (The sidebar starts under GFFL's 46 + 34 = 80px header, padding 14px: 94px.)
+      const plain = await probe(() => {
+        const rz = document.getElementById("redzone"), e = document.getElementById("rzn-entry"), side = document.querySelector(".gv-side"), main = document.querySelector(".gv-main");
+        const r = e.getBoundingClientRect();
+        return { card: rz.offsetParent !== null, tabs: document.getElementById("tabs").offsetParent !== null, first: side.firstElementChild === e, top: Math.round(r.top), left: Math.round(r.left), mainRight: Math.round(main.getBoundingClientRect().right),
+          lit: e.classList.contains("current"), href: e.getAttribute("href"), text: e.textContent.replace(/\s+/g, " ").trim(), mode: document.getElementById("game-view").classList.contains("rz-mode") };
       });
-      // The detail column ends where the sidebar begins (+28px gap); the sidebar starts under GFFL's
-      // 46 + 34 = 80px header, and its padding is 14px, so the card's top is 80 + 14 = 94px.
-      ok(up && geo.shown && geo.first && geo.left > geo.mainRight && geo.right <= geo.vw && geo.top === 94 && geo.top < geo.hTop,
-        `desktop: the RedZone card is the first thing in the right-hand sidebar, at the top (top ${geo.top}px = 80 + 14; left ${geo.left} > detail's right ${geo.mainRight}; above the Scores list at ${geo.hTop})`);
-      ok(geo.logo === "RedZone" && geo.chs === liveN && geo.n === `${liveN} live` && geo.stage, `it shows a game, with one channel per live game (${geo.chs} of ${liveN}) and "${geo.n}"`);
-      ok(geo.cut === false, `arriving on the page is not a cut: no wipe on the first paint (${geo.cut})`);
-      // The scoreboard poll is how soon the card hears of a play: 5 s while the card is up and games are live.
-      const pace = await probe(async () => { const got = []; const keep = boardPoller.onSchedule; boardPoller.onSchedule = (ms, ok) => { got.push(ms); keep(ms, ok); }; boardPoller.now(); await new Promise((r) => setTimeout(r, 600)); boardPoller.onSchedule = keep; return got; });
-      ok(Array.isArray(pace) && pace.includes(5000), `with the card up and games live, the scoreboard is polled every 5 s (${JSON.stringify(pace)}; 15 s otherwise)`);
+      ok(up && plain.card === false && plain.tabs === true && plain.mode === false, `a game's own screen has no RedZone card; its tabs are there (card shown ${plain.card}, tabs ${plain.tabs})`);
+      ok(plain.first && plain.href === "#redzone" && plain.top === 94 && plain.left > plain.mainRight && !plain.lit && plain.text.startsWith("RedZone") && plain.text.includes(`${liveN} live`),
+        `desktop: RedZone's entry is at the top of the sidebar's games, top right (top ${plain.top}px), not lit, with what's on (${JSON.stringify(plain.text)})`);
+      const pace0 = await probe(async () => { const got = []; const keep = boardPoller.onSchedule; boardPoller.onSchedule = (ms, ok) => { got.push(ms); keep(ms, ok); }; boardPoller.now(); await new Promise((r) => setTimeout(r, 600)); boardPoller.onSchedule = keep; return got; });
+      ok(Array.isArray(pace0) && pace0.includes(15000) && !pace0.includes(5000), `outside RedZone the scoreboard keeps its 15 s live poll (${JSON.stringify(pace0)})`);
 
       // ── the director, on the real polls. Each poll is ingested at its own recorded time.
       const real = await probe((snaps) => {
@@ -2961,18 +2960,40 @@ async function main() {
       ok(RU.t9 === true, `timeouts and quarter ends are not news (${RU.t9})`);
       ok(RU.t10 === "meta,score,score,pat,turnover,big,redzone,play,dead,dead", `play kinds: timeout, timeout +3 points, TD, try, INT, 25-yd catch, red-zone run, run, kickoff, punt (${RU.t10})`);
 
-      // ── a channel tapped: that game, held 14 s; the cut plays the wipe
-      const tap = await probe(() => {
+      // ── into RedZone: the entry, like a game
+      const into = await probe(async () => {
+        const h0 = history.length;
+        document.getElementById("rzn-entry").click();
+        await new Promise((r) => setTimeout(r, 400));
+        const rz = document.getElementById("redzone");
+        return { hash: location.hash, hist: history.length === h0, card: rz.offsetParent !== null, afterField: !!rz.previousElementSibling?.classList.contains("field-sec"), tabs: document.getElementById("tabs").offsetParent !== null,
+          lit: document.getElementById("rzn-entry").classList.contains("current"), listLit: document.querySelectorAll(".gv-side-list .current").length, onRZ: !!RZ.cur && G.id === RZ.cur.gid,
+          listHasG: !!document.querySelector(`.gv-side-list [href="#g${G.id}"]`), chs: rz.querySelectorAll(".rzn-ch").length, n: document.getElementById("rzn-n")?.textContent, cut: !!document.querySelector("#game-view .stadium.rz-cut") };
+      });
+      ok(into.hash === "#redzone" && into.hist && into.card && into.afterField && into.tabs === false && into.onRZ,
+        `tapping the entry opens RedZone (#redzone, no history entry): the game view is on RedZone's game, and under the field its card takes the place of the tabs (${JSON.stringify(into)})`);
+      ok(into.lit && into.listLit === 0 && into.listHasG, `in RedZone its entry is the one lit; no game is, and the sidebar lists every game, the one on screen too (${into.lit}, ${into.listLit} lit, on-screen game listed ${into.listHasG})`);
+      ok(into.chs === liveN && into.n === `${liveN} live`, `the card has one channel per live game (${into.chs} of ${liveN}) and "${into.n}"`);
+      ok(into.cut === false, `going into RedZone is not a cut: no wipe on arrival (${into.cut})`);
+      // The scoreboard poll is how soon RedZone hears of a play: 5 s in RedZone while games are live.
+      const pace = await probe(async () => { const got = []; const keep = boardPoller.onSchedule; boardPoller.onSchedule = (ms, ok) => { got.push(ms); keep(ms, ok); }; boardPoller.now(); await new Promise((r) => setTimeout(r, 600)); boardPoller.onSchedule = keep; return got; });
+      ok(Array.isArray(pace) && pace.includes(5000), `in RedZone with games live, the scoreboard is polled every 5 s (${JSON.stringify(pace)})`);
+
+      // ── a channel tapped: that game, held 14 s; the field plays the wipe
+      const tap = await probe(async () => {
         rzRender();
         const btn = [...document.querySelectorAll("#redzone .rzn-ch")].find((b) => !b.classList.contains("on"));
         if (!btn) return { err: "no channel" };
         const id = btn.dataset.rzGame; btn.click();
-        return { id, cur: RZ.cur?.gid, manual: RZ.cur?.manual, holdAll: rzHold(RZ.cur.since + 5000) === Infinity, holdEnds: rzHold(RZ.cur.since + 14000) !== Infinity, cut: document.getElementById("rzn-screen").classList.contains("cut"), on: document.querySelector("#redzone .rzn-ch.on")?.dataset.rzGame, href: document.querySelector("#redzone .rzn-stage")?.getAttribute("href") };
+        const out = { id, cur: RZ.cur?.gid, manual: RZ.cur?.manual, holdAll: rzHold(RZ.cur.since + 5000) === Infinity, holdEnds: rzHold(RZ.cur.since + 14000) !== Infinity };
+        await new Promise((r) => setTimeout(r, 300));
+        Object.assign(out, { g: G.id, hash: location.hash, cut: !!document.querySelector("#game-view .stadium.rz-cut"), on: document.querySelector("#redzone .rzn-ch.on")?.dataset.rzGame });
+        return out;
       });
-      ok(!!tap.id && tap.cur === tap.id && tap.manual === true && tap.on === tap.id && tap.href === "#g" + tap.id,
-        `tapping a channel puts that game on the card and lights it (${JSON.stringify(tap)})`);
+      ok(!!tap.id && tap.cur === tap.id && tap.manual === true && tap.g === tap.id && tap.hash === "#redzone" && tap.on === tap.id,
+        `tapping a channel puts that game on the field, still in RedZone, and lights its channel (${JSON.stringify(tap)})`);
       ok(tap.holdAll === true && tap.holdEnds === true, `…held against everything for 14 s, then not (5 s in ${tap.holdAll}, 14 s in released ${tap.holdEnds})`);
-      ok(tap.cut === true, `…and the cut plays the red wipe (${tap.cut})`);
+      ok(tap.cut === true, `…and the cut sweeps the red wipe across the field (${tap.cut})`);
 
       // ── the league feed: the real core plays of TEN @ BAL and DAL @ HOU, a hand-made two-team league.
       // Scoring: 0.1/rush yd, 6/rush TD, 1/rec, 0.1/rec yd, 6/rec TD, 0.04/pass yd, 4/pass TD, 1/XP,
@@ -3004,11 +3025,11 @@ async function main() {
         const ten = S.byId.get("401872973");
         RZ.cur = { gid: "401872973", play: { id: "401872973543", type: { text: "Rushing Touchdown" }, text: "T.Pollard right guard for 3 yards, TOUCHDOWN.", team: { id: ten.away.id } }, kind: "score", prio: 100, since: Date.now(), at: Date.now() };
         rzRender();
-        const stageChips = [...document.querySelectorAll("#redzone .rzn-stage .ffp")].map(chipText);
+        const nowLine = [...(document.getElementById("rzn-now")?.children || [])].map((c) => c.textContent.replace(/\s+/g, " ").trim()).join(" | ");
         // Stroud (bench) threw on several plays; only the TD to Collins (a starter) is a row.
         const stroudPlays = [...(FF._playCredits.get("401872967") || new Map()).keys()].filter((pid) => FF.playCredits("401872967", pid).some((c) => c.key === "4432577")).length;
         const benchOnly = rows.filter((r) => !r.cs.some((c) => c.starter)).length;
-        return { stroudPlays, benchOnly, n: rows.length, count: document.getElementById("rzn-fn")?.textContent, idx: want, times: rows.map((r) => r.t), dom, stageChips, metaN: FFUI.core.get("401872973")?.meta?.size };
+        return { stroudPlays, benchOnly, n: rows.length, count: document.getElementById("rzn-fn")?.textContent, idx: want, times: rows.map((r) => r.t), dom, nowLine, metaN: FFUI.core.get("401872973")?.meta?.size };
       });
       const F = feed || {};
       const rowOf = (pid) => (F.dom || [])[F.idx?.[pid]] || null;
@@ -3026,47 +3047,52 @@ async function main() {
       ok(Array.isArray(F.times) && F.times.length > 4 && F.times.every((t, i) => i === 0 || t <= F.times[i - 1]) && F.count === `${F.n} plays` && F.dom.length === F.n,
         `every row is a play that scored for a GFFL starter, by wallclock, newest first (${F.n} rows, "${F.count}")`);
       ok(F.benchOnly === 0 && F.stroudPlays > 1, `a play that only moved a bench player is not on the feed (Stroud, benched, is on ${F.stroudPlays} plays; ${F.benchOnly} rows have no starter)`);
-      ok(Array.isArray(F.stageChips) && F.stageChips.join("|") === "+6.3 T. Pollard", `on the card, the play on screen carries its own fantasy credit (${JSON.stringify(F.stageChips)})`);
+      // RESTAGED 2026-10-04: the card had a small screen of its own (score, mini field, the play and its
+      // credits). In RedZone the big field above it is that screen (the play's credits are on the
+      // last-play card under it), so the card only says why the field is on this game.
+      ok(F.nowLine === "Touchdown · TEN | On now: TEN @ BAL", `the card says why the field is on this game: the moment and the game (${JSON.stringify(F.nowLine)})`);
 
-      // ── the big screen follows the card. 2026-10-04, user: "the card on the top right is changing to new
-      // plays and games but not the 8 bit field view, which should also be changing. also on redzone view
-      // we dont have to start with teams in huddles, can go straight to the play".
+      // ── the big view follows. 2026-10-04, user: "the card on the top right is changing to new plays and
+      // games but not the 8 bit field view, which should also be changing. also on redzone view we dont
+      // have to start with teams in huddles, can go straight to the play". In RedZone, the game view is
+      // RedZone's: every cut opens that game there.
       snapI = 3;
-      await page.evaluate(() => localStorage.setItem("sun.rzFollow", "true"));
-      await page.goto(BASE + "/sunday.html#g401872972", { waitUntil: "domcontentloaded" });
-      try { await page.waitForFunction(() => G && S.loaded && document.querySelector("#redzone .rzn-h"), { timeout: 15000 }); } catch {}
+      await page.goto(BASE + "/sunday.html#redzone", { waitUntil: "domcontentloaded" });
+      let cold = true;
+      try { await page.waitForFunction(() => G && S.loaded && location.hash === "#redzone" && document.getElementById("redzone")?.offsetParent, { timeout: 15000 }); } catch { cold = false; }
+      ok(cold, `a link straight to #redzone lands in RedZone`);
       const fol = await probe(async () => {
         if (typeof rzFollowing !== "function") return { err: "no rzFollowing" };
         const h0 = history.length;
         RZ.pending.clear(); RZ.cur = null;
         rzCut("401872973", null, Date.now());
         await new Promise((r) => setTimeout(r, 300));
-        return { following: rzFollowing(), pressed: document.getElementById("rzn-follow")?.getAttribute("aria-pressed"), hash: location.hash, g: G?.id, hist: history.length === h0, card: document.querySelector("#redzone .rzn-stage")?.getAttribute("href") };
+        return { following: rzFollowing(), hash: location.hash, g: G?.id, hist: history.length === h0, card: document.getElementById("redzone").offsetParent !== null };
       });
-      ok(fol.following === true && fol.pressed === "true" && fol.hash === "#g401872973" && fol.g === "401872973" && fol.hist && fol.card === "#g401872973",
-        `following (the default, "Big screen" lit), a cut opens the same game in the big view, with no history entry (${JSON.stringify(fol)})`);
+      ok(fol.following === true && fol.hash === "#redzone" && fol.g === "401872973" && fol.hist && fol.card,
+        `in RedZone a cut opens that game in the game view, still in RedZone, with no history entry (${JSON.stringify(fol)})`);
       let staged = true;
       try { await page.waitForFunction(() => SIDE.gameId === "401872973" && SIDE.sc && SIDE.running, { timeout: 10000 }); } catch { staged = false; }
       // The newest play on TEN @ BAL at 17:20:47: Pollard to the BLT 3 (401872973521). Arriving, it runs
       // from the snap: both teams set at the line (raBuild's no-scene start snaps at 1.1 s), still short
-      // of its result. Not followed, an arrival puts the play straight at its end (checked next).
+      // of its result. On a game's own screen an arrival puts the play straight at its end.
       const arr = await probe(() => ({ id: String(SIDE.playId), tS: SIDE.sc?.tS, huddle: !!SIDE.sc?.huddle, t: +SIDE.t.toFixed(2), res: SIDE.resultAt != null ? +SIDE.resultAt.toFixed(2) : null, T: SIDE.sc ? +SIDE.sc.T.toFixed(2) : null }));
       ok(staged && arr.id === "401872973521" && arr.tS === 1.1 && !arr.huddle && arr.t < arr.res,
-        `the big 8-bit view runs the play the card cut for, from the snap: no huddle, no walk-up (${JSON.stringify(arr)})`);
-      // The next play in the same game: following, it starts set at the line; not following, it walks out
-      // of the huddle (snap at 4 s, raBuild's huddle start).
+        `the 8-bit view runs the play RedZone cut for, from the snap: no huddle, no walk-up (${JSON.stringify(arr)})`);
+      // The next play in the same game: in RedZone it starts set at the line; on the game's own screen it
+      // walks out of the huddle (snap at 4 s, raBuild's huddle start).
       const nxt = await probe(() => {
         const latest = sideNext();
         sideHuddle(); sidePlay(latest); const a = { tS: SIDE.sc?.tS };
-        localStorage.setItem("sun.rzFollow", "false");
+        history.replaceState(history.state, "", "#g" + G.id);
         sideHuddle(); sidePlay(latest); a.tSoff = SIDE.sc?.tS;
-        localStorage.setItem("sun.rzFollow", "true");
+        history.replaceState(history.state, "", "#redzone");
         return a;
       });
-      ok(nxt.tS === 1.1 && nxt.tSoff === 4, `following, a play starts with the teams set (snap at ${nxt.tS} s); not following, it walks out of the huddle (snap at ${nxt.tSoff} s)`);
-      // The card waits for the big view to finish the play it's running (up to 25 s), then cuts. The play
+      ok(nxt.tS === 1.1 && nxt.tSoff === 4, `in RedZone a play starts with the teams set (snap at ${nxt.tS} s); on a game's own screen it walks out of the huddle (snap at ${nxt.tSoff} s)`);
+      // A cut waits for the big view to finish the play it's running (up to 25 s), then goes. The play
       // waiting elsewhere is a touchdown, which beats TEN @ BAL's own red-zone hold, so only the stage
-      // being busy can keep the card where it is.
+      // being busy can keep RedZone where it is.
       const busy = await probe(() => {
         const now = Date.now(), other = S.events.find((e) => e.state === "in" && e.id !== G.id && !isHalftime(e))?.id;
         const keep = { running: SIDE.running, resultAt: SIDE.resultAt, t: SIDE.t };
@@ -3080,49 +3106,43 @@ async function main() {
       });
       ok(busy.waits === true && busy.after === true && busy.capped === true, `a cut waits while the big view is mid-play (${busy.waits}), goes once the play is done (${busy.after}), and never waits past 25 s (${busy.capped})`);
       await wait(400);
-      // Picking a game yourself takes the big screen back; the button gives it to RedZone again.
+      // Picking a game yourself leaves RedZone for that game's own screen; the entry goes back in.
       const pick = await probe(async () => {
         const a = document.querySelector('.gv-side-list a[href^="#g"]');
         if (!a) return { err: "no list game" };
         const want = a.getAttribute("href"); a.click();
         await new Promise((r) => setTimeout(r, 300));
-        const out = { want, hash: location.hash, stored: localStorage.getItem("sun.rzFollow"), pressed: document.getElementById("rzn-follow")?.getAttribute("aria-pressed") };
+        const out = { want, hash: location.hash, g: "#g" + G.id, card: document.getElementById("redzone").offsetParent !== null, tabs: document.getElementById("tabs").offsetParent !== null, entryLit: document.getElementById("rzn-entry").classList.contains("current") };
         const other = S.events.find((e) => rzOnAir(e) && "#g" + e.id !== want)?.id;
         rzCut(other, null, Date.now());
         await new Promise((r) => setTimeout(r, 300));
-        out.stays = location.hash === want;
-        document.getElementById("rzn-follow").click();
+        out.stays = location.hash === want && "#g" + G.id === want;
+        document.getElementById("rzn-entry").click();
         await new Promise((r) => setTimeout(r, 300));
-        out.back = { stored: localStorage.getItem("sun.rzFollow"), hash: location.hash, cur: "#g" + RZ.cur?.gid };
+        out.back = { hash: location.hash, g: "#g" + G.id, cur: "#g" + RZ.cur?.gid, card: document.getElementById("redzone").offsetParent !== null };
         return out;
       });
-      ok(pick.hash === pick.want && pick.stored === "false" && pick.pressed === "false" && pick.stays === true,
-        `tapping a game in the Scores list opens it and stops following: the next cut leaves the big view alone (${JSON.stringify(pick)})`);
-      ok(pick.back && pick.back.stored === "true" && pick.back.hash === pick.back.cur, `"Big screen" turns following back on and the big view goes to the card's game (${JSON.stringify(pick.back)})`);
-      await page.evaluate(() => localStorage.removeItem("sun.rzFollow"));
+      ok(pick.hash === pick.want && pick.g === pick.want && pick.card === false && pick.tabs === true && pick.entryLit === false && pick.stays === true,
+        `tapping a game in the Scores list opens that game's own screen, with its tabs and no RedZone, and RedZone's cuts leave it alone (${JSON.stringify(pick)})`);
+      ok(pick.back && pick.back.hash === "#redzone" && pick.back.g === pick.back.cur && pick.back.card, `the entry goes back into RedZone, on RedZone's game (${JSON.stringify(pick.back)})`);
 
-      // ── phones. RESTAGED 2026-10-04 (user: "Also need it to be on mobile"): this check used to say a
-      // phone had no card and nothing to follow, when the card lived only in the desktop sidebar. Now it
-      // sits under the 8-bit field in the main column and drives that view, as on desktop.
-      await page.evaluate(() => localStorage.setItem("sun.rzFollow", "true"));
+      // ── phones. RESTAGED 2026-10-04: the card used to sit under the field on every game's screen ("Also
+      // need it to be on mobile"); now RedZone is the first item in the strip of games, and its card
+      // shows only in RedZone (user: "its like its own game that appears in the top scroll bar").
       await page.setViewport({ width: 390, height: 844 });
       await wait(300);
       const ph = await probe(() => {
-        rzRender();
+        renderStrip(); rzRender();
+        const strip = document.getElementById("g-strip"), first = strip.firstElementChild;
         const rz = document.getElementById("redzone"), gv = document.getElementById("game-view"), r = rz.getBoundingClientRect();
-        const prev = rz.previousElementSibling;
-        const hts = [...rz.querySelectorAll(".rzn-ch, #rzn-follow")].map((b) => Math.round(b.getBoundingClientRect().height));
-        const out = { shown: rz.offsetParent !== null, afterField: !!prev?.classList.contains("field-sec") && rz.parentElement.classList.contains("g-body"), left: Math.round(r.left), right: Math.round(r.right), sideways: gv.scrollWidth > gv.clientWidth,
-          active: rzActive(), follow: rzFollowing(), screenFollowing: document.getElementById("rzn-screen").offsetParent === null, minTap: Math.min(...hts), feed: !!document.getElementById("rzn-feed") };
-        localStorage.setItem("sun.rzFollow", "false"); rzRender();
-        out.screenNot = document.getElementById("rzn-screen").offsetParent !== null;
-        localStorage.setItem("sun.rzFollow", "true"); rzRender();
-        return out;
+        const hts = [...rz.querySelectorAll(".rzn-ch")].map((b) => Math.round(b.getBoundingClientRect().height));
+        return { first: first?.getAttribute("href"), firstLit: first?.classList.contains("current"), litN: strip.querySelectorAll(".current").length, text: first?.textContent.replace(/\s+/g, " ").trim(),
+          shown: rz.offsetParent !== null, afterField: !!rz.previousElementSibling?.classList.contains("field-sec"), left: Math.round(r.left), right: Math.round(r.right), sideways: gv.scrollWidth > gv.clientWidth,
+          tabs: document.getElementById("tabs").offsetParent !== null, minTap: hts.length ? Math.min(...hts) : 0 };
       });
-      ok(ph.shown && ph.afterField && ph.left >= 0 && ph.right <= 390 && !ph.sideways && ph.active === true && ph.follow === true && ph.feed,
-        `phone: the card sits right under the 8-bit field, inside the 390px screen with no sideways scroll, and RedZone runs (${JSON.stringify(ph)})`);
-      ok(ph.screenFollowing === true && ph.screenNot === true, `phone: following, the card drops its own screen (the field above shows the game); not following, the screen is back (${ph.screenFollowing}, ${ph.screenNot})`);
-      ok(ph.minTap >= 44, `phone: every channel and the Big screen button is at least 44px tall (smallest ${ph.minTap}px)`);
+      ok(ph.first === "#redzone" && ph.firstLit && ph.litN === 1 && /^RedZone/.test(ph.text || ""), `phone: RedZone is the first item in the strip of games, and in RedZone it's the one lit (${JSON.stringify({ first: ph.first, lit: ph.firstLit, n: ph.litN, text: ph.text })})`);
+      ok(ph.shown && ph.afterField && ph.left >= 0 && ph.right <= 390 && !ph.sideways && ph.tabs === false, `phone: in RedZone its card sits right under the field in place of the tabs, inside the 390px screen, no sideways scroll (${JSON.stringify(ph)})`);
+      ok(ph.minTap >= 44, `phone: every channel is at least 44px tall (smallest ${ph.minTap}px)`);
       // A cut swaps the game under someone reading the feed: they stay where they were.
       const keep = await probe(async () => {
         const gv = document.getElementById("game-view"), g0 = G.id;
@@ -3133,17 +3153,27 @@ async function main() {
         await new Promise((r) => setTimeout(r, 400));
         return { y, after: Math.round(gv.scrollTop), moved: G.id !== g0 && G.id === other };
       });
-      ok(keep.moved && keep.y > 0 && Math.abs(keep.after - keep.y) <= 2, `phone: following a cut keeps the page where it was scrolled (${keep.y}px before, ${keep.after}px after; game swapped ${keep.moved})`);
-      await page.setViewport({ width: 1440, height: 900 });
-      await wait(300);
-      const backD = await probe(() => { rzRender(); return document.querySelector(".gv-side")?.firstElementChild?.id; });
-      ok(backD === "redzone", `back at desktop width the card returns to the top of the sidebar (${backD})`);
-      await page.evaluate(() => localStorage.removeItem("sun.rzFollow"));
+      ok(keep.moved && keep.y > 0 && Math.abs(keep.after - keep.y) <= 2, `phone: a RedZone cut keeps the page where it was scrolled (${keep.y}px before, ${keep.after}px after; game swapped ${keep.moved})`);
+      // Out of RedZone on a phone: a game from the strip, its own screen, the RedZone item unlit.
+      const phOut = await probe(async () => {
+        const a = [...document.querySelectorAll('#g-strip a[href^="#g"]')].find((x) => x.getAttribute("href") !== "#g" + G.id);
+        const want = a.getAttribute("href"); a.click();
+        await new Promise((r) => setTimeout(r, 300));
+        const strip = document.getElementById("g-strip");
+        return { want, hash: location.hash, card: document.getElementById("redzone").offsetParent !== null, rzLit: strip.firstElementChild.classList.contains("current"), gameLit: strip.querySelector(".current")?.getAttribute("href") };
+      });
+      ok(phOut.hash === phOut.want && phOut.card === false && phOut.rzLit === false && phOut.gameLit === phOut.want, `phone: a game from the strip is its own screen, no RedZone card, that game lit (${JSON.stringify(phOut)})`);
       await page.setViewport({ width: 1440, height: 900 });
       await wait(200);
       // (ESPN's own current week on the recording is week 4; any other week will do.)
-      const ow = await probe(() => { S.week = { st: S.cur.st, wk: S.cur.wk + 1 }; rzRender(); const h = document.getElementById("redzone").hidden && document.getElementById("redzone").offsetParent === null; S.week = null; rzRender(); return { h, back: document.getElementById("redzone").offsetParent !== null }; });
-      ok(ow.h === true && ow.back === true, `another week (no live games to follow) hides the card; this week brings it back (${JSON.stringify(ow)})`);
+      const ow = await probe(() => {
+        history.replaceState(history.state, "", "#redzone"); route();
+        S.week = { st: S.cur.st, wk: S.cur.wk + 1 }; rzRender();
+        const h = document.getElementById("redzone").offsetParent === null && document.getElementById("rzn-entry").hidden && rzEnter() === false;
+        S.week = null; rzRender();
+        return { h, back: document.getElementById("redzone").offsetParent !== null && !document.getElementById("rzn-entry").hidden };
+      });
+      ok(ow.h === true && ow.back === true, `another week (no live games to follow) has no RedZone, card or entry; this week brings it back (${JSON.stringify(ow)})`);
       await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }
