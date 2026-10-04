@@ -1533,3 +1533,36 @@ summary as polled at 17:20:47Z, poll 3 of rz-sb):
 
 Bite: the previous commit's app files with the new suite score 375/383. They fail the 7 new checks and
 the webfont check.
+
+## RedZone on phones (2026-10-04)
+
+User: "Also need it to be on mobile".
+
+Phones have no sidebar, so the card moves (`rzPlace`). At 1080px and up it is first in `.gv-side`, as
+before. Below that it sits in the main column right under `.field-sec`, so the 8-bit view it drives is
+just above it, and a resize moves it. `rzShown` no longer needs `isWide()`: the card, the director, the
+5 s scoreboard poll, the feed's core-API fetches and following all run on phones now.
+
+- **Following on a phone, the card drops its own screen** (`.rzn.following .rzn-screen`): the field
+  above is showing that game. It keeps its header with **Big screen**, the channels and the league feed
+  (up to 60dvh, scrolling inside the card). Not following, the screen is back.
+- **44px tap targets** on the channels and the Big screen button.
+- **A cut no longer throws you to the top.** `openGameView` sets the game view's `scrollTop` to 0, and
+  every followed cut rebuilds it. `rzFollow` puts the scroll back right after the swap and again on the
+  next frame. Desktop had the same jump; it just showed less there.
+- Tapping a game in the phone strip stops following, as a Scores-list tap does on desktop.
+
+Cache-bust ?v=20261004e.
+
+VERIFY: sunday 386/387 (the one failure is the webfont ink check that fails the same way on HEAD in
+this container), sunday-ff 56/56. RESTAGED, with the reason at the check: "on a phone there is no
+sidebar, no card, and nothing for the big view to follow" is now four phone checks:
+- the card sits right after `.field-sec` in `.g-body`, inside 16 to 374px of a 390px screen, with no
+  sideways scroll, active and following;
+- following, the card's screen is hidden, and not following it is shown;
+- every channel and the button is at least 44px tall;
+- a followed cut at scrollTop 300 swaps the game and leaves the scroll at 300.
+
+A fifth check, back at 1440px the card is first in the sidebar again, is a control and passes on both
+sides. Bite: the previous commit's app files with the new suite score 382/387. They fail the 4 phone
+checks and the webfont check.

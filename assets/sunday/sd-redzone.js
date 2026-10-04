@@ -15,7 +15,8 @@
      first. The credits come from the same core-API play engine as the game view's per-play chips
      (FF.playCredits), fetched for each game with a GFFL starter in it, not only the open one.
 
-   Desktop only: the card lives in the game view's sidebar, which exists at 1080px and up, and only
+   On desktop the card lives at the top of the game view's sidebar (1080px and up); on a phone it sits
+   under the 8-bit field (rzPlace, 2026-10-04: "Also need it to be on mobile"). Only
    for the NFL's current week (another week has no live games to follow).
 
    Needs from sd-app.js (shared global scope): $, esc, S, G, isWide, miniField, logoImg, playLine,
@@ -53,7 +54,9 @@ function rzThisWeek() {
   if (!S.cur) return false;
   return !S.week || (S.week.st === S.cur.st && S.week.wk === S.cur.wk);
 }
-function rzShown() { return !!(G && isWide() && S.loaded && rzThisWeek()); }
+// On every screen size (2026-10-04, user: "Also need it to be on mobile"): the sidebar's top on desktop,
+// under the 8-bit field on a phone (rzPlace).
+function rzShown() { return !!(G && S.loaded && rzThisWeek()); }
 function rzActive() { return rzShown() && !document.hidden; }
 // Games the card may sit on: live and not at halftime.
 const rzOnAir = (ev) => !!ev && ev.state === 'in' && !isHalftime(ev);
@@ -194,15 +197,19 @@ function rzCut(gid, news, now, manual = false) {
 // huddles, can go straight to the play". While following (the default; the card's "Big screen"
 // button), every cut also opens that game in the big view, as a tap on a sidebar game does
 // (replaceState + route, no history). Picking a game yourself from the Scores list, the phone strip or
-// the feed stops following; the button brings it back. Desktop only, like the card.
+// the feed stops following; the button brings it back. Phones too (the card sits under the field there).
 const rzFollowing = () => store.get('rzFollow', true) !== false && rzActive();
 function rzFollow(gid) {
   if (!rzFollowing() || !G || G.id === gid) return;
   // After the poll or tick that cut has finished (loadBoard is still mid-render when rzOnBoard cuts).
   setTimeout(() => {
     if (!rzFollowing() || !G || G.id === gid || RZ.cur?.gid !== gid) return;
+    // The swap rebuilds the game view and puts it back at the top; whoever is scrolled down reading the
+    // feed (a phone, mostly) stays where they were.
+    const v = $('#game-view'), y = v ? v.scrollTop : 0;
     history.replaceState(history.state, '', '#g' + gid);
     route();
+    if (v && y) { v.scrollTop = y; requestAnimationFrame(() => { v.scrollTop = y; }); }
   }, 0);
 }
 // The big stage is still busy with the game the card is on: it hasn't staged a play there yet (the
@@ -375,12 +382,22 @@ function rzChannels() {
   }).join('');
 }
 let rzLastCut = -1;
+// Desktop: first in the sidebar, top right. Phone (no sidebar): in the main column, right under the
+// field, so the 8-bit view it drives is just above it.
+function rzPlace(el) {
+  const side = document.querySelector('.gv-side'), field = document.querySelector('#game-view .field-sec');
+  if (isWide()) { if (side && side.firstElementChild !== el) side.prepend(el); }
+  else if (field && field.nextElementSibling !== el) field.after(el);
+}
 function rzRender() {
   const el = $('#redzone');
   if (!el) return;
   const on = rzShown();
   if (el.hidden === on) el.hidden = !on;
   if (!on) return;
+  rzPlace(el);
+  // A phone following RedZone already shows that game in the 8-bit view right above: no second screen.
+  el.classList.toggle('following', store.get('rzFollow', true) !== false);
   if (!el.firstElementChild) {
     el.innerHTML = `<div class="rzn-h"><span class="rzn-logo">Red<b>Zone</b></span><span class="rzn-n" id="rzn-n"></span><button class="rzn-follow" id="rzn-follow" aria-pressed="true" title="The big view follows RedZone from game to game">Big screen</button></div>
       <div class="rzn-screen" id="rzn-screen"></div>
@@ -443,4 +460,5 @@ document.addEventListener('click', (e) => {
 });
 setInterval(() => { if (rzActive()) rzTick(Date.now()); }, 1000);
 RZ.feedTimer = setInterval(rzFeedTick, 15000);
+window.addEventListener('resize', () => rzRender());
 document.addEventListener('visibilitychange', () => { if (!document.hidden && rzShown()) { rzTick(Date.now()); rzFeedTick(); } });

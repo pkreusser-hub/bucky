@@ -3101,11 +3101,44 @@ async function main() {
       ok(pick.back && pick.back.stored === "true" && pick.back.hash === pick.back.cur, `"Big screen" turns following back on and the big view goes to the card's game (${JSON.stringify(pick.back)})`);
       await page.evaluate(() => localStorage.removeItem("sun.rzFollow"));
 
-      // ── phone and other weeks: no card
+      // ── phones. RESTAGED 2026-10-04 (user: "Also need it to be on mobile"): this check used to say a
+      // phone had no card and nothing to follow, when the card lived only in the desktop sidebar. Now it
+      // sits under the 8-bit field in the main column and drives that view, as on desktop.
+      await page.evaluate(() => localStorage.setItem("sun.rzFollow", "true"));
       await page.setViewport({ width: 390, height: 844 });
-      await wait(200);
-      const off = await probe(() => ({ phone: document.getElementById("redzone")?.offsetParent === null, active: rzActive(), follow: typeof rzFollowing === "function" ? rzFollowing() : null }));
-      ok(off.phone === true && off.active === false && off.follow === false, `on a phone there is no sidebar, no card, and nothing for the big view to follow (hidden ${off.phone}, active ${off.active}, following ${off.follow})`);
+      await wait(300);
+      const ph = await probe(() => {
+        rzRender();
+        const rz = document.getElementById("redzone"), gv = document.getElementById("game-view"), r = rz.getBoundingClientRect();
+        const prev = rz.previousElementSibling;
+        const hts = [...rz.querySelectorAll(".rzn-ch, #rzn-follow")].map((b) => Math.round(b.getBoundingClientRect().height));
+        const out = { shown: rz.offsetParent !== null, afterField: !!prev?.classList.contains("field-sec") && rz.parentElement.classList.contains("g-body"), left: Math.round(r.left), right: Math.round(r.right), sideways: gv.scrollWidth > gv.clientWidth,
+          active: rzActive(), follow: rzFollowing(), screenFollowing: document.getElementById("rzn-screen").offsetParent === null, minTap: Math.min(...hts), feed: !!document.getElementById("rzn-feed") };
+        localStorage.setItem("sun.rzFollow", "false"); rzRender();
+        out.screenNot = document.getElementById("rzn-screen").offsetParent !== null;
+        localStorage.setItem("sun.rzFollow", "true"); rzRender();
+        return out;
+      });
+      ok(ph.shown && ph.afterField && ph.left >= 0 && ph.right <= 390 && !ph.sideways && ph.active === true && ph.follow === true && ph.feed,
+        `phone: the card sits right under the 8-bit field, inside the 390px screen with no sideways scroll, and RedZone runs (${JSON.stringify(ph)})`);
+      ok(ph.screenFollowing === true && ph.screenNot === true, `phone: following, the card drops its own screen (the field above shows the game); not following, the screen is back (${ph.screenFollowing}, ${ph.screenNot})`);
+      ok(ph.minTap >= 44, `phone: every channel and the Big screen button is at least 44px tall (smallest ${ph.minTap}px)`);
+      // A cut swaps the game under someone reading the feed: they stay where they were.
+      const keep = await probe(async () => {
+        const gv = document.getElementById("game-view"), g0 = G.id;
+        const y = Math.min(300, gv.scrollHeight - gv.clientHeight);
+        gv.scrollTop = y;
+        const other = S.events.find((e) => rzOnAir(e) && e.id !== g0)?.id;
+        RZ.pending.clear(); rzCut(other, null, Date.now());
+        await new Promise((r) => setTimeout(r, 400));
+        return { y, after: Math.round(gv.scrollTop), moved: G.id !== g0 && G.id === other };
+      });
+      ok(keep.moved && keep.y > 0 && Math.abs(keep.after - keep.y) <= 2, `phone: following a cut keeps the page where it was scrolled (${keep.y}px before, ${keep.after}px after; game swapped ${keep.moved})`);
+      await page.setViewport({ width: 1440, height: 900 });
+      await wait(300);
+      const backD = await probe(() => { rzRender(); return document.querySelector(".gv-side")?.firstElementChild?.id; });
+      ok(backD === "redzone", `back at desktop width the card returns to the top of the sidebar (${backD})`);
+      await page.evaluate(() => localStorage.removeItem("sun.rzFollow"));
       await page.setViewport({ width: 1440, height: 900 });
       await wait(200);
       // (ESPN's own current week on the recording is week 4; any other week will do.)
