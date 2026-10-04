@@ -175,6 +175,7 @@ Object.assign(process.env, {
   HALFTIME_BG_URL: B + "/bg", ANTHROPIC_BASE_URL: B, ANTHROPIC_API_KEY: "sk-test", FIREBASE_SERVICE_ACCOUNT: JSON.stringify(SA), BUCKY_NOTIFY_SECRET: "fam-secret",
 });
 const mod = await import(pathToFileURL(FN).href);
+const signJob = mod.signJob || (() => "");          // (a copy of the old function has none: the checks fail instead of crashing)
 bgHandler = (await import(pathToFileURL(BG).href)).default;
 const get = async (event) => { const r = await mod.default(new Request(`https://amenfarms.netlify.app/.netlify/functions/halftime?event=${event}`)); return { j: await r.json(), h: Object.fromEntries(r.headers) }; };
 const drain = async () => { while (bgJobs.length) await bgJobs.shift(); };
@@ -445,7 +446,7 @@ try {
     // store and the job re-signed for it (a body with only `at` edited is a forgery and does nothing).
     const aged = Date.now() - 31000;
     doc("401872957").fields.at = { integerValue: String(aged) };
-    await mod.runHalftimeJob({ ...log.bg.at(-1), at: aged, sig: mod.signJob("half", "401872957", 1, aged) });
+    await mod.runHalftimeJob({ ...log.bg.at(-1), at: aged, sig: signJob("half", "401872957", 1, aged) });
     const done = await get("401872957");
     ok(done.j.ok && done.j.ms >= 31000 && done.j.ms < 60000, `…and the finished script records how long it took to write, claim to script (${done.j.ms} ms)`);
   }
@@ -475,37 +476,37 @@ try {
     // (b) a real signature cannot be reused for other values, or after it expires.
     const at = Date.now();
     pending("401872965", at);
-    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: mod.signJob("half", "401872965", 1, at + 1) });
-    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "post", at, sig: mod.signJob("half", "401872965", 1, at) });
-    await mod.runHalftimeJob({ event: "401872965", tries: 2, kind: "half", at, sig: mod.signJob("half", "401872965", 1, at) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: signJob("half", "401872965", 1, at + 1) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "post", at, sig: signJob("half", "401872965", 1, at) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 2, kind: "half", at, sig: signJob("half", "401872965", 1, at) });
     ok(same() === true, "a signature is good for its own mode, event, try and claim time only (each tampered field: no call, no write)");
     const old = Date.now() - 21 * 60 * 1000;
     pending("401872966", old);
-    await mod.runHalftimeJob({ event: "401872966", tries: 1, kind: "half", at: old, sig: mod.signJob("half", "401872966", 1, old) });
+    await mod.runHalftimeJob({ event: "401872966", tries: 1, kind: "half", at: old, sig: signJob("half", "401872966", 1, old) });
     const future = Date.now() + 5 * 60 * 1000;
     pending("401872965", future);
-    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at: future, sig: mod.signJob("half", "401872965", 1, future) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at: future, sig: signJob("half", "401872965", 1, future) });
     ok(same() === true && fsv("401872966", "status") === "pending", "…and a signed job 21 minutes after its claim (or dated in the future) is expired: no call, no write");
 
     // (c) a valid signature with no live claim behind it.
     docs.delete(`${DOC_BASE}/sunday_desk3/401872965`);
-    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: mod.signJob("half", "401872965", 1, at) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: signJob("half", "401872965", 1, at) });
     pending("401872965", at + 5);                                  // a claim, but another one's
-    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: mod.signJob("half", "401872965", 1, at) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: signJob("half", "401872965", 1, at) });
     docs.set(`${DOC_BASE}/sunday_desk3/401872966`, { fields: { status: { stringValue: "done" }, at: { integerValue: String(at) }, tries: { integerValue: "1" }, payload: { stringValue: JSON.stringify({ lines: LINES }) } }, createTime: "x", updateTime: "2026-09-26T12:00:00.000009Z" });
-    await mod.runHalftimeJob({ event: "401872966", tries: 1, kind: "half", at, sig: mod.signJob("half", "401872966", 1, at) });
+    await mod.runHalftimeJob({ event: "401872966", tries: 1, kind: "half", at, sig: signJob("half", "401872966", 1, at) });
     ok(same() === true && !docs.get(`${DOC_BASE}/sunday_desk3/401872965`).fields.status.stringValue.includes("done") && fsv("401872966", "status") === "done",
       "a signed job needs the live pending claim: no doc, a different claim time, or an already-finished script (kept) all stop it before the model");
 
     // (d) the same eligibility rule as the public path: ESPN must say halftime (final, for post/demo).
-    const claimFor = async (ev, kind, prefix) => { const a = Date.now(); pending(ev, a, 1, prefix); await mod.runHalftimeJob({ event: ev, tries: 1, kind, demo: prefix === "demo-", at: a, sig: mod.signJob(prefix === "demo-" ? "demo" : kind, ev, 1, a) }); };
+    const claimFor = async (ev, kind, prefix) => { const a = Date.now(); pending(ev, a, 1, prefix); await mod.runHalftimeJob({ event: ev, tries: 1, kind, demo: prefix === "demo-", at: a, sig: signJob(prefix === "demo-" ? "demo" : kind, ev, 1, a) }); };
     await claimFor("401872964", "half", "");
     await claimFor("401872949", "half", "");
     await claimFor("401872948", "post", "post-");
     ok(same() === true, "a signed, claimed job for a game in the first quarter, for a final asked as a halftime, or for a game at halftime asked as a postgame still makes no model call");
     const A = Date.now();
     pending("401872965", A);
-    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at: A, sig: mod.signJob("half", "401872965", 1, A) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at: A, sig: signJob("half", "401872965", 1, A) });
     ok(log.model.length === b.model + 1 && fsv("401872965", "status") === "done", "…while the genuine job (halftime game, live claim, fresh signature) goes through and writes the script");
     b = spend();
 

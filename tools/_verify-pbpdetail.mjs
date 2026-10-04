@@ -129,6 +129,7 @@ async function main() {
   process.env.PBP_DEADLINE_MS = "1500";           // the overall budget, short for the stall checks (default 8000)
   const mod = await import(pathToFileURL(FN_PATH).href);
   const handler = mod.default;
+  const resetSched = mod.__resetSchedule || (() => {});     // (absent in a copy of the old function: the checks fail instead of crashing)
 
   function req(qs) {
     return new Request(`http://x/.netlify/functions/pbpdetail${qs}`);
@@ -286,7 +287,7 @@ async function main() {
     // RESTAGED 2026-10-04: the parsed games.csv is now kept module-wide for an hour (it used to be
     // downloaded again for every event id), so by here a warm container would answer this event
     // from memory and never see the 500. The cold-start case is what this check is about: reset it.
-    mod.__resetSchedule?.();
+    resetSched();
     FLAGS.games500 = true;
     const { status, body } = await call("?event=401872948");
     FLAGS.games500 = false;
@@ -315,7 +316,7 @@ async function main() {
 
   section("Warm container: games.csv is downloaded once, not once per event id");
   {
-    mod.__resetSchedule();
+    resetSched();
     gamesHits = 0;
     await call("?event=401872948");
     const a = gamesHits;
@@ -345,7 +346,7 @@ async function main() {
       return { ...r, ms: Date.now() - t0 };
     };
     // games.csv sends its headers and a few bytes, then the body stalls: used to wait for ever.
-    mod.__resetSchedule();
+    resetSched();
     FLAGS.gamesStall = true;
     const g = await raced("?event=401872948");
     FLAGS.gamesStall = false;
@@ -353,14 +354,14 @@ async function main() {
       `a games.csv whose body stalls after the headers ends at the ${1500} ms deadline as HTTP 200 { ok:false, upstream, timeout } (${g.hung ? "HUNG" : g.ms + " ms, " + JSON.stringify(g.body).slice(0, 80)})`);
     // Three slow legs in a row: schedule 700 ms, pbp 700 ms, FTN stalled. Each is under any
     // per-leg limit but together they pass the deadline; the answer still comes inside it.
-    mod.__resetSchedule();
+    resetSched();
     FLAGS.gamesDelay = 700; FLAGS.pbpDelay = 700; FLAGS.ftnStall = true;
     const t = await raced("?event=401872948");
     FLAGS.gamesDelay = 0; FLAGS.pbpDelay = 0; FLAGS.ftnStall = false;
     ok(!t.hung && t.status === 200 && t.ms < 2500 && (t.body.ok === true ? t.body.ftn === false && t.body.n === 168 : t.body.reason === "upstream"),
       `slow schedule + slow pbp + stalled FTN answers inside the one deadline, HTTP 200, the plays kept without FTN when they made it (${t.hung ? "HUNG" : t.ms + " ms, ok=" + t.body.ok + " ftn=" + t.body.ftn + " n=" + t.body.n})`);
     // The pbp leg alone running out: nothing left of the budget for FTN, and a documented failure.
-    mod.__resetSchedule();
+    resetSched();
     FLAGS.gamesDelay = 800; FLAGS.pbpDelay = 900;
     const u = await raced("?event=401872948");
     FLAGS.gamesDelay = 0; FLAGS.pbpDelay = 0;

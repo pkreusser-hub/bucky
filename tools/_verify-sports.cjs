@@ -711,18 +711,19 @@ async function sectionFunctionHardening() {
 
   // The body read is under the deadline (budgets: 600 ms single call, set by initHandler / section L).
   ffUp.mode = "slowbody";
+  const within = (p) => Promise.race([p, sleep(3000).then(() => ({ status: 0, json: { hung: true } }))]);   // (a function with no body deadline never answers)
   let t0 = Date.now();
-  let r = await call({ secret: "amenfarms", action: "ff_league" });
+  let r = await within(call({ secret: "amenfarms", action: "ff_league" }));
   let ms = Date.now() - t0;
   ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "timeout" && ms > 300 && ms < 1500,
     `sports ff_league: a fantasy upstream that sends headers then stalls the body ends at the 600 ms deadline as { ok:false, reason:"timeout" } (${ms} ms, ${JSON.stringify(r.json)})`);
   t0 = Date.now();
-  r = await call({ secret: "amenfarms", action: "nfl_ownership" });
+  r = await within(call({ secret: "amenfarms", action: "nfl_ownership" }));
   ms = Date.now() - t0;
   ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "timeout" && ms > 300 && ms < 1500,
     `sports nfl_ownership (the 8.8 MB body): the same stall ends at the deadline, not never (${ms} ms, ${JSON.stringify(r.json)})`);
   t0 = Date.now();
-  r = await callLeagueRaw({ secret: "amenfarms", action: "lg_espn_settings" });
+  r = await within(callLeagueRaw({ secret: "amenfarms", action: "lg_espn_settings" }));
   ms = Date.now() - t0;
   ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "timeout" && ms > 300 && ms < 1500,
     `league lg_espn_settings: the same stall ends at the deadline (${ms} ms, ${JSON.stringify(r.json)})`);
