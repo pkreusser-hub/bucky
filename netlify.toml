@@ -90,3 +90,20 @@
   for = "/league.html"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+
+# GFFL engine scripts are versioned by name+query: league.html is the ONLY page that loads them and
+# every reference carries ?v=<deploy stamp> (assets/league/lg-core.js?v=..., lg-data, lg-ui), bumped
+# on every change to them, so a given URL's bytes never change and a phone may keep it for a year
+# instead of revalidating three files on every cold open. (A change to an lg-*.js file WITHOUT
+# bumping its ?v= would now stick on phones that already have it: bump first. league.html itself
+# stays no-store above.) Nothing else lives under /assets/league/ that a page loads unversioned.
+[[headers]]
+  for = "/assets/league/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Netlify serves *.webmanifest as application/octet-stream; browsers want the manifest media type.
+[[headers]]
+  for = "/*.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"

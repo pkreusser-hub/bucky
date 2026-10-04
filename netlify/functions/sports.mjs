@@ -45,6 +45,8 @@
 // SPORTS_NFL_BASE_URL + SPORTS_FF_BASE_URL point the upstreams at fake servers
 // (tools/_verify-sports.cjs).
 
+import { timingSafeEqual } from "node:crypto";
+
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
   // The GFFL league is the SAME Netlify site under a domain alias (notify.mjs precedent) —
@@ -68,6 +70,11 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 // fine with the browser UA and keeps it — don't "unify" these.
 const NFL_UA = "curl/8.6.0";
 
+// Constant-time secret comparison (equal-length buffers; unequal lengths fail without a compare).
+const safeEq = (a, b) => {
+  const x = Buffer.from(String(a ?? "")), y = Buffer.from(String(b ?? ""));
+  return x.length === y.length && timingSafeEqual(x, y);
+};
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
   return {
@@ -94,14 +101,27 @@ function json(obj, status, headers) {
 const FETCH_TIMEOUT_MS = Number(process.env.SPORTS_FETCH_TIMEOUT_MS) || 7000;
 const FETCH_TIMEOUT_MS_SHORT = Number(process.env.SPORTS_FETCH_TIMEOUT_MS_SHORT) || 3500;
 
+// The deadline covers the BODY too (2026-10-04 review): the timer used to be cleared when headers
+// arrived, so r.json() / r.text() on a slow 8 MB body had no deadline at all and the platform's 502
+// replaced our { ok:false }. Now the timer is cleared only once the caller has read the body (json,
+// text or arrayBuffer); a response whose body is never read just lets it fire harmlessly (unref'd).
 async function timedFetch(url, opts, ms) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms || FETCH_TIMEOUT_MS);
+  timer.unref?.();
+  let r;
   try {
-    return await fetch(url, { ...(opts || {}), signal: ctrl.signal });
-  } finally {
+    r = await fetch(url, { ...(opts || {}), signal: ctrl.signal });
+  } catch (e) {
     clearTimeout(timer);
+    throw e;
   }
+  for (const m of ["json", "text", "arrayBuffer"]) {
+    if (typeof r?.[m] !== "function") continue;
+    const orig = r[m].bind(r);
+    r[m] = async () => { try { return await orig(); } finally { clearTimeout(timer); } };
+  }
+  return r;
 }
 // AbortError means OUR deadline fired, not a real network failure — report it honestly as
 // "timeout" rather than folding it into the generic "unreachable" reason.
@@ -117,7 +137,7 @@ async function fetchUpstream(url, ms) {
     return { err: fetchFailReason(e) };
   }
   if (!r.ok) return { err: "http-" + r.status };
-  try { return { data: await r.json() }; } catch { return { err: "bad-json" }; }
+  try { return { data: await r.json() }; } catch (e) { return { err: e?.name === "AbortError" ? "timeout" : "bad-json" }; }
 }
 
 // ---------------- scoreboard ----------------
@@ -446,10 +466,20 @@ function ffCookies() {
 
 // The NFL season a fantasy league year names: January/February still belong to
 // the PREVIOUS season's league.
+//
+// ESPN_SEASON pins a season (2026-10-04 review): an override BEHIND the calendar season is ignored,
+// with a log line. A forgotten override is always behind (it was right when set), so this is what
+// stops it sticking into next year; an override AHEAD of the calendar (a deliberate early pin) is
+// honoured (it can only stick until the calendar catches up, and then it is the stale case).
 function ffSeason() {
-  if (/^\d{4}$/.test(process.env.ESPN_SEASON || "")) return Number(process.env.ESPN_SEASON);
   const d = new Date();
-  return d.getUTCMonth() < 2 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
+  const cal = d.getUTCMonth() < 2 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
+  const pin = process.env.ESPN_SEASON || "";
+  if (/^\d{4}$/.test(pin)) {
+    if (Number(pin) >= cal) return Number(pin);
+    console.log(`sports: ignoring stale ESPN_SEASON=${pin}; the calendar season is ${cal}`);
+  }
+  return cal;
 }
 
 async function ffFetch(views, extra, body, extraHeaders, ms) {
@@ -466,7 +496,7 @@ async function ffFetch(views, extra, body, extraHeaders, ms) {
   }
   if (r.status === 401 || r.status === 403) return { err: "fantasy-auth-expired" };
   if (!r.ok) return { err: "http-" + r.status };
-  try { return { data: await r.json(), year }; } catch { return { err: "bad-json" }; }
+  try { return { data: await r.json(), year }; } catch (e) { return { err: e?.name === "AbortError" ? "timeout" : "bad-json" }; }
 }
 
 function ffTeamName(t) {
@@ -1194,7 +1224,7 @@ async function nflOwnership(body) {
   }
   if (!r.ok) return { ok: false, reason: "http-" + r.status };
   let j;
-  try { j = await r.json(); } catch { return { ok: false, reason: "bad-json" }; }
+  try { j = await r.json(); } catch (e) { return { ok: false, reason: e?.name === "AbortError" ? "timeout" : "bad-json" }; }
   try {
     const rows = Array.isArray(j) ? j : (Array.isArray(j?.players) ? j.players : []);
     const players = {};
@@ -1237,7 +1267,7 @@ export default async (req) => {
 
   let body;
   try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400, headers); }
-  if (!body || body.secret !== familySecret) return json({ error: "Wrong family password" }, 401, headers);
+  if (!body || !safeEq(body.secret, familySecret)) return json({ error: "Wrong family password" }, 401, headers);
 
   if (body.action === "nfl_scoreboard") return json(await siteScoreboard("nfl", body, false), 200, headers);
   if (body.action === "nfl_game") return json(await siteGame("nfl", body), 200, headers);
