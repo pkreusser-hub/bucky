@@ -2763,6 +2763,8 @@ async function main() {
     {
       const rzFix = JSON.parse(fs.readFileSync(path.join(FIX, "rz-sb-20261004.json"), "utf8"));
       const coreFix = JSON.parse(fs.readFileSync(path.join(FIX, "rz-core-20261004.json"), "utf8"));
+      // TEN @ BAL's summary as polled at 17:20:47 (poll 3 of rz-sb), trimmed like sum-401872948.json.
+      const tenSum = fs.readFileSync(path.join(FIX, "rz-sum-401872973.json"), "utf8");
       const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
       const miss = { status: 404, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: "{}" };
       let snapI = 0;
@@ -2770,6 +2772,9 @@ async function main() {
         if (/site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u)) return json(JSON.stringify(rzFix.snaps[snapI].sb));
         const core = u.match(/sports\.core\.api\.espn\.com.*\/events\/(\d+)\/competitions\/\d+\/plays/);
         if (core) return coreFix.games[core[1]] ? json(JSON.stringify(coreFix.games[core[1]])) : miss;
+        if (/site\.api\.espn\.com.*\/summary\?event=401872973/.test(u)) return json(tenSum);
+        const one = u.match(/site\.api\.espn\.com.*\/scoreboard\/(\d+)/);
+        if (one) { const e = rzFix.snaps[snapI].sb.events.find((x) => x.id === one[1]); return e ? json(JSON.stringify(e)) : miss; }
         if (/site\.api\.espn\.com/.test(u)) return miss;   // summaries: not served, the card doesn't read them
         return null;
       };
@@ -2777,7 +2782,10 @@ async function main() {
       const probe = (fn, arg) => page.evaluate(fn, arg).catch((e) => ({ err: e.message.split("\n")[0] }));
       const liveN = rzFix.snaps[0].sb.events.filter((e) => e.status.type.state === "in").length;   // 8 on the recording
       await page.setViewport({ width: 1440, height: 900 });
-      await page.goto(BASE + "/sunday.html#g401872973", { waitUntil: "domcontentloaded" });
+      // The big screen following the card is checked on its own at the end; until then it stays put,
+      // so the director's checks below don't swap the open game under the rest of the section.
+      await page.evaluate(() => localStorage.setItem("sun.rzFollow", "false"));
+      await page.goto(BASE + "/sunday.html#g401872972", { waitUntil: "domcontentloaded" });
       let up = true;
       try { await page.waitForFunction(() => G && S.loaded && document.querySelector("#redzone .rzn-stage, #redzone .rzn-idle"), { timeout: 15000 }); } catch { up = false; }
       await wait(300);
@@ -3020,11 +3028,84 @@ async function main() {
       ok(F.benchOnly === 0 && F.stroudPlays > 1, `a play that only moved a bench player is not on the feed (Stroud, benched, is on ${F.stroudPlays} plays; ${F.benchOnly} rows have no starter)`);
       ok(Array.isArray(F.stageChips) && F.stageChips.join("|") === "+6.3 T. Pollard", `on the card, the play on screen carries its own fantasy credit (${JSON.stringify(F.stageChips)})`);
 
+      // ── the big screen follows the card. 2026-10-04, user: "the card on the top right is changing to new
+      // plays and games but not the 8 bit field view, which should also be changing. also on redzone view
+      // we dont have to start with teams in huddles, can go straight to the play".
+      snapI = 3;
+      await page.evaluate(() => localStorage.setItem("sun.rzFollow", "true"));
+      await page.goto(BASE + "/sunday.html#g401872972", { waitUntil: "domcontentloaded" });
+      try { await page.waitForFunction(() => G && S.loaded && document.querySelector("#redzone .rzn-h"), { timeout: 15000 }); } catch {}
+      const fol = await probe(async () => {
+        if (typeof rzFollowing !== "function") return { err: "no rzFollowing" };
+        const h0 = history.length;
+        RZ.pending.clear(); RZ.cur = null;
+        rzCut("401872973", null, Date.now());
+        await new Promise((r) => setTimeout(r, 300));
+        return { following: rzFollowing(), pressed: document.getElementById("rzn-follow")?.getAttribute("aria-pressed"), hash: location.hash, g: G?.id, hist: history.length === h0, card: document.querySelector("#redzone .rzn-stage")?.getAttribute("href") };
+      });
+      ok(fol.following === true && fol.pressed === "true" && fol.hash === "#g401872973" && fol.g === "401872973" && fol.hist && fol.card === "#g401872973",
+        `following (the default, "Big screen" lit), a cut opens the same game in the big view, with no history entry (${JSON.stringify(fol)})`);
+      let staged = true;
+      try { await page.waitForFunction(() => SIDE.gameId === "401872973" && SIDE.sc && SIDE.running, { timeout: 10000 }); } catch { staged = false; }
+      // The newest play on TEN @ BAL at 17:20:47: Pollard to the BLT 3 (401872973521). Arriving, it runs
+      // from the snap: both teams set at the line (raBuild's no-scene start snaps at 1.1 s), still short
+      // of its result. Not followed, an arrival puts the play straight at its end (checked next).
+      const arr = await probe(() => ({ id: String(SIDE.playId), tS: SIDE.sc?.tS, huddle: !!SIDE.sc?.huddle, t: +SIDE.t.toFixed(2), res: SIDE.resultAt != null ? +SIDE.resultAt.toFixed(2) : null, T: SIDE.sc ? +SIDE.sc.T.toFixed(2) : null }));
+      ok(staged && arr.id === "401872973521" && arr.tS === 1.1 && !arr.huddle && arr.t < arr.res,
+        `the big 8-bit view runs the play the card cut for, from the snap: no huddle, no walk-up (${JSON.stringify(arr)})`);
+      // The next play in the same game: following, it starts set at the line; not following, it walks out
+      // of the huddle (snap at 4 s, raBuild's huddle start).
+      const nxt = await probe(() => {
+        const latest = sideNext();
+        sideHuddle(); sidePlay(latest); const a = { tS: SIDE.sc?.tS };
+        localStorage.setItem("sun.rzFollow", "false");
+        sideHuddle(); sidePlay(latest); a.tSoff = SIDE.sc?.tS;
+        localStorage.setItem("sun.rzFollow", "true");
+        return a;
+      });
+      ok(nxt.tS === 1.1 && nxt.tSoff === 4, `following, a play starts with the teams set (snap at ${nxt.tS} s); not following, it walks out of the huddle (snap at ${nxt.tSoff} s)`);
+      // The card waits for the big view to finish the play it's running (up to 25 s), then cuts. The play
+      // waiting elsewhere is a touchdown, which beats TEN @ BAL's own red-zone hold, so only the stage
+      // being busy can keep the card where it is.
+      const busy = await probe(() => {
+        const now = Date.now(), other = S.events.find((e) => e.state === "in" && e.id !== G.id && !isHalftime(e))?.id;
+        const keep = { running: SIDE.running, resultAt: SIDE.resultAt, t: SIDE.t };
+        const setUp = (ago) => { RZ.pending.clear(); RZ.cur = { gid: G.id, play: null, kind: "play", prio: 15, since: now - ago, at: now - ago }; RZ.pending.set(other, { play: { id: "x1", type: { text: "Rushing Touchdown" }, text: "" }, kind: "score", prio: 100, at: now }); };
+        setUp(10000); Object.assign(SIDE, { running: true, resultAt: 5, t: 2 }); rzTick(now);
+        const a = { waits: RZ.cur.gid === G.id };
+        setUp(26000); rzTick(now); a.capped = RZ.cur.gid === other;
+        setUp(10000); SIDE.running = false; rzTick(now); a.after = RZ.cur.gid === other;
+        Object.assign(SIDE, keep);
+        return a;
+      });
+      ok(busy.waits === true && busy.after === true && busy.capped === true, `a cut waits while the big view is mid-play (${busy.waits}), goes once the play is done (${busy.after}), and never waits past 25 s (${busy.capped})`);
+      await wait(400);
+      // Picking a game yourself takes the big screen back; the button gives it to RedZone again.
+      const pick = await probe(async () => {
+        const a = document.querySelector('.gv-side-list a[href^="#g"]');
+        if (!a) return { err: "no list game" };
+        const want = a.getAttribute("href"); a.click();
+        await new Promise((r) => setTimeout(r, 300));
+        const out = { want, hash: location.hash, stored: localStorage.getItem("sun.rzFollow"), pressed: document.getElementById("rzn-follow")?.getAttribute("aria-pressed") };
+        const other = S.events.find((e) => rzOnAir(e) && "#g" + e.id !== want)?.id;
+        rzCut(other, null, Date.now());
+        await new Promise((r) => setTimeout(r, 300));
+        out.stays = location.hash === want;
+        document.getElementById("rzn-follow").click();
+        await new Promise((r) => setTimeout(r, 300));
+        out.back = { stored: localStorage.getItem("sun.rzFollow"), hash: location.hash, cur: "#g" + RZ.cur?.gid };
+        return out;
+      });
+      ok(pick.hash === pick.want && pick.stored === "false" && pick.pressed === "false" && pick.stays === true,
+        `tapping a game in the Scores list opens it and stops following: the next cut leaves the big view alone (${JSON.stringify(pick)})`);
+      ok(pick.back && pick.back.stored === "true" && pick.back.hash === pick.back.cur, `"Big screen" turns following back on and the big view goes to the card's game (${JSON.stringify(pick.back)})`);
+      await page.evaluate(() => localStorage.removeItem("sun.rzFollow"));
+
       // ── phone and other weeks: no card
       await page.setViewport({ width: 390, height: 844 });
       await wait(200);
-      const off = await probe(() => ({ phone: document.getElementById("redzone")?.offsetParent === null, active: rzActive() }));
-      ok(off.phone === true && off.active === false, `on a phone there is no sidebar and no card (hidden ${off.phone}, active ${off.active})`);
+      const off = await probe(() => ({ phone: document.getElementById("redzone")?.offsetParent === null, active: rzActive(), follow: typeof rzFollowing === "function" ? rzFollowing() : null }));
+      ok(off.phone === true && off.active === false && off.follow === false, `on a phone there is no sidebar, no card, and nothing for the big view to follow (hidden ${off.phone}, active ${off.active}, following ${off.follow})`);
       await page.setViewport({ width: 1440, height: 900 });
       await wait(200);
       // (ESPN's own current week on the recording is week 4; any other week will do.)

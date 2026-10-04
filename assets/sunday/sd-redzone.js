@@ -29,7 +29,8 @@ const RZ = {
   HOLD_PICK: 14000, // a game the viewer tapped stays this long
   MAX: 30000,       // nothing new anywhere for this long: move on to the next game worth watching
   RZ_MAX: 90000,    // ...unless the game on screen is inside the 20; then it may hold this long
-  TIE: 20000,       // equal news elsewhere takes the card once the current game has had this long
+  TIE: 20000,
+  STAGE_MAX: 25000, // the longest a cut waits for the big 8-bit view to finish the play it's showing       // equal news elsewhere takes the card once the current game has had this long
   STALE: 45000,     // news this old is no longer news
   seen: new Map(),  // gameId -> last play id seen on the scoreboard
   totals: new Map(), // gameId -> away + home points at the last poll (a score with no scoreValue)
@@ -184,6 +185,34 @@ function rzCut(gid, news, now, manual = false) {
   RZ.cur = { gid, play, kind: kind === 'meta' ? 'play' : kind, prio: news?.prio ?? 0, since: now, at: news?.at ?? now, manual, delta: news?.delta || 0 };
   RZ.pending.delete(gid);
   RZ.cuts++;
+  rzFollow(gid);
+}
+
+/* ───────────── the big screen follows ───────────── */
+// 2026-10-04, user: "the card on the top right is changing to new plays and games but not the 8 bit
+// field view, which should also be changing. also on redzone view we dont have to start with teams in
+// huddles, can go straight to the play". While following (the default; the card's "Big screen"
+// button), every cut also opens that game in the big view, as a tap on a sidebar game does
+// (replaceState + route, no history). Picking a game yourself from the Scores list, the phone strip or
+// the feed stops following; the button brings it back. Desktop only, like the card.
+const rzFollowing = () => store.get('rzFollow', true) !== false && rzActive();
+function rzFollow(gid) {
+  if (!rzFollowing() || !G || G.id === gid) return;
+  // After the poll or tick that cut has finished (loadBoard is still mid-render when rzOnBoard cuts).
+  setTimeout(() => {
+    if (!rzFollowing() || !G || G.id === gid || RZ.cur?.gid !== gid) return;
+    history.replaceState(history.state, '', '#g' + gid);
+    route();
+  }, 0);
+}
+// The big stage is still busy with the game the card is on: it hasn't staged a play there yet (the
+// game view is loading its summary), or the play is still running up to its result. A cut waits for
+// it, so the big view isn't yanked away mid-play, but never longer than RZ.STAGE_MAX.
+function rzStageBusy(now) {
+  const c = RZ.cur;
+  if (!c || !rzFollowing() || G?.id !== c.gid || typeof SIDE === 'undefined' || now - c.since >= RZ.STAGE_MAX) return false;
+  if (SIDE.gameId !== c.gid || !SIDE.sc) return true;
+  return !!(SIDE.running && SIDE.resultAt != null && SIDE.t < SIDE.resultAt + 1.5);
 }
 
 // Once a second (and after every poll): stay, or cut.
@@ -205,7 +234,7 @@ function rzTick(now = Date.now()) {
     return rzRender();
   }
   const dwell = now - c.since;
-  if (dwell < RZ.MIN) return rzRender();
+  if (dwell < RZ.MIN || rzStageBusy(now)) return rzRender();
   const hold = rzHold(now);
   let best = null;
   for (const [gid, n] of RZ.pending) {
@@ -353,13 +382,15 @@ function rzRender() {
   if (el.hidden === on) el.hidden = !on;
   if (!on) return;
   if (!el.firstElementChild) {
-    el.innerHTML = `<div class="rzn-h"><span class="rzn-logo">Red<b>Zone</b></span><span class="rzn-n" id="rzn-n"></span></div>
+    el.innerHTML = `<div class="rzn-h"><span class="rzn-logo">Red<b>Zone</b></span><span class="rzn-n" id="rzn-n"></span><button class="rzn-follow" id="rzn-follow" aria-pressed="true" title="The big view follows RedZone from game to game">Big screen</button></div>
       <div class="rzn-screen" id="rzn-screen"></div>
       <div class="rzn-chs" id="rzn-chs" role="group" aria-label="Live games"></div>
       <div class="rzn-fh">League fantasy feed <small id="rzn-fn"></small></div>
       <div class="rzn-feed" id="rzn-feed" aria-live="off"></div>`;
     rzLastCut = -1;
   }
+  const fb = $('#rzn-follow');
+  if (fb) fb.setAttribute('aria-pressed', String(store.get('rzFollow', true) !== false));
   const live = (S.events || []).filter((e) => e.state === 'in').length;
   $('#rzn-n').textContent = live ? `${live} live` : '';
   const scr = $('#rzn-screen');
@@ -388,6 +419,21 @@ function rzMount() {
   rzFeedTick();
 }
 
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#rzn-follow')) {
+    const on = store.get('rzFollow', true) === false;
+    store.set('rzFollow', on);
+    rzRender();
+    if (on && RZ.cur) rzFollow(RZ.cur.gid);
+    return;
+  }
+  // Picking a game yourself takes the big screen back from RedZone (capture phase: before sd-app.js
+  // swaps the game in). The RedZone screen itself is the game being followed, so it doesn't.
+  if (e.target.closest('.gv-side-list a[href^="#g"], .g-strip a[href^="#g"], #rzn-feed a[href^="#g"]') && store.get('rzFollow', true) !== false) {
+    store.set('rzFollow', false);
+    requestAnimationFrame(rzRender);
+  }
+}, true);
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-rz-game]');
   if (!b) return;
