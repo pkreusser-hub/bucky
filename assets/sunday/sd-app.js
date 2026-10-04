@@ -1019,18 +1019,23 @@ function applySections(root, sections) {
   existing.forEach((n) => n.remove());
 }
 const isWide = () => matchMedia('(min-width: 1080px)').matches;
+// In RedZone (sd-redzone.js) the game on screen is RedZone's, not a pick: the lists light RedZone's
+// entry instead, and the desktop list shows every game.
+const inRedZone = () => typeof rzShown === 'function' && rzShown();
 // Desktop game view: the scoreboard, same order as the main page, beside the detail.
 function renderSide() {
   const list = $('#gv-side-list');
   if (!list || !G || !S.loaded) return;
   const f = FILTERS.find((x) => x.id === S.filter);
   $('#gv-side-f').textContent = f ? f.label : 'All';
-  const sections = buildSections(filterEvents(S.events, S.filter).filter((e) => e.id !== G.id), true);
+  if (typeof rzRenderEntry === 'function') rzRenderEntry();
+  const rzOn = inRedZone();
+  const sections = buildSections(filterEvents(S.events, S.filter).filter((e) => rzOn || e.id !== G.id), true);
   if (!sections.length) { list.innerHTML = '<div class="empty" style="padding:24px 8px"><p>No other games in this filter.</p></div>'; return; }
   applySections(list, sections);
   list.querySelectorAll('[data-key]').forEach((n) => {
     const href = n.getAttribute('href');
-    if (href) n.classList.toggle('current', href === '#g' + G.id);
+    if (href) n.classList.toggle('current', !rzOn && href === '#g' + G.id);
   });
 }
 
@@ -1049,9 +1054,11 @@ function renderStrip() {
   const evs = stripOrder(S.events);
   el.hidden = evs.length < 2;
   const side = (t, sc) => `<span class="gs-t">${logoImg(t, 16, 'logo')}<span>${esc(t.abbr)}</span><b>${sc ?? ''}</b></span>`;
-  setHTML(el, evs.map((e) => `<a class="gs-it${e.id === G.id ? ' current' : ''}${e.state === 'in' ? ' live' : ''}" href="#g${e.id}"${e.id === G.id ? ' aria-current="page"' : ''}>${side(e.away, e.state === 'pre' ? '' : e.away.score)}${side(e.home, e.state === 'pre' ? '' : e.home.score)}<small>${esc(e.state === 'pre' ? `${fmtDay(e.date).split(',')[0].slice(0, 3)} ${fmtTime(e.date)}` : statusText(e))}</small></a>`).join(''));
-  const cur = el.querySelector('.current');
-  if (cur && el.dataset.placed !== G.id) { el.scrollLeft = cur.offsetLeft - (el.clientWidth - cur.offsetWidth) / 2; el.dataset.placed = G.id; }
+  // RedZone goes first in the strip, as an entry of its own (sd-redzone.js); in RedZone it is the one lit.
+  const rzOn = inRedZone(), lit = (e) => !rzOn && e.id === G.id;
+  setHTML(el, (typeof rzStripItem === 'function' ? rzStripItem() : '') + evs.map((e) => `<a class="gs-it${lit(e) ? ' current' : ''}${e.state === 'in' ? ' live' : ''}" href="#g${e.id}"${lit(e) ? ' aria-current="page"' : ''}>${side(e.away, e.state === 'pre' ? '' : e.away.score)}${side(e.home, e.state === 'pre' ? '' : e.home.score)}<small>${esc(e.state === 'pre' ? `${fmtDay(e.date).split(',')[0].slice(0, 3)} ${fmtTime(e.date)}` : statusText(e))}</small></a>`).join(''));
+  const cur = el.querySelector('.current'), key = rzOn ? 'redzone' : G.id;
+  if (cur && el.dataset.placed !== key) { el.scrollLeft = cur.offsetLeft - (el.clientWidth - cur.offsetWidth) / 2; el.dataset.placed = key; }
 }
 // The game the Scores tab opens on (2026-09-28, user: "just have it only be the detail page, we no
 // longer need this page"): the most exciting live game (your GFFL players and teams count most),
@@ -1072,6 +1079,8 @@ function ensureGame() {
   if (!S.loaded || /^#t\d+$/.test(location.hash)) return;
   const g = location.hash.match(/^#g(\d+)$/);
   if (g && !(S.weekPicked && !S.byId.has(g[1]))) return;
+  // In RedZone with a game up, every poll leaves it be (the director moves it); arriving, it goes in.
+  if (location.hash === '#redzone' && typeof rzEnter === 'function' && ((G && rzThisWeek()) || rzEnter())) return;
   S.weekPicked = false;
   const id = defaultGameId(S.events);
   document.body.classList.toggle('no-games', !id);
@@ -1237,12 +1246,13 @@ function openGameView(id) {
           <span class="rp-lbl" id="rp-lbl"></span>
         </div>
       </div></section>
+      <section class="rzn" id="redzone" hidden aria-label="RedZone"></section>
       <div class="lp" id="lp" hidden></div>
       <div class="wp-strip" id="wp-strip" hidden></div>
       <nav class="tabs" id="tabs" role="tablist" aria-label="Game details"></nav>
       <div class="tab-body" id="tab-body" role="tabpanel" tabindex="-1"></div>
     </div></div>
-    <aside class="gv-side" aria-label="Other games"><section class="rzn" id="redzone" hidden aria-label="RedZone"></section><div class="side-live" id="side-live" hidden role="button" tabindex="0" aria-label="Open the play animation"><div class="sl-h"><span class="sl-tag" id="sl-tag">Live</span><span id="sl-meta"></span></div><div class="sl-stage"><canvas id="sl-cv"></canvas><div class="ra-banner sl-banner" id="sl-banner"></div></div><div class="sl-tx" id="sl-tx"></div></div><div class="gv-side-h">Scores <span id="gv-side-f"></span></div><div class="gv-side-list" id="gv-side-list"></div></aside></div>`;
+    <aside class="gv-side" aria-label="Other games"><a class="rzn-entry" id="rzn-entry" href="#redzone" hidden></a><div class="side-live" id="side-live" hidden role="button" tabindex="0" aria-label="Open the play animation"><div class="sl-h"><span class="sl-tag" id="sl-tag">Live</span><span id="sl-meta"></span></div><div class="sl-stage"><canvas id="sl-cv"></canvas><div class="ra-banner sl-banner" id="sl-banner"></div></div><div class="sl-tx" id="sl-tx"></div></div><div class="gv-side-h">Scores <span id="gv-side-f"></span></div><div class="gv-side-list" id="gv-side-list"></div></aside></div>`;
   renderSide();
   renderStrip();
   renderWeekLabel();
@@ -1308,7 +1318,15 @@ function goBack() {
 function route() {
   const h = location.hash;
   const g = h.match(/^#g(\d+)$/), t = h.match(/^#t(\d+)$/);
-  if (g) { openGameView(g[1]); return; }
+  // RedZone (sd-redzone.js) is its own entry, like a game: #redzone opens the game view on whatever it
+  // is showing. Before the board has loaded, or for another week, it lands like any other link.
+  if (h === '#redzone' && typeof rzEnter === 'function' && rzEnter()) return;
+  if (g) {
+    openGameView(g[1]);
+    // Out of RedZone onto the game it was showing: same game view, so take RedZone off it here.
+    if (typeof rzRender === 'function') { rzRender(); renderSide(); renderStrip(); }
+    return;
+  }
   if (G) closeGameView(false);
   if (t) { openTeamView(t[1]); return; }
   if (T) closeTeamView();

@@ -1566,3 +1566,63 @@ sidebar, no card, and nothing for the big view to follow" is now four phone chec
 A fifth check, back at 1440px the card is first in the sidebar again, is a control and passes on both
 sides. Bite: the previous commit's app files with the new suite score 382/387. They fail the 4 phone
 checks and the webfont check.
+
+## RedZone is its own entry, like a game (2026-10-04)
+
+User: "No thats not right, the redzone shouldn't appear on every games screen, its like its own game
+that appears in the top scroll bar".
+
+This reverses where the card lived (the sidebar's top, then also under every game's field). A game's
+own screen now has no RedZone on it.
+
+- **The entry.** RedZone is the first item in the phone's strip of games (`rzStripItem`, in
+  `renderStrip`), and the first thing in the desktop sidebar, above the Scores list (`#rzn-entry`,
+  `rzRenderEntry`). Each shows what's on ("6 live · 1 in the red zone"). Tapping it goes to `#redzone`
+  with `replaceState`, as a tap on a game in those lists does. A link straight to `#redzone` lands there.
+- **In RedZone** (`rzMode`: the hash is `#redzone`, and it's the current week) the game view opens on
+  RedZone's game. The hero and the 8-bit view follow every cut (`rzFollow` calls `openGameView`; the
+  hash stays `#redzone`). The red wipe now crosses the field (`.stadium.rz-cut`). Under the field the
+  card (`#redzone`, now in the main column on every width) replaces the game's tabs
+  (`.game-view.rz-mode #tabs, #tab-body` hidden). It holds an "On now" line (the moment RedZone cut for
+  and the game), the channels and the league feed. Its own small screen, and the "Big screen" switch,
+  are gone: the field above is the screen, and being in RedZone is following.
+- **The lists in RedZone** light the RedZone entry and no game. The desktop list shows every game,
+  including the one on screen (`inRedZone()` in `renderSide` / `renderStrip`).
+- **Out of RedZone.** Any game picked from the strip, the sidebar or the feed is that game's ordinary
+  screen. `route()` re-renders the lists and takes RedZone off when that game is the one RedZone was
+  showing. `ensureGame` leaves `#redzone` alone while a game is up, and `rzEnter` returns false for
+  another week, which lands on that week's default game.
+- **Only in RedZone:** the 5 s scoreboard poll, the feed's core-API fetches, and starting plays at the
+  snap. The director still reads every poll (cheap), so RedZone opens on a game that's happening.
+
+Cache-bust ?v=20261004f.
+
+VERIFY: sunday 391/392 (the one failure is the webfont ink check that fails the same way on HEAD in
+this container), sunday-ff 56/56.
+
+RESTAGED, with the reason at each check:
+- "desktop: the card is the first thing in the sidebar" is now two checks: a game's own screen has no
+  card and keeps its tabs; RedZone's entry is at the top of the sidebar (94px), unlit.
+- The card's own screen and its fantasy chip are now the "On now" line ("Touchdown · TEN | On now: TEN @
+  BAL").
+- The following and phone checks are rewritten for a RedZone entered from its entry (no Big screen
+  switch, no `sun.rzFollow`).
+- In "Scores is the game detail", the strip's games are its `#g` links (RedZone's entry is the first
+  item), and "another game" is another `#g` link.
+
+New checks:
+- outside RedZone the live poll stays 15 s;
+- tapping the entry opens RedZone with no history entry: the card is under the field and the tabs are
+  hidden;
+- in RedZone its entry is lit, no game is, and the sidebar lists the game on screen;
+- going in is not a cut;
+- a channel tap moves the field and stays in RedZone;
+- a cold `#redzone` link lands in RedZone;
+- a Scores-list tap gives that game's own screen, which later cuts leave alone, and the entry goes back;
+- phone: RedZone is the strip's first item, lit in RedZone;
+- phone: a game from the strip is its own screen with no card;
+- another week has no card or entry, and `rzEnter` refuses.
+
+Bite: main's app files with the new suite score 369/392. They fail the 22 new and restaged RedZone
+checks and the webfont check. Main shows the card on every game, polls every 5 s outside RedZone, and
+has no entry or `#redzone`. The two restaged strip checks pass on both.
