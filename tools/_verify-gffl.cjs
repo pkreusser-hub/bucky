@@ -32149,9 +32149,16 @@ async function openDetails(page, id) {
     ok(D.score(espnLine("401872658", "PIT"), SC) === 14 && pit.pts === 16, "RVS1 real w1 PIT: ESPN-derived 14 -> merged 16 (2 forced fumbles) (got " + pit.pts + ")");
     // ---- 2026 w1 Jets (TEN@NYJ): ESPN fumblesLost says fum_rec 1, Sleeper fum_rec absent (only def_st_fum_rec) ----
     const nyjF = D.mergeRow(rowOf("NYJ", "401872924", "post"));
-    ok(D.score(espnLine("401872924", "NYJ"), SC) === 4 && nyjF.pts === 3, "RVS1 real w1 NYJ final: ESPN 3 sacks + 1 fum_rec = 4, Sleeper owns fum_rec once final -> 3 (got " + nyjF.pts + ")");
+    // RESTAGED (same day): this first asserted 3 (Sleeper's fum_rec key is absent on the NYJ row). The audit
+    // follow-up showed the gap is Sleeper's def_st_fum_rec - a special-teams recovery the league's ESPN-derived
+    // D/ST pays - so normSlp now adds it and the two sources agree: 3 sacks + 1 fum_rec = 4.
+    ok(D.score(espnLine("401872924", "NYJ"), SC) === 4 && nyjF.pts === 4, "RVS1 real w1 NYJ final: 3 sacks + 1 fum_rec (Sleeper def_st_fum_rec 1) = 4 from both sources (got " + nyjF.pts + ")");
+    ok(D.normSlp(FX.slp.NYJ, true).dst_fum_rec === 1 && D.normSlp({ fum_rec: 1, def_st_fum_rec: 1, pts_allow: 3 }, true).dst_fum_rec === 2 && D.normSlp({ pts_allow: 3 }, true).dst_fum_rec === 0, "RVS1 normSlp dst_fum_rec = fum_rec + def_st_fum_rec (real w3 PIT shape FL2 = 1 + 1), 0 when both absent");
     const nyjL = D.mergeRow(rowOf("NYJ", "401872924", "in"));
-    ok(nyjL.pts === 4, "RVS1 same defense LIVE (game in): fresher-wins is untouched for fum_rec/sack - still ESPN's 4 (live speed preserved) (got " + nyjL.pts + ")");
+    ok(nyjL.pts === 4, "RVS1 same defense LIVE (game in): fresher side's 4 (got " + nyjL.pts + ")");
+    // the final-state Sleeper-wins rule still bites when the sources DO differ: Sleeper sack 2 vs ESPN 3
+    const nyjX = rowOf("NYJ", "401872924", "post"); nyjX.slp.stats.dst_sack = 2;
+    ok(D.mergeRow(nyjX).pts === 3 && D.mergeRow(Object.assign(rowOf("NYJ", "401872924", "in"), { slp: nyjX.slp })).pts === 4, "RVS1 final: Sleeper's sack count wins (2 sacks + 1 fum_rec = 3); live the fresher ESPN 3 sacks stays (4)");
     const phiL = D.mergeRow(rowOf("PHI", "401872929", "in"));
     ok(phiL.pts === 5, "RVS1 live: the two keys ESPN can never carry (ff, blk) still come from Sleeper = 5 (got " + phiL.pts + ")");
     // ---- fallbacks ----

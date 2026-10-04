@@ -111,7 +111,9 @@ for (const w of WEEKS) {
     D.S.games.set(D.slpTeam(team), { state: state.get(D.slpTeam(team)) || "post" });
     D.S.health.mode = "dual";
     D.mergeRow(row);
-    return { merged: row.pts, espnOnly: D.score(e.stats, SC), slpOnly: s ? D.score(D.normSlp(s, true), SC) : null, row, e, s };
+    return { merged: row.pts, espnOnly: D.score(e.stats, SC), slpOnly: s ? D.score(D.normSlp(s, true), SC) : null,
+      // what the app's PRE-fix normSlp scored for the same Sleeper row (no def_st_fum_rec) - the stored value to match
+      slpOld: s ? D.score(D.normSlp(Object.assign({}, s, { def_st_fum_rec: 0 }), true), SC) : null, row, e, s };
   }
 
   console.log(`\n===== ${SEASON} week ${w} =====`);
@@ -143,14 +145,14 @@ for (const w of WEEKS) {
       const dm = dsts.map((p) => mergedDst(p.team));
       // which non-DST basis + which old DST line reproduces the stored total?
       const eDst = dm.reduce((a, x) => a + (x ? fl(x.espnOnly) : 0), 0);
-      const sDst = dm.reduce((a, x) => a + (x && x.slpOnly != null ? fl(x.slpOnly) : 0), 0);
+      const sDst = dm.reduce((a, x) => a + (x && x.slpOld != null ? fl(x.slpOld) : 0), 0);
       let oldUse = "espn";
       for (const [nm, base, dst, use] of [["espn", nonDstE, eDst, "espn"], ["slp", nonDstS, sDst, "slp"], ["espn-non-dst/slp-dst", nonDstE, sDst, "slp"], ["slp-non-dst/espn-dst", nonDstS, eDst, "espn"]]) {
         if (Math.abs(r2(base + dst) - stored) < 0.006) { matched = nm; oldUse = use; break; }
       }
       dsts.forEach((p, i) => {
         const x = dm[i]; if (!x) { perDst.push({ name: p.name, old: null, now: null }); return; }
-        const old = fl(oldUse === "slp" && x.slpOnly != null ? x.slpOnly : x.espnOnly), now = fl(x.merged);
+        const old = fl(oldUse === "slp" && x.slpOld != null ? x.slpOld : x.espnOnly), now = fl(x.merged);
         oldDstSum += old; newDstSum += now;
         perDst.push({ name: p.name, team: p.team, old: r2(old), now: r2(now), espnDerived: r2(x.espnOnly), sleeper: x.slpOnly == null ? null : r2(x.slpOnly) });
       });

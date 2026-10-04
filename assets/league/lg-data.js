@@ -169,7 +169,9 @@
     if (isDst) {
       n.dst_sack = num(st.sack ?? st.def_sack);
       n.dst_int = num(st.int ?? st.def_int);
-      n.dst_fum_rec = num(st.fum_rec ?? st.def_fum_rec);
+      // + def_st_fum_rec (2026-10-04): Sleeper books special-teams recoveries under their own key; the
+      // league's ESPN-derived D/ST pays them (all 7 real w1-3 fumblesLost/fum_rec gaps = this key).
+      n.dst_fum_rec = num(st.fum_rec ?? st.def_fum_rec) + num(st.def_st_fum_rec);
       // SPLIT, not combined (2026-08-13 reconciliation): defensive return TDs (def_td —
       // interception/fumble/blocked returns) pay 6; the unit's SPECIAL-TEAMS TDs (kick/punt
       // returns) pay 8. The old single bucket priced a punt-return TD at 6 — a real 2-point
