@@ -11081,3 +11081,44 @@ lib.mjs, README.md; robogoat/2026/season.json (pairings), the two issue pages an
 tools/_verify-robogoat.cjs.
 
 ---
+
+## GFFL — 2026-10-04 batch integration: version, the AVG guard, cross-branch restages (2026-10-04)
+
+The eight branches above were merged in this order: scoring, functions, push, feeds, robogoat,
+ui, engine, boot.
+
+- **Conflicts.** Every branch appended its own sections at the end of `_verify-gffl.cjs`, and
+  each merge kept both sides; no added line was lost (checked line by line). engine and boot
+  both changed the REST backend in `lg-core.js`. Both are kept: `noteServerTime` sits beside
+  `noteUT`, and `list()` reads the body as text (boot's size stamp) before taking the server
+  time. `listSince` (act window), `listIdRange` (chat probe) and `listIfChanged` all stay, and
+  `loadAllChat` records `chatLastId` and sorts a copy.
+- **Production query shapes.** Each was tried read-only against production: the act `__name__`
+  range answered HTTP 200 with 1003 rows in 28 days, the chat id range 200, and the `kind`-only
+  team projection 200 at 2.7 KB.
+- **Version `20261004a`.** Bumped in all four places, then recorded with
+  `node tools/_gffl_asset_versions.mjs --record`.
+- **AVG (new).** For each of the three scripts, AVG checks that the sha-256 equals the hash
+  recorded for the current `gffl-v`, and that league.html loads it under that version. 7 checks.
+  Bite: one appended comment line in lg-ui.js fails exactly the lg-ui check.
+- **RESTAGED by the merge** (each passed on its own branch, then failed once ui's abbreviation
+  fallback met them):
+  - O's week-15/16 bracket cards (4 checks) now read the name off `data-full`. A shown text
+    that is neither the full name nor the abbreviation still fails.
+  - AH's "league-home cards paint the full team name" reads `data-full`. A new check proves
+    each abbreviation was earned: the full name, measured with a Range in the same box, is
+    wider than the box.
+
+**VERIFY:**
+- Full battery, run in `--only` chunks of ten sections (the Puppeteer "Promise was collected"
+  crash still kills single-process runs in this container): **4462/4462**. The baseline on
+  origin/main was 4151/4151.
+- Other suites: `_verify-core` 88/88, leaguecron 112/112, lineupwarn 56/56, halftime 77/77,
+  pbpdetail 67/67, sports `--server-only` 123/123, notify-url 43/43, robogoat 174/174,
+  sunday-ff 56/56, sunday 338/338.
+- `node tools/_gffl_live_probe.mjs --quiet`: P5 PASS.
+
+**Production steps, after deploy:**
+1. `node tools/_gffl_logo_thumbs.mjs --write` (thumbnails and the `teamlogo_N` move; dry-run
+   first).
+2. The weeks 1–3 D/ST correction (the next entry).
