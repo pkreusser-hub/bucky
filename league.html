@@ -27,10 +27,14 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20261001a">
+<meta name="gffl-v" content="20261004a">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
-     the network. Compare gffl-v against a no-store copy and replace if this
-     snapshot is stale. Browser tabs skip — they already revalidate. -->
+     the network. Compare gffl-v against the live /gffl-version.txt (a ~10 byte file, fetched
+     no-store) and replace if this snapshot is stale. Browser tabs skip — they already
+     revalidate. This used to fetch the WHOLE 58 KB league.html no-store on every launch and
+     regex the meta out of it, racing 370 KB of scripts for the same cellular link.
+     gffl-version.txt is maintained BY HAND next to the gffl-v meta and the ?v= strings below
+     (a bump that forgets it is caught by the suite, section BOOT_PERF). -->
 <script>
 (function () {
   var standalone = false;
@@ -39,21 +43,44 @@
   var haveEl = document.querySelector('meta[name="gffl-v"]');
   var have = haveEl && haveEl.content;
   if (!have) return;
-  fetch("/league.html?n=" + Date.now(), { cache: "no-store" }).then(function (r) {
+  window.__gfflVerAt = Date.now(); // lg-ui's checkAppFresh skips its forced twin inside 5 s of this
+  fetch("/gffl-version.txt?n=" + Date.now(), { cache: "no-store" }).then(function (r) {
     return r.ok ? r.text() : "";
-  }).then(function (html) {
-    var m = html.match(/name=["']gffl-v["'][^>]*content=["']([^"']+)["']/) || html.match(/lg-ui\.js\?v=([A-Za-z0-9]+)/);
-    var live = m && m[1];
-    if (!live || live === have) return;
+  }).then(function (txt) {
+    var live = String(txt || "").trim();
+    if (!/^[A-Za-z0-9]+$/.test(live) || live === have) return;
     var u = new URL(location.href);
     u.searchParams.set("n", String(Date.now()));
     location.replace(u.pathname + u.search + u.hash);
   }).catch(function () {});
 })();
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Fonts are SELF-HOSTED (assets/fonts/, the Google latin subsets, byte-identical to what
+     fonts.googleapis.com served): the Google CSS was render-blocking on a cold origin and was
+     the first paint (FCP 1.8 s on the modelled iPhone). The @font-face block is inline below,
+     font-display:swap, and the two above-the-fold faces are preloaded. -->
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preload" href="assets/fonts/BarlowCondensed-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/Inter-var.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  /* Self-hosted faces — see the note above the preloads. Inter ships as ONE variable file
+     covering 400-700 (that is how Google serves it too); Barlow Condensed is one file per
+     weight. Weight 800, used in a few places, resolves to the 700 face exactly as it did when
+     only 500/600/700 were declared. unicode-range is the Google "latin" range, so a glyph
+     outside it (an emoji, a CJK name) falls through to the system exactly as before. */
+  @font-face { font-family:'Barlow Condensed'; font-style:normal; font-weight:500; font-display:swap;
+    src:url(assets/fonts/BarlowCondensed-500.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+  @font-face { font-family:'Barlow Condensed'; font-style:normal; font-weight:600; font-display:swap;
+    src:url(assets/fonts/BarlowCondensed-600.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+  @font-face { font-family:'Barlow Condensed'; font-style:normal; font-weight:700; font-display:swap;
+    src:url(assets/fonts/BarlowCondensed-700.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+  @font-face { font-family:'Inter'; font-style:normal; font-weight:400 700; font-display:swap;
+    src:url(assets/fonts/Inter-var.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+</style>
 <style>
   /* ============ The GFFL design tokens ============
      Item 9 (playtest batch 2, 2026-08-08): retheme'd to match ffdraft.html's aesthetic —
@@ -1327,6 +1354,8 @@
   .rsjump button { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:4px 10px 4px 5px;
                    background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-pill);
                    font:700 11px var(--font-display); letter-spacing:.4px; text-transform:uppercase; color:var(--ink2); }
+  .mvrunline { margin:-4px 0 12px; }
+  .nflwp.nogames { justify-content:flex-start; } .nflwp.nogames .nflwpv { align-items:flex-start; }
   .rsjump button.mine { border-color:var(--accent); }
   .rsjump .tcrest { margin:0; }
   .rsgrid { display:block; }
@@ -2418,6 +2447,38 @@
   /* The house [hidden]-override lesson, again: every one of these sets its own display, so the
      UA's [hidden]{display:none} would lose the cascade the moment one of them is toggled. */
   .actgrid[hidden], .actcard[hidden], .actrow[hidden], .actfilters[hidden] { display:none; }
+  /* ---- UI review 2026-10-04: tap targets >= 44px on a phone. Where the visual must stay small
+     (the pencil, the chat pills) the hit area grows through an invisible ::before instead. ---- */
+  .muweeknav button { min-width:44px; min-height:44px; }
+  .muswitch { min-height:44px; }
+  .rsjump button { min-height:44px; }
+  .poschip { min-height:44px; }
+  .chaticon { min-height:44px; }
+  .lswap, .ldrop { min-height:44px; }
+  .ldrop { min-width:44px; }
+  @media (max-width:1023px) { .lrow { gap:8px; } } /* pays for the 44px Drop: AD8's 140px name floor holds at 375 */
+  .lockerpencil::before, .chatActions button::before { content:""; position:absolute; }
+  .lockerpencil::before { inset:-8px; border-radius:50%; }
+  .chatActions button { position:relative; }
+  .chatActions button::before { inset:-12px -3px; }
+  /* Rosters jump strip: the red outline read as "selected". Your own team gets a small dot instead. */
+  .mvrunline { margin:-4px 0 12px; }
+  .nflwp.nogames { justify-content:flex-start; } .nflwp.nogames .nflwpv { align-items:flex-start; }
+  .rsjump button.mine { border-color:var(--border-card); position:relative; }
+  .rsjump button.mine::after { content:""; position:absolute; top:5px; right:6px; width:6px; height:6px;
+                               border-radius:50%; background:var(--accent); }
+  /* Unavailable starter (2026-10-04): the red .inj chip plus a one-tap swap under the row. */
+  .lflag { display:flex; align-items:center; gap:8px; margin:-2px 0 8px; padding:4px 12px; font-size:12.5px; }
+  .lflag > .mut { flex:1 1 0; min-width:0; }
+  .lflag[hidden] { display:none; }
+  .swapin { min-height:44px; display:inline-flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:1px;
+            border-color:var(--accent); text-transform:none; letter-spacing:0; padding:4px 12px; }
+  .swapin small { color:var(--mut); font-weight:500; font-size:11px; }
+  .rsfits p { margin:0 0 8px; }
+  .rsfit { display:flex; flex-wrap:wrap; align-items:center; gap:2px 10px; padding:6px 0; border-top:1px solid var(--divider); }
+  .rsfitwho { display:inline-flex; align-items:center; gap:6px; flex:1 1 0; min-width:0; }
+  .rsfit > .mut { order:3; flex:1 0 100%; }
+  .rsfitgo { min-height:44px; flex:0 0 auto; }
 </style>
 </head>
 <body>
@@ -2484,9 +2545,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20261001a"></script>
-  <script src="assets/league/lg-data.js?v=20261001a"></script>
-  <script src="assets/league/lg-ui.js?v=20261001a"></script>
+  <script src="assets/league/lg-core.js?v=20261004a"></script>
+  <script src="assets/league/lg-data.js?v=20261004a"></script>
+  <script src="assets/league/lg-ui.js?v=20261004a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

@@ -1918,7 +1918,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
           gfflTeams[t.id] = {
             colors: colors,
             custom: !!(f.colorsCustom && f.colorsCustom.booleanValue),
-            crest: sv("logoData") || sv("logo"),
+            crest: sv("logoThumb") || sv("logoData") || sv("logo"), // 2026-10-04: GFFL's small picture first; the inline full logo until the split migration has run
             name: sv("name"),
           };
         }).catch(function () {});

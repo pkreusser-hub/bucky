@@ -454,6 +454,8 @@
     LG.ensureAdjustedProj().then((doc) => {
       if (doc) UI.quietRepaint(); // the flash-free path — never the full renderers
     }).catch(() => {});
+    // Heal a rotated push token — see refreshPushRegistration (once per session, silent).
+    refreshPushRegistration();
   };
   // Routes to whichever view the URL hash asks for (or the league home) — split out of
   // UI.boot() so it's the one place both the normal boot path and any future fast/cached
@@ -2031,6 +2033,26 @@
   // Post-paint, detached: season averages (past weeks' D.weekStats), last week's snapshot, and
   // on the phone the playoff odds (the desktop's first batch already read them). Repaints once
   // if any of it changed what the card shows. A warm return to League asks for nothing new.
+  // The in-progress week's per-matchup win probability, for LG.playoffOdds (2026-10-04): the
+  // same D.winProb the score cards use, flipped to the HOME side. Undefined (= the odds sim
+  // keeps its plain Elo game) unless this is the current, unfinalized regular-season week AND at
+  // least one of its starters has already played — before kickoff there is nothing live to add.
+  function liveOddsInput() {
+    try {
+      const d = D();
+      if (UI._weeklyDoc || UI.week !== LG.currentWeek() || UI.week > LG.rules.seasonWeeks || !UI._rosters) return undefined;
+      const games = [];
+      let started = false;
+      for (const [h, a] of (UI._wkGames || [])) {
+        const hKeys = teamStarters(h).map((p) => p.key), aKeys = teamStarters(a).map((p) => p.key);
+        if (!hKeys.length || !aKeys.length) continue;
+        const hr = d.remaining(hKeys), ar = d.remaining(aKeys);
+        if (hr.played + hr.playing + ar.played + ar.playing > 0) started = true;
+        games.push({ home: h, away: a, pHome: 1 - d.winProb(aKeys, hKeys) }); // winProb is the AWAY side's
+      }
+      return started && games.length ? { week: UI.week, games } : undefined;
+    } catch (e) { return undefined; }
+  }
   let powerLoading = false;
   function refreshPowerData() {
     if (powerLoading) return;
@@ -2046,13 +2068,14 @@
       needAvg ? Promise.all(weeks.map((w) => D().weekStats(w, { season: LG.SEASON, seasonType: "regular" }).catch(() => null)))
         .then((maps) => ({ key, avg: LG.seasonAverages(maps) })) : null,
       needSnap ? LG.loadPowerSnap(prevWeek).catch(() => null) : null,
-      needOdds ? LG.playoffOdds().catch(() => null) : null,
+      needOdds ? LG.playoffOdds({ live: liveOddsInput() }).catch(() => null) : null,
     ]).then(([avg, snap, odds]) => {
       let changed = false;
       if (avg) { UI._pwAvg = avg; changed = true; }
       if (needSnap) { UI._pwPrevSnap = { week: prevWeek, doc: snap }; if (snap) changed = true; }
       if (odds && JSON.stringify(odds) !== JSON.stringify(UI._odds)) { UI._odds = odds; changed = true; }
       if (changed && UI.view === "league") renderLeague(true);
+      else if (changed && UI.view === "rosters") renderRosters(); // the Trade fits panel reads the same averages
     }).catch(() => {}).finally(() => { powerLoading = false; });
   }
   // This device computed a rest-of-season board for the league's own current week: offer it as
@@ -2120,7 +2143,9 @@
     const table = `<table class="tbl standtbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
     const footnote = anyProvisional ? '<p class="mut small standprovnote">* Provisional — decided this week, not yet official</p>' : "";
     // The whole point of the desktop table: it is NOT wrapped in a scroller.
-    return `<div class="card standcard"><h2>Standings</h2>${wide ? table : `<div class="panner">${table}</div>`}${footnote}</div>`;
+    // One line naming the applied order (rules.tiebreak) — the table is ranked by LG.rankTeams.
+    const orderNote = `<p class="mut small standrule">${esc(LG.tiebreakText())}</p>`;
+    return `<div class="card standcard"><h2>Standings</h2>${wide ? table : `<div class="panner">${table}</div>`}${footnote}${orderNote}</div>`;
   }
   // ---------------- ALL-TIME (2026-08-11 desktop pass) ----------------
   // The record book, reduced to the one thing the user asked to keep: "record book should show
@@ -2786,7 +2811,7 @@
       // here would put a network round trip in front of the first pixel for no gain.
       if (wide) {
         const [rb, tx, streaks, odds] = await Promise.all([
-          LG.recordBook(), LG.loadTx(), LG.loadStreaks(), LG.playoffOdds(),
+          LG.recordBook(), LG.loadTx(), LG.loadStreaks(), LG.playoffOdds({ live: liveOddsInput() }),
         ]);
         UI._recordBook = rb; UI._tx = tx; UI._streaks = streaks; UI._odds = odds;
       }
@@ -2826,10 +2851,8 @@
       }
       st = clone;
     }
-    const rows = [...LG.teams].sort((a, b) => {
-      const A = st[a.id] || { w: 0, pf: 0 }, B = st[b.id] || { w: 0, pf: 0 };
-      return (B.w - A.w) || (B.pf - A.pf);
-    });
+    // win% (a tie is half a win), then rules.tiebreak — the same ranking the seeds and the waiver order use
+    const rows = LG.rankTeams(LG.teams.map((t) => t.id), st).map((id) => LG.teamById(id));
     const finalizeBtn = (wkGames.length && isCommish() && !UI._weeklyDoc)
       ? `<div class="rowline"><button id="finalizeBtn">Finalize week ${UI.week}</button></div>` : "";
     const noGamesMsg = !schedule ? `No schedule yet${isCommish() ? " — generate one in Rules" : ""}.`
@@ -2964,6 +2987,7 @@
         ${logoutHtml()}`;
     }
     loadRobogoat();
+    fitCardNames(main()); hookFitOnFonts();
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI._muWeek = null;
       UI.matchup = el.dataset.mu.split("-").map(Number);
@@ -3114,7 +3138,18 @@
   //
   // Nothing here reads t.colors. LG.teamStyle(t) → LG.palStyle(LG.teamPalette(t)) is the only
   // path, and section AM reads this file to prove it.
-  function teamSrc(t) { return (t && (t.logoData || t.logo)) || ""; }
+  //
+  // 2026-10-04 (boot/perf): the picture a SMALL slot shows is the team's `logoThumb` (~96 px, a
+  // few KB). The full `logoData` used to ride inside every team doc and get inlined into every
+  // <img>, which made the League view's HTML 1.45 MB for a 28 px crest. Order: thumb, then the
+  // inline full picture (a team doc not yet migrated by tools/_gffl_logo_thumbs.mjs still has
+  // only that), then the legacy ESPN `logo` URL. The full picture is fetched only where it is
+  // shown big — see lockerBigLogo.
+  function teamSrc(t) { return (t && (t.logoThumb || t.logoData || t.logo)) || ""; }
+  // Is this team's picture a cut-out? `logoCut` is the stored answer (the thumb's mime can't
+  // say: it is webp/jpeg whatever the original was); a team with no flag falls back to what the
+  // src itself says, which is exactly the pre-thumb rule.
+  function teamIsCut(t, src) { return t && t.logoCut != null ? !!t.logoCut : isCutoutLogo(src); }
   // A CUT-OUT logo — one with a genuinely transparent background — must sit DIRECTLY on the
   // colour behind it: no panel, no ring, no drop shadow, and never cropped (2026-08-11, user:
   // "a picture with transparent background should blend seamlessly with the color behind, no
@@ -3127,7 +3162,7 @@
   }
   function crestHtml(t, cls) {
     const src = teamSrc(t);
-    const c = "tcrest " + (cls || "") + (isCutoutLogo(src) ? " cutout" : "");
+    const c = "tcrest " + (cls || "") + (src && teamIsCut(t, src) ? " cutout" : "");
     const style = LG.teamStyle(t || {});
     if (src) return `<span class="${c}" style="${esc(style)}"><img src="${esc(src)}" alt="" loading="lazy"></span>`;
     return `<span class="${c} tcrest-ph" style="${esc(style)}">${esc(initials(t && t.name))}</span>`;
@@ -3218,7 +3253,7 @@
   function hookFitOnFonts() {
     if (fitFontsHooked || !document.fonts || !document.fonts.ready) return;
     fitFontsHooked = true;
-    document.fonts.ready.then(() => fitHeroNames()).catch(() => {});
+    document.fonts.ready.then(() => { fitHeroNames(); fitCardNames(); }).catch(() => {});
   }
   // "All-time series" line (plan §4.8's rivalries) — h2h is from the HOME
   // team's perspective (LG.headToHead(hId, aId)), so aWins is H's wins.
@@ -3284,6 +3319,31 @@
     // names. The bar is the whole row now, centered.
     return `<span class="herorow"><span class="mupbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
   }
+  // 2026-10-04 (UI review): at 375px the score cards cut names to "BATTLE KREU…", "CHULA V…".
+  // A name that cannot fit its box now shows the team's abbreviation instead (full name kept
+  // in the title); one that fits is untouched. The fit is MEASURED — a Range around the text
+  // against the name's content box — not guessed from a character count, because the width of
+  // "WYOMING COWBOYS" depends on the real display font. Reset to the full name first so a
+  // resize back to a wide viewport restores it.
+  function nameFitAttrs(t) {
+    const full = (t && t.name) || "";
+    return ` data-full="${esc(full)}" data-abbr="${esc(teamTag(t))}"`;
+  }
+  function fitCardNames(root) {
+    (root || document).querySelectorAll(".muteamname[data-abbr]").forEach((el) => {
+      el.textContent = el.dataset.full;
+      el.removeAttribute("title");
+      const cs = getComputedStyle(el);
+      const box = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      if (box > 0 && r.getBoundingClientRect().width > box + 0.5 && el.dataset.abbr) {
+        el.textContent = el.dataset.abbr;
+        el.title = el.dataset.full;
+      }
+    });
+  }
+  UI.fitCardNames = fitCardNames;
   function matchupCard(h, a) {
     const H = LG.teamById(h), A = LG.teamById(a);
     const mine = LG.myTeamId();
@@ -3304,9 +3364,9 @@
     const aStar = decided.winner === "B" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     const hStar = decided.winner === "A" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     return `<button class="mucard muslash ${isMine ? "mine" : ""}" data-mu="${h}-${a}" style="${slashVars}">
-      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
+      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", attrs: nameFitAttrs(A) })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}${hStar}</span>
+      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", attrs: nameFitAttrs(H) })}${logoTd(H)}${hStar}</span>
       ${matchupHeroExtra(h, a)}</button>`;
   }
 
@@ -4375,6 +4435,7 @@
     if (d && d.S && d.S.running) d.stop();
     stopScoresPoll();
     stopNflGamePoll();
+    pauseChatPoll();
   };
   // Home-screen iOS (Add to Home Screen, navigator.standalone) is the stuck
   // case — Safari in a tab already re-requests the document. The installed
@@ -4391,13 +4452,6 @@
     return false;
   }
   UI.isStandalone = isStandalone;
-  function readAppV(html) {
-    const meta = String(html || "").match(/name=["']gffl-v["'][^>]*content=["']([^"']+)["']/)
-      || String(html || "").match(/content=["']([^"']+)["'][^>]*name=["']gffl-v["']/);
-    if (meta) return meta[1];
-    const scr = String(html || "").match(/lg-ui\.js\?v=([A-Za-z0-9]+)/);
-    return scr ? scr[1] : "";
-  }
   function haveAppV() {
     const m = document.querySelector('meta[name="gffl-v"]');
     if (m && m.content) return m.content;
@@ -4444,11 +4498,19 @@
     if (typingInApp()) return false;
     const have = haveAppV();
     if (!have) return false;
+    // A home-screen launch fires BOTH league.html's own head check and this one (the pageshow
+    // that opens the app calls onForeground). The head check stamps window.__gfflVerAt; asking
+    // again inside 5 s would only repeat the answer it is already fetching.
+    if (opts.force && window.__gfflVerAt && Date.now() - window.__gfflVerAt < 5000) return false;
     UI._freshBusy = true;
     try {
-      const r = await fetch("/league.html?n=" + Date.now(), { cache: "no-store" });
+      // The ~10 byte version file, not the 58 KB league.html it used to download on every
+      // foreground (2026-10-04). It is maintained by hand with the gffl-v meta and the ?v=
+      // strings; the suite (BOOT_PERF) fails a bump that forgets it.
+      const r = await fetch("/gffl-version.txt?n=" + Date.now(), { cache: "no-store" });
       if (!r.ok) return false;
-      const live = readAppV(await r.text());
+      const txt = String(await r.text() || "").trim();
+      const live = /^[A-Za-z0-9]+$/.test(txt) ? txt : "";
       UI._freshAt = Date.now();
       if (live && live !== have) {
         UI._reloadApp();
@@ -4462,6 +4524,7 @@
     }
   };
   UI.onForeground = function () {
+    resumeChatPoll(); // before the D guard below: chat has nothing to do with the live-score engine
     const d = D();
     if (!d || typeof d.wake !== "function") return false;
     const weekMoved = UI.syncLeagueWeek();
@@ -4709,7 +4772,7 @@
   // .muhead. Stroke follows the mid line: above is away's on-dark colour,
   // below is home's. A 50/50 run stays muted. Colours come from
   // LG.teamPalette.
-  function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
+  function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick, early) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
     const now = Date.now();
@@ -4726,6 +4789,18 @@
       t0 = win.t0;
       t1 = win.t1;
       pts = typeof LG.wpViewRows === "function" ? LG.wpViewRows(stored, t0, t1, cur) : stored.slice();
+    }
+    // 2026-10-04 (UI review): before a single starter's game has kicked off, a series that has not
+    // moved (under two recorded minutes, or every minute the same %) draws a flat stroke under a "58%" that
+    // only restates the header bar. Say so in words and show the projected totals, which are what
+    // that % is made of. A pre-kickoff series that HAS moved (projections shifted during the week)
+    // still draws its line, and the sparkline returns the moment anything is played or playing.
+    // "Moved" is judged on what was RECORDED plus the current reading: the view always adds a
+    // live tip, so one recorded minute alone would otherwise read as a two-point line.
+    const vals = stored.map((r) => r.p).concat(Number.isFinite(cur) ? [cur] : []);
+    if (early && early.none && (stored.length < 2 || vals.every((v) => Math.abs(v - vals[0]) < 0.005))) {
+      return `<div class="nflwp nogames" id="muWpEarly">
+        <div class="nflwpv"><b>No games yet</b> <span class="mut small">${esc(teamTag(A))} ${LG.fmtPts(early.aProj)} projected · ${esc(teamTag(H))} ${LG.fmtPts(early.hProj)} projected</span></div></div>`;
     }
     if (pts.length < 2) return "";
     const plot = LG.WP_PLOT || { w: 220, h: 56 };
@@ -4944,7 +5019,8 @@
         </tr></tfoot>
       </table></div>`;
     const wpProj = browsing ? null : (d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : wp);
-    const muWpInner = browsing ? "" : matchupWinGraphHtml(hId, aId, wp, A, H, wpProj);
+    const muWpInner = browsing ? "" : matchupWinGraphHtml(hId, aId, wp, A, H, wpProj,
+      { none: !(aRem.played + aRem.playing + hRem.played + hRem.playing), aProj, hProj });
     const muBenchInner = (aBench.length || hBench.length) ? `<h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
@@ -5481,7 +5557,7 @@
   // Returns "" until any stat has landed, so pre-game rows stay two lines tall.
   function statSummary(p, row) {
     if (!row || !row.src) return "";
-    const side = row[row.src];
+    const side = row.picked || row[row.src];
     const st = side && side.stats;
     if (!st) return "";
     const n = (k) => Number(st[k]) || 0;
@@ -5991,6 +6067,38 @@
     return out; // still too big — the caller reports it rather than silently flattening
   }
   UI.resizeLogoToDataUrl = resizeLogoToDataUrl; // test hook
+  // The ~96 px picture every small slot shows (2026-10-04). Encoded as webp where the browser
+  // can (Chrome, Firefox, Safari 17+ on desktop); a browser that can't encode webp hands back
+  // PNG from toDataURL("image/webp"), so the mime is checked and a cut-out falls to PNG while an
+  // opaque logo falls to JPEG (a 96 px JPEG is ~3 KB; a 96 px PNG of a photo is not). The size
+  // is bounded: if it still exceeds THUMB_CAP the picture is shrunk, never stored oversize.
+  const THUMB_DIM = 96, THUMB_CAP = 14000;
+  function makeLogoThumb(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let dim = THUMB_DIM, out = "";
+        for (let i = 0; i < 3; i++) {
+          let w = img.width, h = img.height;
+          if (w >= h) { h = Math.max(1, Math.round(h * dim / w)); w = dim; }
+          else { w = Math.max(1, Math.round(w * dim / h)); h = dim; }
+          const cv = document.createElement("canvas");
+          cv.width = w; cv.height = h;
+          const ctx = cv.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          const alpha = hasTransparency(ctx, w, h);
+          out = cv.toDataURL("image/webp", 0.8);
+          if (!/^data:image\/webp/.test(out)) out = alpha ? cv.toDataURL("image/png") : cv.toDataURL("image/jpeg", 0.8);
+          if (out.length <= THUMB_CAP) break;
+          dim = Math.round(dim * 0.75);
+        }
+        resolve(out);
+      };
+      img.src = dataUrl;
+    });
+  }
+  UI.makeLogoThumb = makeLogoThumb; // test hook
   // The single gate every image path (file pick, meme-library re-post) runs
   // through — exposed so tests can drive the oversized-refusal path directly
   // without needing a real >320px source image to prove the cap.
@@ -6254,6 +6362,17 @@
     const last = msgs.slice(-80);
     const byId = new Map(msgs.map((m) => [m.id, m]));
     const tid = LG.myTeamId();
+    // NOTHING CHANGED → NO REPAINT (2026-10-04). The poll used to rebuild the whole list every
+    // 8 s whether or not a message had moved — 818 KB of innerHTML on the live league, re-
+    // decoding every image, and wiping an open reaction palette out from under a thumb. The
+    // signature covers everything chatMsgHtml reads that can change under it: the messages (id,
+    // text, reactions), who is looking (team, commissioner), how teams are drawn (name, thumb)
+    // and which player names are linkable. A first paint has no signature and always runs.
+    const sig = last.map((m) => m.id + "|" + (m.text || "").length + "|" + JSON.stringify(m.reactions || {})).join(";")
+      + "#" + tid + (isCommish() ? "c" : "") + "#" + LG.teams.map((t) => (t.name || "") + (t.logoThumb || t.logoData || t.logo || "").length).join(",")
+      + "#" + playerNameIndex().sig;
+    if (listEl.dataset.rendered && listEl.dataset.sig === sig) return;
+    listEl.dataset.sig = sig;
     listEl.innerHTML = last.length ? last.map((m) => chatMsgHtml(m, byId, tid)).join("") : '<p class="mut">No messages yet — say hi!</p>';
     listEl.dataset.rendered = "1";
     wireChatMsgEvents(idPfx, listEl, thread);
@@ -6371,15 +6490,58 @@
     }
   }
   UI._chatTimer = null;
-  function startChatPoll(idPfx, thread) {
-    if (UI._chatTimer && UI._chatTimer.pfx === idPfx && UI._chatTimer.thread === (thread || null)) return; // already running
-    stopChatPoll();
-    const h = setInterval(() => refreshChatList(idPfx, thread), 8000);
+  // The poll that is WANTED (which list, which thread) outlives the timer: onBackground stops the
+  // timer but keeps the want, and onForeground restarts it if that list is still on screen.
+  // stopChatPoll (leaving the view) clears both. 2026-10-04: the poll used to run on a hidden
+  // page and a backgrounded tab — 26 doc reads every 8 s, ~11k an hour, against a free quota of
+  // 50k a day — and nothing stopped it but navigating away.
+  UI._chatWant = null;
+  // Most ticks ask one cheap question — "is there a chat doc newer than the last one I saw?" —
+  // and stop if not. Every CHAT_FULL_EVERY-th tick (and every send/react/delete, which call
+  // refreshChatList themselves) does the full read, because a reaction EDITS an old message and
+  // a delete removes one; neither would ever show as a newer id. So someone else's reaction or
+  // delete can take up to CHAT_FULL_EVERY * 8 s to appear; a new message appears within 8 s.
+  const CHAT_POLL_MS = 8000, CHAT_FULL_EVERY = 4;
+  UI._chatPollMs = CHAT_POLL_MS;  // test seam only — read when a timer is armed; production never changes it
+  UI._chatFullEvery = CHAT_FULL_EVERY;
+  async function chatPollTick(idPfx, thread, state) {
+    if (document.hidden || !$("#" + idPfx + "List")) return;
+    state.n++;
+    if (state.n % UI._chatFullEvery !== 0 && LG.chatLastId) {
+      let fresh = null;
+      try { fresh = await LG.db.listIdRange("chat_", LG.chatLastId); } catch (e) { fresh = null; }
+      if (fresh && !fresh.length) return; // nothing newer: no 26-doc read, no repaint
+    }
+    await refreshChatList(idPfx, thread);
+  }
+  function armChatTimer(idPfx, thread) {
+    const state = { n: 0 };
+    const h = setInterval(() => chatPollTick(idPfx, thread, state).catch(() => {}), UI._chatPollMs);
     UI._chatTimer = { h, pfx: idPfx, thread: thread || null };
   }
+  function startChatPoll(idPfx, thread) {
+    UI._chatWant = { pfx: idPfx, thread: thread || null };
+    if (UI._chatTimer && UI._chatTimer.pfx === idPfx && UI._chatTimer.thread === (thread || null)) return; // already running
+    if (UI._chatTimer) { clearInterval(UI._chatTimer.h); UI._chatTimer = null; }
+    if (document.hidden) return; // wanted, but nobody is looking — onForeground starts it
+    armChatTimer(idPfx, thread);
+  }
   function stopChatPoll() {
+    UI._chatWant = null;
     if (UI._chatTimer) { clearInterval(UI._chatTimer.h); UI._chatTimer = null; }
   }
+  // Background: the timer goes, the want stays. Foreground: catch up once, then resume.
+  function pauseChatPoll() {
+    if (UI._chatTimer) { clearInterval(UI._chatTimer.h); UI._chatTimer = null; }
+  }
+  function resumeChatPoll() {
+    const w = UI._chatWant;
+    if (!w || UI._chatTimer || document.hidden) return;
+    if (!$("#" + w.pfx + "List")) { UI._chatWant = null; return; } // the list went away while we were away
+    refreshChatList(w.pfx, w.thread).catch(() => {});
+    armChatTimer(w.pfx, w.thread);
+  }
+  UI._pauseChatPoll = pauseChatPoll; UI._resumeChatPoll = resumeChatPoll; UI._chatTick = chatPollTick; // test hooks
   UI.renderChat = renderChat;
   // The chat list's height is MEASURED, not guessed (2026-08-14): the real gap between the
   // list's own top and the top of the bottom nav, minus whatever of the card sits below it
@@ -6407,7 +6569,7 @@
     document.documentElement.style.setProperty("--chatlist-h", Math.max(200, h) + "px");
   }
   UI.sizeChatList = sizeChatList;
-  window.addEventListener("resize", () => { if (UI.view === "chat") sizeChatList(); });
+  window.addEventListener("resize", () => { if (UI.view === "chat") sizeChatList(); fitCardNames(); });
   async function renderChat() {
     const keep = snapshotChatComposer("chat");
     main().innerHTML = `<div class="card chatcard"><h2>League chat</h2>${chatWidgetHtml("chat")}</div>`;
@@ -6577,6 +6739,7 @@
     "active-full": "your lineup and bench are full, and dropping someone off IR doesn't free a spot",
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
+    "bad-bid": "a bid must be a whole number of dollars, $0 or more",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
     "stale-week": "live scoring has moved on from that week", "no-live-data": "live scoring hasn't loaded yet",
     preseason: "the NFL is still in preseason — nothing counts yet",
@@ -6693,6 +6856,37 @@
     return esc(txSentence(tx));
   }
   UI.renderMoves = renderMoves;
+  // 2026-10-04 (UI review): the waiver block greyed out after Wednesday's run and showed only
+  // that past time, so nobody could see when the next run is. One line says both. The instants
+  // come from LG.waiverDeadline (Central, DST-safe — no time math here); this only formats them
+  // in America/Chicago, the league's clock, and adds an "in 5h 12m" countdown once the next run
+  // is under 24 hours away. Past the last week's run there is no "next".
+  function waiverRunLine(nowMs, week) {
+    const fmt = (ms) => {
+      const parts = {};
+      new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short",
+        day: "numeric", hour: "numeric", minute: "2-digit" }).formatToParts(new Date(ms))
+        .forEach((x) => { parts[x.type] = x.value; });
+      return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.hour}:${parts.minute} ${parts.dayPeriod} CT`;
+    };
+    const cur = LG.waiverDeadline(week);
+    const ran = nowMs >= cur;
+    const nextMs = ran ? (week < 18 ? LG.waiverDeadline(week + 1) : null) : cur;
+    const bits = [];
+    if (ran) bits.push("Ran " + fmt(cur));
+    if (nextMs != null) {
+      const left = nextMs - nowMs;
+      let t = "Next: " + fmt(nextMs);
+      if (left > 0 && left < 24 * 3600 * 1000) {
+        const mins = Math.max(1, Math.ceil(left / 60000));
+        t += " · in " + (mins >= 60 ? Math.floor(mins / 60) + "h " + (mins % 60) + "m" : mins + "m");
+      }
+      bits.push(t);
+    }
+    return bits.join(" · ");
+  }
+  UI.waiverRunLine = waiverRunLine;
+
   async function renderMoves() {
     const tid = LG.myTeamId();
     const T = LG.teamById(tid);
@@ -6894,6 +7088,7 @@
       ${pendHtml}
       <div class="card"><h2>Waivers</h2>
         ${wvBlocksHtml}
+        <div class="mut small mvrunline" id="mvRunLine">${esc(waiverRunLine(LG.now(), UI.week))}</div>
         ${myResultsHtml}
         ${isCommish() ? '<div class="rowline mvprow"><button id="mvProcessNow">Process now</button></div>' : ""}
         <div class="rowline"><span class="mut small">Filter:</span>
@@ -6903,7 +7098,7 @@
           </div>
         </div>
         <div class="poschips" id="faPosChips">${["ALL", "QB", "RB", "WR", "TE", "K", "DST"].map((p) => `<button type="button" class="poschip" data-pos="${p}">${p}</button>`).join("")}</div>
-        <input id="faSearch" placeholder="Search players… (optional — browse below)" autocomplete="off">
+        <input id="faSearch" placeholder="Search players…" autocomplete="off">
         <div id="faResults"></div>
       </div>
       <div class="card" id="mvTradeCard"><h2>${UI._counterOf ? "Counter " + esc(LG.teamName(cpId)) + "'s offer" : "Propose a trade"}</h2>
@@ -7706,7 +7901,7 @@
     const playInTxt = playIn === 2 ? `, ${p.byes + 1}v${p.byes + 2} play-in` : "";
     return `${p.teams}-team playoffs (top ${p.byes} get byes${playInTxt}) · starts week ${p.startWeek}, week-by-week single elimination.`;
   }
-  function scheduleSummaryLine(r) { return `${r.seasonWeeks}-week regular season, double round robin.`; }
+  function scheduleSummaryLine(r) { return `${r.seasonWeeks}-week regular season, double round robin. ${LG.tiebreakText(r)}`; }
   // S2: draftAt has no group (it's a flat top-level rules field), so it gets the same plain-
   // English treatment as the other summary lines above rather than a raw table row.
   function draftAtSummaryLine(r) {
@@ -8431,11 +8626,14 @@
           // instead of in a black box.
           const dataUrl = await resizeLogoToDataUrl(file, LOGO_CAP);
           if (dataUrl.length > LOGO_CAP) { toast("That logo is too big — try a smaller image."); return; }
+          // The thumb is made HERE, at upload, from the full picture just resized — one canvas
+          // pass on the uploader's own device, so no reader ever pays for the big one on a list.
+          const thumb = await makeLogoThumb(dataUrl);
           // THE LATCH. Extraction proposes; a human's pick is final. Once anyone has touched a
           // swatch (colorsCustom) a new logo changes the PICTURE and nothing else — the team's
           // scheme is theirs, and silently repainting the whole app off a re-upload would be
           // the app overruling a deliberate choice. "↺ from logo" is the way back.
-          const delta = { teamId: T.id, logoData: dataUrl };
+          const delta = { teamId: T.id };
           // A LOCAL FLAG, not a read of `delta.colors` — section AM3 forbids any
           // `<something>.colors` read in this file (a render site outside the contrast law is
           // the one way that whole batch can rot), and the ledger detail below needs the same
@@ -8447,7 +8645,10 @@
               if (p && p.primary) { delta.colors = { primary: p.primary, secondary: p.secondary || null, tertiary: p.tertiary || null }; tookColors = true; }
             } catch (e2) { /* keep whatever colours are already on file */ }
           }
-          await LG.saveTeam(delta); // DELTA only — never a whole spread team (lg-core's saveTeam note)
+          // Full picture → its own doc; thumb + cut-out flag → the team doc (LG.saveTeamLogo).
+          // `delta` rides in the SAME team write (a DELTA only — never a whole spread team, see
+          // lg-core's saveTeam note), so a logo and the colours read off it land together.
+          await LG.saveTeamLogo(T.id, { logoData: dataUrl, logoThumb: thumb, logoCut: isCutoutLogo(dataUrl), extra: delta });
           LG.logAct("team_edit", T.id, { fields: tookColors ? ["logo", "colors"] : ["logo"] });
           await LG.loadTeams();
           toast(T.colorsCustom ? "Logo updated — your colours were kept." : "Logo updated.");
@@ -8504,7 +8705,8 @@
     const reset = $("#lockerColorReset");
     if (reset) reset.addEventListener("click", async () => {
       if (!(await gate())) return;
-      const src = T.logoData || T.logo || "";
+      // The FULL picture, not the thumb: the palette is read off real pixels (2026-10-04).
+      const src = await LG.loadTeamLogo(T);
       if (!src) { toast("No logo to read colours from yet."); return; }
       let p = null;
       try { p = await extractPalette(src); } catch (e) { p = null; }
@@ -8518,6 +8720,48 @@
       toast("Colours re-read from the logo.");
       UI.openLocker(T.id);
     });
+  }
+  // ---------------- an unavailable starter, and the one-tap swap for him (2026-10-04) ----------------
+  // ESKY started Terry McLaurin (Out) and KRUZ started Jadarian Price (IR) on 2026-10-04 and the
+  // lineup said nothing but a small chip. A starter is UNAVAILABLE when his designation is a
+  // real "can't play" one (Out / IR / PUP / NFI / suspended / COVID / NA / DNR — the same
+  // injLabel table every other surface uses, so Q / D / P stay playable) or his team has no game
+  // on THIS week's slate (a bye — read off the very board D.gameDone reads, and only when that
+  // board is this league week's, because an empty or last-week board would call everyone a bye).
+  // "Inactive" game-day lists are not in any feed this app reads, so they are not flagged.
+  const UNAVAILABLE_INJ = new Set(["OUT", "IR", "IR-R", "PUP", "NFI", "SUS", "COV", "NA", "DNR"]);
+  function starterIssue(p) {
+    if (!p) return "";
+    const lab = injLabel(LG.injuryOf(p));
+    if (UNAVAILABLE_INJ.has(lab)) return lab === "OUT" ? "Out" : lab;
+    const d = D();
+    if (UI.week === LG.currentWeek() && d.S.games.size > 0 && !(d.boardWeekMismatch && d.boardWeekMismatch())
+      && p.pos !== "DST" && !d.S.games.get(d.slpTeam(p.team))) return "Bye";
+    return "";
+  }
+  // The best bench player to put in `slot`: eligible for it, no issue of his own, game not
+  // started, highest projection (a missing projection sorts last; the earlier bench row wins a tie).
+  function bestSwapIn(slot, bench) {
+    const d = D();
+    let best = null, bestProj = -Infinity;
+    for (const c of bench || []) {
+      if (!c || !LG.slotEligible(c.pos, slot) || playerLocked(c) || starterIssue(c)) continue;
+      const pr = d.projFor(c.key);
+      const v = pr == null || !Number.isFinite(Number(pr)) ? -1 : Number(pr);
+      if (v > bestProj) { best = c; bestProj = v; }
+    }
+    return best;
+  }
+  UI._starterIssue = starterIssue; UI._bestSwapIn = bestSwapIn; // test hooks
+  function swapInStripHtml(slot, idx, p, bench) {
+    const issue = starterIssue(p);
+    if (!issue) return "";
+    if (playerLocked(p)) return `<div class="lflag" data-flag="${esc(issue)}"><span class="inj">${esc(issue)}</span> <span class="mut">${escn(p.name)} — his game has started, so the slot is locked.</span></div>`;
+    const c = bestSwapIn(slot, bench);
+    if (!c) return `<div class="lflag" data-flag="${esc(issue)}"><span class="inj">${esc(issue)}</span> <span class="mut">${escn(p.name)} can't play — no eligible bench player is available.</span></div>`;
+    const pr = D().projFor(c.key);
+    return `<div class="lflag" data-flag="${esc(issue)}"><span class="inj">${esc(issue)}</span>
+      <button type="button" class="swapin" data-slot="${esc(slot)}" data-idx="${idx}" data-in="${esc(c.key)}">Swap in ${escn(c.name)} <small>${esc(c.pos)}${pr != null ? " · " + LG.fmtPts(pr) + " proj" : ""}</small></button></div>`;
   }
   // My Team = Locker (merged 2026-08-07): the owner's OWN locker embeds the editable lineup
   // (tap-to-swap starters/bench/IR, kickoff locks — exactly what the old separate "team" page
@@ -8573,7 +8817,12 @@
     { kind: "trade", label: "Trades" },
     { kind: "waivers", label: "Waivers" },
     { kind: "recap", label: "Week recaps" },
+    // RoboGoat previews (2026-10-04) ride their own kind rather than "recap": a phone that muted
+    // the week-final scoreboard push should not silently lose the Thursday preview, or the reverse.
+    { kind: "preview", label: "RoboGoat previews" },
     { kind: "injury", label: "Injuries" },
+    // Sent by netlify/functions/lineupwarn.mjs ~90 minutes before a starter's kickoff. Default on.
+    { kind: "lineup", label: "Lineup warnings" },
     { kind: "mention", label: "Chat mentions" },
     { kind: "chat", label: "League chat" },
     { kind: "smack", label: "Matchup smack talk" },
@@ -8648,6 +8897,30 @@
       try { if (typeof Notification !== "undefined" && Notification.permission === "denied") setPushOptedOut(true); } catch (e) { /* ignore */ }
     }
   }
+  // THE TOKEN REFRESH (2026-10-04, push review). index.html re-runs BuckyPush.enable on every
+  // visit so a rotated FCM token heals; the league only enrolled at login and on the toggle, so
+  // an iOS token rotated by an OS update or a long idle left a dead doc and a phone that silently
+  // stopped getting league pushes until its owner re-toggled. Once per page session, when the
+  // browser already GRANTED permission (so this can never prompt), the device carries a gfflTeam
+  // enrollment and it has not opted out: run the same enable() the login ran, with the same
+  // extra, so the token doc is re-written with whatever token the browser now holds. Silent on
+  // every failure, and unawaited by the caller — the booting league never waits on FCM. This
+  // origin's own token: goatfantasyleague.com and amenfarms.netlify.app are separate origins
+  // with separate localStorage, service workers and tokens, and each heals itself the same way.
+  let pushRefreshed = false;
+  async function refreshPushRegistration() {
+    if (pushRefreshed) return;
+    try {
+      const e = pushEnv();
+      if (!e.has || !e.supported || e.onTeam == null) return;
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      if (pushOptedOut()) return;
+      pushRefreshed = true;
+      const T = LG.teamById ? LG.teamById(e.onTeam) : null;
+      await window.BuckyPush.enable(LG.who() || (e.st && e.st.user) || (T && T.name) || "League", LG.famKey, null, leaguePushExtra(e.onTeam));
+    } catch (err) { /* a heal that fails is retried at the next page load */ }
+  }
+  UI._refreshPush = refreshPushRegistration; // test hook
   const BELL_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="alertbell">' +
     '<path fill="currentColor" d="M12 22a2.05 2.05 0 0 0 2.05-2.05h-4.1A2.05 2.05 0 0 0 12 22zm6.2-6.2v-5.3a6.25 6.25 0 0 0-4.7-6.05V3.7a1.5 1.5 0 0 0-3 0v.75a6.25 6.25 0 0 0-4.7 6.05v5.3L4 17.5v.85h16v-.85z"/></svg>';
   function alertsCardHtml(T, isOwner) {
@@ -8690,7 +8963,7 @@
     }
     return `<div class="card alertcard" id="alertCard">${head}
       <p class="small">Get league alerts on this phone.</p>
-      <p class="mut small">Trades, waivers, recaps, injuries, mentions, league chat and matchup smack talk. League moves stays off until you turn it on.</p>
+      <p class="mut small">Trades, waivers, recaps, previews, injuries, lineup warnings, mentions, league chat and matchup smack talk. League moves stays off until you turn it on.</p>
       <div class="alertrow"><button id="alertOn" class="primary">Turn on league alerts</button></div></div>`;
   }
   function wireAlertsCard(T) {
@@ -8730,6 +9003,46 @@
   }
 
   UI.renderLocker = renderLocker;
+  // ---------------- ROSTERS: trade fits (2026-10-04) ----------------
+  // The viewer's weakest starting room (the worst power-rankings rank for QB/RB/WR/TE/K/DST on
+  // the Rest of season board — ties go to the room furthest behind the league's best, room /
+  // best) set against the other teams that carry MORE rostered players at that position than
+  // it has starting slots for (the FLEX is ignored: it is not a dedicated slot) and rank
+  // better there. Every number is read from LG.powerRosBoard and the rosters; nothing new is
+  // computed except those two comparisons. Returns null when there is no one to suggest.
+  function tradeFits(ros, mineId, rosters, rules, posOf) {
+    if (!ros || !ros.rows) return null;
+    const me = ros.rows.find((r) => r.teamId === mineId);
+    if (!me) return null;
+    const POS = ["QB", "RB", "WR", "TE", "K", "DST"];
+    const best = (k) => Math.max(...ros.rows.map((r) => LG.n(r.rooms[k])));
+    let weak = null, weakKey = null;
+    for (const k of POS) {
+      const key = [me.cats[k], best(k) > 0 ? -LG.n(me.rooms[k]) / best(k) : 0];
+      if (weak == null || key[0] > weakKey[0] || (key[0] === weakKey[0] && key[1] > weakKey[1])) { weak = k; weakKey = key; }
+    }
+    if (!weak) return null;
+    const slotsAt = LG.n(rules[weak]);
+    const fits = ros.rows.filter((r) => r.teamId !== mineId && r.cats[weak] < me.cats[weak]).map((r) => {
+      const count = ((rosters[r.teamId]) || []).filter((p) => p && p.slot !== "IR" && posOf(p) === weak).length;
+      return { teamId: r.teamId, rank: r.cats[weak], count, extra: count - slotsAt };
+    }).filter((f) => f.extra > 0).sort((a, b) => a.rank - b.rank).slice(0, 3);
+    return fits.length ? { pos: weak, rank: me.cats[weak], of: ros.rows.length, slots: slotsAt, fits } : null;
+  }
+  UI._tradeFits = tradeFits; // test hook
+  function tradeFitsHtml(tf) {
+    if (!tf) return "";
+    const ord = (n) => n + (["th", "st", "nd", "rd"][(n % 100 >= 11 && n % 100 <= 13) ? 0 : Math.min(n % 10, 4) % 4] || "th");
+    const rows = tf.fits.map((f) => {
+      const T = LG.teamById(f.teamId);
+      return T ? `<div class="rsfit" data-team="${T.id}">
+        <span class="rsfitwho">${crestHtml(T, "tmini")}${teamNameHtml(T)}</span>
+        <span class="mut small">${f.count} ${esc(tf.pos)} for ${tf.slots} slot${tf.slots === 1 ? "" : "s"} · ${ord(f.rank)} at ${esc(tf.pos)}</span>
+        <button type="button" class="rsfitgo" data-trade="${T.id}">Start a trade</button></div>` : "";
+    }).join("");
+    return `<section class="card rsfits" id="rsFits"><h2>Trade fits</h2>
+      <p class="mut small">Your ${esc(tf.pos)} room is ${ord(tf.rank)} of ${tf.of}. These teams carry more ${esc(tf.pos)}s than they start.</p>${rows}</section>`;
+  }
   // ---------------- ROSTERS — every team, one page (2026-09-08) ----------------
   // User: "a new page/tab to GFFL, 'Rosters', that lets you see all teams rosters in a fairly
   // compact and viewable form for both mobile and desktop." The seventh tab.
@@ -8760,7 +9073,7 @@
     if (UI.view !== "rosters") return; // the reader moved on while the rosters were loading
     const mine = LG.myTeamId();
     const rank = (id) => standings[id] || { w: 0, l: 0, t: 0, pf: 0 };
-    const order = [...LG.teams].sort((a, b) => { const A = rank(a.id), B = rank(b.id); return (B.w - A.w) || (B.pf - A.pf); });
+    const order = LG.rankTeams(LG.teams.map((t) => t.id), standings).map((id) => LG.teamById(id));
     const slots = starterSlotList();
     const POS_ORDER = d.LEAGUE_POS || ["QB", "RB", "WR", "TE", "K", "DST"];
     const posOf = (p) => (d.leaguePos ? d.leaguePos(p.pos) : p.pos);
@@ -8804,10 +9117,35 @@
         : `<p class="mut rsnone">No roster yet.</p>`}
       </section>`;
     };
+    // Trade fits reads the Rest of season board, which needs the standings, the finalized weeks
+    // (for the season averages) and those averages; refreshPowerData fetches what is missing and
+    // repaints this page when it lands, so the panel simply appears a moment late on a cold visit.
+    let fitsHtml = "";
+    if (mine) {
+      try {
+        UI._standings = UI._standings || standings;
+        if (!UI._allWeekly && !UI._allWeeklyAsked) { UI._allWeeklyAsked = true; LG.db.list("weekly").then((w) => { UI._allWeekly = w || []; refreshPowerData(); }).catch(() => {}); }
+        const pb = powerBoards();
+        fitsHtml = tradeFitsHtml(tradeFits(pb.ros, mine, UI._rosters, (LG.rules || LG.DEFAULT_RULES).roster, posOf));
+        if (!pb.ros) refreshPowerData();
+      } catch (e) { fitsHtml = ""; }
+    }
     main().innerHTML = `
       <div class="rsjump" id="rsJump" aria-label="Jump to a team">${order.map((t) =>
-        `<button type="button" data-jump="${t.id}"${t.id === mine ? ' class="mine"' : ""}>${crestHtml(t, "tmini")}${esc(t.abbrev || initials(t.name))}</button>`).join("")}</div>
+        `<button type="button" data-jump="${t.id}"${t.id === mine ? ' class="mine" title="Your team" aria-label="' + esc(t.name) + ' (your team)"' : ""}>${crestHtml(t, "tmini")}${esc(t.abbrev || initials(t.name))}</button>`).join("")}</div>
+      ${fitsHtml}
       <div class="rsgrid" id="rsGrid">${order.map(teamCard).join("")}</div>`;
+    main().querySelectorAll("[data-trade]").forEach((b) => b.addEventListener("click", () => {
+      // The existing trade flow: the Moves page's builder starts with this team picked as the
+      // other side. Nothing is sent from here.
+      UI._tradeCp = Number(b.dataset.trade); UI._counterOf = null;
+      UI.go("moves");
+      let tries = 0;
+      const iv = setInterval(() => {
+        const card = document.getElementById("mvTradeCard");
+        if (card || ++tries > 40) { clearInterval(iv); if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" }); }
+      }, 100);
+    }));
     if (already) window.scrollTo(0, keepY);
     wireLockerTaps(main());
     wirePlayerCardTaps(main());
@@ -8851,7 +9189,7 @@
     const bannerSeasons = new Set(historyBanners.map((b) => b.season));
     const banners = [...historyBanners, ...liveBanners.filter((b) => !bannerSeasons.has(b.season))].sort((a, b) => a.season - b.season);
     const st = standings[teamId] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
-    const rows = [...LG.teams].sort((a, b) => { const A = standings[a.id] || { w: 0, pf: 0 }, B = standings[b.id] || { w: 0, pf: 0 }; return (B.w - A.w) || (B.pf - A.pf); });
+    const rows = LG.rankTeams(LG.teams.map((t) => t.id), standings).map((id) => LG.teamById(id));
     const place = rows.findIndex((t) => t.id === teamId) + 1;
     // THE TROPHY CASE (2026-08-12, user: "add a trophy case to each My Team page, Champion,
     // Runner Up and Point total champion"). It SUPERSEDES the plain Championships card: the
@@ -9005,7 +9343,7 @@
       // themselves — a locked Swap's title/aria-label, a blocked Drop's, "Empty — tap to fill".
       rosterHtml = `
         <div class="card"><h2>Lineup — week ${UI.week}</h2>
-          <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
+          <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i) + swapInStripHtml(s.slot, i, s.p, bench)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
           <div id="lockerIR">${ir.length ? ir.map((p, i) => rowHtml("IR", p, i)).join("") : '<p class="mut">Nobody stashed.</p>'}</div></div>`;
@@ -9025,7 +9363,7 @@
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
         </button>` : ""}
         <div class="lockerhead-inner">
-          ${logoSrc ? `<img class="lockerlogo${isCutoutLogo(logoSrc) ? " cutout" : ""}" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
+          ${logoSrc ? `<img class="lockerlogo${teamIsCut(T, logoSrc) ? " cutout" : ""}" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
           <div class="lockerid">
             <h1 class="lockername tname big">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>
@@ -9087,6 +9425,17 @@
     }
     paintHealth();
     fitHeroNames(); hookFitOnFonts(); // the hero name fits, never clips
+    if (T.logoThumb && !T.logoData) lockerBigLogo(T, teamId);
+  }
+  // The locker hero is the one place a logo is shown big (up to 128 px), so it paints at once
+  // from the thumb and then swaps in the FULL picture — one GET of this team's own
+  // teamlogo_<id> doc, cached after that — instead of every team list carrying all eight.
+  function lockerBigLogo(T, teamId) {
+    LG.loadTeamLogo(T).then((full) => {
+      if (!full || UI.view !== "locker" || Number(UI.lockerTeamId) !== Number(teamId)) return;
+      const im = document.querySelector("#main .lockerhead img.lockerlogo");
+      if (im && im.getAttribute("src") !== full) im.src = full;
+    }).catch(() => {});
   }
   // S1 GRANDFATHERING. Devices that claimed a team before owner PINs existed stay valid — the
   // local claim is never revoked — but the team has no lock on it, so the next device to tap it
@@ -9182,6 +9531,19 @@
     // ITEM 32's contract is unchanged: openRosterCard registers ONE sentinel (so Back closes
     // the card and leaves the reader in the locker); every row in it, Cancel included, hands
     // that entry straight back so the following Back moves them to the previous VIEW.
+    // The one-tap suggestion under an unavailable starter: the SAME swap() the sheet uses, so the
+    // write path, the lineup ledger entry and the kickoff locks are all unchanged — the locks
+    // are simply re-checked here against live state, because the strip was painted a while ago.
+    document.querySelectorAll(".swapin").forEach((b) => b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const out = (starters[Number(b.dataset.idx)] || {}).p;
+      const inn = bench.find((x) => x.key === b.dataset.in);
+      if (!out || !inn) return;
+      if (playerLocked(out)) { toast(out.name + "'s game already started."); return; }
+      if (playerLocked(inn)) { toast(inn.name + "'s game already started."); return; }
+      b.disabled = true;
+      await swap(out, inn, b.dataset.slot);
+    }));
     function closeSwap() { UI.closeRosterCard(); }
     function openSwap(slot, idx) {
       let cur = null;

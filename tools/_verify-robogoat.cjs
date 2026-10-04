@@ -395,10 +395,239 @@ const PICKS = { 2: "3-1", 3: "4-0" };
       && JSON.stringify(season.rankings["2"].map((t) => ({ 1: "Perry", 2: "Elan", 3: "Joe", 4: "Tom", 5: "Sandy", 9: "John", 11: "Calvin", 12: "Isaac" })[t])) === JSON.stringify(RANK_W2));
   }
 
+  await kitChecks();
   await browser.close();
   srv.close();
   finish();
 })().catch((e) => { console.error(e); fail++; finish(); });
+
+// ================================================================================================
+// The automation kit (2026-10-04): analysis.mjs, week.mjs, facts.mjs's rules, build.mjs's guards.
+// Node-only, no network. Fixtures are shaped like the real data under robogoat/2026/ and the facts
+// files (roster docs, tx docs, proj, the ESPN scoreboard); every expected value is worked out here.
+// Each check runs inside safe(): a missing module or a thrown error is a FAIL of that check, not a crash.
+// ================================================================================================
+async function kitChecks() {
+  const os = require("os");
+  const safe = async (fn) => { try { return await fn(); } catch (e) { return "threw: " + (e && e.message ? e.message.split("\n")[0] : e); } };
+  const expect = async (name, fn, want) => { const got = await safe(fn); check(name, JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got) + " want " + JSON.stringify(want)); };
+  const A = await safe(() => import(pathToFileURL(path.join(ROOT, "tools/robogoat/analysis.mjs")).href));
+  check("kit: analysis.mjs loads", typeof A === "object" && typeof A.rankStandings === "function", typeof A === "string" ? A : "");
+  const T = {
+    1: { owner: "Perry", short: "Kreussers", name: "Battle Kreussers" }, 2: { owner: "Elan", short: "Skywalkers", name: "Elanikan Skywalkers" },
+    3: { owner: "Joe", short: "Cowboys", name: "Wyoming Cowboys" }, 5: { owner: "Sandy", short: "Laws Rule", name: "Laws Rule" },
+    9: { owner: "John", short: "Nerfherders", name: "Scruffy Looking Nerfherders" }, 11: { owner: "Calvin", short: "Kruz Control", name: "Kruz Control" },
+  };
+
+  // ---- 1a. standings: ties count half, then the tiebreak list ----
+  // Two seasons of two weeks. W1: 1 beat 3 (100-90), 2 beat 4 (120-110). W2: 1 and 4 tied (100-100), 3 beat 2 (130-105).
+  // Win points: team 1 = 1 + 0.5 = 1.5; teams 2 and 3 = 1.0; team 4 = 0.5. PF: 1=200, 2=225, 3=220, 4=210.
+  // Old rule (wins, then PF) ignored the tie: 1, 2 and 3 all had one win, so PF put 2 (225), 3 (220), 1 (200) in front: [2,3,1,4].
+  // h2h among 2 and 3: 3 won their only game, so 3 is ahead of 2 despite 5 fewer points. PF-only keeps 2 ahead.
+  const G = [{ home: 1, away: 3, homePts: 100, awayPts: 90 }, { home: 2, away: 4, homePts: 120, awayPts: 110 },
+    { home: 1, away: 4, homePts: 100, awayPts: 100 }, { home: 3, away: 2, homePts: 130, awayPts: 105 }];
+  const REC = { 1: { team: 1, w: 1, l: 0, t: 1, pf: 200 }, 2: { team: 2, w: 1, l: 1, t: 0, pf: 225 }, 3: { team: 3, w: 1, l: 1, t: 0, pf: 220 }, 4: { team: 4, w: 0, l: 1, t: 1, pf: 210 } };
+  await expect("standings: a tie is half a win, then head-to-head, then points (default tiebreak): 1, 3, 2, 4",
+    () => A.rankStandings(REC, G, A.tiebreakOf({})).map((x) => x.team), [1, 3, 2, 4]);
+  await expect('standings: rules.tiebreak ["pf"] ranks 2 ahead of 3 on points: 1, 2, 3, 4',
+    () => A.rankStandings(REC, G, A.tiebreakOf({ rules: { tiebreak: ["pf"] } })).map((x) => x.team), [1, 2, 3, 4]);
+  await expect("standings: no rules.tiebreak means h2h then pf", () => A.tiebreakOf({ rules: { roster: {} } }), ["h2h", "pf"]);
+
+  // ---- 1b. win probability: a tie is nobody's win; an exact 0.5 reading is not a flip ----
+  // Away team's chance 0.6, 0.5, 0.6 in a 100-100 game. The old code read a tie as a home win (start 1-0.6 = 0.4) and
+  // counted 0.6 > 0.5, 0.5 > 0.5 (false), 0.6 > 0.5 as two flips. Now: winner null, start 0.6, zero flips.
+  const S = [{ t: 0, p: 0.6 }, { t: 1000, p: 0.5 }, { t: 2000, p: 0.6 }];
+  await expect("win probability: a tied game has no winner, starts at the away chance, and an exact 0.5 reading is no flip",
+    () => { const w = A.summarizeWp(S, 5, 1, 100, 100); return [w.winner, w.tie, w.start, w.flips]; }, [null, true, 0.6, 0]);
+  await expect("win probability: a home win still reads as 1 - p, and a real crossing is one flip",
+    () => { const w = A.summarizeWp([{ t: 0, p: 0.7 }, { t: 1, p: 0.4 }], 5, 1, 90, 100); return [w.winner, w.start, w.flips, w.low.p]; }, [1, 0.3, 1, 0.3]);
+
+  // ---- 1c. --since: the newest issue's day, capped at 14 days, else 7 ----
+  const NOW = Date.parse("2026-10-04T17:00:00Z");
+  await expect("since: defaults to 05:00Z (Chicago midnight) on the newest issue's published day",
+    () => new Date(A.sinceDefault([{ published: "2026-09-29" }, { published: "2026-10-03" }], NOW)).toISOString(), "2026-10-03T05:00:00.000Z");
+  await expect("since: an issue older than 14 days is capped at 14 days back", () => new Date(A.sinceDefault([{ published: "2026-09-01" }], NOW)).toISOString(), "2026-09-20T17:00:00.000Z");
+  await expect("since: no issues means 7 days back", () => new Date(A.sinceDefault([], NOW)).toISOString(), "2026-09-27T17:00:00.000Z");
+
+  // ---- 1d. known anomalies ----
+  const allow = safeSync(() => JSON.parse(fs.readFileSync(path.join(ROOT, "tools/robogoat/known-anomalies.json"), "utf8")).known);
+  const L1 = "FAIL: 1 rostered starter(s) whose NFL game is FINAL and who aren't injury-listed have NO stat line at all — and the feed IS live for other players this week, so this looks like real drift.";
+  const L2 = L1.replace("FAIL: 1 ", "FAIL: 2 ");
+  await expect("anomalies: the Week 2 Nacua case is listed, so it prints as known", () => { const c = A.classifyAnomalies([L1], 2, allow); return [c.known.length, c.fresh.length]; }, [1, 0]);
+  await expect("anomalies: a second stat-less starter in Week 2 is NEW", () => { const c = A.classifyAnomalies([L2], 2, allow); return [c.known.length, c.fresh.length]; }, [0, 1]);
+  await expect("anomalies: the same line in Week 3 is NEW", () => { const c = A.classifyAnomalies([L1], 3, allow); return [c.known.length, c.fresh.length]; }, [0, 1]);
+
+  // ---- 2. OG / meta tags ----
+  const pg = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
+  const tags = (h) => ({ url: (/property="og:url" content="([^"]*)"/.exec(h) || [])[1], site: (/property="og:site_name" content="([^"]*)"/.exec(h) || [])[1], card: (/name="twitter:card" content="([^"]*)"/.exec(h) || [])[1] });
+  await expect("meta: the archive carries og:url, og:site_name and twitter:card", () => tags(pg("robogoat/index.html")),
+    { url: "https://goatfantasyleague.com/robogoat/", site: "RoboGoat · GFFL", card: "summary_large_image" });
+  await expect("meta: week 3 carries og:url (its own address), og:site_name and twitter:card", () => tags(pg("robogoat/2026/week-3/index.html")),
+    { url: "https://goatfantasyleague.com/robogoat/2026/week-3/", site: "RoboGoat · GFFL", card: "summary_large_image" });
+  await expect("meta: the week 4 preview carries og:url, og:site_name and twitter:card", () => tags(pg("robogoat/2026/week-4-preview/index.html")),
+    { url: "https://goatfantasyleague.com/robogoat/2026/week-4-preview/", site: "RoboGoat · GFFL", card: "summary_large_image" });
+
+  // ---- 3a. lineups: snapshot, key-order invariance, keyed diff ----
+  const R1 = [{ pos: "QB", slot: "BENCH", team: "KC", injury: "", key: "3139477", name: "Patrick Mahomes" }, { slot: "QB", key: "3918298", team: "BUF", name: "Josh Allen", pos: "QB", injury: "" },
+    { slot: "TE", key: "3929645", team: "NO", name: "Juwan Johnson", pos: "TE" }];
+  const R1b = [R1[2], { name: "Josh Allen", pos: "QB", slot: "QB", key: "3918298", team: "BUF" }, { name: "Patrick Mahomes", key: "3139477", team: "KC", pos: "QB", slot: "BENCH" }]; // same lineup, other order
+  const R2 = [{ pos: "QB", slot: "QB", team: "KC", key: "3139477", name: "Patrick Mahomes" }, { slot: "BENCH", key: "3918298", team: "BUF", name: "Josh Allen", pos: "QB" },
+    { slot: "TE", key: "3929645", team: "NO", name: "Juwan Johnson", pos: "TE" }, { slot: "RB", key: "slp_12495", team: "MIA", name: "Ollie Gordon", pos: "RB" }];
+  await expect("lineups: two reads of one lineup in different key and array order snapshot identically, with no diff",
+    () => [JSON.stringify(A.snapshotLineups({ 5: R1 })) === JSON.stringify(A.snapshotLineups({ 5: R1b })), A.diffLineups(A.snapshotLineups({ 5: R1 }), A.snapshotLineups({ 5: R1b })).length], [true, 0]);
+  await expect("lineups: the diff is keyed by team, player and slot (Allen to the bench, Mahomes in, Gordon added)",
+    () => A.diffLineups(A.snapshotLineups({ 5: R1 }), A.snapshotLineups({ 5: R2 })).map((d) => [d.team, d.name, d.change, d.from, d.to]),
+    [[5, "Josh Allen", "moved", "QB", "BENCH"], [5, "Ollie Gordon", "added", null, "RB"], [5, "Patrick Mahomes", "moved", "BENCH", "QB"]]);
+  await expect("lineups: the printed line names the owner and each move",
+    () => A.formatLineupDiff(A.diffLineups(A.snapshotLineups({ 5: R1 }), A.snapshotLineups({ 5: R2 })), T),
+    ["Sandy (Laws Rule): Josh Allen QB -> BENCH; Ollie Gordon added to RB; Patrick Mahomes BENCH -> QB"]);
+
+  // ---- 3b. leads ----
+  // ESPN scoreboard shape, abbreviations as ESPN spells them (WAS for Washington: the parser normalises to WSH).
+  const sb = { events: [
+    { id: "1", date: "2026-10-02T00:15Z", competitions: [{ competitors: [{ homeAway: "home", team: { abbreviation: "PIT", shortDisplayName: "Steelers" } }, { homeAway: "away", team: { abbreviation: "CLE", shortDisplayName: "Browns" } }] }] },
+    { id: "2", date: "2026-10-04T13:30Z", competitions: [{ competitors: [{ homeAway: "home", team: { abbreviation: "WAS", shortDisplayName: "Commanders" } }, { homeAway: "away", team: { abbreviation: "IND", shortDisplayName: "Colts" } }] }] },
+    { id: "3", date: "2026-10-04T17:00Z", competitions: [{ competitors: [{ homeAway: "home", team: { abbreviation: "TB", shortDisplayName: "Buccaneers" } }, { homeAway: "away", team: { abbreviation: "GB", shortDisplayName: "Packers" } }] }] },
+    { id: "4", date: "2026-10-04T20:25Z", competitions: [{ competitors: [{ homeAway: "home", team: { abbreviation: "DEN", shortDisplayName: "Broncos" } }, { homeAway: "away", team: { abbreviation: "SEA", shortDisplayName: "Seahawks" } }] }] },
+    { id: "5", date: "2026-10-05T00:20Z", competitions: [{ competitors: [{ homeAway: "home", team: { abbreviation: "CAR", shortDisplayName: "Panthers" } }, { homeAway: "away", team: { abbreviation: "DET", shortDisplayName: "Lions" } }] }] },
+  ] };
+  const sched = safeSync(() => A.parseScoreboard(sb));
+  await expect("scoreboard: five games in kickoff order, WAS read as WSH", () => [sched.length, sched[1].home, sched.map((g) => g.id).join("")], [5, "WSH", "12345"]);
+  const p = (name, pos, slot, team, key, injury) => ({ name, pos, slot, team, key, injury: injury || "" });
+  const LU = {
+    5: [p("Jameson Williams", "WR", "WR", "DET", "w1"), p("Emeka Egbuka", "WR", "BENCH", "TB", "w2"), p("Jonathan Taylor", "RB", "RB", "IND", "r1")],
+    9: [p("DeVonta Smith", "WR", "WR", "PHI", "w3", "Out"), p("Isaiah Likely", "TE", "BENCH", "BAL", "t1")],
+    11: [p("Jadarian Price", "RB", "RB", "SEA", "r2"), p("J.K. Dobbins", "RB", "BENCH", "DEN", "r3"), p("Kenneth Walker III", "RB", "RB", "SEA", "r4")],
+  };
+  const PROJ = { players: { w1: { p: 6 }, w2: { p: 9.5 }, w3: { p: 0 }, r2: { p: 0 }, r3: { p: 9 }, r4: { p: 15 }, r1: { p: 12 } } };
+  const H = 3600e3, hrs = (iso) => Date.parse(iso);
+  const TX = [
+    { t: hrs("2026-09-30T15:00:00Z"), team: 9, type: "waiver", detail: { dropName: "Isaiah Likely", addName: "Kenyon Sadiq", bid: 18 } },
+    { t: hrs("2026-09-30T20:34:00Z"), team: 9, type: "fa_add", detail: { addName: "Isaiah Likely" } },
+    { t: hrs("2026-09-30T20:36:00Z"), team: 9, type: "drop", detail: { dropName: "Isaiah Likely" } },
+    { t: hrs("2026-10-01T15:57:00Z"), team: 9, type: "fa_add", detail: { addName: "Isaiah Likely" } },
+    { t: hrs("2026-09-30T14:00:00Z"), team: 5, type: "drop", detail: { dropName: "Dalton Kincaid" } },
+  ];
+  const ctx = { teams: T, lineups: LU, proj: PROJ, sched, now: Date.parse("2026-10-03T13:00:00Z"), played: new Set(),
+    // Calvin's roster doc was last written Tuesday 6:05 a.m. CDT (11:05Z), John's Thursday 10:57 a.m.; the week opened Tuesday 00:00 CDT (05:00Z, Sept 29).
+    updateTimes: { 5: "2026-10-03T13:49:20Z", 9: "2026-10-01T15:57:00Z", 11: "2026-09-29T11:05:00Z" }, weekOpen: safeSync(() => A.weekOpenBefore(sched[0].kickoff)), tx: TX };
+  await expect("leads: the week opens Tuesday 05:00Z (Chicago midnight) before the Thursday kickoff", () => new Date(ctx.weekOpen).toISOString(), "2026-09-29T05:00:00.000Z");
+  const leads = safeSync(() => A.findLeads(ctx));
+  const of = (k) => (Array.isArray(leads) ? leads.filter((l) => l.kind === k) : []);
+  await expect("leads: starters who are Out or projected 0.0 (Smith is Out and 0.0, Price is 0.0)", () => of("out-starter").map((l) => l.player).sort(), ["DeVonta Smith", "Jadarian Price"]);
+  await expect("leads: Williams (DET, 7:20 p.m.) has a higher-projected bench receiver, Egbuka (TB, noon), who plays earlier",
+    () => of("late-kickoff").filter((l) => l.player === "Jameson Williams").map((l) => [l.bench.map((b) => b.name), l.text]),
+    [[["Emeka Egbuka"], "Sandy's Jameson Williams kicks off Sunday 7:20 p.m.; bench Emeka Egbuka (proj 9.5, Sunday 12:00 p.m.) plays earlier and is projected higher."]]);
+  await expect("leads: Price (Seattle 3:25) is not a late-kickoff lead: his bench back Dobbins (9.0) kicks off at the same 3:25, not earlier",
+    () => of("late-kickoff").filter((l) => l.player === "Jadarian Price").length, 0);
+  await expect("leads: only Calvin has not changed a lineup since the week opened", () => of("no-change").map((l) => l.owner), ["Calvin"]);
+  await expect("leads: John moved Isaiah Likely four times (dropped, added, dropped, added): two adds",
+    () => of("tx-loop").map((l) => [l.owner, l.player, l.events.length, l.adds]), [["John", "Isaiah Likely", 4, 2]]);
+  await expect("leads: John's week is a transaction timeline (five moves); Sandy's single drop is not",
+    () => of("tx-timeline").map((l) => [l.owner, l.count]), [["John", 5]]);
+  await expect("leads: a starter whose game is already played is never a lead",
+    () => A.findLeads({ ...ctx, played: new Set(["w3", "r2", "w1"]), updateTimes: null }).filter((l) => l.kind === "out-starter" || l.kind === "late-kickoff").length, 0);
+
+  // ---- 3c. mechanical drafts ----
+  const D = { teams: T, lineups: { 2: [p("Terry McLaurin", "WR", "WR", "WSH", "m1")], 5: [p("Jonathan Taylor", "RB", "RB", "IND", "r1"), p("Spencer Shrader", "K", "K", "IND", "k1"), p("Bears D/ST", "DST", "DST", "CHI", "d1"), p("Josh Allen", "QB", "BENCH", "BUF", "q1")],
+    9: [p("DeVonta Smith", "WR", "WR", "PHI", "w3", "Out")] }, sched, now: Date.parse("2026-10-03T13:00:00Z"), proj: PROJ, played: new Set() };
+  await expect("draft: the weekend lists only games still to come, in kickoff order, grouped by owner (team-id order), starters only",
+    () => A.restOfWeekend(D).map((x) => x.text), ["Colts at Commanders, Sunday 8:30 a.m. Central: Terry McLaurin for Skywalkers, Jonathan Taylor and Spencer Shrader for Laws Rule."]);
+  await expect("draft: a defense reads 'the <Team> defense' when the schedule names the team",
+    () => A.restOfWeekend({ ...D, lineups: { 5: [p("Packers D/ST", "DST", "DST", "GB", "d2")] } }).map((x) => x.text), ["Packers at Buccaneers, Sunday 12:00 p.m. Central: the Packers defense for Laws Rule."]);
+  await expect("draft: the Injury Desk has Smith (Out), in the column's 'Player (Owner): text' form",
+    () => A.injuryDesk({ ...D, sched: [] }).map((x) => x.text), ["DeVonta Smith (John): out."]);
+  const SER = { a: 1, b: 2, wins: { 1: 3, 2: 1 }, ties: 0, streak: { team: 1, n: 1 }, last: [{ season: 2025, week: 8, 1: 65, 2: 60 }] };
+  await expect("draft: a series line gives the leader, the record and the last meeting", () => A.seriesLine(SER, T), "Perry leads the series 3-1. Last meeting: Week 8, 2025, Perry won 65.0 to 60.0.");
+  const hist = [{ season: 2024, week: 1, home: 1, away: 2, homePts: 100, awayPts: 90 }, { season: 2024, week: 9, home: 2, away: 1, homePts: 110, awayPts: 120 },
+    { season: 2025, week: 3, home: 1, away: 2, homePts: 70, awayPts: 80 }, { season: 2025, week: 8, home: 2, away: 1, homePts: 60, awayPts: 65 }, { season: 2025, week: 9, home: 3, away: 1, homePts: 1, awayPts: 2 }];
+  await expect("series: 3-1 for team 1, and the streak is one game (team 2 won the one before)", () => { const s = A.computeSeries(hist, 1, 2); return [s.wins[1], s.wins[2], s.streak]; }, [3, 1, { team: 1, n: 1 }]);
+  await expect("series: without the 2025 week 3 loss the streak is three and the line says so", () => { const s = A.computeSeries(hist.filter((_, i) => i !== 2), 1, 2); return [s.streak.n, A.seriesLine(s, T)]; },
+    [3, "Perry leads the series 3-0. Perry has won the last 3. Last meeting: Week 8, 2025, Perry won 65.0 to 60.0."]);
+  const TW = { 5: { soFar: 18.6, starters: [{ name: "Quinshon Judkins", pos: "RB", pts: 18.6 }] }, 1: { soFar: 7, starters: [{ name: "Steelers D/ST", pos: "DST", pts: 7 }] } };
+  await expect("draft: Thursday tallies read as the column's own sentence", () => A.thursdayTallies([{ away: 5, home: 1 }], TW, T).map((x) => x.text),
+    ["Laws Rule 18.6 (Quinshon Judkins 18.6), Kreussers 7.0 (Steelers defense 7.0)."]);
+
+  // ---- 3a'. the orchestrator, end to end on a fixture facts file (no network) ----
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "rg-week-"));
+  const mk = (lu, stamp) => { const f = path.join(work, `facts-${stamp}.json`);
+    fs.writeFileSync(f, JSON.stringify({ season: 2026, week: 4, type: "preview", pulledAt: `2026-10-03T13:0${stamp}:00.000Z`, teams: { 5: T[5] }, lineups: { 5: lu }, rosterMeta: { 5: `2026-10-03T13:0${stamp}:00Z` }, leads: [], drafts: {} })); return f; };
+  const wk = (f) => safeSync(() => execSync(`node tools/robogoat/week.mjs --week 4 --type preview --work "${path.join(work, "w")}" --from-facts "${f}" --now 2026-10-04T17:00:00Z`, { cwd: ROOT, encoding: "utf8" }));
+  const out1 = wk(mk(R1, "1")), out2 = wk(mk(R2, "2"));
+  const newest = JSON.parse(fs.readFileSync(path.join(ROOT, "robogoat/issues.json"), "utf8")).issues.map((x) => x.published).sort().pop();
+  check("week.mjs: --since is the newest issue's day in issues.json (05:00Z)", out1.includes(`since: ${newest}T05:00:00.000Z`), out1.split("\n")[0]);
+  check("week.mjs: the first run snapshots the lineups and says so", /First pull/.test(out1) && fs.existsSync(path.join(work, "w/lineups.latest.json")), out1);
+  check("week.mjs: the re-run prints the keyed diff (Allen QB -> BENCH, Gordon added, Mahomes BENCH -> QB)",
+    out2.includes("Sandy (Laws Rule): Josh Allen QB -> BENCH; Ollie Gordon added to RB; Patrick Mahomes BENCH -> QB"), out2);
+  check("week.mjs: a re-run with the same lineup in another key order prints no changes", /No lineup changes/.test(wk(mk(R2.slice().reverse().map((x) => Object.fromEntries(Object.entries(x).reverse())), "3"))));
+
+  const readme = fs.readFileSync(path.join(ROOT, "tools/robogoat/README.md"), "utf8");
+  check("README: the routine is told to use week.mjs, to re-run it for the lineup diff, and where the leads and drafts are",
+    /week\.mjs --week N --type recap\|preview/.test(readme) && /Run it again just before\s+building/.test(readme) && /kit\/leads\.md/.test(readme) && /kit\/drafts\.md/.test(readme));
+
+  // ---- 3d. picks: computed from the scores; the build fails loudly when the column disagrees ----
+  // Week 2: picks 11 (at 1) and 4 (at 5). 11 scored 124.8 to 97.08: W. 4 scored 76.96 to 151.82: L. Week 2 = 1-1.
+  // Week 3: picks 1 (at 12) and 11 (at 5). 1 scored 175.5 to 132.18: W. 11 scored 105.54 to 123.26: L. Week 3 = 1-1. Season 2-2.
+  const season = { picks: { 2: [{ team: 11, result: "W" }, { team: 4, result: "L" }], 3: [{ team: 1, result: "W" }, { team: 11, result: "L" }], 4: [{ team: 5, result: "" }] },
+    weeks: { 2: { scores: { 1: 97.08, 11: 124.8, 4: 76.96, 5: 151.82 }, games: [{ away: 11, home: 1 }, { away: 4, home: 5 }] }, 3: { scores: { 1: 175.5, 12: 132.18, 11: 105.54, 5: 123.26 }, games: [{ away: 1, home: 12 }, { away: 11, home: 5 }] } } };
+  const pairs = (w) => (season.weeks[w] ? season.weeks[w].games : null);
+  await expect("picks: results computed from the scores (week 2 W, L; week 3 W, L)",
+    () => [A.pickResults(season.picks[2], pairs(2), season.weeks[2].scores), A.pickResults(season.picks[3], pairs(3), season.weeks[3].scores)], [["W", "L"], ["W", "L"]]);
+  await expect("picks: the preview's picksRecord 2-2 and the week 3 recap's picksWeek 1-1 agree with the scores",
+    () => [A.picksProblems(season, { type: "preview", week: 4, picksRecord: "2-2", picks: [5] }, pairs), A.picksProblems(season, { type: "recap", week: 3, picksWeek: "1-1" }, pairs)], [[], []]);
+  await expect("picks: a hand-written picksRecord of 3-1 is named as wrong", () => A.picksProblems(season, { type: "preview", week: 4, picksRecord: "3-1", picks: [5] }, pairs).map((m) => /picksRecord is "3-1".*score 2-2/.test(m)), [true]);
+  await expect("picks: a recap picksWeek of 2-0 is named as wrong", () => A.picksProblems(season, { type: "recap", week: 3, picksWeek: "2-0" }, pairs).map((m) => /picksWeek is "2-0".*score 1-1/.test(m)), [true]);
+  const bad = JSON.parse(JSON.stringify(season)); bad.picks[3][1].result = "W";
+  await expect("picks: a season.json result that the scores contradict is named", () => A.picksProblems(bad, { type: "recap", week: 3, picksWeek: "1-1" }, pairs).some((m) => /picks\.3\[1\].*says "W".*say "L"/.test(m)), true);
+  await expect("picks: the preview's picks array must be season.json's picks.N", () => A.picksProblems(season, { type: "preview", week: 4, picksRecord: "2-2", picks: [9] }, pairs).length, 1);
+  await expect("picks: blank results are filled, an existing one is kept (and warned about), a tie stays blank",
+    () => { const r = A.settlePicks({ 2: [{ team: 11, result: "" }, { team: 4, result: "W" }, { team: 9, result: "" }] }, { 2: ["W", "L", "T"] });
+      return [r.picks[2].map((x) => x.result), r.settled, r.warnings.length]; }, [["W", "W", ""], ["2:11=W"], 2]);
+  await expect("rankings: movement is last week's place minus this week's (up positive)", () => A.rankMovement([9, 11, 5, 12], [9, 5, 12, 2]), [0, 1, 1, null]);
+
+  // Real build, on a copy of the real issues in a temp tree: an agreeing column builds, a disagreeing one throws.
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "rg-build-"));
+  const copy = (rel) => { const d = path.join(tree, "robogoat/2026", rel); fs.mkdirSync(d, { recursive: true });
+    for (const f of fs.readdirSync(path.join(ROOT, "robogoat/2026", rel))) if (/\.(md|json)$/.test(f)) fs.copyFileSync(path.join(ROOT, "robogoat/2026", rel, f), path.join(d, f)); return d; };
+  copy("week-3"); const d4 = copy("week-4-preview"); fs.copyFileSync(path.join(ROOT, "robogoat/2026/season.json"), path.join(tree, "robogoat/2026/season.json"));
+  const B = await safe(() => import(pathToFileURL(path.join(ROOT, "tools/robogoat/build.mjs")).href));
+  const build = (rel) => { try { return B.buildIssue(path.join(tree, "robogoat/2026", rel)).page; } catch (e) { return "ERR " + e.message; } };
+  // The copy sits outside the repo, so its relative links to logos/ differ; put the repo's back before comparing.
+  const same = (rel) => build(rel).split(path.relative(path.join(tree, "robogoat/2026", rel), path.join(ROOT, "robogoat")).split(path.sep).join("/")).join("../..") === pg(`robogoat/2026/${rel}/index.html`);
+  check("build: the real week 3 and week 4 preview build from a copy with picks and rankings agreeing", same("week-3") && same("week-4-preview"));
+  const i4 = path.join(d4, "issue.json"), j4 = JSON.parse(fs.readFileSync(i4, "utf8"));
+  fs.writeFileSync(i4, JSON.stringify({ ...j4, picksRecord: "6-2" }));
+  check("build: week 4's picksRecord edited to 6-2 fails the build, naming the real record", /^ERR .*picksRecord is "6-2".*score 7-1/s.test(build("week-4-preview")), build("week-4-preview").slice(0, 200));
+  fs.writeFileSync(i4, JSON.stringify(j4));
+  const sj = path.join(tree, "robogoat/2026/season.json"), s0 = fs.readFileSync(sj, "utf8"), sd = JSON.parse(s0);
+  sd.picks["3"][0].result = "L"; fs.writeFileSync(sj, JSON.stringify(sd));
+  check("build: a season.json pick result the scores contradict fails the build", /^ERR .*picks\.3\[0\].*says "L".*say "W"/s.test(build("week-3")), build("week-3").slice(0, 200));
+  fs.writeFileSync(sj, s0);
+  const c3 = path.join(tree, "robogoat/2026/week-3/column.md"), md0 = fs.readFileSync(c3, "utf8");
+  const ml = md0.split("\n"), rk = ml.map((l, i) => (/^\d+\. .+ \(\w+, \d-\d\)\./.test(l) ? i : -1)).filter((i) => i >= 0);
+  const l0 = ml[rk[0]], l1 = ml[rk[1]];
+  ml[rk[0]] = l1.replace(/^\d+/, "1"); ml[rk[1]] = l0.replace(/^\d+/, "2");
+  fs.writeFileSync(c3, ml.join("\n"));
+  check("build: swapping power-ranking lines 1 and 2 in the column fails the build against season.json rankings", /^ERR .*power rankings/s.test(build("week-3")), build("week-3").slice(0, 200));
+  const ml2 = md0.split("\n"); ml2[rk[0]] = ml2[rk[0]].replace(/\((\w+), \d-\d\)\./, "($1, 9-9).");
+  fs.writeFileSync(c3, ml2.join("\n"));
+  check("build: a power-ranking record that differs from the issue's records fails the build", /^ERR .*9-9/s.test(build("week-3")), build("week-3").slice(0, 200));
+  fs.writeFileSync(c3, md0);
+  check("build: restored, the copy builds again", same("week-3"));
+  // Pairings kept in season.json (weeks 1-3) are the real ones: week 3's against its own issue.json.
+  const sj3 = JSON.parse(pg("robogoat/2026/season.json")), iss3 = JSON.parse(pg("robogoat/2026/week-3/issue.json"));
+  check("season.json keeps each finished week's pairings; week 3's equal the week 3 issue's games",
+    [1, 2, 3].every((w) => sj3.weeks[w].games && sj3.weeks[w].games.length === 4) && JSON.stringify(sj3.weeks[3].games) === JSON.stringify(iss3.games.map((g) => ({ away: g.away, home: g.home }))));
+  // A tied game is nobody's win: the old code counted a tie as a home win, so the home team read "won" in the
+  // bench panel and on the star cards. Week 3 has four winners; with one game tied there are three.
+  const wonCount = (h) => (h.match(/, won<\/small>/g) || []).length;
+  const tieIssue = JSON.parse(pg("robogoat/2026/week-3/issue.json")); tieIssue.games[0].homePts = tieIssue.games[0].awayPts;
+  fs.writeFileSync(path.join(tree, "robogoat/2026/week-3/issue.json"), JSON.stringify(tieIssue));
+  const tied = build("week-3");
+  check("build: a tied game has no winner (bench panel shows one fewer 'won')", !/^ERR/.test(tied) && wonCount(tied) === wonCount(pg("robogoat/2026/week-3/index.html")) - 1,
+    wonCount(tied) + " vs " + wonCount(pg("robogoat/2026/week-3/index.html")));
+}
+function safeSync(fn) { try { return fn(); } catch (e) { return "threw: " + (e && e.message ? e.message.split("\n")[0] : e); } }
 
 function finish() {
   console.log(`\nrobogoat: ${pass}/${pass + fail}`);

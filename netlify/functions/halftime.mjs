@@ -36,10 +36,22 @@
 // COST GUARD: the page is public, so the server decides everything: a script is written only for
 // a real ESPN event that ESPN itself says is at halftime, once per game.
 //
-// ENV: ANTHROPIC_API_KEY, FIREBASE_SERVICE_ACCOUNT (the Firestore write, as books.mjs),
-// BUCKY_NOTIFY_SECRET (this function -> its background twin). Test overrides
+// THE HOP TO THE BACKGROUND TWIN (2026-10-04, GFFL review): the -background function is a public URL,
+// and the old gate on it, BUCKY_NOTIFY_SECRET, is the family password that ships in the page JS, so
+// anyone could post an event id and buy an Opus call. Now the hop carries an HMAC (`sig`) over
+// mode|event|tries|at, keyed by ANTHROPIC_API_KEY, which only the server has (and both functions
+// need anyway, so there is no new env var to set); `at` is the claim's time and the signature is
+// good for 20 minutes. The job also re-checks everything the public GET path checks: ESPN says the
+// game is at halftime (or final, for post/demo), and the Firestore claim is still the pending one
+// with this `at` and try; and its final write carries the updateTime it read, so a slow old try
+// cannot overwrite a newer one.
+//
+// ENV: ANTHROPIC_API_KEY (the model, and the key of the hop's signature), FIREBASE_SERVICE_ACCOUNT
+// (the Firestore write, as books.mjs). Test overrides
 // (tools/_verify-halftime.mjs): HALFTIME_ESPN_BASE, HALFTIME_FIRESTORE_BASE,
 // HALFTIME_GOOGLE_TOKEN_URL, HALFTIME_BG_URL, ANTHROPIC_BASE_URL.
+
+import crypto from "node:crypto";
 
 export const HALFTIME_MODEL = "claude-opus-5-5";
 const ESPN = () => process.env.HALFTIME_ESPN_BASE || "https://site.api.espn.com/apis/site/v2/sports/football/nfl";
@@ -51,6 +63,8 @@ const COLL = "sunday_desk3";
 const STALE_MS = 4 * 60 * 1000;
 const MAX_TRIES = 3;
 const RETRY_MS = 3600e3;
+const SIG_TTL_MS = 20 * 60 * 1000;     // a signed job stays good this long after its claim
+const RECENT_FINAL_MS = 14 * 86400e3;  // demo / postgame only for a final from the last two weeks
 
 // The desk. Fixed people, so the show has regulars; the page draws them (suits, faces) in this order.
 // (2026-09-28, user: "replace Dot Keene with RoboGoat, and chuck varney with Force Ghost John Madden".)
@@ -235,7 +249,6 @@ async function googleToken() {
   if (!raw) return null;
   if (tok && Date.now() < tok.exp - 60000) return tok.token;
   const sa = JSON.parse(raw);
-  const crypto = await import("node:crypto");
   const now = Math.floor(Date.now() / 1000);
   const head = b64u(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claims = b64u(JSON.stringify({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/datastore", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }));
@@ -338,30 +351,62 @@ export function readStream(raw) {
   return m;
 }
 
-// The background job: facts -> script -> the game's doc.
+// The hop's signature: HMAC-SHA256 over mode|event|tries|at, keyed by a server-only env var.
+export function signJob(mode, event, tries, at) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return "";
+  return crypto.createHmac("sha256", key).update([mode, event, tries, at].join("|")).digest("hex");
+}
+function sigOk(mode, event, tries, at, sig) {
+  const want = signJob(mode, event, tries, at);
+  if (!want || typeof sig !== "string" || sig.length !== want.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want));
+}
+// Is this game one a script may be written for right now? The one rule, for the public GET and the job.
+// A final must also be recent (demo and postgame cost a call per game, so a crawl of old ids is capped).
+function eligible(sum, mode) {
+  const comp = sum?.header?.competitions?.[0];
+  if (mode === "half") return atHalftime(sum) ? null : "not-halftime";
+  if (comp?.status?.type?.state !== "post") return "not-final";
+  const t = Date.parse(comp?.date || "");
+  if (!(t > 0) || Date.now() - t > RECENT_FINAL_MS) return "not-recent";
+  return null;
+}
+
+// The background job: check the signature, the game and the claim -> facts -> script -> the game's doc.
 export async function runHalftimeJob(body) {
-  if (!body || !process.env.BUCKY_NOTIFY_SECRET || body.secret !== process.env.BUCKY_NOTIFY_SECRET) return;
+  if (!body) return;
   const event = String(body.event || "");
   if (!/^\d{6,12}$/.test(event)) return;
   const demo = body.demo === true, post = body.kind === "post";
+  const mode = post ? "post" : demo ? "demo" : "half";
+  const tries = Number(body.tries) || 0, at = Number(body.at) || 0;
+  if (!sigOk(mode, event, tries, at, body.sig)) return;
+  if (!(at > 0) || Date.now() - at > SIG_TTL_MS || at - Date.now() > 60000) return;
   const token = await googleToken();
   if (!token) return;
-  let res;
+  const docId = (post ? "post-" : demo ? "demo-" : "") + event;
+  let res, doc;
   try {
+    doc = await readDoc(token, docId);
+    if (doc.missing || doc.status !== "pending" || doc.at !== at || doc.tries !== tries) return;   // not the live claim
     const sum = await espnSummary(event);
+    if (eligible(sum, mode)) return;                                                              // no real halftime / final
     res = await writeScript(halftimeFacts(sum, post ? "post" : demo), post);
   } catch (e) { res = { error: "job: " + String(e?.cause?.code || e?.message || e).slice(0, 80) }; }
-  const tries = Number(body.tries) || 1;
-  const ms = Number(body.at) > 0 ? Date.now() - Number(body.at) : null;      // how long it took, claim to script
+  if (!doc || doc.missing) return;
+  const ms = Date.now() - at;                                       // how long it took, claim to script
   const fields = res.lines
     ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model, usage: res.usage || null, ms })) }
     : { status: S("failed"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ error: res.error })) };
-  try { await writeDoc(token, (post ? "post-" : demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
+  // The updateTime of the claim read above: if a newer try took the game over meanwhile, this loses.
+  try { await writeDoc(token, docId, fields, { updateTime: doc.updateTime }); } catch { /* the page's poll gives up with the stand-in lines */ }
 }
 
 async function startJob(url, event, tries, demo, kind, at) {
+  const mode = kind === "post" ? "post" : demo ? "demo" : "half";
   try {
-    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo, kind, at }) });
+    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sig: signJob(mode, event, tries, at), event, tries, demo, kind, at }) });
   } catch { /* the claim goes stale and the next poll retries */ }
 }
 
@@ -390,8 +435,8 @@ async function ensureScript(token, event, mode, bgUrl) {
   // for the postgame desk and the demo).
   let sum;
   try { sum = await espnSummary(event); } catch { return { reason: "upstream" }; }
-  const final = sum?.header?.competitions?.[0]?.status?.type?.state === "post";
-  if (post || demo ? !final : !atHalftime(sum)) return { reason: post || demo ? "not-final" : "not-halftime" };
+  const why = eligible(sum, mode);
+  if (why) return { reason: why };
   const tries = (doc.missing || rested ? 0 : doc.tries) + 1;
   const at = Date.now();
   const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(at), tries: I(tries), payload: S("") },

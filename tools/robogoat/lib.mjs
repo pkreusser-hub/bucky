@@ -44,6 +44,7 @@ function docObj(d) {
   const o = {};
   for (const [k, x] of Object.entries(d.fields || {})) o[k] = unmarshal(x);
   o._id = d.name.split("/").pop();
+  o._updateTime = d.updateTime || null; // Firestore metadata: when this document was last written
   return o;
 }
 /** One document by id, or null when it does not exist. */

@@ -6,7 +6,10 @@ Everything that turns a week of GFFL into a RoboGoat column page at
 
 | file | does | touches |
 |---|---|---|
-| `facts.mjs` | pulls one week's facts into a scratch JSON, plus an `issue.skeleton.json` | reads Firestore + Sleeper; writes only `--out` and, with `--season-file`, new weeks into `season.json` |
+| `week.mjs` | **the weekly entry point**: facts + lineup snapshot/diff + leads + drafts in one command | runs `facts.mjs`; writes `--work` and `season.json` |
+| `facts.mjs` | pulls one week's facts into a scratch JSON, plus `issue.skeleton.json`, `leads.md`, `drafts.md` | reads Firestore, Sleeper, ESPN's scoreboard; writes only `--out` and, with `--season-file`, new weeks, pairings and blank pick results into `season.json` |
+| `analysis.mjs` | the rules, as pure functions: standings and tiebreaks, win-probability summary, leads, drafts, pick scoring | nothing |
+| `known-anomalies.json` | scorer FAIL lines already looked at, so a NEW one stands out | — |
 | `build.mjs` | `column.md` + `issue.json` (+ `wp.json`, `season.json`) → `index.html` | repo files only |
 | `share.mjs` | the 1200×630 `share.png` link preview | repo files only; bundled fonts in `fonts/` |
 | `archive.mjs` | `robogoat/index.html` (the archive page) + `robogoat/issues.json` | repo files only |
@@ -32,21 +35,52 @@ robogoat/
   <season>/week-<n>-preview/     a preview: column.md issue.json index.html share.png
 ```
 
+## The weekly command
+
+`node tools/robogoat/week.mjs --week N --type recap|preview --work $SP/wN` does the by-hand parts:
+
+- `--since` is the start of the newest issue's day in `robogoat/issues.json` (the last column).
+  Nobody passes a date.
+- It runs `facts.mjs` into `$SP/wN/kit` with the season file, which fills in the finished weeks'
+  scores, pairings and **pick results** (blank `result`s only; a result already typed is kept and
+  a disagreement is printed as WARNING).
+- A preview's lineups are snapshotted to `$SP/wN/lineups.latest.json`. **Run it again just before
+  building**: it prints what changed since the previous run, by team, player and slot (snapshots
+  are key-sorted, so key order never shows up as a change). Replaces the by-hand diff.
+- `kit/leads.md` is a list of joke candidates, each a fact with its numbers: starters who are Out
+  or projected 0.0 by GFFL; a starter who kicks off after bench players who play earlier and are
+  projected higher; teams that have not touched their lineup since the week opened (roster doc
+  `updateTime`); a player moved three or more times in the window; each team's week by transaction.
+  They are leads, not claims: check each against the facts and the news before using it.
+- `kit/drafts.md` holds the mechanical sections for the writer to edit. Preview: `restOfWeekend`
+  ("The Rest of the Weekend"), `injuryDesk` (a skeleton in the `Player (Owner): text` form; add the
+  body part and the practice report), `series` (one line per game), `thursday` (points so far and
+  who scored them). Recap: `series`, `nextWeek` (the "Week N+1" lines, series filled in) and
+  `rankings` (the GFFL power order with movement against last week; RoboGoat's own order is still
+  the writer's call). The editing is voice only; do not retype the numbers.
+- A NEW scorer anomaly prints as `NEW ANOMALY`. Known ones live in `known-anomalies.json`; add an
+  entry only after looking at the case.
+- `issue.skeleton.json` carries `picksWeek` (recap) or `picksRecord` and `picks` (preview), computed from
+  the scores. `build.mjs` fails with the reason if `picksWeek`, `picksRecord`, `picks`, a
+  `season.json` pick result, the power-ranking order or a power-ranking record disagrees with the
+  scores, `season.json` or `issue.json`.
+
 ## Tuesday recap (week N)
 
-1. Facts, into the session scratchpad (`$SP`), with the season file updated:
-   `node tools/robogoat/facts.mjs --season 2026 --week N --type recap --since <last issue's date> --out $SP/kit --season-file robogoat/2026/season.json`
+1. `node tools/robogoat/week.mjs --week N --type recap --work $SP/wN` (see above).
    The recap's own team totals are `weekly[N].matchups` (GFFL's). Player points come from the
    shadow scorer and can differ from GFFL's by a stat correction; quote GFFL for team totals.
 2. Research the real NFL games, write the column, have an editor agent revise it. Public league
    chat only (`facts.chat`); never private email or `act_*`/`trade_*` docs.
-3. `mkdir robogoat/2026/week-N`, write `column.md`, copy `$SP/kit/issue.skeleton.json` to
-   `issue.json` and fill in: `published`, `subject` (see Subject lines), `description`, `window`,
-   `picksWeek`, each game's `note`, `stars`, `wp` (the chart spec; see Week 3's for the shape) and
-   `allowTwoDecimals` (only values the column is about). Copy the charted game's series from
-   `$SP/kit/wp.all.json` into `wp.json` as `{ "m_<home>_<away>": [...] }`.
-4. In `season.json`: set `picks.N[*].result` to `"W"`/`"L"` for the preview's picks, and add
-   `rankings.N` in the column's power-ranking order (team ids). The arrows compare against `N-1`.
+3. `mkdir robogoat/2026/week-N`, write `column.md` (start from `kit/drafts.md`), copy
+   `$SP/wN/kit/issue.skeleton.json` to `issue.json` and fill in: `published`, `subject` (see Subject
+   lines), `description`, `window`, each game's `note`, `stars`, `wp` (the chart spec; see Week 3's
+   for the shape) and `allowTwoDecimals` (only values the column is about). `picksWeek` is already
+   computed; leave it. Copy the charted game's series from `kit/wp.all.json` into `wp.json` as
+   `{ "m_<home>_<away>": [...] }`.
+4. In `season.json`: add `rankings.N` in the column's power-ranking order (team ids). The arrows
+   compare against `N-1`, and the build fails if the column's order or records differ. Pick
+   results were filled by step 1.
 5. Build: `node tools/robogoat/build.mjs robogoat/2026/week-N`, then
    `node tools/robogoat/share.mjs robogoat/2026/week-N`, then `node tools/robogoat/archive.mjs`.
 6. `node tools/_verify-robogoat.cjs` must be green. Look at a 390px screenshot of every panel.
@@ -59,15 +93,17 @@ robogoat/
 
 Saturday morning, after Thursday night's game and before Sunday's (Perry, 2026-10-03; it ran on
 Thursday mornings for Week 4 only). Same steps with `--type preview` and the directory
-`robogoat/2026/week-N-preview`. The facts file's `thisWeek` has each team's points so far from
+`robogoat/2026/week-N-preview`; `week.mjs` writes the leads and the weekend, Injury Desk, series and
+Thursday drafts. The facts file's `thisWeek` has each team's points so far from
 Thursday's game and who scored them, and the lineups are as set that morning; GFFL's current
 win probabilities are the latest reading in `wpgraph_<season>_w<n>` (`p` is the away team's
 chance). Lineups move on Saturday morning (on Week 4's, Joe changed quarterbacks within an hour
-of the first pull), so run `facts.mjs` again just before building and diff the lineups by player
-and slot. Raw JSON compares unequal on key order alone. Open the column with a "Thursday night,
-briefly" section. The skeleton has no scores, bench or chart. Fill `picksRecord` (the season so
-far), each game's `note` (it carries the pick, e.g. "Pick: Sandy."), `picks` (the picked team
-ids, for the share image), and add `picks.N` to `season.json` with `"result": ""` for each.
+of the first pull), so run `week.mjs` again just before building; it prints the lineup diff.
+Open the column with a "Thursday night,
+briefly" section. The skeleton has no scores, bench or chart. Each game's `note` carries the pick
+(e.g. "Pick: Sandy."). Add `picks.N` to `season.json` with `"result": ""` for each pick, and put
+the same team ids in `issue.json`'s `picks` (for the share image); `picksRecord` is computed from
+the earlier weeks' results.
 Previews carry no power rankings (the arrows compare recap to recap). `[IMAGE: season]` shows the
 season through week N-1.
 

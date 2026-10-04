@@ -30,6 +30,11 @@
  *   tools/fixtures/sunday/sum-401872948.json — the same game's trimmed FINAL summary: not halftime,
  *     and its eight scoring plays run into Q3 and Q4, which the facts must leave out.
  * Expected values are hand-read from those files (see each check).
+ *
+ * THE CLOCK IS PINNED (2026-10-04): the fixtures' game is dated 2026-09-25T00:15Z and a postgame /
+ * demo script is now written only for a final from the last 14 days, so Date.now() runs from
+ * 2026-09-26 (one day after the game) for the whole suite, ticking in real time. Without this the
+ * suite would start failing 14 days after the fixture's date.
  */
 import http from "node:http";
 import fs from "node:fs";
@@ -40,6 +45,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FN = process.env.HT_FN ? path.resolve(process.env.HT_FN) : path.join(__dirname, "..", "netlify", "functions", "halftime.mjs");
 const BG = path.join(path.dirname(FN), "halftime-background.mjs");
+
+const REAL_NOW = Date.now.bind(Date);
+let SKEW = Date.parse("2026-09-26T12:00:00Z") - REAL_NOW();
+Date.now = () => REAL_NOW() + SKEW;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -77,6 +86,8 @@ let clock = 0;
 let MODE = "ok";
 const bgJobs = [];
 let bgHandler = null;
+let HOLD = null;                     // MODE "hold": a model reply that waits for HOLD.release()
+const STALE_LINES = LINES.map((l, i) => (i === 0 ? { ...l, text: "Stale try one speaking." } : l));
 let BG_DEAD = false;                 // the background run dies (answers 202, never writes)
 
 const send = (res, code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
@@ -142,6 +153,7 @@ const srv = http.createServer(async (req, res) => {
     if (MODE === "fallback400" && b.fallbacks) return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "fallbacks: Extra inputs are not permitted" } });
     if (MODE === "refusal") return b.stream ? sse("", "refusal") : send(res, 200, { id: "msg_2", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: null } });
     if (MODE === "overloaded") return sse("", null, "overloaded_error");
+    if (MODE === "hold") { await HOLD.promise; return reply(JSON.stringify({ lines: STALE_LINES })); }
     if (MODE === "post" || (MODE === "ok" && /postgame desk/.test(b.system))) return reply(JSON.stringify({ lines: POST_LINES }));
     if (MODE === "short") return reply(JSON.stringify({ lines: LINES.slice(0, 5) }));
     if (MODE === "badjson") return reply("Here is your script!");
@@ -163,6 +175,7 @@ Object.assign(process.env, {
   HALFTIME_BG_URL: B + "/bg", ANTHROPIC_BASE_URL: B, ANTHROPIC_API_KEY: "sk-test", FIREBASE_SERVICE_ACCOUNT: JSON.stringify(SA), BUCKY_NOTIFY_SECRET: "fam-secret",
 });
 const mod = await import(pathToFileURL(FN).href);
+const signJob = mod.signJob || (() => "");          // (a copy of the old function has none: the checks fail instead of crashing)
 bgHandler = (await import(pathToFileURL(BG).href)).default;
 const get = async (event) => { const r = await mod.default(new Request(`https://amenfarms.netlify.app/.netlify/functions/halftime?event=${event}`)); return { j: await r.json(), h: Object.fromEntries(r.headers) }; };
 const drain = async () => { while (bgJobs.length) await bgJobs.shift(); };
@@ -215,8 +228,13 @@ try {
     const claim = log.commits[0];
     ok(first.j.pending && claim?.currentDocument?.exists === false && claim?.update?.name === `${DOC_BASE}/sunday_desk3/401872948` && fsv("401872948", "status") === "pending" && fsv("401872948", "tries") === "1",
       `the first request at halftime claims the game's doc (create-only) and says pending (${JSON.stringify(first.j)}, ${JSON.stringify(claim?.currentDocument)})`);
-    ok(log.bg.length === 1 && log.bg[0].secret === "fam-secret" && log.bg[0].event === "401872948" && log.model.length === 0,
-      `…and starts the background job with the server's secret, writing nothing itself (${JSON.stringify(log.bg[0])})`);
+    // RESTAGED 2026-10-04 (GFFL review: the hop carried BUCKY_NOTIFY_SECRET, which is the family
+    // password shipped in the page JS, so anyone could start an Opus job). The hop now carries an HMAC
+    // of mode|event|tries|at keyed by ANTHROPIC_API_KEY ("sk-test" here), computed below
+    // independently of the function, and no longer carries the family password at all.
+    const wantSig = crypto.createHmac("sha256", "sk-test").update(["half", "401872948", 1, log.bg[0]?.at].join("|")).digest("hex");
+    ok(log.bg.length === 1 && log.bg[0].sig === wantSig && !("secret" in log.bg[0]) && !JSON.stringify(log.bg[0]).includes("fam-secret") && log.bg[0].event === "401872948" && log.model.length === 0,
+      `…and starts the background job with a signed hop (HMAC over half|event|tries|at), never the family password, writing nothing itself (${JSON.stringify(log.bg[0])})`);
     ok(first.h["netlify-cdn-cache-control"] === "public, s-maxage=4" && first.h["netlify-vary"] === "query=event|demo|kind", `a pending answer is cached 4 s at the edge, per event (${first.h["netlify-cdn-cache-control"]}, ${first.h["netlify-vary"]})`);
     const second = await get("401872948");
     ok(second.j.pending && log.bg.length === 1 && log.commits.length === 1, `a second viewer while it's being written waits on the same job (${log.bg.length} job, ${log.commits.length} write)`);
@@ -247,8 +265,9 @@ try {
     await drain();
     ok(both.every((r) => r.j.pending) && log.bg.filter((b) => b.event === "401872950").length === 1,
       `two phones opening the game together start ONE job (the create-only claim: ${log.bg.filter((b) => b.event === "401872950").length} job)`);
-    await mod.runHalftimeJob({ secret: "wrong", event: "401872951" });
-    ok(!doc("401872951") && log.model.length === 2, "the job does nothing without the server's secret");
+    // RESTAGED 2026-10-04: "the server's secret" is now the HMAC; a bad signature does nothing.
+    await mod.runHalftimeJob({ sig: "wrong", event: "401872951", tries: 1, at: Date.now() });
+    ok(!doc("401872951") && log.model.length === 2, "the job does nothing without a valid signature");
     MODE = "fallback400";
     const n0 = log.model.length;
     await get("401872951"); await drain();
@@ -282,10 +301,15 @@ try {
     const st = await get("401872955");
     ok(st.j.pending && fsv("401872955", "tries") === "2" && log.bg.filter((b) => b.event === "401872955").length === 2, `a claim stuck pending for over 4 minutes is taken over (try ${fsv("401872955", "tries")})`);
     await drain();
+    // RESTAGED 2026-10-04: the hop is signed with ANTHROPIC_API_KEY, so with no key the job cannot be
+    // authenticated at all: it never runs, the claim stays pending (the page shows the stand-in lines
+    // and the stale-claim retry takes over once the key is back). Before, the job ran and wrote a
+    // "no-key" failure; that branch of writeScript is now only a second line of defence.
     const key = process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_API_KEY;
+    const nModel = log.model.length;
     await get("401872956"); await drain();
     process.env.ANTHROPIC_API_KEY = key;
-    ok(JSON.parse(fsv("401872956", "payload") || "{}").error === "no-key", `with no Anthropic key the try fails cleanly (${fsv("401872956", "payload")})`);
+    ok(fsv("401872956", "status") === "pending" && log.model.length === nModel, `with no Anthropic key no job can be signed: the claim stays pending, no model call (${fsv("401872956", "status")})`);
   }
   section("Demo: a finished game's first half (?demo=1)");
   {
@@ -418,9 +442,114 @@ try {
     const later = await get("401872957");
     ok(first.j.pending && first.j.since >= t0 && first.j.since === claimAt && later.j.pending && later.j.since === claimAt,
       `a pending answer says when the first viewer started the script, so every viewer's countdown agrees (${first.j.since - t0} ms after the request; the second viewer gets the same ${later.j.since === claimAt})`);
-    await mod.runHalftimeJob({ ...log.bg.at(-1), at: Date.now() - 31000 });
+    // RESTAGED 2026-10-04: the job must match the live claim's `at`, so the claim is aged 31 s in the
+    // store and the job re-signed for it (a body with only `at` edited is a forgery and does nothing).
+    const aged = Date.now() - 31000;
+    doc("401872957").fields.at = { integerValue: String(aged) };
+    await mod.runHalftimeJob({ ...log.bg.at(-1), at: aged, sig: signJob("half", "401872957", 1, aged) });
     const done = await get("401872957");
     ok(done.j.ok && done.j.ms >= 31000 && done.j.ms < 60000, `…and the finished script records how long it took to write, claim to script (${done.j.ms} ms)`);
+  }
+
+  section("The hop to the background job: signed, re-checked, written with a precondition");
+  {
+    // 2026-10-04 (GFFL review): halftime-background was gated on the family password, which ships in
+    // the page JS, so a POST naming any event id bought an Opus call and overwrote a stored script.
+    const Q1 = JSON.parse(HALF);                                   // a game still in the first quarter
+    const st = Q1.header.competitions[0].status;
+    st.type = { id: "2", name: "STATUS_IN_PROGRESS", state: "in", completed: false, description: "In Progress", detail: "12:00 - 1st Quarter", shortDetail: "12:00 - 1st" };
+    st.period = 1;
+    SUMMARY["401872964"] = JSON.stringify(Q1);
+    SUMMARY["401872963"] = HALF; SUMMARY["401872965"] = HALF; SUMMARY["401872966"] = HALF; SUMMARY["401872967"] = FINAL; SUMMARY["401872968"] = FINAL; SUMMARY["401872969"] = FINAL;
+    const pending = (ev, at, tries = 1, prefix = "") => docs.set(`${DOC_BASE}/sunday_desk3/${prefix}${ev}`, { fields: { status: { stringValue: "pending" }, at: { integerValue: String(at) }, tries: { integerValue: String(tries) }, payload: { stringValue: "" } }, createTime: "2026-09-26T12:00:00.000000Z", updateTime: "2026-09-26T12:00:00.000001Z" });
+    const spend = () => ({ model: log.model.length, commits: log.commits.length });
+    let b = spend();
+    const same = (what) => { const a = spend(); const r = a.model === b.model && a.commits === b.commits; b = a; return r || what; };
+
+    // (a) the exact abuse: the family password (public) plus an event id, on the real endpoint.
+    const forged = (o) => bgHandler(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime-background", { method: "POST", body: JSON.stringify(o) }));
+    await forged({ secret: "fam-secret", event: "401872965", kind: "post" });
+    await forged({ secret: "fam-secret", event: "401872964", tries: 1, at: Date.now() });
+    await forged({ secret: "fam-secret", event: "401872965", sig: "fam-secret", tries: 1, at: Date.now() });
+    ok(same() === true && !doc("401872965"), "POSTing the family password and an event id to the background function: no model call, nothing written");
+
+    // (b) a real signature cannot be reused for other values, or after it expires.
+    const at = Date.now();
+    pending("401872965", at);
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: signJob("half", "401872965", 1, at + 1) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "post", at, sig: signJob("half", "401872965", 1, at) });
+    await mod.runHalftimeJob({ event: "401872965", tries: 2, kind: "half", at, sig: signJob("half", "401872965", 1, at) });
+    ok(same() === true, "a signature is good for its own mode, event, try and claim time only (each tampered field: no call, no write)");
+    const old = Date.now() - 21 * 60 * 1000;
+    pending("401872966", old);
+    await mod.runHalftimeJob({ event: "401872966", tries: 1, kind: "half", at: old, sig: signJob("half", "401872966", 1, old) });
+    const future = Date.now() + 5 * 60 * 1000;
+    pending("401872965", future);
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at: future, sig: signJob("half", "401872965", 1, future) });
+    ok(same() === true && fsv("401872966", "status") === "pending", "…and a signed job 21 minutes after its claim (or dated in the future) is expired: no call, no write");
+
+    // (c) a valid signature with no live claim behind it.
+    docs.delete(`${DOC_BASE}/sunday_desk3/401872965`);
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: signJob("half", "401872965", 1, at) });
+    pending("401872965", at + 5);                                  // a claim, but another one's
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at, sig: signJob("half", "401872965", 1, at) });
+    docs.set(`${DOC_BASE}/sunday_desk3/401872966`, { fields: { status: { stringValue: "done" }, at: { integerValue: String(at) }, tries: { integerValue: "1" }, payload: { stringValue: JSON.stringify({ lines: LINES }) } }, createTime: "x", updateTime: "2026-09-26T12:00:00.000009Z" });
+    await mod.runHalftimeJob({ event: "401872966", tries: 1, kind: "half", at, sig: signJob("half", "401872966", 1, at) });
+    ok(same() === true && !docs.get(`${DOC_BASE}/sunday_desk3/401872965`).fields.status.stringValue.includes("done") && fsv("401872966", "status") === "done",
+      "a signed job needs the live pending claim: no doc, a different claim time, or an already-finished script (kept) all stop it before the model");
+
+    // (d) the same eligibility rule as the public path: ESPN must say halftime (final, for post/demo).
+    const claimFor = async (ev, kind, prefix) => { const a = Date.now(); pending(ev, a, 1, prefix); await mod.runHalftimeJob({ event: ev, tries: 1, kind, demo: prefix === "demo-", at: a, sig: signJob(prefix === "demo-" ? "demo" : kind, ev, 1, a) }); };
+    await claimFor("401872964", "half", "");
+    await claimFor("401872949", "half", "");
+    await claimFor("401872948", "post", "post-");
+    ok(same() === true, "a signed, claimed job for a game in the first quarter, for a final asked as a halftime, or for a game at halftime asked as a postgame still makes no model call");
+    const A = Date.now();
+    pending("401872965", A);
+    await mod.runHalftimeJob({ event: "401872965", tries: 1, kind: "half", at: A, sig: signJob("half", "401872965", 1, A) });
+    ok(log.model.length === b.model + 1 && fsv("401872965", "status") === "done", "…while the genuine job (halftime game, live claim, fresh signature) goes through and writes the script");
+    b = spend();
+
+    // (e) a slow old try cannot overwrite a newer one.
+    MODE = "hold"; HOLD = {}; HOLD.promise = new Promise((r) => { HOLD.release = r; });
+    const r1 = await get("401872963");                             // claims (try 1) and starts the job, which waits on the model
+    for (let i = 0; i < 100 && log.model.length === b.model; i++) await new Promise((r) => setTimeout(r, 10));
+    ok(r1.j.pending && log.model.length === b.model + 1, "a slow first try is waiting on the model");
+    doc("401872963").fields.at = { integerValue: String(Date.now() - 5 * 60 * 1000) };      // its claim goes stale (4 minutes)
+    MODE = "ok";
+    const r2 = await get("401872963");                             // taken over: try 2
+    for (let i = 0; i < 300 && fsv("401872963", "status") !== "done"; i++) await new Promise((r) => setTimeout(r, 10));   // try 2's job runs to the end; try 1's is still held
+    ok(r2.j.pending && fsv("401872963", "tries") === "2" && fsv("401872963", "status") === "done", `try 2 took the game over and wrote its script (try ${fsv("401872963", "tries")}, ${fsv("401872963", "status")})`);
+    const good = fsv("401872963", "payload"), u2 = doc("401872963").updateTime, writes = log.commits.length;
+    HOLD.release(); await drain();
+    await new Promise((r) => setTimeout(r, 50));
+    const lateWrite = log.commits.slice(writes).find((w) => w.update.name.endsWith("/401872963"));
+    ok(!!lateWrite && lateWrite.currentDocument?.updateTime && fsv("401872963", "payload") === good && doc("401872963").updateTime === u2 && !fsv("401872963", "payload").includes("Stale try one"),
+      `the slow try-1 finishes later, writes against the version it read, loses, and the stored script is still try 2's (${JSON.stringify(lateWrite?.currentDocument)})`);
+    MODE = "ok";
+  }
+
+  section("Demo and postgame only for a recent final");
+  {
+    // The fixtures' game is dated 2026-09-25T00:15Z. The suite clock is 2026-09-26 12:00Z, so the
+    // final is 1.5 days old: inside the 14-day window (and used so, all through this file). Moved to
+    // 2026-10-10 12:00Z it is 15.5 days old: outside.
+    const saved = SKEW;
+    SKEW = Date.parse("2026-10-10T12:00:00Z") - REAL_NOW();
+    const n0 = { commits: log.commits.length, bg: log.bg.length };
+    const old1 = await get("401872967&kind=post");
+    const old2 = await get("401872968&demo=1");
+    ok(old1.j.reason === "not-recent" && old2.j.reason === "not-recent" && log.commits.length === n0.commits && log.bg.length === n0.bg,
+      `a final 15 days old gets no postgame or demo script: nothing claimed, no job (${old1.j.reason}, ${old2.j.reason})`);
+    SKEW = Date.parse("2026-10-08T12:00:00Z") - REAL_NOW();        // 13.5 days after the game: still inside
+    const edge = await get("401872967&kind=post");
+    ok(edge.j.pending && log.bg.length === n0.bg + 1, "…13 and a half days old is still inside the window");
+    SKEW = saved;
+    await drain();
+    const again = await get("401872967&kind=post");
+    const bgN = log.bg.length;
+    await get("401872967&kind=post");
+    ok(again.j.ok && log.bg.length === bgN, "…and the once-per-game guard stands: a finished script is served, no second job");
   }
 } finally {
   srv.close();

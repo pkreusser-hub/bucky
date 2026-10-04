@@ -555,47 +555,67 @@ async function findFinalGameWithKicker(label, scoreboardUrl) {
 async function probe5() {
   const sec = section("P5", "Kicker FG made-yards field (Sleeper fgm_yds, app's statId-214 concept) in a real payload");
 
-  const attempts = [
-    { label: "2026 preseason week 1", seasonType: "pre", season: "2026", url: `${ESPN}/scoreboard?seasontype=1&week=1&dates=2026` },
-    { label: "2025 regular season week 1", seasonType: "regular", season: "2025", url: `${ESPN}/scoreboard?seasontype=2&week=1&dates=2025` },
-  ];
-
+  // REWRITTEN 2026-10-04. The old probe name-matched ONE preseason kicker (ESPN numbers the Aug
+  // Hall-of-Fame game "week 1", Sleeper numbers it week 0) and false-FAILed on a row that was
+  // simply a different game. Now: the current or last completed REGULAR-season week, pooled over
+  // EVERY kicker row with fgm>0 in that Sleeper bucket (all must carry fgm_yds), plus a
+  // per-kicker ESPN-vs-Sleeper made-FG comparison for that same week.
+  const stR = await timedFetch("sleeper state", `${SLP}/state/nfl`);
+  if (stR.unreachable) { sec.line(unreachableLine(`${SLP}/state/nfl`)); sec.setStatus("WARN", "Sleeper unreachable - could not run this probe."); return sec.raw; }
+  const stt = (stR.ok && stR.json) || {};
+  const cands = [];
+  const cw = Number(stt.week) || 0, cs = String(stt.season || new Date().getFullYear());
+  if (stt.season_type === "regular" && cw >= 1) { cands.push({ season: cs, week: cw }); if (cw > 1) cands.push({ season: cs, week: cw - 1 }); }
+  else if (stt.season_type === "post") cands.push({ season: cs, week: 18 });
+  cands.push({ season: String(Number(cs) - 1), week: 1 });
   let pool = null;
-  for (const at of attempts) {
-    sec.line(`trying ${at.label}…`);
-    const g = await findFinalGameWithKicker(`espn scoreboard (${at.label})`, at.url);
-    if (g.unreachable) { sec.line(g.note); sec.setStatus("WARN", "ESPN unreachable — could not run this probe."); continue; }
-    if (!g.ok) { sec.line(`  HTTP ${g.status}`); continue; }
-    if (!g.found) { sec.line(`  no usable final game+kicker found (${g.note || `${g.eventsSeen} events seen`}).`); continue; }
-    sec.line(`  final game: ${g.shortName} (event ${g.eventId}) — kicker ${g.kicker.name} (${g.kicker.team}) made ${g.kicker.made}/${g.kicker.att} FGs (ESPN id ${g.kicker.espnId}).`);
-
-    if (!pool) pool = await loadPlayerPool();
-    if (!pool.ok) { sec.line(`  ${pool.err}`); sec.setStatus("WARN", "Sleeper player pool unavailable — could not resolve the kicker to a pid."); continue; }
-
-    let pidHit = g.kicker.espnId ? pool.byEspn.get(g.kicker.espnId) : null;
-    let via = "espn";
-    if (!pidHit) { pidHit = pool.byName.get(nameKey(g.kicker.name, g.kicker.team)); via = "name"; }
-    if (!pidHit) { sec.line(`  could not resolve "${g.kicker.name}" (${g.kicker.team}) to a Sleeper pid by espn_id or name+team.`); sec.setStatus("WARN", "kicker found in ESPN box but not resolvable in Sleeper's directory this run."); continue; }
-    sec.line(`  resolved to Sleeper pid ${pidHit.pid} via ${via}.`);
-
-    const statsUrl = `${SLP}/stats/nfl/${at.seasonType}/${at.season}/1`;
-    const statsR = await timedFetch(`sleeper stats ${at.seasonType}/${at.season}/1`, statsUrl);
-    if (statsR.unreachable) { sec.line(`  ${unreachableLine(statsUrl)}`); sec.setStatus("WARN", "Sleeper stats bucket unreachable."); continue; }
-    if (!statsR.ok) { sec.line(`  Sleeper stats HTTP ${statsR.status}`); continue; }
-    const row = statsR.json && statsR.json[pidHit.pid];
-    if (!row) { sec.line(`  no stats row for pid ${pidHit.pid} in ${statsUrl} yet (entries=${statsR.json ? Object.keys(statsR.json).length : 0}).`); sec.setStatus("WARN", `no Sleeper stats row yet for ${at.label} — the field couldn't be checked this run (not a schema break, just no data posted yet).`); continue; }
-    if (!("fgm_yds" in row)) { sec.setStatus("FAIL", `fgm_yds is MISSING from the Sleeper stats row for a kicker who made ${g.kicker.made} FG(s) — this is a real schema break in the app's fg_made_yd scoring path.`); sec.line(`  row: ${JSON.stringify(row)}`); return sec.raw; }
-    const yds = Number(row.fgm_yds);
-    sec.line(`  Sleeper stats row fgm_yds = ${row.fgm_yds} (fgm=${row.fgm} fga=${row.fga}).`);
-    if (yds > 0) {
-      sec.setStatus("PASS", `fgm_yds=${yds} confirmed in a real Sleeper stats payload, proven on ${at.label}.`);
-      return sec.raw;
-    } else {
-      sec.setStatus("WARN", `fgm_yds present but reads 0 despite ${g.kicker.made} made FG(s) — worth a second look, but the field itself exists.`);
+  for (const c of cands) {
+    const label = `${c.season} regular week ${c.week}`;
+    const statsUrl = `${SLP}/stats/nfl/regular/${c.season}/${c.week}`;
+    sec.line(`trying ${label}...`);
+    const statsR = await timedFetch(`sleeper stats ${label}`, statsUrl);
+    if (statsR.unreachable) { sec.line(`  ${unreachableLine(statsUrl)}`); sec.setStatus("WARN", "Sleeper stats bucket unreachable."); return sec.raw; }
+    if (!statsR.ok || !statsR.json) { sec.line(`  Sleeper stats HTTP ${statsR.status}`); continue; }
+    const rows = Object.entries(statsR.json).filter(([, r]) => r && Number(r.fgm) > 0);
+    if (!rows.length) { sec.line(`  no kicker row with fgm>0 in the bucket yet (${Object.keys(statsR.json).length} rows).`); continue; }
+    const missing = rows.filter(([, r]) => r.fgm_yds == null);
+    const zero = rows.filter(([, r]) => r.fgm_yds != null && !(Number(r.fgm_yds) > 0));
+    sec.line(`  ${rows.length} kicker row(s) with fgm>0; fgm_yds missing on ${missing.length}, zero on ${zero.length}.`);
+    if (missing.length) {
+      sec.setStatus("FAIL", `fgm_yds is MISSING on ${missing.length} of ${rows.length} Sleeper kicker rows with fgm>0 in ${label} - a real schema break in the app's fg_made_yd scoring path.`);
+      sec.line(`  e.g. pid ${missing[0][0]}: ${JSON.stringify(missing[0][1])}`);
       return sec.raw;
     }
+    // ESPN side: per-kicker made-FG comparison for the same week (informational + WARN on drift).
+    let cmp = "ESPN comparison skipped";
+    try {
+      const sb = await timedFetch(`espn scoreboard ${label}`, `${ESPN}/scoreboard?seasontype=2&week=${c.week}&dates=${c.season}`);
+      if (sb.ok && sb.json) {
+        if (!pool) pool = await loadPlayerPool();
+        if (pool.ok) {
+          let seen = 0, same = 0; const diffs = [];
+          for (const ev of (sb.json.events || []).filter((e) => e?.competitions?.[0]?.status?.type?.state === "post")) {
+            const sm = await timedFetch(`espn summary ${ev.id}`, `${ESPN}/summary?event=${ev.id}`);
+            if (!sm.ok) continue;
+            for (const k of parseEspnKickers(sm.json)) {
+              const hit = (k.espnId && pool.byEspn.get(k.espnId)) || pool.byName.get(nameKey(k.name, k.team));
+              const row = hit && statsR.json[hit.pid];
+              if (!row) { diffs.push(`${k.name}: ESPN ${k.made}, no Sleeper row`); seen++; continue; }
+              seen++;
+              if (Number(row.fgm) === k.made) same++; else diffs.push(`${k.name}: ESPN ${k.made}, Sleeper ${row.fgm}`);
+            }
+          }
+          cmp = `ESPN vs Sleeper made FGs: ${same}/${seen} kickers agree` + (diffs.length ? ` (differ: ${diffs.join("; ")})` : "");
+          sec.line("  " + cmp);
+          if (diffs.length) { sec.setStatus("WARN", `fgm_yds present on all ${rows.length} rows in ${label}, but ${diffs.length} kicker(s) disagree with ESPN on made FGs: ${diffs.join("; ")}`); return sec.raw; }
+        }
+      }
+    } catch (e) { sec.line("  ESPN comparison failed: " + (e && e.message)); }
+    if (zero.length) { sec.setStatus("WARN", `fgm_yds present on all ${rows.length} rows but reads 0 on ${zero.length} despite fgm>0 - worth a second look.`); return sec.raw; }
+    sec.setStatus("PASS", `fgm_yds present on all ${rows.length} Sleeper kicker rows with fgm>0 in ${label}. ${cmp}.`);
+    return sec.raw;
   }
-  if (sec.raw.status === "PASS") sec.setStatus("WARN", "neither 2026 preseason week 1 nor the 2025 regular-season fallback could prove the field this run.");
+  sec.setStatus("WARN", "no regular-season bucket with a made FG could be checked this run.");
   return sec.raw;
 }
 

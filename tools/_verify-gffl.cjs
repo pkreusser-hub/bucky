@@ -18,6 +18,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 const http = require("http");
 const { pathToFileURL } = require("url");
 const puppeteer = require("puppeteer-core");
@@ -137,6 +138,25 @@ const notify = { calls: [], status: 200, abort: false };
 notify.reset = () => { notify.calls = []; notify.status = 200; notify.abort = false; };
 
 // ---------------- fixtures ----------------
+// FD MEASURE run (GFFL_FEEDS_REAL=<dir of real payloads>): serve real-size Sleeper bodies through a
+// modelled shared link (FIFO at FD_LINK_BPS of wire bytes) and log what crossed it.
+const FD_LINK_BPS = 1.5 * 1024 * 1024; // ~12 Mbit/s phone link
+const fdWire = { log: [], t0: 0, free: 0 };
+const fdReal = (dir, f) => fs.readFileSync(path.join(dir, f));
+function fdKind(u) {
+  if (u.endsWith("/players/nfl")) return { kind: "players", file: "players.json" };
+  if (u.includes("/stats/nfl/")) return { kind: "stats", file: "stats3.json" };
+  if (u.includes("/projections/nfl/")) return { kind: "proj", file: "proj.json" };
+  if (u.includes("/scoreboard") && !u.includes("dates=")) return { kind: "scoreboard", wire: 23126 };
+  if (u.includes("/summary?event=")) return { kind: "summary", wire: 20000 };
+  return null;
+}
+async function fdLink(kind, wire) {
+  const now = Date.now();
+  fdWire.free = Math.max(fdWire.free, now) + (wire / FD_LINK_BPS) * 1000;
+  await sleep(Math.max(0, fdWire.free - now));
+  fdWire.log.push({ kind, wire, t: Date.now() - fdWire.t0 });
+}
 const fixture = {
   phase: 1, sleeperDown: false, espnDown: false, tenorDown: false, farmgptDown: false,
   // Section V knobs (adversarial review 2026-08-08) — every one defaults OFF, so sections
@@ -147,6 +167,9 @@ const fixture = {
   noFgBuckets: false,     // the real league's shape: FG scored ONLY by made-yards (finding 11)
   bigSlate: false,        // >8 concurrent games, so the summary cap actually bites (finding 13)
   pregame: false,         // adds a not-yet-kicked-off game to the slate (finding 14)
+  feedsSlate: null,       // FD (2026-10-04): [{id, home, away, state, date}] REPLACES the whole scoreboard
+  playersDelayMs: 0,      // FD: how long /players/nfl stalls before it answers (a slow phone link)
+  realFeeds: null,        // FD: dir of real Sleeper/ESPN payloads (GFFL_FEEDS_REAL) for the MEASURE run
   pregameState: "pre",
   // Section X (the 2025 season replay) — OFF by default, so section Q's own
   // lg_espn_rosters_season(2025) fixture (1 team, 2 players) is completely untouched. When
@@ -1263,6 +1286,13 @@ function sbFix() {
         { date: "2026-08-07T00:15Z", detail: "Final", hs: "17", as: "14", net: "CBS" }),
     ], season: { type: 2, year: 2026 } };
   }
+  if (fixture.feedsSlate) {
+    return { events: fixture.feedsSlate.map((g) => mk(g.id, g.home, g.away, g.state,
+      { date: g.date, detail: g.state === "post" ? "Final" : g.state === "in" ? "Q2 5:00" : "Sun 12:00 PM",
+        period: g.state === "in" ? 2 : g.state === "post" ? 4 : 0, clock: g.state === "in" ? "5:00" : "0:00",
+        hs: g.state === "pre" ? undefined : "7", as: g.state === "pre" ? undefined : "3", net: "FOX" })),
+      season: { type: 2, year: 2026 } };
+  }
   const events = [
     mk("401900001", "DAL", "PHI", done ? "post" : "in",
       { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00",
@@ -2185,7 +2215,7 @@ function startStatic() {
     // handed back as application/octet-stream is one Chrome will fetch and then ignore, so the
     // section that fetches and parses it would be testing the harness, not the file.
     const mime = { ".html": "text/html", ".js": "text/javascript", ".webmanifest": "application/manifest+json",
-                   ".json": "application/json", ".png": "image/png" }[path.extname(p)] || "application/octet-stream";
+                   ".json": "application/json", ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain" }[path.extname(p)] || "application/octet-stream";
     res.writeHead(200, { "Content-Type": mime });
     res.end(fs.readFileSync(p));
   });
@@ -2251,6 +2281,15 @@ async function newTestPage(browser, seed, opts) {
     const json = (obj, status) => req.respond({ status: status || 200, contentType: "application/json", headers: cors, body: JSON.stringify(obj) });
     (async () => {
       try {
+        if (fixture.realFeeds && !u.startsWith(BASE)) {
+          const fk = fdKind(u);
+          if (fk && fk.file) {
+            const body = fdReal(fixture.realFeeds, fk.file);
+            await fdLink(fk.kind, zlib.gzipSync(body).length);
+            return req.respond({ status: 200, contentType: "application/json", headers: cors, body });
+          }
+          if (fk) await fdLink(fk.kind, fk.wire);
+        }
         // S4 (section AN). Must come BEFORE the u.startsWith(BASE) branch below — this path is
         // same-origin, so continuing it would 404 against the static server and every producer
         // would look like it "failed safely" for the wrong reason.
@@ -2411,7 +2450,10 @@ async function newTestPage(browser, seed, opts) {
             return json((t[kind[1]] || []).map(([pid, count]) => ({ player_id: pid, count })));
           }
           if (u.endsWith("/state/nfl")) return json(slpStateNow());
-          if (u.endsWith("/players/nfl")) return json(fixture.prod2025 ? prodSlpDirectory() : slpDirectoryFix());
+          if (u.endsWith("/players/nfl")) {
+            if (fixture.playersDelayMs) await sleep(fixture.playersDelayMs);
+            return json(fixture.prod2025 ? prodSlpDirectory() : slpDirectoryFix());
+          }
           if (u.includes("/stats/nfl/")) {
             const sm = /\/stats\/nfl\/([^/]+)\/(\d+)\/(\d+)/.exec(u);
             slpStatsUrls.push(u); // ITEM 30 — the season-TYPE segment is what section AI asserts
@@ -2649,15 +2691,34 @@ function restRespond(req, u, R) {
   if (R.hang) { R.calls.push({ method, url: u, hung: true }); return; }
   if (method === "OPTIONS") return req.respond({ status: 200, headers: cors, body: "" });
   if (R.fail) { R.calls.push({ method, url: u, failed: true }); return req.abort(); }
-  const json = (obj, status) => req.respond({ status: status || 200, contentType: "application/json", headers: cors, body: JSON.stringify(obj) });
+  // R.served (2026-10-04, boot/perf): what each answer CONTAINED, so a check can say "no boot
+  // response carried a full logo" about the wire rather than about the wrapper.
+  const json = (obj, status) => {
+    const body = JSON.stringify(obj);
+    (R.served = R.served || []).push({ method, url: u, bytes: body.length, body });
+    return req.respond({ status: status || 200, contentType: "application/json", headers: cors, body });
+  };
+  // A projection / mask keeps ONLY the fields it names, exactly as Firestore does — a fixture
+  // that returned everything regardless would be kinder than the real service and could never
+  // catch a field a projection forgot.
+  const project = (wire, paths) => {
+    if (!paths || !paths.length) return wire;
+    const f = {}; for (const k of Object.keys(wire.fields || {})) if (paths.includes(k)) f[k] = wire.fields[k];
+    return { ...wire, fields: f };
+  };
   if (u.includes(":runQuery")) {
     let q = {};
     try { q = (JSON.parse(req.postData() || "{}").structuredQuery) || {}; } catch (e) { /* malformed */ }
-    const kind = q.where && q.where.fieldFilter ? q.where.fieldFilter.value.stringValue : null;
-    R.calls.push({ method, op: "runQuery", kind, coll: ((q.from || [])[0] || {}).collectionId, url: u });
+    const kind = q.where && q.where.fieldFilter && q.where.fieldFilter.field.fieldPath === "kind" ? q.where.fieldFilter.value.stringValue : null;
+    // The document-NAME range query (the chat probe): ids strictly between the two bounds.
+    const rng = q.where && q.where.compositeFilter ? q.where.compositeFilter.filters.map((x) => x.fieldFilter.value.referenceValue.split("/").pop()) : null;
+    const sel = q.select && q.select.fields ? q.select.fields.map((x) => x.fieldPath) : null;
+    R.calls.push({ method, op: "runQuery", kind, range: rng, select: sel, coll: ((q.from || [])[0] || {}).collectionId, url: u });
     const rows = Object.entries(R.docs)
       .filter(([, d]) => !kind || d.kind === kind)
-      .map(([id, d]) => ({ document: fsWireDoc(id, d, R), readTime: "2026-01-01T00:00:00Z" }));
+      .filter(([id]) => !rng || (id > rng[0] && id < rng[1]))
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([id, d]) => ({ document: project(fsWireDoc(id, d, R), sel), readTime: "2026-01-01T00:00:00Z" }));
     // A zero-result runQuery really does answer with one document-LESS row, not an empty array.
     return json(rows.length ? rows : [{ readTime: "2026-01-01T00:00:00Z" }]);
   }
@@ -2669,7 +2730,8 @@ function restRespond(req, u, R) {
   if (method === "GET") {
     const d = R.docs[id];
     if (!d) return json({ error: { code: 404, status: "NOT_FOUND", message: "Document not found." } }, 404);
-    return json(fsWireDoc(id, d, R));
+    const mask = [...u.matchAll(/[?&]mask\.fieldPaths=([^&]+)/g)].map((x) => decodeURIComponent(x[1]));
+    return json(project(fsWireDoc(id, d, R), mask));
   }
   if (method === "PATCH") {
     let payload = {};
@@ -5160,7 +5222,11 @@ async function openDetails(page, id) {
     // findIndex could no longer find the row it had just written, and a stale DUPLICATE got
     // pushed instead of updating in place — LG.teamById kept returning the pre-edit team
     // forever. Prove logoData survived the round trip too (same object, same bug class).
-    const savedLogo = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).logoData);
+    // RESTAGED 2026-10-04 (boot/perf): the picture a small slot shows is now the team doc's
+    // `logoThumb` (the full logoData lives in its own teamlogo doc), so that is what must
+    // survive the round trip AND be the src every crest below renders — "the uploaded logo
+    // appears everywhere" is unchanged, the string it appears AS is the thumb.
+    const savedLogo = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).logoThumb);
     ok(typeof savedLogo === "string" && savedLogo.startsWith("data:image/"),
       "…and the logo image itself (not just the colour) survives — no stale duplicate shadowing the edited team");
     const listedOnce = await page1.evaluate(() => window.__GFFL__.LG.teams.filter((t) => t.id === 1).length);
@@ -6022,7 +6088,14 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".mucard", { timeout: 5000 });
     const wk15cards = await page.$$eval(".mucard", (els) => els.map((e) => ({
-      tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
+      // RESTAGED 2026-10-04: a name too wide for its card now shows the team's abbreviation
+      // (UI review: "CHULA V…" at 375px told two teams apart by nothing). The full name stays on
+      // the element as data-full (and title while abbreviated), so read that; a shown text that
+      // is neither the full name nor the abbreviation is still a failure.
+      tags: [...e.querySelectorAll(".muteamname")].map((n) => {
+        const shown = n.textContent.trim(), full = n.dataset.full || shown;
+        return shown === full || shown === n.dataset.abbr ? full : "?" + shown;
+      }),
     })));
     ok(wk15cards.length === 2, "week 15's matchup-card list: exactly the play-in + consolation A games (" + wk15cards.length + ")");
     // RESTAGED 2026-09-11: league-home cards paint the full name again. Scores is the
@@ -6038,7 +6111,14 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".mucard", { timeout: 5000 });
     const wk16cards = await page.$$eval(".mucard", (els) => els.map((e) => ({
-      tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
+      // RESTAGED 2026-10-04: a name too wide for its card now shows the team's abbreviation
+      // (UI review: "CHULA V…" at 375px told two teams apart by nothing). The full name stays on
+      // the element as data-full (and title while abbreviated), so read that; a shown text that
+      // is neither the full name nor the abbreviation is still a failure.
+      tags: [...e.querySelectorAll(".muteamname")].map((n) => {
+        const shown = n.textContent.trim(), full = n.dataset.full || shown;
+        return shown === full || shown === n.dataset.abbr ? full : "?" + shown;
+      }),
     })));
     ok(wk16cards.length === 2, "week 16's list: exactly semi2 (already known) + consolation B — semi1 is skipped, not guessed at (" + JSON.stringify(wk16cards) + ")");
     ok(wk16cards.some((c) => c.tags.includes("Battle Kreussers") && c.tags.includes("Team Seven")), "…semi2, fully resolved (team7 vs team1)");
@@ -7521,7 +7601,12 @@ async function openDetails(page, id) {
       const D = window.__GFFL__.D;
       for (let i = 0; i < Math.ceil(n / 8); i++) await D.pollOnce();
       const seen = new Set(Object.keys(D.EP).filter((k) => k.startsWith("espn summary ")).map((k) => k.slice(13)));
-      const want = new Set([...D.S.games.values()].map((g) => g.eventId));
+      // RESTAGED 2026-10-04 (feeds fix): this used to demand a summary for EVERY tracked game,
+      // including the one still "pre". The old rule no longer holds — a game that has not kicked
+      // off is never fetched (its box is empty; the perf run measured 8 wasted summaries a
+      // minute), so "covered" now means every game that is live or final. The pre game staying
+      // out of the set is asserted in FD_FEEDS below.
+      const want = new Set([...D.S.games.values()].filter((g) => g.state !== "pre").map((g) => g.eventId));
       return { seen: seen.size, want: want.size, missing: [...want].filter((e) => !seen.has(e)) };
     }, total);
     ok(covered.missing.length === 0,
@@ -13131,7 +13216,22 @@ async function openDetails(page, id) {
           bars: cards.filter((c) => c.querySelector(".mupbar.mini")).length,
           fills: cards.filter((c) => c.querySelector(".mupbar.mini i")).length,
           unknown: cards.filter((c) => c.querySelector(".mupbar.mini.unknown")).length,
-          names: cards.map((c) => [...c.querySelectorAll(".muteamname")].map((n) => (n.textContent || "").trim())),
+          // RESTAGED 2026-10-04: the full name is painted when it FITS; a name wider than its box
+          // shows the team abbreviation instead (UI review: "CHULA V…" at 375px). `names` reads the
+          // full name off data-full; `abbrOk` proves each abbreviation was earned — the full name,
+          // measured with a Range in the same box, really is wider than the box.
+          names: cards.map((c) => [...c.querySelectorAll(".muteamname")].map((n) => (n.dataset.full || n.textContent || "").trim())),
+          abbrOk: cards.every((c) => [...c.querySelectorAll(".muteamname")].every((n) => {
+            const shown = (n.textContent || "").trim();
+            if (!n.dataset.full || shown === n.dataset.full) return true;
+            if (shown !== n.dataset.abbr) return false;
+            n.textContent = n.dataset.full;
+            const cs = getComputedStyle(n), box = n.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+            const r = document.createRange(); r.selectNodeContents(n);
+            const w = r.getBoundingClientRect().width;
+            n.textContent = shown;
+            return w > box + 0.5;
+          })),
           nameFit: cards.every((c) => [...c.querySelectorAll(".muteamname")].every((n) => n.scrollWidth <= n.clientWidth + 1)),
           scorePx: (() => {
             const s = document.querySelector(".mucard.mine .muscore");
@@ -13166,7 +13266,8 @@ async function openDetails(page, id) {
       ok((home.names || []).some((pair) => pair.includes("Battle Kreussers") && pair.includes("End Zone Goats")),
         "league-home cards paint the full team name (" + JSON.stringify(home.names) + ")");
       ok((home.names || []).every((pair) => pair.length === 2 && pair.every((n) => !/^T\d+$/.test(n))),
-        "…not the Scores-tab abbreviation");
+        "…the full names are read off data-full, so none is a bare abbreviation");
+      ok(home.abbrOk === true, "…and a card shows an abbreviation only where the full name, measured, is wider than its box");
       ok(home.scorePx != null && home.scorePx <= 24, "…the hero score is small enough to keep the names (" + home.scorePx + "px)");
       ok(home.minH > 0 && home.inside === true,
         "every strip is genuinely visible and inside its own card (shortest " + home.minH + "px) — the hero's grid-row:3 does not leak onto the compact cards");
@@ -16355,17 +16456,23 @@ async function openDetails(page, id) {
         const t = window.__GFFL__.LG.teamById(1);
         return t && t.colors && t.colors.secondary;
       }, { timeout: 9000 });
-      const ex = await page.evaluate(() => {
+      // RESTAGED 2026-10-04 (boot/perf): the FULL picture no longer lives on the team doc —
+      // it is team-logo doc `teamlogo_<id>` (so no team-list read carries it); the team doc
+      // holds only the small `logoThumb`. The old rule ("stored as a data: URL on the team
+      // doc") was a statement about WHERE, and WHERE is exactly what this change moved; the
+      // 160KB budget and the data: URL shape are still asserted, on the doc that now holds it.
+      const ex = await page.evaluate(async () => {
         const t = window.__GFFL__.LG.teamById(1);
         const p = window.__GFFL__.LG.teamPalette(t);
-        return { colors: t.colors, custom: !!t.colorsCustom, logo: (t.logoData || "").slice(0, 15),
-                 len: (t.logoData || "").length, three: [p.primary, p.secondary, p.tertiary] };
+        const full = (await window.__GFFL__.LG.db.get("teamlogo_1")) || {};
+        return { colors: t.colors, custom: !!t.colorsCustom, logo: (full.logoData || "").slice(0, 15),
+                 len: (full.logoData || "").length, three: [p.primary, p.secondary, p.tertiary] };
       });
       ok(ex.colors && ex.colors.primary && ex.colors.secondary && ex.colors.tertiary,
         "an uploaded logo PROPOSES all three colours, not one (" + JSON.stringify(ex.colors) + ")");
       ok(new Set(ex.three).size === 3, "…and the three are genuinely distinct — not three shades of the same band (" + JSON.stringify(ex.three) + ")");
       ok(ex.custom === false, "…with the hand-picked latch still OFF (nobody has touched a swatch)");
-      ok(ex.logo.startsWith("data:image/"), "…and the picture itself is stored as a data: URL on the team doc");
+      ok(ex.logo.startsWith("data:image/"), "…and the picture itself is stored as a data: URL, in its own teamlogo doc");
       ok(ex.len > 0 && ex.len <= 160000, "…inside the logo's OWN 160KB budget, split from chat's 80KB (" + ex.len + " chars)");
 
       // A HAND-PICK latches. From here a new logo may change the picture and nothing else.
@@ -16376,9 +16483,10 @@ async function openDetails(page, id) {
         inp.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await page.waitForFunction(() => window.__GFFL__.LG.teamById(1).colorsCustom === true, { timeout: 9000 });
-      const picked = await page.evaluate(() => {
+      const picked = await page.evaluate(async () => {
         const t = window.__GFFL__.LG.teamById(1);
-        return { colors: t.colors, custom: t.colorsCustom, logoStill: (t.logoData || "").startsWith("data:image/") };
+        const full = (await window.__GFFL__.LG.db.get("teamlogo_1")) || {};
+        return { colors: t.colors, custom: t.colorsCustom, logoStill: (full.logoData || "").startsWith("data:image/") && (t.logoThumb || "").startsWith("data:image/") };
       });
       ok(picked.colors.primary === "#2f8f4e" && picked.colors.primary !== before,
         "a swatch override saves the chosen colour exactly (" + before + " → " + picked.colors.primary + ")");
@@ -16425,7 +16533,7 @@ async function openDetails(page, id) {
       await uploadLogo(page, FLAT_ART_LOGO);
       await page.waitForFunction(() => {
         const t = window.__GFFL__.LG.teamById(1);
-        return t && (t.logoData || "").length > 0;
+        return t && (t.logoThumb || "").length > 0; // RESTAGED 2026-10-04: the team doc holds the thumb, not the full picture
       }, { timeout: 9000 });
       await sleep(400);
       const afterReupload = await page.evaluate(() => {
@@ -16464,9 +16572,18 @@ async function openDetails(page, id) {
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await openLocker(page, 1);
       await uploadLogo(page, TRANSPARENT_LOGO);
-      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoData || "").length > 0, { timeout: 9000 });
+      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoThumb || "").length > 0, { timeout: 9000 });
+      // RESTAGED 2026-10-04: the full picture is read from its own teamlogo doc now; and the
+      // team doc's cut-out flag + thumb are asserted too, because the thumb's mime (webp) can
+      // no longer say "this was a PNG with transparency" the way the stored data:image/png did.
+      const thumbInfo = await page.evaluate(async () => {
+        const t = window.__GFFL__.LG.teamById(1);
+        return { cut: t.logoCut, thumbLen: (t.logoThumb || "").length, thumbMime: (t.logoThumb || "").slice(0, 14), inlineFull: t.logoData };
+      });
+      ok(thumbInfo.cut === true && thumbInfo.thumbLen > 0 && thumbInfo.thumbLen <= 14000 && !thumbInfo.inlineFull,
+        "the team doc carries a small thumb (" + thumbInfo.thumbLen + " chars, " + thumbInfo.thumbMime + ") and logoCut=true for a transparent upload — and no inline full picture");
       const t = await page.evaluate(async () => {
-        const stored = window.__GFFL__.LG.teamById(1).logoData;
+        const stored = ((await window.__GFFL__.LG.db.get("teamlogo_1")) || {}).logoData;
         // Decode what was actually SAVED and read its corner — the pixel a cut-out mark leaves
         // empty and the one that came back black.
         const px = await new Promise((res) => {
@@ -16509,8 +16626,9 @@ async function openDetails(page, id) {
       // AN OPAQUE logo must NOT be pushed onto the PNG path — JPEG is far smaller and is what
       // every photo-ish mark wants. This is the no-regression half.
       await uploadLogo(page, FLAT_ART_LOGO); // fills its whole canvas — genuinely opaque
-      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoData || "").startsWith("data:image/jpeg"), { timeout: 9000 });
+      await page.waitForFunction(async () => (((await window.__GFFL__.LG.db.get("teamlogo_1")) || {}).logoData || "").startsWith("data:image/jpeg"), { timeout: 9000 });
       ok(true, "an OPAQUE logo still takes the JPEG path — transparency is detected, never assumed");
+      ok(await page.evaluate(() => window.__GFFL__.LG.teamById(1).logoCut === false), "…and its logoCut flag flips back to false with it");
       ok(errors.length === 0, "0 page errors through the transparent-logo path");
       await ctx.close();
     }
@@ -23895,6 +24013,11 @@ async function openDetails(page, id) {
                 dbVal.__listArmed = true;
                 const orig = dbVal.list.bind(dbVal);
                 dbVal.list = (kind) => { window.__kinds.push(kind); return orig(kind); };
+                // RESTAGED 2026-10-04 (engine review): LG.loadAct now reads a 28-day WINDOW through
+                // LG.db.listSince (a range read on the doc id) instead of list("act") — the same
+                // read of the same ledger, so the recorder must see that door too or the "it IS
+                // read when the view opens" check below would go blind to the only way in.
+                if (dbVal.listSince) { const origSince = dbVal.listSince.bind(dbVal); dbVal.listSince = (kind, ms) => { window.__kinds.push(kind); return origSince(kind, ms); }; }
               },
             });
           },
@@ -25013,12 +25136,16 @@ async function openDetails(page, id) {
           const el = document.getElementById("muWp");
           const poly = el && el.querySelector("polyline.muwpline");
           const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
-          return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
+          return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length, early: !!document.getElementById("muWpEarly") };
         });
         // RESTAGED 2026-09-13: hiding a one-seed card left the bar with no
         // matching line. One stored minute still draws this-minute→now.
-        ok(hidden.exists && hidden.parent === true && hidden.n >= 2,
-          "…a one-tick card still draws a line (" + JSON.stringify(hidden) + ")");
+        // RESTAGED AGAIN 2026-10-04 (UI review): all-pre with ONE stored minute is exactly the
+        // flat stroke under a "58%" the review flagged. The card is still shown (the 09-13 rule —
+        // never a bar with nothing beside it) but as "No games yet" + the projected totals rather
+        // than a one-point line. A pre-kickoff series that has moved still draws, below.
+        ok(hidden.exists && hidden.parent === true && hidden.n === 0 && hidden.early === true,
+          "…a one-tick, all-pre card says \"No games yet\" rather than drawing a one-point line (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
         // Live scores and the clock move D.winProb. The graph is projected win %, so
@@ -25750,7 +25877,12 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- TG6: a stale iOS document reloads when the live HTML has a new ?v= ----
+    // ---- TG6: a stale iOS document reloads when the live version file has a new token ----
+    // RESTAGED 2026-10-04 (boot/perf): the comparison used to download the whole 58 KB
+    // league.html and regex the gffl-v meta out of it, on every launch AND every foreground.
+    // It now reads /gffl-version.txt (~10 bytes). The behaviour under test — stale token
+    // reloads, current token does not, a focused composer is never yanked — is unchanged;
+    // only the thing fetched moved. Section BTP holds the file to the meta.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -25765,9 +25897,9 @@ async function openDetails(page, id) {
         UI._freshAt = 0;
         const orig = window.fetch;
         window.fetch = async (u, o) => {
-          if (String(u).includes("/league.html")) {
-            return new Response('<meta name="gffl-v" content="stale99">',
-              { status: 200, headers: { "Content-Type": "text/html" } });
+          if (String(u).includes("/gffl-version.txt")) {
+            return new Response("stale99\n",
+              { status: 200, headers: { "Content-Type": "text/plain" } });
           }
           return orig(u, o);
         };
@@ -25775,10 +25907,10 @@ async function openDetails(page, id) {
         const nStale = window.__reloads;
         UI._freshAt = 0;
         window.fetch = async (u, o) => {
-          if (String(u).includes("/league.html")) {
+          if (String(u).includes("/gffl-version.txt")) {
             const have = (document.querySelector('meta[name="gffl-v"]') || {}).content || "20260915e";
-            return new Response('<meta name="gffl-v" content="' + have + '">',
-              { status: 200, headers: { "Content-Type": "text/html" } });
+            return new Response(have + "\n",
+              { status: 200, headers: { "Content-Type": "text/plain" } });
           }
           return orig(u, o);
         };
@@ -25790,9 +25922,9 @@ async function openDetails(page, id) {
         document.body.appendChild(t);
         t.focus();
         window.fetch = async (u, o) => {
-          if (String(u).includes("/league.html")) {
-            return new Response('<meta name="gffl-v" content="stale99">',
-              { status: 200, headers: { "Content-Type": "text/html" } });
+          if (String(u).includes("/gffl-version.txt")) {
+            return new Response("stale99\n",
+              { status: 200, headers: { "Content-Type": "text/plain" } });
           }
           return orig(u, o);
         };
@@ -26825,7 +26957,12 @@ async function openDetails(page, id) {
     }
 
     {
-      const { ctx, page, errors } = await newTestPage(browser, tkSeed(10), { vw: DESK });
+      // RESTAGED 2026-10-04 (engine review, exact clinch/elimination): this fixture was week 10 (16 games
+      // left). Above PO_EXACT_MAX (14) games the odds are SAMPLED, and a sample is never allowed to
+      // claim a lock or an elimination (a true 0.1% team printed 0 in ~37% of seeds), so the 0-10 team
+      // paints a small percent there instead of 0. The same shape one week later (12 games left) is
+      // enumerated exactly and is certain, which is what this check is about: week 11, 11-0 vs 0-11.
+      const { ctx, page, errors } = await newTestPage(browser, tkSeed(11), { vw: DESK });
       await bootPage(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
@@ -26835,11 +26972,11 @@ async function openDetails(page, id) {
         const st = await LG.loadStandings();
         return { o, rec1: st[1], rec8: st[8] };
       });
-      ok(late && late.rec1 && late.rec1.w === 10 && late.rec8 && late.rec8.w === 0,
-        "the week-10 fixture is 10-0 vs 0-10 (" + JSON.stringify({ a: late && late.rec1, b: late && late.rec8 }) + ")");
+      ok(late && late.rec1 && late.rec1.w === 11 && late.rec8 && late.rec8.w === 0,
+        "the week-11 fixture is 11-0 vs 0-11 (" + JSON.stringify({ a: late && late.rec1, b: late && late.rec8 }) + ")");
       ok(late && late.o[1] === 100 && late.o[8] === 0,
         "a real late-season lock and elimination still paint 100 / 0 (" + JSON.stringify(late && late.o) + ")");
-      ok(errors.length === 0, "0 page errors on the week-10 lock");
+      ok(errors.length === 0, "0 page errors on the week-11 lock");
       await ctx.close();
     }
   }
@@ -27286,7 +27423,10 @@ async function openDetails(page, id) {
         "week 1 disables Previous and leaves Next open");
       ok(live.isCard === false && live.firstIsHead === true,
         "the cycler is not a .card — the first card is still the header");
-      ok(live.h > 0 && live.h <= 36,
+      // RESTAGED 2026-10-04: 36 -> 44. The Previous/Next arrows were 36x28, under the 44px tap
+      // target the UI review measured on a phone; the strip is as tall as its buttons now. It is
+      // still one slim row (not a card), which is what this check is for.
+      ok(live.h > 0 && live.h <= 44,
         "…and it stays narrow (" + live.h + "px)");
       ok(live.week === 1 && live.muWeek == null,
         "UI.week is untouched; _muWeek is null on the live board");
@@ -27438,8 +27578,15 @@ async function openDetails(page, id) {
       }) || {};
       const movesRow = (card.kinds || []).find((k) => k.kind === "moves");
       const otherRows = (card.kinds || []).filter((k) => k.kind !== "moves");
-      ok(card.kinds && card.kinds.length === 8 && otherRows.every((k) => k.on && k.checked === "true" && k.sw === "On"),
-        "the ON card lists every kind, seven default on (" + JSON.stringify(card.labels) + ")");
+      // RESTAGED 2026-10-04 (push review): 8 rows / seven default-on became 10 / nine. Two kinds were
+      // added, both default ON like every kind but League moves — "Lineup warnings" (the new
+      // lineupwarn.mjs push) and "RoboGoat previews" (previews used to ride "Week recaps", so
+      // muting the week-final scoreboard push silently muted them too). The rule this check
+      // protects — every row on except League moves — is unchanged and still asserted below.
+      ok(card.kinds && card.kinds.length === 10 && otherRows.every((k) => k.on && k.checked === "true" && k.sw === "On"),
+        "the ON card lists every kind, nine default on (" + JSON.stringify(card.labels) + ")");
+      ok(card.labels && card.labels.includes("Lineup warnings") && card.labels.includes("RoboGoat previews"),
+        "…including the new Lineup warnings and RoboGoat previews rows");
       ok(movesRow && movesRow.on === false && movesRow.checked === "false" && movesRow.sw === "Off",
         "…and League moves is Off until they turn it on");
       // RESTAGED 2026-09-30: the matchup thread is "Smack talk" now (user: "rename it to smack
@@ -31047,8 +31194,15 @@ async function openDetails(page, id) {
       const locked = Object.keys(o).filter((k) => o[k] === 100).map(Number).sort((x, y) => x - y);
       const open = Object.keys(o).filter((k) => o[k] !== 100 && o[k] !== 0).map(Number);
       const openSum = open.reduce((x, k) => x + o[k], 0);
-      ok(b.spots === 5 && b.sw === 14 && locked.join() === "1,2,4,7" && open.length === 4,
-        "the board: teams 1, 2, 4, 7 clinched, four undecided for one spot (" + JSON.stringify(o) + ")");
+      // RESTAGED 2026-10-04 (engine review, exact clinch/elimination): with 4 games left this board is
+      // ENUMERATED, not sampled, and the sampled "four undecided" was never true. Week 14 is 1v7, 8v6,
+      // 2v5, 3v4 on records 7-8-6-8-6-5-7-5 (hand-tallied above). T6 and T8 play each other and top out at
+      // 6 wins, and in every one of the 16 outcomes the 5th seed goes to a 6-or-7-win team that the
+      // head-to-head already places ahead of them -> T6 and T8 are ELIMINATED (0); T3 and T5 are the two
+      // that are really alive for the one open spot (T3 wins it in more outcomes: 73 / 27).
+      const out = Object.keys(o).filter((k) => o[k] === 0).map(Number).sort((x, y) => x - y);
+      ok(b.spots === 5 && b.sw === 14 && locked.join() === "1,2,4,7" && out.join() === "6,8" && open.join() === "3,5",
+        "the board: teams 1, 2, 4, 7 clinched, 6 and 8 eliminated, 3 and 5 undecided for one spot (" + JSON.stringify(o) + ")");
       // One spot open → the undecided must add to 100, give or take one point of rounding each.
       ok(Math.abs(openSum - 100) <= open.length,
         "⭐ the four chasers add up to one spot — " + openSum + "%, not 153% (" + open.map((k) => o[k]).join("/") + ")");
@@ -32106,6 +32260,1457 @@ async function openDetails(page, id) {
     ok(errors.length === 0, "0 page errors (" + W + "px)");
     await ctx.close();
   }
+  }
+
+  // ===================== RVS · review fix batch (2026-10-04): scoring =====================
+  // Node-only (lg-data.js in a vm, no browser). Fixtures are REAL: tools/fixtures/
+  // gffl_dst_w1_2026.json holds the trimmed ESPN summaries (PHI@WSH, PIT@ATL, TEN@NYJ, 2026 w1)
+  // plus the Sleeper /stats rows for those defenses, copied unmodified from the live APIs.
+  if (section("RVS1 · D/ST merge - Sleeper owns forced fumbles, blocks and (final) fum_rec/sack; kicker fgm_yds guard")) {
+    const vm = require("vm");
+    const FX = JSON.parse(fs.readFileSync(path.join(ROOT, "tools", "fixtures", "gffl_dst_w1_2026.json"), "utf8"));
+    // the league's real rules (production settings.rules.scoring, read 2026-10-04) - only the keys these checks price
+    const SC = { dst_sack: 1, dst_int: 2, dst_fum_rec: 1, dst_fum_forced: 1, dst_blk: 3, dst_td: 6, dst_safety: 4, dst_kr_td: 8,
+      dst_pa_0: 0, dst_pa_7_13: 0, dst_pa_14_17: 0, dst_pa_18_27: 0, fg_made_yd: 0.1, xp_made: 1, fg_miss: -1, rush_yd: 0.1, rush_td: 6 };
+    function loadD() {
+      let src = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-data.js"), "utf8");
+      const warns = [];
+      const LGx = { rules: { scoring: SC }, SEASON: 2026, floorPts: (n) => (n == null ? null : Math.max(0, n)), n: (v) => (Number.isFinite(Number(v)) ? Number(v) : 0) };
+      const con = { log() {}, error() {}, info() {}, warn: (m) => warns.push(String(m)) };
+      const cx = vm.createContext({ window: { LG: LGx }, document: {}, console: con, setTimeout, clearTimeout, setInterval, fetch: () => Promise.reject(new Error("no net")),
+        localStorage: { getItem() { return null; }, setItem() {} }, navigator: {}, location: { search: "", href: "" }, URLSearchParams, Date, Math, JSON, Map, Set, Promise });
+      vm.runInContext(src, cx, { filename: "lg-data.js" });
+      return { D: LGx.data, warns };
+    }
+    const { D, warns } = loadD();
+    const espnLine = (gameId, team) => D.deriveEspnDst(FX.games[gameId]).get("dst_" + team).stats;
+    function rowOf(team, gameId, state, { espnLast = 2, slpLast = 1, withSlp = true, mode = "dual" } = {}) {
+      D.S.health.mode = mode;
+      D.S.games.set(team, { state });
+      const e = espnLine(gameId, team), s = FX.slp[team];
+      return { key: "dst_" + team, team, pos: "DST", name: team + " D/ST", espn: { stats: e, raw: {}, last: espnLast },
+        slp: withSlp ? { stats: D.normSlp(s, true), raw: s, last: slpLast } : null, official: null };
+    }
+    // ---- 2026 w1 Eagles (PHI@WSH, final): hand-computed from the real boxes ----
+    // ESPN-derived line: 1 sack, PA 22 (pa_18_27 pays 0) = 1 pt. Sleeper: sack 1 + ff 1 + blk_kick 1 = 1*1 + 1*1 + 1*3 = 5.
+    ok(D.score(espnLine("401872929", "PHI"), SC) === 1, "RVS1 real w1 PHI: the ESPN-derived line alone scores 1 (sack only) - the stored-1 defect");
+    const phi = D.mergeRow(rowOf("PHI", "401872929", "post"));
+    ok(phi.pts === 5, "RVS1 real w1 PHI final, ESPN fresher: merged D/ST = 5 (sack 1 + forced fumble 1 + blocked kick 3), was 1 (got " + phi.pts + ")");
+    ok(phi.picked && phi.picked.stats.dst_blk === 1 && phi.picked.stats.dst_fum_forced === 1, "RVS1 the picked side carries dst_blk 1 and dst_fum_forced 1 (statSummary reads it)");
+    ok(phi.src === "espn", "RVS1 src stays espn (fresher side still the base; only Sleeper's fields overlaid)");
+    // ---- 2026 w1 Steelers (PIT@ATL): sack 4 + int 2*2 + def TD 6 + ff 2 = 16; ESPN-derived 14 ----
+    const pit = D.mergeRow(rowOf("PIT", "401872658", "post"));
+    ok(D.score(espnLine("401872658", "PIT"), SC) === 14 && pit.pts === 16, "RVS1 real w1 PIT: ESPN-derived 14 -> merged 16 (2 forced fumbles) (got " + pit.pts + ")");
+    // ---- 2026 w1 Jets (TEN@NYJ): ESPN fumblesLost says fum_rec 1, Sleeper fum_rec absent (only def_st_fum_rec) ----
+    const nyjF = D.mergeRow(rowOf("NYJ", "401872924", "post"));
+    // RESTAGED (same day): this first asserted 3 (Sleeper's fum_rec key is absent on the NYJ row). The audit
+    // follow-up showed the gap is Sleeper's def_st_fum_rec - a special-teams recovery the league's ESPN-derived
+    // D/ST pays - so normSlp now adds it and the two sources agree: 3 sacks + 1 fum_rec = 4.
+    ok(D.score(espnLine("401872924", "NYJ"), SC) === 4 && nyjF.pts === 4, "RVS1 real w1 NYJ final: 3 sacks + 1 fum_rec (Sleeper def_st_fum_rec 1) = 4 from both sources (got " + nyjF.pts + ")");
+    ok(D.normSlp(FX.slp.NYJ, true).dst_fum_rec === 1 && D.normSlp({ fum_rec: 1, def_st_fum_rec: 1, pts_allow: 3 }, true).dst_fum_rec === 2 && D.normSlp({ pts_allow: 3 }, true).dst_fum_rec === 0, "RVS1 normSlp dst_fum_rec = fum_rec + def_st_fum_rec (real w3 PIT shape FL2 = 1 + 1), 0 when both absent");
+    const nyjL = D.mergeRow(rowOf("NYJ", "401872924", "in"));
+    ok(nyjL.pts === 4, "RVS1 same defense LIVE (game in): fresher side's 4 (got " + nyjL.pts + ")");
+    // the final-state Sleeper-wins rule still bites when the sources DO differ: Sleeper sack 2 vs ESPN 3
+    const nyjX = rowOf("NYJ", "401872924", "post"); nyjX.slp.stats.dst_sack = 2;
+    ok(D.mergeRow(nyjX).pts === 3 && D.mergeRow(Object.assign(rowOf("NYJ", "401872924", "in"), { slp: nyjX.slp })).pts === 4, "RVS1 final: Sleeper's sack count wins (2 sacks + 1 fum_rec = 3); live the fresher ESPN 3 sacks stays (4)");
+    const phiL = D.mergeRow(rowOf("PHI", "401872929", "in"));
+    ok(phiL.pts === 5, "RVS1 live: the two keys ESPN can never carry (ff, blk) still come from Sleeper = 5 (got " + phiL.pts + ")");
+    // ---- fallbacks ----
+    const phiE = D.mergeRow(rowOf("PHI", "401872929", "post", { withSlp: false }));
+    ok(phiE.pts === 1 && phiE.src === "espn", "RVS1 ESPN-only D/ST keeps the derived line as the fallback (1)");
+    const phiPin = D.mergeRow(rowOf("PHI", "401872929", "post", { mode: "espn-only" }));
+    ok(phiPin.pts === 1, "RVS1 a degraded espn-only pin is left alone (no Sleeper overlay) = 1");
+    const phiS = D.mergeRow(rowOf("PHI", "401872929", "post", { espnLast: 1, slpLast: 2 }));
+    ok(phiS.pts === 5 && phiS.src === "slp", "RVS1 Sleeper fresher: Sleeper line as before = 5");
+    const rowN = rowOf("PHI", "401872929", "post"); const before = JSON.stringify(rowN.espn.stats);
+    D.mergeRow(rowN);
+    ok(JSON.stringify(rowN.espn.stats) === before, "RVS1 the stored row.espn stats are never mutated by the reconcile (applySide diffs against them)");
+    D.S.health.mode = "dual";
+    ok(rowN.conflict === false, "RVS1 post-game conflict no longer fires on the missing ff/blk (reconciled ESPN side = Sleeper side)");
+    // non-DST rows: the documented fresher-wins is byte-identical
+    D.S.games.set("PHI", { state: "post" });
+    const pl = { key: "4362628", team: "PHI", pos: "RB", name: "Test RB", espn: { stats: Object.assign({}, D.deriveEspnDst(FX.games["401872929"]).get("dst_PHI").stats, { dst_sack: 0, rush_yd: 100 }), raw: {}, last: 2 },
+      slp: { stats: Object.assign(D.normSlp({ rush_yd: 80 }, false)), raw: {}, last: 1 }, official: null };
+    pl.espn.stats.dst_pa = null; pl.espn.stats.dst_sack = 0;
+    D.mergeRow(pl);
+    ok(pl.pts === 10 && pl.src === "espn", "RVS1 a non-D/ST row is untouched: fresher ESPN 100 rush yds = 10.0 (got " + pl.pts + ")");
+
+    // ---- kicker guard (latent): real Sleeper row 650 (w1), fgm_yds removed ----
+    const k650 = { fga: 4, fgm: 2, fgm_40_49: 1, fgm_50_59: 1, fgm_50p: 1, fgm_lng: 51, fgm_pct: 50, fgm_yds: 94, fgm_yds_over_30: 34, fgmiss: 2, fgmiss_40_49: 1, fgmiss_50_59: 1, fgmiss_50p: 1, xpa: 1, xpm: 1 };
+    const intact = D.normSlp(k650, false);
+    ok(intact.fg_made_yd === 94 && !intact.fgApprox && D.score(intact, SC) === 8.4 && warns.length === 0, "RVS1 real kicker row with fgm_yds: 94 yds, no flag, no warn; 9.4 + XP 1 - 2 misses = 8.4");
+    const noYd = Object.assign({}, k650); delete noYd.fgm_yds;
+    const g1 = D.normSlp(noYd, false);
+    ok(g1.fg_made_yd === 94 && g1.fgApprox === true && D.score(g1, SC) === 8.4, "RVS1 fgm_yds dropped: rebuilt from fgm_yds_over_30 (34) + 30 x 2 long makes = 94 -> same 8.4, flagged fgApprox");
+    ok(Object.keys(g1).indexOf("fgApprox") === -1, "RVS1 the flag is non-enumerable (hasStats/KEYS loops never see it)");
+    const k1945 = { fgm: 2, fgm_20_29: 1, fgm_40_49: 1, fgm_yds_over_30: 13, xpm: 2 }; // real row 1945 minus fgm_yds (true 71)
+    ok(D.normSlp(k1945, false).fg_made_yd === 13 + 30 * 1 + 25 * 1, "RVS1 over_30 13 + 30 (one 30+ make) + 25 (one short make at its bucket midpoint) = 68 (true 71)");
+    const kBk = { fgm: 2, fgm_20_29: 1, fgm_40_49: 1, xpm: 2 };
+    ok(D.normSlp(kBk, false).fg_made_yd === 25 + 45, "RVS1 no over_30 either: bucket midpoints 25 + 45 = 70");
+    ok(D.normSlp({ fgm: 3, xpm: 1 }, false).fg_made_yd === 99, "RVS1 no distance fields at all: 33 per FG = 99");
+    ok(warns.length === 1 && /fgm_yds/.test(warns[0]), "RVS1 console.warn fires once per page, not per row (" + warns.length + " warn(s) for 4 guarded rows)");
+    ok(D.normSlp({ fgm: 0, xpm: 3 }, false).fg_made_yd === 0 && !D.normSlp({ fgm: 0, xpm: 3 }, false).fgApprox, "RVS1 an XP-only kicker (fgm 0, no fgm_yds - 4-5 per real week) is NOT flagged");
+  }
+
+  // ================= PU · push client, service worker, league token refresh =================
+  // 2026-10-04 push review. Five things the review found wrong, each asserted by what the code
+  // DOES, not by reading its source:
+  //   1. BuckyPush.disable() on a fresh page load never deleted the FCM token or the Firestore
+  //      token doc (it only did so when enable()/updateExtra() had already cached the SDK in
+  //      this page) — the league's "Turn off" left the phone subscribed, gfflTeam and all.
+  //   2. The league never re-ran enable() after login, so a rotated token went stale.
+  //   3. A corrupt buckyPushState threw out of status(), i.e. out of the Alerts card's render.
+  //   4. enable() awaited serviceWorker.register() BEFORE Notification.requestPermission(); on
+  //      iOS the prompt must come inside the user gesture.
+  //   5. firebase-messaging-sw.js used one tag for every push and focused the first window.
+  // The Firebase SDK is replaced with recording modules served in place of gstatic's, so the
+  // calls are observable; the page is real Chromium on the suite's static server.
+  if (section("PU · push-client disable/permission order/corrupt state, service-worker tags, league token refresh")) {
+    const FAKE_FB = {
+      app: `export function initializeApp(c, n) { (window.__fb = window.__fb || []).push({ op: "initializeApp", n }); return { n }; }`,
+      messaging: `const L = (o) => (window.__fb = window.__fb || []).push(o);
+        export function getMessaging(a) { L({ op: "getMessaging" }); return { a }; }
+        export async function getToken(m, o) { L({ op: "getToken", sw: !!(o && o.serviceWorkerRegistration) }); return "TOK-" + (window.__tok || "A"); }
+        export async function deleteToken(m) { L({ op: "deleteToken" }); return true; }`,
+      firestore: `const L = (o) => (window.__fb = window.__fb || []).push(o);
+        export function getFirestore(a) { return { a }; }
+        export function doc(db, c, i) { return { c, i }; }
+        export async function setDoc(r, d, o) { L({ op: "setDoc", c: r.c, i: r.i, d, o }); }
+        export async function deleteDoc(r) { L({ op: "deleteDoc", c: r.c, i: r.i }); }`,
+    };
+    const pcSrc = fs.readFileSync(path.join(ROOT, "push-client.js"), "utf8");
+    // A blank document on the suite's origin with push-client.js loaded fresh, and a localStorage
+    // state seeded BEFORE it loads — so nothing in the page has touched Firebase yet.
+    const pushPage = async (savedRaw) => {
+      const ctx = await browser.createBrowserContext();
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        const u = req.url();
+        const m = /gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|messaging|firestore)\.js$/.exec(u);
+        if (m) return req.respond({ status: 200, contentType: "text/javascript", headers: { "Access-Control-Allow-Origin": "*" }, body: FAKE_FB[m[1]] });
+        if (/gstatic|googleapis|firebase/.test(u)) return req.abort();
+        req.continue();
+      });
+      await page.goto(BASE + "/push-client.js");
+      await page.evaluate((raw) => {
+        if (raw != null) localStorage.setItem("buckyPushState", raw); else localStorage.removeItem("buckyPushState");
+        window.__order = [];
+        window.__perm = { resolve: null };
+        Notification.requestPermission = () => { window.__order.push("perm"); return new Promise((r) => { window.__perm.resolve = () => r("granted"); }); };
+        navigator.serviceWorker.register = () => { window.__order.push("register"); return Promise.resolve({ scope: "/" }); };
+      }, savedRaw == null ? null : savedRaw);
+      await page.addScriptTag({ content: pcSrc });
+      return { ctx, page, errors };
+    };
+    const fb = (page) => page.evaluate(() => window.__fb || []);
+
+    // ---- PU1: "Turn off" on a FRESH page really unsubscribes ----
+    {
+      const saved = JSON.stringify({ token: "T1", familyKey: "famx", user: "Peter", docId: "doc1", extra: { gfflTeam: 3 } });
+      const { ctx, page, errors } = await pushPage(saved);
+      ok((await fb(page)).length === 0, "PU1: the page starts with no Firebase module loaded (the review's exact precondition)");
+      const r = await page.evaluate(() => window.BuckyPush.disable());
+      const ops = await fb(page);
+      ok(r === true, "PU1: disable() answers true");
+      ok(ops.some((o) => o.op === "deleteToken"), "PU1: the FCM token was deleted (" + ops.map((o) => o.op).join(",") + ")");
+      ok(ops.some((o) => o.op === "deleteDoc" && o.c === "pushTokens_famx" && o.i === "doc1"),
+        "PU1: the Firestore token doc pushTokens_famx/doc1 — the one carrying gfflTeam — was deleted");
+      ok(ops.findIndex((o) => o.op === "getMessaging") < ops.findIndex((o) => o.op === "deleteToken"),
+        "PU1: the messaging instance was created BEFORE deleteToken used it");
+      ok((await page.evaluate(() => localStorage.getItem("buckyPushState"))) === null, "PU1: …and the local enrollment is cleared");
+      ok((await page.evaluate(() => window.BuckyPush.status().enabled)) === false, "PU1: status() reads not enabled afterwards");
+      ok(errors.length === 0, "PU1: 0 page errors");
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await pushPage(null);
+      const r = await page.evaluate(() => window.BuckyPush.disable());
+      ok(r === false && (await fb(page)).length === 0, "PU1b: with nothing enrolled, disable() is a no-op that touches no Firebase");
+      await ctx.close();
+    }
+
+    // ---- PU2: a corrupt buckyPushState never throws out of status() ----
+    for (const raw of ["{not json", "null", "42", "\"str\"", "[1,2]"]) {
+      const { ctx, page } = await pushPage(raw);
+      const r = await page.evaluate(() => {
+        let st = null, threw = false;
+        try { st = window.BuckyPush.status(); } catch (e) { threw = true; }
+        return { threw, enabled: st && st.enabled, extra: st && st.extra };
+      });
+      ok(r.threw === false && r.enabled === false && r.extra === null, "PU2: status() with state " + raw + " reads as not enrolled and does not throw (" + JSON.stringify(r) + ")");
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await pushPage("{not json");
+      const out = await page.evaluate(async () => {
+        let upd = null;
+        try { await window.BuckyPush.updateExtra({ gfflMutes: [] }); } catch (e) { upd = String(e.message); }
+        let dis = null;
+        try { dis = await window.BuckyPush.disable(); } catch (e) { dis = "threw: " + e.message; }
+        return { upd, dis, left: localStorage.getItem("buckyPushState") };
+      });
+      ok(/No push enrollment/.test(out.upd || ""), "PU2: updateExtra() on corrupt state rejects with the plain \"No push enrollment\" error (" + out.upd + ")");
+      ok(out.dis === true && out.left === null, "PU2: disable() on corrupt state still clears the key (so the Alerts card can recover)");
+      ok((await fb(page)).some((o) => o.op === "deleteToken") && !(await fb(page)).some((o) => o.op === "deleteDoc"),
+        "PU2: …deleting the token but, with no docId on record, no doc");
+      await ctx.close();
+    }
+
+    // ---- PU3: permission is requested before the service worker is registered ----
+    {
+      const { ctx, page, errors } = await pushPage(null);
+      await page.evaluate(() => { window.__enableP = window.BuckyPush.enable("Peter", "famx", null, { gfflTeam: 2, gfflMutes: ["moves"] }).then((r) => { window.__enabled = r; }, (e) => { window.__enableErr = String(e.message); }); });
+      await sleep(150);
+      let order = await page.evaluate(() => window.__order.slice());
+      ok(JSON.stringify(order) === '["perm"]', "PU3: while the permission prompt is still open, serviceWorker.register has NOT been called (" + JSON.stringify(order) + ")");
+      await page.evaluate(() => window.__perm.resolve());
+      await waitFnOr(page, () => window.__enabled || window.__enableErr);
+      order = await page.evaluate(() => window.__order.slice());
+      ok(JSON.stringify(order) === '["perm","register"]', "PU3: …and register runs after the grant (" + JSON.stringify(order) + ")");
+      const ops = await fb(page);
+      const sd = ops.find((o) => o.op === "setDoc");
+      ok(!!sd && sd.c === "pushTokens_famx" && sd.o && sd.o.merge === true && sd.d.gfflTeam === 2 && sd.d.user === "Peter" && sd.d.token === "TOK-A",
+        "PU3: the token doc is still written with merge:true, user, token and the league's gfflTeam (" + JSON.stringify(sd && sd.d) + ")");
+      const st = await page.evaluate(() => JSON.parse(localStorage.getItem("buckyPushState")));
+      ok(st && st.familyKey === "famx" && st.extra && st.extra.gfflTeam === 2 && st.docId === sd.i, "PU3: the saved enrollment carries familyKey, extra and the doc id");
+      ok(errors.length === 0, "PU3: 0 page errors");
+      await ctx.close();
+    }
+    {
+      // The family app's call shape (no extra): the doc has no gfflTeam and the same user/token fields.
+      const { ctx, page } = await pushPage(null);
+      await page.evaluate(() => { window.__enableP = window.BuckyPush.enable("Isaac", "famx").then((r) => { window.__enabled = r; }, (e) => { window.__enableErr = String(e.message); }); });
+      await sleep(100); await page.evaluate(() => window.__perm.resolve());
+      await waitFnOr(page, () => window.__enabled || window.__enableErr);
+      const sd = (await fb(page)).find((o) => o.op === "setDoc");
+      ok(!!sd && !("gfflTeam" in sd.d) && sd.d.user === "Isaac" && sd.o.merge === true, "PU3b: the family app's 2-arg enable() writes no gfflTeam and is otherwise unchanged");
+      await ctx.close();
+    }
+
+    // ---- PU4: the service worker — per-kind tag, and the window that matches the target ----
+    {
+      const swSrc = fs.readFileSync(path.join(ROOT, "firebase-messaging-sw.js"), "utf8");
+      const shown = [], listeners = {}, calls = { focus: [], navigate: [], open: [] };
+      let bg = null;
+      const mkClient = (id, url) => ({ id, url, focus: async () => { calls.focus.push(id); }, navigate: async (u) => { calls.navigate.push([id, u]); } });
+      let clientList = [];
+      const self_ = {
+        registration: { showNotification: (t, o) => shown.push({ t, o }) },
+        addEventListener: (type, fn) => { listeners[type] = fn; },
+        location: { origin: "https://goatfantasyleague.com" },
+      };
+      const firebase_ = { initializeApp() {}, messaging: () => ({ onBackgroundMessage: (fn) => { bg = fn; } }) };
+      const clients_ = { matchAll: async () => clientList, openWindow: async (u) => { calls.open.push(u); } };
+      new Function("self", "importScripts", "firebase", "clients", swSrc)(self_, () => {}, firebase_, clients_);
+      bg({ data: { title: "Farm", body: "work order", url: "/index.html" } });
+      bg({ data: { title: "Trade offer", body: "x", url: "https://goatfantasyleague.com/league.html#moves", tag: "gffl-trade" } });
+      bg({ data: { title: "Chat", body: "y", url: "https://goatfantasyleague.com/league.html", tag: "gffl-chat" } });
+      ok(shown[0].o.tag === "bucky-workorders", "PU4: a push with no tag (every family-app push) keeps the shared \"bucky-workorders\" tag — the farm app is unchanged");
+      ok(shown[1].o.tag === "gffl-trade" && shown[2].o.tag === "gffl-chat" && shown[1].o.tag !== shown[2].o.tag,
+        "PU4: a trade offer and a chat line carry different tags, so the chat cannot replace the unread offer");
+      ok(shown.every((s) => s.o.renotify === true), "PU4: renotify stays on");
+      const click = async (target) => {
+        calls.focus.length = 0; calls.navigate.length = 0; calls.open.length = 0;
+        let p = null;
+        listeners.notificationclick({ notification: { close() {}, data: { url: target } }, waitUntil: (x) => { p = x; } });
+        await p;
+      };
+      clientList = [mkClient("family", "https://goatfantasyleague.com/index.html"), mkClient("league", "https://goatfantasyleague.com/league.html#chat")];
+      await click("https://goatfantasyleague.com/league.html#moves");
+      ok(calls.focus.join() === "league" && calls.navigate.length === 1 && calls.navigate[0][0] === "league" && calls.navigate[0][1].endsWith("#moves"),
+        "PU4: with a family tab listed FIRST and the league window second, the league push focuses and navigates the LEAGUE window (" + JSON.stringify(calls) + ")");
+      clientList = [mkClient("family", "https://goatfantasyleague.com/index.html")];
+      await click("https://goatfantasyleague.com/league.html#moves");
+      ok(calls.focus.join() === "family" && calls.open.length === 0, "PU4: with no matching window it falls back to the first open one, as before");
+      clientList = [mkClient("a", "https://goatfantasyleague.com/index.html"), mkClient("b", "https://goatfantasyleague.com/games.html")];
+      await click("/index.html");
+      ok(calls.focus.join() === "a", "PU4: a farm push still lands on the farm window (relative target resolved against the worker's origin)");
+      clientList = [];
+      await click("https://goatfantasyleague.com/league.html");
+      ok(calls.open.join() === "https://goatfantasyleague.com/league.html" && calls.focus.length === 0, "PU4: with no window at all, one is opened");
+    }
+
+    // ---- PU5: the league heals its push token once per session ----
+    // BuckyPush is defined as an accessor the page's own push-client.js cannot overwrite, so the
+    // REAL boot path is what calls it.
+    const leaguePage = async ({ perm, extra, optout }) => {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await page.evaluateOnNewDocument((perm, extra, optout) => {
+        window.__pushCalls = [];
+        const stub = {
+          isSupported: () => true,
+          status: () => ({ supported: true, permission: perm, enabled: !!extra, user: "Peter", familyKey: "x", extra }),
+          enable: async (u, f, o, ex) => { window.__pushCalls.push({ u, f, o, extra: ex }); return { token: "T" }; },
+          disable: async () => true, updateExtra: async () => true,
+        };
+        Object.defineProperty(window, "BuckyPush", { configurable: true, get: () => stub, set: () => {} });
+        try { Object.defineProperty(Notification, "permission", { configurable: true, get: () => perm }); } catch (e) {}
+        if (optout) localStorage.setItem("gffl_pushoptout", "1");
+      }, perm, extra, !!optout);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      return { ctx, page, errors };
+    };
+    {
+      const { ctx, page, errors } = await leaguePage({ perm: "granted", extra: { gfflTeam: 1 } });
+      ok(await waitFnOr(page, () => window.__pushCalls.length >= 1), "PU5: booting the league on a granted, enrolled phone re-runs enable() without being asked");
+      const c = await page.evaluate(() => window.__pushCalls.slice());
+      ok(c.length === 1 && c[0].extra && c[0].extra.gfflTeam === 1 && JSON.stringify(c[0].extra.gfflMutes) === '["moves"]' && c[0].f === FAM && c[0].o === null,
+        "PU5: …with the SAME extra the login sends: gfflTeam 1 and the device's mute list (" + JSON.stringify(c[0]) + ")");
+      await evalOr(page, () => window.__GFFL__.UI._refreshPush());
+      await evalOr(page, () => window.__GFFL__.UI.boot());
+      await sleep(300);
+      ok((await page.evaluate(() => window.__pushCalls.length)) === 1, "PU5: a second call and a second boot() in the same page session do not re-enroll (once per session)");
+      ok(errors.length === 0, "PU5: 0 page errors");
+      await ctx.close();
+    }
+    for (const [label, opts] of [
+      ["permission not yet asked", { perm: "default", extra: { gfflTeam: 1 } }],
+      ["permission denied", { perm: "denied", extra: { gfflTeam: 1 } }],
+      ["a family-only enrollment (no gfflTeam)", { perm: "granted", extra: null }],
+      ["the sticky opt-out is set", { perm: "granted", extra: { gfflTeam: 1 }, optout: true }],
+    ]) {
+      const { ctx, page } = await leaguePage(opts);
+      await sleep(500);
+      ok((await page.evaluate(() => window.__pushCalls.length)) === 0, "PU5: no silent enroll when " + label + " — a heal must never prompt, re-add a device that opted out, or enrol a farm-only phone");
+      await ctx.close();
+    }
+
+    // ---- PU6: notify.mjs — one push per token, sends in parallel, per-kind tag, push log ----
+    // The stub Firestore is tools/_fakefs.mjs (refuses unmasked writes, JS-number integerValue,
+    // a precondition that does not hold). Hand counts are in each message.
+    {
+      const fakefs = await import(pathToFileURL(path.join(ROOT, "tools", "_fakefs.mjs")).href);
+      const realFetch = global.fetch;
+      const saved = { sa: process.env.FIREBASE_SERVICE_ACCOUNT, sec: process.env.BUCKY_NOTIFY_SECRET, to: process.env.NOTIFY_FETCH_TIMEOUT_MS };
+      const kp = require("crypto").generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({ client_email: "t@amen-farms-app.iam.gserviceaccount.com", private_key: kp.privateKey.export({ type: "pkcs8", format: "pem" }) });
+      process.env.BUCKY_NOTIFY_SECRET = "pu-secret";
+      process.env.NOTIFY_FETCH_TIMEOUT_MS = "400";
+      const BASE_DOC = "projects/amen-farms-app/databases/(default)/documents";
+      let store, fcm, delay, inflight, maxInflight, behavior;
+      const rows = [];
+      const addTok = (docId, token, team, user) => {
+        const f = { token: { stringValue: token } };
+        if (team != null) f.gfflTeam = { integerValue: String(team) };
+        if (user) f.user = { stringValue: user };
+        rows.push({ document: { name: BASE_DOC + "/pushTokens_pufam/" + docId, fields: f } });
+      };
+      const resp = (status, obj) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+      const deleted = [];
+      global.fetch = async (url, init) => {
+        const u = String(url);
+        init = init || {};
+        if (u.includes("oauth2.googleapis.com")) return resp(200, { access_token: "t", expires_in: 3600 });
+        if (u.includes("fcm.googleapis.com")) {
+          const body = JSON.parse(init.body);
+          fcm.push(body);
+          const b = behavior.get(body.message.token) || { status: 200, body: { name: "ok" } };
+          inflight++; maxInflight = Math.max(maxInflight, inflight);
+          await new Promise((r) => setTimeout(r, delay));
+          inflight--;
+          return resp(b.status, b.body);
+        }
+        if (u.includes(":runQuery")) return resp(200, rows);
+        const m = /\/documents\/(.+?)(\?|$)/.exec(u);
+        if (m) {
+          if ((init.method || "GET") === "DELETE" && /^pushTokens_/.test(m[1])) { deleted.push(m[1].split("/")[1]); return resp(200, {}); }
+          const r = fakefs.handleDoc(store, BASE_DOC, init.method || "GET", m[1], new URL(u).searchParams, init.body ? JSON.parse(init.body) : null);
+          return resp(r.status, r.body);
+        }
+        return resp(404, {});
+      };
+      const call = async (payload) => {
+        const mod = await import(pathToFileURL(path.join(ROOT, "netlify", "functions", "notify.mjs")).href + "?pu6=" + Date.now());
+        const req = new Request("http://x/.netlify/functions/notify", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ secret: "pu-secret", familyKey: "pufam", title: "T", body: "B", ...payload }) });
+        const res = await mod.default(req);
+        return res.json();
+      };
+      const reset6 = () => { store = fakefs.createStore(); fcm = []; delay = 0; inflight = 0; maxInflight = 0; behavior = new Map(); rows.length = 0; deleted.length = 0; };
+      const logOf = () => { const d = fakefs.getDocFields(store, "pushlog_pufam", String(new Date().getUTCFullYear())); return d ? fakefs.decode(d.entries) : []; };
+      try {
+        // dedupe + tag + log
+        reset6();
+        addTok("d1", "TOK_A", 1); addTok("d2", "TOK_A", 1); addTok("d3", "TOK_B", 5); addTok("d4", "TOK_C", null, "Dad");
+        const o1 = await call({ gfflAll: true, kind: "chat" });
+        ok(o1.sent === 2 && fcm.length === 2, "PU6: three league docs on two tokens -> two pushes; the family-only device is outside gfflAll (sent " + o1.sent + ", FCM calls " + fcm.length + ")");
+        ok(fcm.every((c) => c.message.data.tag === "gffl-chat"), "PU6: a league send with kind=chat carries tag gffl-chat");
+        ok(logOf().length === 2 && logOf().every((e) => e.kind === "chat") && logOf().map((e) => e.team).sort().join() === "1,5",
+          "PU6: the push log has one {kind:chat} entry per delivered token, teams 1 and 5 (" + JSON.stringify(logOf()) + ")");
+        ok(fakefs.getDocFields(store, "pushlog_pufam", String(new Date().getUTCFullYear())) !== null, "PU6: …in pushlog_<fam>/<year>, written by a masked PATCH (the fake refuses any other)");
+        // no kind (family push) -> no tag, no log
+        reset6(); addTok("d1", "TOK_A", 1, "Dad");
+        const o2 = await call({ targetUser: "Dad" });
+        ok(o2.sent === 1 && fcm[0].message.data.tag === undefined, "PU6: a family push (no kind) carries no tag, so the service worker keeps \"bucky-workorders\"");
+        ok(logOf().length === 0, "PU6: …and writes nothing to the league push log");
+        // dead shared token prunes every doc
+        reset6(); addTok("d1", "TOK_DEAD", 2); addTok("d2", "TOK_DEAD", 2);
+        behavior.set("TOK_DEAD", { status: 404, body: { error: { status: "UNREGISTERED" } } });
+        const o3 = await call({ gfflTeam: 2, kind: "trade" });
+        ok(o3.sent === 0 && o3.pruned === 2 && deleted.sort().join() === "d1,d2" && fcm.length === 1, "PU6: a dead token shared by two docs is sent once and both docs are pruned (" + JSON.stringify(o3) + ")");
+        // parallel and bounded
+        reset6();
+        for (let i = 0; i < 16; i++) addTok("p" + i, "TOK_P" + i, 1 + (i % 8));
+        delay = 120;
+        const t0 = Date.now();
+        const o4 = await call({ gfflAll: true, kind: "recap" });
+        const ms = Date.now() - t0;
+        ok(o4.sent === 16 && maxInflight > 1 && maxInflight <= 8, "PU6: 16 devices, sends overlap but never exceed 8 in flight (max " + maxInflight + ")");
+        ok(ms < 1500, "PU6: 16 sends x 120 ms finished in " + ms + " ms (a sequential loop is ~1920 ms)");
+        // cap: 299 old entries + 16 new -> 300, oldest dropped
+        reset6();
+        const old = Array.from({ length: 299 }, (_, i) => ({ mapValue: { fields: { t: { integerValue: String(1000 + i) }, kind: { stringValue: "old" }, team: { integerValue: "3" } } } }));
+        fakefs.putDoc(store, "pushlog_pufam", String(new Date().getUTCFullYear()), { entries: { arrayValue: { values: old } } });
+        addTok("c1", "TOK_C1", 1); addTok("c2", "TOK_C2", 2);
+        await call({ gfflAll: true, kind: "smack" });
+        const lg = logOf();
+        ok(lg.length === 300 && lg[0].t === 1001 && lg[299].kind === "smack", "PU6: the log is capped at 300 — 299 + 2 delivered = 301, the oldest dropped (" + lg.length + ")");
+      } finally {
+        global.fetch = realFetch;
+        for (const [k, v] of [["FIREBASE_SERVICE_ACCOUNT", saved.sa], ["BUCKY_NOTIFY_SECRET", saved.sec], ["NOTIFY_FETCH_TIMEOUT_MS", saved.to]]) {
+          if (v === undefined) delete process.env[k]; else process.env[k] = v;
+        }
+      }
+    }
+  }
+
+  // ======================================================================================
+  // FD · feeds (2026-10-04, review fixes: perf bottlenecks 2 and 7, data findings 3-5).
+  // Every expected number below is hand-computed from the fixture or the constant it names.
+  // ======================================================================================
+  const fdLog = (page) => {
+    const a = [];
+    page.on("request", (r) => {
+      const u = r.url();
+      let m;
+      if (/\/scoreboard(\?|$)/.test(u) && !u.includes("dates=")) a.push("sb");
+      else if ((m = /summary\?event=(\d+)/.exec(u))) a.push("sum:" + m[1]);
+      else if (u.endsWith("/players/nfl")) a.push("players");
+      else if (/\/stats\/nfl\//.test(u)) a.push("stats:" + u.split("/").slice(-3).join("/"));
+      else if (/\/projections\/nfl\//.test(u)) a.push("proj");
+      else if (u.endsWith("/state/nfl")) a.push("state");
+    });
+    return a;
+  };
+  const fdN = (a, pfx) => a.filter((k) => k === pfx || k.startsWith(pfx + ":")).length;
+  const fdTicks = (page, n) => page.waitForFunction((n) => { const D = window.__GFFL__.D; return D.S.tickN >= n && !D.S.tickBusy; }, { timeout: 15000 }, n);
+  const fdAbbrevs = ["DAL", "PHI", "KC", "DEN", "SF", "SEA"];
+
+  // FD1 · a game that has not kicked off is never fetched; one that flips to "in" is, on that tick.
+  if (section("FD1 · feeds — no summary request for a pre game")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    fixture.pregame = true; fixture.pregameState = "pre";
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await stopPolling(page);
+    await page.evaluate((ab) => { const D = window.__GFFL__.D; D.trackTeams(ab); D.S.fetchedFinal = new Set(); }, fdAbbrevs);
+    log.length = 0;
+    // Slate: 401900001 DAL/PHI "in", 401900002 KC/DEN "pre", 401900777 SF/SEA "pre". 3 full ticks.
+    for (let i = 0; i < 3; i++) await poll(page);
+    ok(fdN(log, "sum:401900001") === 3, "the live game is fetched on every full tick: 3 ticks x 1 = 3 (" + fdN(log, "sum:401900001") + ")");
+    ok(fdN(log, "sum:401900002") === 0 && fdN(log, "sum:401900777") === 0,
+      "…and the two games still pre get NO summary request: 0 + 0 (" + fdN(log, "sum:401900002") + " + " + fdN(log, "sum:401900777") + ")");
+    ok(fdN(log, "sum") === 3, "…so 3 ticks cost exactly 3 summary requests, not the 9 they used to (" + fdN(log, "sum") + ")");
+    fixture.pregameState = "in";
+    log.length = 0;
+    await poll(page);
+    ok(fdN(log, "sum:401900777") === 1, "SF/SEA flips to in: its summary is read on that very tick (1) (" + fdN(log, "sum:401900777") + ")");
+    fixture.pregameState = "post";
+    log.length = 0;
+    await poll(page); await poll(page);
+    ok(fdN(log, "sum:401900777") === 1, "…and once it is final its box is read exactly once more, then never again: 2 ticks = 1 (" + fdN(log, "sum:401900777") + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.pregame = false; fixture.pregameState = "pre";
+  }
+
+  // FD2 · D.tickPlan — the idle cadence, hand-computed against a pinned league clock.
+  if (section("FD2 · feeds — idle tick plan (cadence + Sleeper skip)")) {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await stopPolling(page);
+    const plans = await page.evaluate(() => {
+      const { D, LG } = window.__GFFL__;
+      const T0 = Date.UTC(2026, 8, 13, 12, 0, 0);
+      LG.nowOverride = T0;
+      const MIN = 60000;
+      const iso = (m) => new Date(T0 + m * MIN).toISOString();
+      const run = (games, extra) => {
+        D.S.games = new Map(games.map((g, i) => [g.ab || ("T" + i), { eventId: g.id || ("e" + i), state: g.state, kickoff: g.k == null ? "" : iso(g.k) }]));
+        D.S.tracked = new Set(games.filter((g) => g.tr).map((g) => g.ab));
+        D.S.fetchedFinal = new Set(games.filter((g) => g.fin).map((g) => g.id));
+        D.S.lastLiveAt = (extra && extra.lastLive) || 0;
+        const p = D.tickPlan(); return p.mode + "/" + p.delay + "/" + p.sleeper;
+      };
+      const pre = (k) => ({ state: "pre", k });
+      const out = {
+        k10: run([pre(10)]), k15: run([pre(15)]), k16: run([pre(16)]), k17: run([pre(17)]), k30: run([pre(30)]),
+        k10h: run([pre(600)]), two: run([pre(40), pre(18)]),
+        post: run([pre(30), { state: "post", k: -300, ab: "NYG", id: "g1" }]),
+        postTrackedUnread: run([pre(30), { state: "post", k: -300, ab: "KC", id: "g1", tr: true }]),
+        postTrackedRead: run([pre(30), { state: "post", k: -300, ab: "KC", id: "g1", tr: true, fin: true }]),
+        live: run([{ state: "in", k: -60 }, pre(30)]),
+        due: run([pre(-60)]), postponed: run([pre(-240)]), none: run([]),
+      };
+      const now = Date.now();
+      out.settle10 = run([pre(30)], { lastLive: now - 10 * MIN });
+      out.settle25 = run([pre(30)], { lastLive: now - 25 * MIN });
+      LG.nowOverride = null;
+      return out;
+    });
+    // delay = clamp(minutes-to-next-kickoff - 15, 1 min, 5 min); "normal" = 60 s full tick.
+    ok(plans.k10 === "normal/60000/true", "kickoff in 10 min: normal 60 s full tick (" + plans.k10 + ")");
+    ok(plans.k15 === "normal/60000/true", "kickoff in exactly 15 min: still normal (" + plans.k15 + ")");
+    ok(plans.k16 === "idle/60000/false", "kickoff in 16 min: idle, but the next tick lands at kickoff-15 = 1 min, no stats (" + plans.k16 + ")");
+    ok(plans.k17 === "idle/120000/false", "kickoff in 17 min: next tick in 17-15 = 2 min (" + plans.k17 + ")");
+    ok(plans.k30 === "idle/300000/false", "kickoff in 30 min: 30-15 = 15 min, capped at the 5 min idle tick (" + plans.k30 + ")");
+    ok(plans.k10h === "idle/300000/false", "kickoff in 10 hours: 5 min tick (" + plans.k10h + ")");
+    ok(plans.two === "idle/180000/false", "two pre games +40 and +18 min: the nearer one rules, 18-15 = 3 min (" + plans.two + ")");
+    ok(plans.post === "idle/300000/true", "a final game on the slate keeps Sleeper stats in (post-final correction path), at the 5 min cadence (" + plans.post + ")");
+    ok(plans.postTrackedUnread === "normal/60000/true", "a tracked final whose box has not been read yet holds the 60 s cadence (" + plans.postTrackedUnread + ")");
+    ok(plans.postTrackedRead === "idle/300000/true", "…and backs off once that box is read (" + plans.postTrackedRead + ")");
+    ok(plans.live === "live/8000/true", "a game in progress: live, 8 s (" + plans.live + ")");
+    ok(plans.due === "normal/60000/true", "a pre game whose kickoff was 60 min ago (feed lag) reads as due: normal (" + plans.due + ")");
+    ok(plans.postponed === "idle/300000/false", "a pre game 4 h past kickoff (postponed) neither pins the loop nor reads as due (" + plans.postponed + ")");
+    ok(plans.none === "idle/300000/false", "an empty slate: idle (" + plans.none + ")");
+    ok(plans.settle10 === "normal/60000/true", "a game ended 10 min ago: inside the 20 min settle window, normal (" + plans.settle10 + ")");
+    ok(plans.settle25 === "idle/300000/false", "…25 min ago: settled, idle (" + plans.settle25 + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // FD3 · the real loop: idle ticks skip Sleeper stats and back off; foreground resumes.
+  if (section("FD3 · feeds — the loop backs off when idle and resumes on wake")) {
+    fixture.feedsSlate = [{ id: "401900901", home: "KC", away: "DEN", state: "pre", date: KICK_FUTURE }];
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await fdTicks(page, 1);
+    ok(fdN(log, "stats") === 1 && fdN(log, "sb") >= 1, "tick 0 is always a full tick: one Sleeper stats fetch at boot (" + fdN(log, "stats") + ")");
+    const base = { sb: fdN(log, "sb"), stats: fdN(log, "stats") };
+    const delay0 = await page.evaluate(() => window.__GFFL__.D.S.lastDelay);
+    ok(delay0 === 300000, "all games pre and kickoff months away: the next tick is armed 5 min out = 300000 ms (" + delay0 + ")");
+    for (let i = 2; i <= 4; i++) {
+      await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+      await fdTicks(page, i);
+    }
+    ok(fdN(log, "sb") - base.sb === 3, "3 more idle ticks fetch the scoreboard each time: +3 (" + (fdN(log, "sb") - base.sb) + ")");
+    ok(fdN(log, "stats") - base.stats === 0, "…and ZERO Sleeper stats requests (" + (fdN(log, "stats") - base.stats) + ")");
+    ok(fdN(log, "sum") === 0, "…and no ESPN summaries at all (" + fdN(log, "sum") + ")");
+    await page.evaluate(() => { window.__GFFL__.D.S.wakeAt = 0; });
+    const woke = await page.evaluate(() => window.__GFFL__.D.wake());
+    await fdTicks(page, 5);
+    ok(woke === true && fdN(log, "stats") - base.stats === 1, "foreground (wake) runs a FULL tick at once: +1 stats request (" + (fdN(log, "stats") - base.stats) + ")");
+    // A final game on the slate (neither team in this league) keeps stats flowing at the idle cadence.
+    fixture.feedsSlate = [{ id: "401900901", home: "KC", away: "DEN", state: "pre", date: KICK_FUTURE },
+      { id: "401900902", home: "NYG", away: "NE", state: "post", date: "2026-09-13T17:00Z" }];
+    const b2 = fdN(log, "stats");
+    // The plan for a tick is read from the games the PREVIOUS tick left behind, so the first tick
+    // after the slate changes still skips Sleeper (it saw all-pre) and the second one reads it.
+    await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+    await fdTicks(page, 6);
+    ok(fdN(log, "stats") - b2 === 0, "the tick that first SEES a final game still ran on the old all-pre plan: +0 stats (" + (fdN(log, "stats") - b2) + ")");
+    await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+    await fdTicks(page, 7);
+    const d2 = await page.evaluate(() => window.__GFFL__.D.S.lastDelay);
+    ok(fdN(log, "stats") - b2 === 1 && fdN(log, "sum") === 0 && d2 === 300000,
+      "once a game is final, an idle tick still reads Sleeper stats (corrections) and stays at 300000 ms: +1 stats, 0 summaries (" + (fdN(log, "stats") - b2) + ", " + fdN(log, "sum") + ", " + d2 + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.feedsSlate = null;
+  }
+
+  // FD4 · the Sleeper directory: deferred, cached slim in IndexedDB, refreshed off the tick.
+  if (section("FD4 · feeds — players directory: deferred, slim IndexedDB cache, never awaited by the tick")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.playersDelayMs = 0;
+    const nDir = Object.values(slpDirectoryFix()).filter((p) => p && typeof p === "object").length;
+    // ---- cold boot (nothing cached)
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await waitFnOr(page, () => window.__GFFL__.D.S.slpPlayers && window.__GFFL__.D.S.slpPlayers.size > 0, 9000);
+    const iP = log.indexOf("players"), iS = log.indexOf("sb"), iJ = log.indexOf("proj");
+    ok(fdN(log, "players") === 1, "cold boot fetches the directory once (" + fdN(log, "players") + ")");
+    ok(iS >= 0 && iJ >= 0 && iP > iS && iP > iJ, "…and only AFTER the first scoreboard and the projections were requested (order idx sb " + iS + ", proj " + iJ + ", players " + iP + ")");
+    await sleep(400);
+    const rec = await page.evaluate(async () => { const r = await window.__GFFL__.D.dirCacheLoad(); return r ? { n: r.metas.length, at: r.at, keys: Object.keys(r.metas[0]).sort().join(",") } : null; });
+    ok(rec && rec.n === nDir, "the slim copy is in IndexedDB: " + nDir + " entries, one per directory player (" + (rec && rec.n) + ")");
+    ok(rec && rec.keys === "depth,depthPos,espn_id,injury,injuryCarried,name,nflStatus,pid,pos,searchRank,team",
+      "…holding only the 11 fields the app reads, not the raw dump (" + (rec && rec.keys) + ")");
+    ok(rec && Math.abs(Date.now() - rec.at) < 120000, "…stamped with the wall-clock time it was taken");
+    const sizeCold = await page.evaluate(() => window.__GFFL__.D.S.slpPlayers.size);
+
+    // ---- second boot, same browser profile: cache used, nothing downloaded
+    log.length = 0;
+    await page.reload({ waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.slpPlayers, { timeout: 9000 });
+    await fdTicks(page, 1);
+    await sleep(500);
+    const b = await page.evaluate(() => { const D = window.__GFFL__.D; return { size: D.S.slpPlayers.size, fromCache: D.S.dirFromCache === true, gen: D.S.injDirGen, ready: !!D.S.slpByEspn.size }; });
+    ok(fdN(log, "players") === 0, "second boot (copy under an hour old): 0 downloads of /players/nfl (" + fdN(log, "players") + ")");
+    ok(b.fromCache && b.size === sizeCold && b.ready && b.gen === 1, "…the directory came from the cache with identical content: " + sizeCold + " players, generation 1 (" + JSON.stringify(b) + ")");
+
+    // ---- stale copy (2 h old, one man marked Out): used immediately, then refreshed in the background
+    await page.evaluate(async () => {
+      const D = window.__GFFL__.D; const r = await D.dirCacheLoad();
+      const m = r.metas.find((x) => x.pos === "RB"); m.injury = "Out"; m.injuryCarried = true; window.__fdPid = m.pid;
+      await D.dirCacheSave(r.metas, Date.now() - 2 * 3600000);
+    });
+    const pid = await page.evaluate(() => window.__fdPid);
+    log.length = 0;
+    await page.reload({ waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.slpPlayers, { timeout: 9000 });
+    await page.waitForFunction(() => window.__GFFL__.D.S.injDirGen >= 2, { timeout: 9000 });
+    const st = await page.evaluate((pid) => { const D = window.__GFFL__.D; return { inj: D.S.slpPlayers.get(pid).injury, gen: D.S.injDirGen, age: Date.now() - D.S.injDirAt }; }, pid);
+    ok(fdN(log, "players") === 1 && log.indexOf("players") > log.indexOf("sb"),
+      "a 2 h old copy is refreshed once, after the first scoreboard request (players x" + fdN(log, "players") + ", idx " + log.indexOf("players") + " vs sb " + log.indexOf("sb") + ")");
+    ok(st.inj === "" && st.gen === 2 && st.age < 120000, "…and the fresh dump replaced the stale Out: injury \"\", generation 2, copy age < 2 min (" + JSON.stringify(st) + ")");
+
+    // ---- the tick never waits for the refresh
+    await stopPolling(page);
+    fixture.playersDelayMs = 4000;
+    log.length = 0;
+    const tk = await page.evaluate(async () => {
+      const D = window.__GFFL__.D; D.S.injDirRefreshedAt = 0;
+      const t0 = performance.now(); await D.pollOnce(); const ms = performance.now() - t0;
+      const inFlight = D.S.injDirInFlight === true;
+      await D.pollOnce(); // a second tick while the first download is still stalled
+      return { ms: Math.round(ms), inFlight };
+    });
+    ok(tk.ms < 2000 && tk.inFlight, "an hourly-due refresh with a 4 s stall does not hold the tick: pollOnce returned in " + tk.ms + " ms (< 2000) with the download still in flight");
+    ok(fdN(log, "players") === 1, "…and a second tick does not stack a second download (" + fdN(log, "players") + ")");
+    await page.waitForFunction(() => !window.__GFFL__.D.S.injDirInFlight, { timeout: 9000 });
+    fixture.playersDelayMs = 0;
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+
+    // ---- cold boot on a slow link: the scoreboard is on the board long before the directory lands
+    const cold = await newTestPage(browser, fullSeed());
+    fixture.playersDelayMs = 3000;
+    const t0c = Date.now(); // not bootPage: its networkidle0 would wait out the stalled download itself
+    await cold.page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+    await cold.page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.games.size > 0, { timeout: 9000 });
+    const gamesAt = Date.now() - t0c;
+    const dirThen = await cold.page.evaluate(() => !!window.__GFFL__.D.S.slpPlayers);
+    ok(gamesAt < 2500 && dirThen === false,
+      "first launch, directory stalled 3 s: the scoreboard slate is in memory without it (" + gamesAt + " ms after navigation, directory present " + dirThen + ")");
+    await cold.page.waitForFunction(() => window.__GFFL__.D.S.slpPlayers, { timeout: 9000 });
+    fixture.playersDelayMs = 0;
+    await cold.ctx.close();
+
+    // ---- no IndexedDB at all: the cold path still works
+    const p2 = await newTestPage(browser, fullSeed());
+    await p2.page.evaluateOnNewDocument(() => { try { Object.defineProperty(window, "indexedDB", { value: undefined, configurable: true }); } catch (e) {} });
+    const log2 = fdLog(p2.page);
+    await bootPage(p2.page);
+    await waitFnOr(p2.page, () => window.__GFFL__.D.S.slpPlayers && window.__GFFL__.D.S.slpPlayers.size > 0, 9000);
+    ok(fdN(log2, "players") === 1 && (await p2.page.evaluate(() => window.__GFFL__.D.S.slpPlayers.size)) === nDir,
+      "with IndexedDB unavailable the directory still loads from the network (" + nDir + " players)");
+    ok(p2.errors.length === 0, "0 page errors without IndexedDB");
+    await p2.ctx.close();
+  }
+
+  // FD5 · D.weekStats: the just-finished weeks expire, older weeks do not.
+  if (section("FD5 · feeds — weekStats TTL on the recent weeks only")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await stopPolling(page);
+    log.length = 0;
+    const r = await page.evaluate(async () => {
+      const { D, LG } = window.__GFFL__;
+      const H = 3600000, o = { season: String(LG.SEASON), seasonType: "regular" };
+      LG.nowOverride = LG.weekStart(4) + H; // league week 4: weeks 3 and 4 are "recent", 1 and 2 are not
+      const key = (w) => o.season + "|regular|" + w;
+      D._weekStatsCache.clear(); // boot may already have cached a week under the week-1 clock
+      for (const w of [1, 3]) await D.weekStats(w, o);
+      const at = {}; for (const w of [1, 3]) at[w] = D._weekStatsCache.get(key(w)).at;
+      for (const w of [1, 3]) await D.weekStats(w, o); // inside the TTL: no fetch
+      for (const w of [1, 3]) D._weekStatsCache.get(key(w)).at -= 7 * H; // 7 h old, TTL is 6 h
+      const m1 = await D.weekStats(1, o), m3 = await D.weekStats(3, o);
+      const out = { ttl: D.WEEK_STATS_TTL_MS, w1Same: D._weekStatsCache.get(key(1)).at === at[1] - 7 * H, w3Fresh: D._weekStatsCache.get(key(3)).at > at[3],
+        got: !!m1 && !!m3 };
+      // a failed re-fetch of an expired recent week keeps the old numbers (stale beats nothing)
+      D._weekStatsCache.get(key(3)).at -= 7 * H;
+      return out;
+    });
+    fixture.sleeperDown = true;
+    const kept = await page.evaluate(async () => {
+      const { D, LG } = window.__GFFL__;
+      const m = await D.weekStats(3, { season: String(LG.SEASON), seasonType: "regular" });
+      return !!m && m.size > 0;
+    });
+    fixture.sleeperDown = false;
+    ok(r.ttl === 6 * 3600000, "the TTL is 6 h of wall clock (" + r.ttl + ")");
+    ok(fdN(log, "stats:regular/2026/3") === 3, "week 3 (recent): fetched at first use, NOT inside the TTL, then again once 7 h old, then a 3rd time for the failure case = 3 (" + fdN(log, "stats:regular/2026/3") + ")");
+    ok(fdN(log, "stats:regular/2026/1") === 1 && r.w1Same, "week 1 (older than last week): fetched once and kept for the session even when 7 h old = 1 (" + fdN(log, "stats:regular/2026/1") + ")");
+    ok(r.w3Fresh && r.got, "…and the re-fetched recent week got a new timestamp and still resolves a map");
+    ok(kept === true, "a failed re-fetch of an expired recent week still returns the old map, not null");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // FDM · MEASURE run, not a check: GFFL_FEEDS_REAL=<dir> serves real-size Sleeper bodies through a
+  // modelled 1.5 MB/s FIFO link (see fdLink) and prints first-scoreboard time and idle bytes/min.
+  // Prints "MEASURE ..." lines only; it asserts nothing, so it can never turn the suite red.
+  if (process.env.GFFL_FEEDS_REAL && section("FDM · feeds — measurement (needs GFFL_FEEDS_REAL)")) {
+    fixture.realFeeds = process.env.GFFL_FEEDS_REAL;
+    const m = (k, v) => console.log("  MEASURE " + k + " " + v);
+    const first = (kind) => { const e = fdWire.log.find((x) => x.kind === kind); return e ? e.t : -1; };
+    const resetWire = () => { fdWire.log = []; fdWire.free = 0; fdWire.t0 = Date.now(); };
+    // ---- A: first launch (nothing cached), then B: second launch in the same profile
+    fixture.feedsSlate = [{ id: "401900901", home: "KC", away: "DEN", state: "pre", date: KICK_FUTURE },
+      { id: "401900902", home: "DAL", away: "PHI", state: "pre", date: KICK_FUTURE },
+      { id: "401900903", home: "SF", away: "SEA", state: "pre", date: KICK_FUTURE }];
+    const { ctx, page } = await newTestPage(browser, fullSeed());
+    resetWire();
+    await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.games.size > 0 && window.__GFFL__.D.S.slpProj, { timeout: 120000 });
+    await sleep(500);
+    const lastCold = () => fdWire.log.reduce((a, x) => Math.max(a, x.t), 0);
+    m("cold.firstScoreboardMs", first("scoreboard"));
+    m("cold.projectionsMs", first("proj"));
+    await page.waitForFunction(() => window.__GFFL__.D.S.slpPlayers, { timeout: 120000 });
+    await sleep(500);
+    m("cold.playersDoneMs", first("players"));
+    m("cold.wireBytes", fdWire.log.reduce((a, x) => a + x.wire, 0));
+    await sleep(1500);
+    resetWire();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.games.size > 0 && window.__GFFL__.D.S.slpProj, { timeout: 120000 });
+    await sleep(500);
+    m("warm.firstScoreboardMs", first("scoreboard"));
+    m("warm.projectionsMs", first("proj"));
+    await page.waitForFunction(() => window.__GFFL__.D.S.tickN >= 1 && !window.__GFFL__.D.S.tickBusy, { timeout: 120000 });
+    await sleep(1500);
+    m("warm.playersRequests", fdWire.log.filter((x) => x.kind === "players").length);
+    m("warm.wireBytes", fdWire.log.reduce((a, x) => a + x.wire, 0));
+    // ---- C: idle, 10 ticks, per-minute cost = bytes / (sum of the delays the loop actually armed)
+    resetWire();
+    let minutes = 0;
+    await page.evaluate(() => { window.__GFFL__.D.S.tracked = new Set(["KC", "DEN", "DAL", "PHI", "SF", "SEA"]); });
+    for (let i = 0; i < 10; i++) {
+      const n0 = await page.evaluate(() => window.__GFFL__.D.S.tickN);
+      await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+      await page.waitForFunction((n) => { const D = window.__GFFL__.D; return D.S.tickN > n && !D.S.tickBusy; }, { timeout: 120000 }, n0);
+      const d = await page.evaluate(() => window.__GFFL__.D.S.lastDelay);
+      minutes += (d || 60000) / 60000; // old code has no lastDelay: its idle tick is a fixed 60 s
+    }
+    const wire = fdWire.log.reduce((a, x) => a + x.wire, 0);
+    const cnt = (k) => fdWire.log.filter((x) => x.kind === k).length;
+    m("idle.ticks", 10); m("idle.minutesCovered", minutes);
+    m("idle.requests", JSON.stringify({ scoreboard: cnt("scoreboard"), stats: cnt("stats"), summary: cnt("summary") }));
+    m("idle.wireKBperMin", Math.round(wire / 1024 / minutes));
+    m("idle.requestsPerMin", (fdWire.log.length / minutes).toFixed(2));
+    await ctx.close();
+    fixture.realFeeds = null; fixture.feedsSlate = null;
+  }
+
+  if (section("UI1 · UI review fixes — tap targets, card names, waiver run line, early win card, out-starter swap-in, trade fits")) {
+  // 2026-10-04 UI review. Every expected number below is hand-computed in the comment above its
+  // check, from the fixture, not read back from the app.
+  function uiSeed() {
+    const s = seedWithWeeklyHistory();
+    const docs = { ...s.docs };
+    // W. Two (DEN, WR starter) is Out; W. Receiver (PHI, WR starter, game under way in this
+    // fixture) is Out too, to prove the locked case offers no swap. H. Healthy is the one
+    // eligible bench WR (I. Injured is Out himself).
+    const r1 = JSON.parse(JSON.stringify(docs["roster_2026_w1_t1"]));
+    for (const p of r1.players) {
+      if (p.name === "W. Two") p.injury = "Out";
+      if (p.name === "W. Receiver") p.injury = "Out";
+    }
+    docs["roster_2026_w1_t1"] = r1;
+    // Trade-fits rosters: the league starts 3 WR; team 2 carries 4, team 3 carries 5.
+    const wr = (n, team, i) => ({ key: "ui" + n + i, name: "UI WR " + n + i, pos: "WR", team, slot: i < 3 ? "WR" : "BENCH" });
+    docs["roster_2026_w1_t2"] = { kind: "roster", week: 1, teamId: 2, players: [
+      { key: "222111", name: "Q. Rival", pos: "QB", team: "DAL", slot: "QB" }, wr(2, "DAL", 0), wr(2, "DAL", 1), wr(2, "DAL", 2), wr(2, "DAL", 3)] };
+    docs["roster_2026_w1_t3"] = { kind: "roster", week: 1, teamId: 3, players: [0, 1, 2, 3, 4].map((i) => wr(3, "DEN", i)) };
+    return { ...s, docs };
+  }
+  const SEC_DAY = 24 * 3600 * 1000;
+  for (const vw of [{ width: 375, height: 812 }, { width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const W = vw.width;
+    const { ctx, page, errors } = await newTestPage(browser, uiSeed(), { vw });
+    await bootPage(page);
+    await waitOr(page, ".mucard", 12000);
+    await waitLive(page);
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_league_" + W + ".png"), fullPage: false });
+    const sideways = () => evalOr(page, () => document.documentElement.scrollWidth - window.innerWidth);
+    // ---- League: a name that does not fit its box shows the abbreviation; one that fits stays whole.
+    const fit = await evalOr(page, () => {
+      const UI = window.__GFFL__.UI;
+      const el = document.querySelector(".muteamname[data-abbr]");
+      const box = (e) => { const cs = getComputedStyle(e); return e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); };
+      const ink = (e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect().width; };
+      // every name currently on a card: nothing is cut (its ink fits its box)
+      const all = [...document.querySelectorAll(".muteamname[data-abbr]")];
+      const clipped = all.filter((e) => ink(e) > box(e) + 0.5).map((e) => e.textContent);
+      // force a long name: it must collapse to the abbreviation at a phone, and stay whole where it fits
+      const abbr = el.dataset.abbr;
+      el.dataset.full = "THE MAGNIFICENT SEVEN SPRINGS CHAMPIONS OF EVERYTHING";
+      UI.fitCardNames();
+      const longShown = el.textContent, longTitle = el.title;
+      el.dataset.full = "AB";
+      UI.fitCardNames();
+      const shortShown = el.textContent;
+      return { n: all.length, clipped, abbr, longShown, longTitle, shortShown };
+    });
+    ok(fit && fit.n >= 2 && fit.clipped.length === 0, "UI1 " + W + "px: no score-card name is cut off (" + JSON.stringify(fit && fit.clipped) + ", " + (fit && fit.n) + " names)");
+    ok(fit && fit.longShown === fit.abbr && /MAGNIFICENT/.test(fit.longTitle) && fit.shortShown === "AB",
+      "…a 52-letter name collapses to its abbreviation (" + (fit && fit.abbr) + ") with the full name in the title; a 2-letter name stays whole");
+
+    // ---- Waiver line: pure arithmetic, DST-safe. SEASON_START 2026-09-08 (Tue): week 4's Wednesday is
+    // Sep 30 08:00 CDT = 13:00Z, week 5's Oct 7 08:00 CDT = 13:00Z, week 9's Nov 4 08:00 CST = 14:00Z
+    // (Nov 1 fell back), week 8's Oct 28 08:00 CDT = 13:00Z.
+    if (W === 390) {
+      const line = await evalOr(page, (a, b, c, d) => {
+        const f = window.__GFFL__.UI.waiverRunLine;
+        return [f(a, 4), f(b, 4), f(c, 9), f(d, 18)];
+      }, Date.UTC(2026, 9, 4, 12), Date.UTC(2026, 9, 6, 20), Date.UTC(2026, 10, 3, 15), Date.UTC(2027, 0, 7));
+      // Oct 4 12:00Z: ran Sep 30 8:00 AM, next Oct 7 8:00 AM, 4d 1h away -> no countdown
+      ok(line && line[0] === "Ran Wed Sep 30, 8:00 AM CT · Next: Wed Oct 7, 8:00 AM CT", "waiver line after Wednesday's run, more than a day out: " + (line && line[0]));
+      // Oct 6 20:00Z -> Oct 7 13:00Z = 17h 0m
+      ok(line && line[1] === "Ran Wed Sep 30, 8:00 AM CT · Next: Wed Oct 7, 8:00 AM CT · in 17h 0m", "…under 24 h away it counts down: 17h 0m (" + (line && line[1]) + ")");
+      // week 9 (Nov 4 14:00Z) seen from Nov 3 15:00Z: 23h 0m — a naive +7d from 13:00Z would say 22h
+      ok(line && line[2] === "Next: Wed Nov 4, 8:00 AM CT · in 23h 0m", "…across the Nov 1 fall-back the next run is still 8:00 AM Central: 23h 0m (" + (line && line[2]) + ")");
+      ok(line && !/Next/.test(line[3]) && /^Ran Wed/.test(line[3]), "…after the last week's run there is no \"Next\" (" + (line && line[3]) + ")");
+    }
+
+    // ---- Matchup: tap targets, and the early-week card.
+    await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+    await waitOr(page, "#muWeekNav", 9000);
+    await waitOr(page, "#muHead", 9000);
+    const early = await evalOr(page, () => {
+      const c = document.getElementById("muWp");
+      return { has: !!document.getElementById("muWpEarly"), txt: c ? c.textContent.replace(/\s+/g, " ").trim() : null };
+    });
+    // Zero starters played or playing is the early-week state; the fixture's Sunday slate is under way, so no early card here.
+    ok(early && early.has === false, "UI1 " + W + "px: with a game under way the win-% card is not the early \"No games yet\" card (" + JSON.stringify(early) + ")");
+    // Nothing started: stub D.remaining to "nobody played, nobody playing", repaint. The card then says so and shows the projected
+    // totals the header carries (the fixture's: away 0.0, home 45.5) instead of a one-point line.
+    const eg = await evalOr(page, async () => {
+      const UI = window.__GFFL__.UI, D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+      const keep = D.remaining;
+      D.remaining = () => ({ played: 0, playing: 0, left: 9 });
+      await UI.renderMatchup(true);
+      D.remaining = keep;
+      const c = document.getElementById("muWpEarly");
+      const projs = [...document.querySelectorAll(".muhproj")].map((x) => x.textContent.trim());
+      const tag = (id) => { const t = LG.teamById(id); return t.abbrev || t.name; };
+      return { txt: c ? c.textContent.replace(/\s+/g, " ").trim() : null, projs, away: tag(UI.matchup[1]), home: tag(UI.matchup[0]), svg: !!(c && c.querySelector("svg")) };
+    });
+    ok(eg && eg.txt === "No games yet " + eg.away + " " + eg.projs[0] + " projected · " + eg.home + " " + eg.projs[1] + " projected" && eg.svg === false,
+      "…with nothing started it says \"No games yet\" and the projected totals, no flat line (" + JSON.stringify(eg) + ")");
+    await evalOr(page, () => window.__GFFL__.UI.renderMatchup(true));
+const sz = await evalOr(page, () => {
+      const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; };
+      return { prev: r("#muPrev"), next: r("#muNext"), sw: [...document.querySelectorAll(".muswitch")].map((e) => Math.round(e.getBoundingClientRect().height)) };
+    });
+    ok(sz && sz.prev[0] >= 44 && sz.prev[1] >= 44 && sz.next[0] >= 44 && sz.next[1] >= 44, "…the week arrows are at least 44x44 (" + JSON.stringify(sz && [sz.prev, sz.next]) + ")");
+    ok(sz && (sz.sw.length === 0 || sz.sw.every((h) => h >= 44)), "…the pairing chips are at least 44 high (" + JSON.stringify(sz && sz.sw) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_matchup_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on the matchup page");
+
+    // ---- My Team: the Out starter gets a flag + one-tap swap; the locked one gets a flag only.
+    await evalOr(page, () => window.__GFFL__.UI.show("team"));
+    await waitOr(page, ".lrow", 9000);
+    await waitOr(page, ".lflag", 9000);
+    const flags = await evalOr(page, () => [...document.querySelectorAll("#lockerStarters .lflag")].map((f) => ({
+      flag: f.dataset.flag, txt: f.textContent.replace(/\s+/g, " ").trim(), btn: !!f.querySelector(".swapin"),
+      prev: f.previousElementSibling && f.previousElementSibling.querySelector(".lname b").textContent })));
+    const two = (flags || []).find((f) => f.prev === "W. Two"), rec = (flags || []).find((f) => f.prev === "W. Receiver");
+    ok(flags && flags.length === 2 && two && two.btn && /^Out Swap in H\. Healthy WR/.test(two.txt),
+      "UI1 " + W + "px: W. Two (Out) is flagged with \"Swap in H. Healthy\" — the only eligible bench WR; I. Injured is Out himself (" + JSON.stringify(two && two.txt) + ")");
+    ok(rec && !rec.btn && /game has started/.test(rec.txt), "…W. Receiver (Out, game started) is flagged with no swap offered (" + JSON.stringify(rec && rec.txt) + ")");
+    const tap = await evalOr(page, () => {
+      const rows = [...document.querySelectorAll("#lockerStarters .lrow")];
+      const swp = (n) => { const r = rows.find((x) => x.textContent.includes(n)); const b = r && r.querySelector(".lswap"), d = r && r.querySelector(".ldrop"); return b && d ? { sw: [b.getBoundingClientRect().width, b.getBoundingClientRect().height], dr: [d.getBoundingClientRect().width, d.getBoundingClientRect().height], gap: d.getBoundingClientRect().left - b.getBoundingClientRect().right } : null; };
+      const pen = document.getElementById("lockerEditToggle");
+      let penHit = null;
+      if (pen) {
+        const b = pen.getBoundingClientRect();
+        // 6px outside every edge of the 30px disc is still the pencil
+        penHit = [[b.left - 6, b.top + b.height / 2], [b.right + 6, b.top + b.height / 2], [b.left + b.width / 2, b.top - 6], [b.left + b.width / 2, b.bottom + 6]]
+          .map(([x, y]) => document.elementFromPoint(x, y) === pen || pen.contains(document.elementFromPoint(x, y)));
+      }
+      return { p: swp("P. Passer"), penHit, minName: Math.min(...rows.filter((r) => r.querySelector(".linfo")).map((r) => Math.round(r.querySelector(".lname").clientWidth))) };
+    });
+    ok(tap && tap.p && tap.p.sw[1] >= 44 && tap.p.dr[0] >= 44 && tap.p.dr[1] >= 44 && tap.p.gap >= 8,
+      "…Swap and Drop are each 44 high, Drop 44 wide, 8px or more from Swap (" + JSON.stringify(tap && tap.p) + ")");
+    ok(!tap || !tap.penHit || tap.penHit.every(Boolean), "…the edit pencil's hit area reaches 6px past its disc on every side (" + JSON.stringify(tap && tap.penHit) + ")");
+    if (W < 700) ok(tap && tap.minName >= 140, "…the lineup name column keeps AD8's 140px floor (" + (tap && tap.minName) + "px)");
+    // best-bench choice by projection, with a stubbed projFor (the bench: H. Healthy 111777 WR, I. Injured Out, B. Backup RB)
+    const best = await evalOr(page, () => {
+      const UI = window.__GFFL__.UI, D = window.__GFFL__.D;
+      const keep = D.projFor;
+      const bench = [{ key: "b1", pos: "WR", team: "DEN", name: "B One" }, { key: "b2", pos: "WR", team: "DEN", name: "B Two" }, { key: "b3", pos: "RB", team: "DEN", name: "B Three" }];
+      const proj = { b1: 7.5, b2: 12.25, b3: 30 };
+      D.projFor = (k) => (k in proj ? proj[k] : keep(k));
+      const wrBest = UI._bestSwapIn("WR", bench), flexBest = UI._bestSwapIn("FLEX", bench), teBest = UI._bestSwapIn("TE", bench);
+      D.projFor = keep;
+      // issue detection: injury designation, and bye only off a populated slate of this week
+      const issue = { out: UI._starterIssue({ key: "x", pos: "WR", team: "DEN", injury: "Out" }), q: UI._starterIssue({ key: "x", pos: "WR", team: "DEN", injury: "Questionable" }),
+        ir: UI._starterIssue({ key: "x", pos: "RB", team: "DEN", injury: "IR" }), bye: UI._starterIssue({ key: "x", pos: "WR", team: "MIA" }),
+        dst: UI._starterIssue({ key: "dst_MIA", pos: "DST", team: "MIA" }), play: UI._starterIssue({ key: "x", pos: "WR", team: "DEN" }) };
+      return { wr: wrBest && wrBest.key, flex: flexBest && flexBest.key, te: teBest && teBest.key, issue };
+    });
+    // WR slot: b2 (12.25) beats b1 (7.5); b3 is an RB. FLEX takes any RB/WR/TE: b3 (30) wins. No TE on this bench.
+    ok(best && best.wr === "b2" && best.flex === "b3" && best.te === null, "…best bench pick is the highest projection that fits the slot: WR -> 12.25 not 7.5, FLEX -> the 30.0 RB, TE -> nobody (" + JSON.stringify(best && [best.wr, best.flex, best.te]) + ")");
+    ok(best && best.issue.out === "Out" && best.issue.q === "" && best.issue.ir === "IR" && best.issue.bye === "Bye" && best.issue.dst === "" && best.issue.play === "",
+      "…Out and IR are flagged, Questionable is not, a team off this week's slate is a Bye (not a D/ST), a player with a game is clear (" + JSON.stringify(best && best.issue) + ")");
+    await evalOr(page, () => document.querySelector(".swapin").scrollIntoView({ block: "center" }));
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_teamflag_" + W + ".png"), fullPage: false });
+    // the tap: the existing swap, nobody else moved
+    await evalOr(page, () => document.querySelector(".swapin").click());
+    const swapped = await waitFnOr(page, () => {
+      const st = document.querySelector("#lockerStarters"), bn = document.querySelector("#lockerBench");
+      return !!st && !!bn && st.textContent.includes("H. Healthy") && bn.textContent.includes("W. Two");
+    });
+    const doc = await evalOr(page, (k) => JSON.parse(localStorage.getItem(k)), LSPFX + "roster_2026_w1_t1") || { players: [] };
+    const slotOf = (n) => (doc.players.find((p) => p.name === n) || {}).slot;
+    ok(swapped && slotOf("H. Healthy") === "WR" && slotOf("W. Two") === "BENCH" && slotOf("W. Receiver") === "WR" && slotOf("I. Injured") === "BENCH" && slotOf("F. Flexman") === "FLEX",
+      "…one tap swaps exactly those two (H. Healthy to WR, W. Two to the bench) and nobody else (" + JSON.stringify(["H. Healthy", "W. Two", "W. Receiver", "I. Injured", "F. Flexman"].map(slotOf)) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_team_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on My Team");
+
+    // ---- Rosters: jump-chip tap size, a "you" dot instead of a red outline, and Trade fits.
+    // Synthetic Rest-of-season inputs run through the REAL LG.powerRosBoard (rules: QB1 RB2 WR2 TE1 K1 DST1, no FLEX/bench slots,
+    // bench weight 0.25, depth 3, no games played -> rating = roster):
+    //   team1 (me): QB20 RB10,10 WR5,5 TE8 K7 DST6, no bench          -> WR room 10
+    //   team2: QB15 RB12,12 WR15,15 +WR14 bench TE8 K7 DST6           -> WR room 30 + .25*14 = 33.5
+    //   team3: QB10 RB8,8 WR9,9 +WR8,7 bench TE5 K5 DST5              -> WR room 18 + .25*(8+7) = 21.75
+    // WR ranks: team2 1st, team3 2nd, team1 3rd of 3 -> my weakest room is WR (the others rank 1st or 2nd with 3 teams).
+    // Team 2 holds 4 WR for the league's 3 WR slots, team 3 holds 5: both are fits, ordered by their WR rank.
+    await evalOr(page, () => {
+      const LG = window.__GFFL__.LG;
+      const real = LG.powerRosBoard;
+      const P = (key, pos, slot) => ({ key, pos, slot });
+      const val = { };
+      const mk = (id, list) => list.map(([pos, v, slot], i) => { const k = "t" + id + pos + i; val[k] = v; return P(k, pos, slot); });
+      const active = {
+        1: mk(1, [["QB", 20, "QB"], ["RB", 10, "RB"], ["RB", 10, "RB"], ["WR", 5, "WR"], ["WR", 5, "WR"], ["TE", 8, "TE"], ["K", 7, "K"], ["DST", 6, "DST"]]),
+        2: mk(2, [["QB", 15, "QB"], ["RB", 12, "RB"], ["RB", 12, "RB"], ["WR", 15, "WR"], ["WR", 15, "WR"], ["WR", 14, "BENCH"], ["TE", 8, "TE"], ["K", 7, "K"], ["DST", 6, "DST"]]),
+        3: mk(3, [["QB", 10, "QB"], ["RB", 8, "RB"], ["RB", 8, "RB"], ["WR", 9, "WR"], ["WR", 9, "WR"], ["WR", 8, "BENCH"], ["WR", 7, "BENCH"], ["TE", 5, "TE"], ["K", 5, "K"], ["DST", 5, "DST"]]),
+      };
+      LG.powerRosBoard = () => real({ teams: [{ id: 1, pf: 0, w: 0, l: 0, t: 0 }, { id: 2, pf: 0, w: 0, l: 0, t: 0 }, { id: 3, pf: 0, w: 0, l: 0, t: 0 }],
+        active, valueOf: (k) => val[k], rules: { QB: 1, RB: 2, WR: 2, TE: 1, K: 1, DST: 1, FLEX: 0, BENCH: 6, IR: 2 }, odds: null, lastRanks: null });
+      window.__uiRealRos = real;
+    });
+    await evalOr(page, () => window.__GFFL__.UI.show("rosters"));
+    await waitOr(page, "#rsJump", 9000);
+    await waitOr(page, "#rsFits", 9000);
+    const rs = await evalOr(page, () => {
+      const chips = [...document.querySelectorAll("#rsJump button")];
+      const mine = document.querySelector("#rsJump button.mine");
+      const cs = mine && getComputedStyle(mine), af = mine && getComputedStyle(mine, "::after");
+      const fits = [...document.querySelectorAll("#rsFits .rsfit")].map((f) => ({ team: Number(f.dataset.team), txt: f.querySelector(".mut").textContent.replace(/\s+/g, " ").trim(), h: f.querySelector(".rsfitgo").getBoundingClientRect().height }));
+      const other = chips.find((c) => !c.classList.contains("mine"));
+      return { n: chips.length, minH: Math.min(...chips.map((c) => Math.round(c.getBoundingClientRect().height))),
+        mineBorder: cs && cs.borderTopColor, otherBorder: getComputedStyle(other).borderTopColor, dot: af && af.content, dotBg: af && af.backgroundColor,
+        title: mine && mine.title, head: document.querySelector("#rsFits p").textContent.replace(/\s+/g, " ").trim(), fits };
+    });
+    ok(rs && (W >= 700 || rs.minH >= 44), "UI1 " + W + "px: the Rosters jump chips are at least 44 high (" + (rs && rs.minH) + ")");
+    ok(rs && rs.mineBorder === rs.otherBorder && rs.dot !== "none" && rs.title === "Your team",
+      "…your own chip has the same outline as the rest, and a small dot instead (" + (rs && [rs.mineBorder, rs.otherBorder, rs.dot]) + ")");
+    ok(rs && rs.head.startsWith("Your WR room is 3rd of 3.") && rs.fits.length === 2
+      && rs.fits[0].team === 2 && rs.fits[0].txt === "4 WR for 3 slots · 1st at WR"
+      && rs.fits[1].team === 3 && rs.fits[1].txt === "5 WR for 3 slots · 2nd at WR" && rs.fits.every((f) => f.h >= 44),
+      "…Trade fits names the weakest room (WR, 3rd of 3) and the two teams with extra WRs, best WR room first (" + JSON.stringify(rs && [rs.head, rs.fits]) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_rosters_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on Rosters");
+    await evalOr(page, () => document.querySelector("#rsFits [data-trade=\"3\"]").click());
+    const went = await waitFnOr(page, () => !!document.getElementById("mvTradeCard"));
+    const cp = await evalOr(page, () => { const s = document.querySelector("#mvTradeCard select"); return { cp: window.__GFFL__.UI._tradeCp, sel: s && s.value, view: window.__GFFL__.UI.view }; });
+    ok(went && cp && cp.cp === 3 && String(cp.sel) === "3" && cp.view === "moves", "…\"Start a trade\" opens the Moves trade builder with team 3 picked (" + JSON.stringify(cp) + ")");
+
+    // ---- Moves: waiver run line is on the page, placeholder fits, filter chips are tall enough.
+    await waitOr(page, "#faSearch", 9000);
+    await waitOr(page, "#mvRunLine", 9000);
+    const mv = await evalOr(page, () => {
+      const inp = document.getElementById("faSearch");
+      const sp = document.createElement("span"); const cs = getComputedStyle(inp);
+      sp.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:" + cs.font + ";letter-spacing:" + cs.letterSpacing;
+      sp.textContent = inp.placeholder; document.body.appendChild(sp);
+      const w = sp.getBoundingClientRect().width; sp.remove();
+      const box = inp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      return { ph: inp.placeholder, w, box, chipH: Math.min(...[...document.querySelectorAll("#faPosChips .poschip, #faFilterChips .poschip")].map((c) => Math.round(c.getBoundingClientRect().height))),
+        run: document.getElementById("mvRunLine").textContent.trim(), runVisible: document.getElementById("mvRunLine").offsetParent !== null };
+    });
+    ok(mv && mv.ph === "Search players…" && mv.w <= mv.box, "UI1 " + W + "px: the search placeholder fits its box (" + (mv && [mv.ph, Math.round(mv.w), Math.round(mv.box)]) + ")");
+    ok(mv && mv.chipH >= 44, "…the Moves filter chips are at least 44 high (" + (mv && mv.chipH) + ")");
+    ok(mv && mv.runVisible && /Next: \w{3} \w{3} \d+, \d+:\d\d [AP]M CT/.test(mv.run), "…the waiver card says when the next run is (" + (mv && mv.run) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_moves_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on Moves");
+
+    // ---- Chat: the small pills keep their look but their hit area is 44 high.
+    await evalOr(page, () => window.__GFFL__.UI.show("chat"));
+    await waitOr(page, ".chatcompose", 9000);
+    const chat = await evalOr(page, () => {
+      const host = document.createElement("div");
+      host.innerHTML = '<div class="chatActions" style="position:relative;z-index:50;margin:40px 0"><button class="chatReply" type="button">Reply</button><button class="chatDel" type="button">Delete</button></div><div style="height:80px"></div>';
+      document.getElementById("main").appendChild(host); host.scrollIntoView({ block: "center" });
+      const out = [...host.querySelectorAll("button")].map((b) => {
+        const r = b.getBoundingClientRect(), cx = r.left + r.width / 2;
+        // 10px above and below the visible 22px pill is inside a 44px hit area
+        const dn = document.elementFromPoint(cx, r.bottom + 10);
+        return { h: Math.round(r.height), up: document.elementFromPoint(cx, r.top - 10) === b, down: dn === b, dn: dn && (dn.tagName + "." + dn.className + "#" + dn.id), y: Math.round(r.bottom + 10), vh: innerHeight };
+      });
+      const img = document.querySelector('[id$="ImgBtn"]');
+      host.remove();
+      return { out, img: img ? Math.round(img.getBoundingClientRect().height) : null };
+    });
+    ok(chat && chat.out.length === 2 && chat.out.every((b) => b.h <= 34 && b.up && b.down), "UI1 " + W + "px: chat Reply/Delete stay small but are tappable 10px above and below (" + JSON.stringify(chat && chat.out) + ")");
+    ok(chat && (chat.img == null || chat.img >= 44), "…the photo button is at least 44 high (" + (chat && chat.img) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_chat_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on Chat");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_chat_" + W + ".png"), fullPage: false });
+    ok(errors.length === 0, "0 page errors (" + W + "px) " + errors.join(" | "));
+    await ctx.close();
+  }
+  }
+
+  // ENG1 · engine review fixes that reach the screen: the standings are ranked with ties as half a win and the
+  // tiebreak rule is printed under the table; the Rules view states it too. (The engine itself is covered, faster
+  // and without Chrome, by tools/_verify-core.cjs.)
+  if (section("ENG1 · standings ranked by win% with ties, tiebreak rule printed under the table")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    // HAND-COMPUTED two finalized weeks (8 teams, 4 games a week).
+    //   wk1: 1-2 tie 100/100 · 3 beat 4 120-60 · 5 beat 6 100-90 · 7 beat 8 90-80
+    //   wk2: 1 beat 4 90-50 · 6 beat 2 85-80 · 3 beat 5 130-100 · 8 beat 7 95-90
+    //   T3 2-0 (1.0) · T1 1-0-1 (.75, pf 190) · T5 1-1 (.5, pf 200) · T7 1-1 (.5, pf 180) · T6 1-1 (.5, pf 175)
+    //   · T8 1-1 (.5, pf 175) · T2 0-1-1 (.25) · T4 0-2 (0).
+    //   The .5 group {5,6,7,8} has pairs that never met (5 v 7), so head-to-head does not apply and PF decides:
+    //   5 (200), 7 (180), then 6 and 8 level on 175 -> team id.
+    //   The OLD wins-then-PF sort ranked T1 (one win, pf 190) BELOW T5 (one win, pf 200): [3, 5, 1, 7, 6, 8, 2, 4].
+    const wk = (n, ms) => ({ kind: "weekly", week: n, matchups: ms.map(([home, away, homePts, awayPts]) => ({ home, away, homePts, awayPts })),
+      awards: {}, power: [1, 2, 3, 4, 5, 6, 7, 8].map((id, i) => ({ teamId: id, rank: i + 1, score: 100 - i * 4 })), accuracy: null, finalizedAt: 1000 + n });
+    const s = fullSeed();
+    s.docs.weekly_2026_w1 = wk(1, [[1, 2, 100, 100], [3, 4, 120, 60], [5, 6, 100, 90], [7, 8, 90, 80]]);
+    s.docs.weekly_2026_w2 = wk(2, [[1, 4, 90, 50], [2, 6, 80, 85], [3, 5, 130, 100], [7, 8, 90, 95]]);
+    for (const vw of [{ width: 1440, height: 980 }, { width: 390, height: 844 }]) {
+      const { ctx, page, errors } = await newTestPage(browser, s, { vw });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => { window.__GFFL__.UI.week = 2; window.__GFFL__.UI.show("league"); });
+      await waitFnOr(page, () => !!document.querySelector(".standcard .standtbl tbody tr"));
+      const got = (await evalOr(page, () => ({
+        order: [...document.querySelectorAll(".standcard .standtbl tbody tr .teamlink")].map((e) => Number(e.dataset.locker)),
+        note: ((document.querySelector(".standcard .standrule") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+        under: (() => { const n = document.querySelector(".standcard .standrule"), t = document.querySelector(".standcard .standtbl"); return !!(n && t && (t.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)); })(),
+      }))) || {};
+      ok(JSON.stringify(got.order) === JSON.stringify([3, 1, 5, 7, 6, 8, 2, 4]), "ENG1 (" + vw.width + "px) standings order: T3 2-0, T1 1-0-1 above the 1-1 teams (a tie is half a win), then PF 200/180, then 175 level -> id (" + JSON.stringify(got.order) + ")");
+      ok(got.note === "Ranked by win % (a tie counts as half a win), then head-to-head record among the tied teams, then points for." && got.under === true,
+        "ENG1 (" + vw.width + "px) one line under the table names the applied order (" + JSON.stringify(got.note) + ")");
+      ok(errors.length === 0, "ENG1 0 page errors (" + vw.width + "px)");
+      if (vw.width === 1440) {
+        await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+        await waitFnOr(page, () => /regular season/.test(document.body.textContent));
+        const rl = await evalOr(page, () => document.body.textContent.replace(/\s+/g, " "));
+        ok(/14-week regular season, double round robin\. Ranked by win % \(a tie counts as half a win\), then head-to-head/.test(rl || ""),
+          "ENG1 the Rules view states the tiebreak order beside the schedule line");
+      }
+      await ctx.close();
+    }
+  }
+
+  // ---- BTP · boot / perf pass (2026-10-04): logos out of the team list, the version file,
+  // self-hosted fonts, conditional refreshes, the chat poll's manners.
+  // Hand-computed expectations throughout; fixtures are shaped like the live service (typed
+  // `fields`, an updateTime on every doc, projections that DROP what they don't name).
+  if (section("BTP · boot/perf — thumbs not logos in team reads, version file, fonts, conditional refresh, chat poll")) {
+    const fsx = require("fs");
+    const PNG1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const SENT = "FULLLOGOSENTINEL";
+    const fullLogo = (n) => PNG1 + SENT + "A".repeat(60000) + "#" + n; // ~60 KB, like a real 512px JPEG data URI
+    const thumbOf = (n) => PNG1 + "#thumb" + n;                         // what the migration/upload leaves on the team doc
+    // post-migration league: thumbs on the team docs, full pictures in their own docs
+    const migratedDocs = () => {
+      const docs = JSON.parse(JSON.stringify(fullSeed().docs));
+      for (let i = 1; i <= 8; i++) {
+        docs["team_" + i].logoThumb = thumbOf(i); docs["team_" + i].logoCut = i === 3;
+        docs["teamlogo_" + i] = { kind: "teamlogo", teamId: i, logoData: fullLogo(i), t: 1 };
+      }
+      return docs;
+    };
+    // pre-migration league: the full picture inline on the team doc, no thumb (production today)
+    const legacyDocs = () => {
+      const docs = JSON.parse(JSON.stringify(fullSeed().docs));
+      for (let i = 1; i <= 8; i++) docs["team_" + i].logoData = fullLogo(i);
+      return docs;
+    };
+    const restBoot = async (docs, seedOpts) => {
+      const R = restFixture(docs);
+      const t = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter", ...(seedOpts || {}) }, { rest: R });
+      await t.page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(t.page, ".mucard", 15000);
+      return { R, ...t };
+    };
+
+    // ---- (1) static: the version file, the meta and the ?v= strings are ONE value.
+    {
+      const html = fsx.readFileSync(path.join(ROOT, "league.html"), "utf8");
+      const file = fsx.readFileSync(path.join(ROOT, "gffl-version.txt"), "utf8");
+      const meta = (html.match(/<meta name="gffl-v" content="([^"]+)"/) || [])[1];
+      const qv = [...html.matchAll(/assets\/league\/lg-(?:core|data|ui)\.js\?v=([A-Za-z0-9]+)/g)].map((m) => m[1]);
+      ok(/^[A-Za-z0-9]+\n?$/.test(file) && file.length <= 32, "gffl-version.txt is one bare token (" + JSON.stringify(file) + ") — a ~10 byte file, not a page");
+      ok(!!meta && file.trim() === meta, "…and it equals the gffl-v meta (" + file.trim() + " / " + meta + ") — a bump that forgets the file would strand every installed copy on the old build");
+      ok(qv.length === 3 && qv.every((v) => v === meta), "…and all three ?v= strings (" + qv.join(",") + ") — the three values move together or the stale-copy check is lying");
+      ok(/fetch\("\/gffl-version\.txt\?n="/.test(html) && !/fetch\("\/league\.html/.test(html),
+        "the standalone head check fetches the version file and no longer the 58 KB league.html");
+      const ui = fsx.readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
+      ok(/fetch\("\/gffl-version\.txt\?n="/.test(ui) && !/fetch\("\/league\.html/.test(ui), "…and so does UI.checkAppFresh (every foreground)");
+    }
+
+    // ---- (2) static: fonts are self-hosted, nothing render-blocking comes from Google.
+    {
+      const html = fsx.readFileSync(path.join(ROOT, "league.html"), "utf8");
+      ok(!/<link[^>]+fonts\.(googleapis|gstatic)\.com/.test(html), "league.html has no <link> to fonts.googleapis.com / fonts.gstatic.com — the render-blocking CSS is gone");
+      const faces = [...html.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
+      ok(faces.length === 4, "four @font-face rules: Barlow Condensed 500/600/700 and one Inter variable file (" + faces.length + ")");
+      ok(faces.every((f) => /font-display:\s*swap/.test(f)), "…all font-display:swap");
+      const files = faces.map((f) => (f.match(/url\(([^)]+)\)/) || [])[1]);
+      ok(files.every((f) => f && fsx.existsSync(path.join(ROOT, f)) && fsx.statSync(path.join(ROOT, f)).size > 10000), "…each pointing at a real woff2 under assets/fonts/ (" + files.join(", ") + ")");
+      const w = faces.map((f) => (f.match(/font-weight:\s*([0-9 ]+);/) || [])[1].trim());
+      ok(w.join("|") === "500|600|700|400 700", "…covering exactly the weights league.html loaded from Google before: 500/600/700 and Inter 400-700 (" + w.join("|") + ")");
+      const pre = [...html.matchAll(/<link rel="preload" href="([^"]+)" as="font" type="font\/woff2" crossorigin>/g)].map((m) => m[1]);
+      ok(pre.length === 2 && pre.every((f) => files.includes(f)), "the two above-the-fold faces (Barlow 700, Inter) are preloaded, crossorigin (" + pre.join(", ") + ")");
+      const toml = fsx.readFileSync(path.join(ROOT, "netlify.toml"), "utf8");
+      ok(/for = "\/assets\/fonts\/\*"\s*\n\s*\[headers\.values\]\s*\n\s*Cache-Control = "public, max-age=31536000, immutable"/.test(toml), "netlify.toml serves /assets/fonts/* immutable for a year (a launch no longer revalidates four font files)");
+      ok(/for = "\/gffl-version\.txt"\s*\n\s*\[headers\.values\]\s*\n\s*Cache-Control = "no-cache, no-store, must-revalidate"/.test(toml), "…and /gffl-version.txt is never cacheable (a cached answer is the bug it exists to catch)");
+      ok(/<link rel="preconnect" href="https:\/\/firestore\.googleapis\.com" crossorigin>/.test(html), "<link rel=preconnect> to firestore.googleapis.com, crossorigin — the first request is a 3-RTT handshake on a phone");
+    }
+
+    // ---- (3) the self-hosted faces really load in the page, from this origin.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      const fontReqs = [];
+      page.on("request", (r) => { if (/\.woff2(\?|$)/.test(r.url())) fontReqs.push(r.url().replace(BASE, "")); });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await sleep(600);
+      const st = await page.evaluate(async () => {
+        await document.fonts.ready;
+        return [...document.fonts].map((f) => f.family.replace(/"/g, "") + " " + f.weight + " " + f.status).sort();
+      });
+      ok(st.length === 4 && st.every((x) => /loaded$|unloaded$/.test(x)) && st.some((x) => /^Inter 400 700 loaded$/.test(x)),
+        "document.fonts carries the four self-hosted faces and Inter is LOADED (" + st.join("; ") + ")");
+      ok(fontReqs.length >= 2 && fontReqs.every((u) => u.startsWith("/assets/fonts/")), "…fetched from /assets/fonts/ on the same origin (" + fontReqs.join(", ") + ")");
+      const measured = await page.evaluate(() => {
+        // The suite measures REAL fonts: a Range over a heading must be wider in the loaded Barlow Condensed
+        // than in the generic fallback the stack would otherwise use, and the face must report as loaded.
+        const el = document.querySelector("h1, h2, .mucard") || document.body;
+        return { fam: getComputedStyle(el).fontFamily.slice(0, 60), ok: document.fonts.check('700 16px "Barlow Condensed"') && document.fonts.check('400 16px "Inter"') };
+      });
+      ok(measured.ok === true, "…and document.fonts.check() agrees both families are usable now (" + measured.fam + ")");
+      ok(errors.length === 0, "0 page errors with self-hosted fonts");
+      await ctx.close();
+    }
+
+    // ---- (4) the standalone launch asks for the version file, not league.html.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      const urls = [];
+      page.on("request", (r) => urls.push(r.url().replace(BASE, "")));
+      await page.evaluateOnNewDocument(() => { Object.defineProperty(navigator, "standalone", { configurable: true, get() { return true; } }); });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 15000);
+      const ver = urls.filter((u) => u.startsWith("/gffl-version.txt"));
+      const html = urls.filter((u) => /^\/league\.html\?n=/.test(u));
+      ok(ver.length === 1 && html.length === 0, "a home-screen launch makes ONE request for /gffl-version.txt and none for league.html?n= (" + ver.length + "/" + html.length + ")");
+      ok(errors.length === 0, "0 page errors on a standalone launch");
+      await ctx.close();
+    }
+
+    // ---- (5) thumb generation: 96 px max side, webp, small; transparency survives.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      const r = (await evalOr(page, async () => {
+        const mk = (w, h, alpha) => { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; const c = cv.getContext("2d");
+          if (!alpha) { c.fillStyle = "#1f9d55"; c.fillRect(0, 0, w, h); } c.fillStyle = "#d81f26"; c.fillRect(w / 4, h / 4, w / 2, h / 2); return cv.toDataURL(alpha ? "image/png" : "image/jpeg", 0.9); };
+        const dims = (u) => new Promise((res) => { const i = new Image(); i.onload = () => {
+          const cv = document.createElement("canvas"); cv.width = i.width; cv.height = i.height; const c = cv.getContext("2d"); c.drawImage(i, 0, 0);
+          res({ w: i.width, h: i.height, corner: [...c.getImageData(0, 0, 1, 1).data] }); }; i.src = u; });
+        const sq = await window.__GFFL__.UI.makeLogoThumb(mk(512, 512, false));
+        const wide = await window.__GFFL__.UI.makeLogoThumb(mk(288, 192, true));
+        return { sq: { len: sq.length, mime: sq.slice(0, 15), ...(await dims(sq)) }, wide: { len: wide.length, mime: wide.slice(0, 15), ...(await dims(wide)) } };
+      })) || { sq: { w: 0, h: 0, len: 0 }, wide: { w: 0, h: 0, len: 0, corner: [0, 0, 0, 255] } }; // no hook = every check below fails, not a crash
+      ok(r.sq.w === 96 && r.sq.h === 96, "a 512x512 logo thumbs to 96x96 (" + r.sq.w + "x" + r.sq.h + ")");
+      ok(r.wide.w === 96 && r.wide.h === 64, "a 288x192 logo thumbs to 96x64 — aspect kept, long side 96 (" + r.wide.w + "x" + r.wide.h + ")");
+      ok(r.sq.len > 0 && r.sq.len <= 14000 && r.wide.len <= 14000, "…each inside the 14000-char thumb budget (" + r.sq.len + " / " + r.wide.len + ") against 60-110 KB originals");
+      ok(r.wide.corner[3] === 0, "…and a cut-out's empty corner is still transparent in the thumb (alpha " + r.wide.corner[3] + ")");
+      ok(errors.length === 0, "0 page errors making thumbs");
+      await ctx.close();
+    }
+
+    // ---- (6) the migration script: dry-run by default, writes only behind --write, in the safe order.
+    {
+      const mig = fsx.readFileSync(path.join(ROOT, "tools", "_gffl_logo_thumbs.mjs"), "utf8");
+      const ui = fsx.readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
+      ok(/const WRITE = process\.argv\.includes\("--write"\)/.test(mig) && /if \(!WRITE\) \{ console\.log\("\\nDry run/.test(mig),
+        "tools/_gffl_logo_thumbs.mjs is a DRY RUN unless --write is on the command line");
+      const writes = [...mig.matchAll(/method: "PATCH"|method: 'PATCH'/g)].length;
+      ok(writes === 1 && mig.indexOf("if (!WRITE)") > 0 && mig.indexOf("if (!WRITE)") < mig.indexOf("await send(logoReq)"),
+        "…its single PATCH call site is reached only after the dry-run return (" + writes + " PATCH site)");
+      ok(mig.indexOf("gffl_backup_logos_") > 0 && mig.indexOf("writeFileSync(path.join(dir, `team_${p.id}.json`)") < mig.indexOf("await send(logoReq)"),
+        "…the backup of every team doc is written BEFORE the first PATCH");
+      ok(mig.indexOf("await send(logoReq)") < mig.indexOf("await send(teamReq)"), "…the full picture lands in teamlogo_<id> (and is read back) BEFORE logoData is removed from the team doc");
+      ok(/updateMask\.fieldPaths="/.test(mig) && /\["logoThumb", "logoCut", "logoData"\]/.test(mig) && /currentDocument\.updateTime/.test(mig),
+        "…the team PATCH is masked to logoThumb/logoCut/logoData only and carries an updateTime precondition");
+      const num = (src, n) => Number((src.match(new RegExp("const THUMB_DIM = (\\d+), THUMB_CAP = (\\d+)")) || [0, 0, 0])[n]);
+      ok(num(mig, 1) === num(ui, 1) && num(mig, 2) === num(ui, 2) && num(ui, 1) === 96 && num(ui, 2) === 14000,
+        "…and its THUMB_DIM/THUMB_CAP (" + num(mig, 1) + "/" + num(mig, 2) + ") are the uploader's (" + num(ui, 1) + "/" + num(ui, 2) + ")");
+    }
+
+    // ---- (7) post-migration boot over the wire: no full logo in any boot response, thumbs in the slots.
+    {
+      const { R, ctx, page, errors } = await restBoot(migratedDocs());
+      const served = R.served || [];
+      const withFull = served.filter((x) => x.body.includes(SENT));
+      ok(served.length > 5 && withFull.length === 0, "NO boot response carried a full logo — 0 of " + served.length + " Firestore answers contain the full-picture marker");
+      const teamQ = R.calls.findIndex((c) => c.op === "runQuery" && c.kind === "team");
+      const teamBytes = (served.filter((x) => x.method === "POST" && x.body.includes('"logoThumb"'))[0] || {}).bytes || 0;
+      // 8 team docs; the thumb is ~66 chars of PNG + marker; each wire doc is well under 1.2 KB
+      ok(teamQ >= 0 && teamBytes > 0 && teamBytes < 8 * 1200, "…so the team-list answer is " + teamBytes + " bytes (< 8 x 1200), not 8 x ~60 KB");
+      ok(!R.calls.some((c) => c.op === "doc" && /^teamlogo_/.test(c.id || "")), "…and the league home never read a teamlogo_ doc at all");
+      const m = await page.evaluate((thumb1) => {
+        const main = document.getElementById("main");
+        const imgs = [...main.querySelectorAll(".tcrest img")];
+        const av = document.querySelector("#hAvatar img");
+        const mirror = localStorage.getItem("lg_gffl_" + (new URL(location.href).searchParams.get("fam")) + "_team_1") || "";
+        return { html: main.innerHTML.length, n: imgs.length, allThumb: imgs.every((i) => (i.getAttribute("src") || "").startsWith("data:image/png")  && (i.getAttribute("src") || "").length < 200),
+          av: av && av.getAttribute("src") === thumb1, mirror: mirror.length };
+      }, thumbOf(1));
+      ok(m.n >= 2 && m.allThumb, "every crest in the League view is the thumb (" + m.n + " crests, each src < 200 chars) — none inlines a full logo");
+      ok(m.html < 60000, "…so #main's HTML is " + m.html + " chars (< 60000; with eight inlined 60 KB logos it is > 480000)");
+      ok(m.av === true, "…and the header avatar is team 1's thumb");
+      ok(m.mirror > 0 && m.mirror < 2000, "…and the localStorage mirror of team_1 is " + m.mirror + " chars, not 60 KB (the mirror is written on every read)");
+      // the locker is the one place the full picture is wanted
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lockerhead", 9000);
+      const big = await waitFnOr(page, (sent) => { const im = document.querySelector(".lockerhead img.lockerlogo"); return !!im && (im.getAttribute("src") || "").includes(sent); }, SENT);
+      ok(big, "the locker upgrades its hero to the FULL picture (src carries the full-logo marker)");
+      ok(R.calls.filter((c) => c.op === "doc" && c.id === "teamlogo_1").length === 1, "…by ONE read of teamlogo_1 (hand: one team opened, one GET)");
+      ok(!R.calls.some((c) => c.op === "doc" && /^teamlogo_[2-8]$/.test(c.id || "")), "…and no other team's picture was fetched");
+      // team 3 is a cut-out (logoCut true): the crest class must say so even though the thumb is a PNG-or-webp either way
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".tcrest");
+      const cut = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".tbl tr")];
+        const r3 = rows.find((r) => /Wyoming Cowboys/.test(r.textContent)), r2 = rows.find((r) => /End Zone Goats/.test(r.textContent));
+        return { t3: !!(r3 && r3.querySelector(".tcrest.cutout")), t2: !!(r2 && r2.querySelector(".tcrest.cutout")) };
+      });
+      ok(cut.t3 === true && cut.t2 === false, "logoCut drives the cut-out look: team 3 (logoCut true) is a cutout crest, team 2 is not (" + JSON.stringify(cut) + ")");
+      ok(errors.length === 0, "0 page errors, post-migration boot");
+      await ctx.close();
+    }
+
+    // ---- (8) PRE-migration fallback: only an inline logoData, no thumb — logos still show, nothing breaks.
+    {
+      const { R, ctx, page, errors } = await restBoot(legacyDocs());
+      const m = await page.evaluate(() => {
+        const imgs = [...document.querySelectorAll("#main .tcrest img")];
+        return { n: imgs.length, full: imgs.every((i) => (i.getAttribute("src") || "").includes("FULLLOGOSENTINEL")), av: ((document.querySelector("#hAvatar img") || {}).src || "").includes("FULLLOGOSENTINEL") };
+      });
+      ok(m.n >= 2 && m.full, "a team doc that still has only inline logoData keeps its crest (" + m.n + " crests show it)");
+      ok(m.av, "…and the header avatar");
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lockerhead", 9000);
+      const loc = await page.evaluate(() => ((document.querySelector(".lockerhead img.lockerlogo") || {}).src || "").includes("FULLLOGOSENTINEL"));
+      ok(loc && !R.calls.some((c) => c.op === "doc" && /^teamlogo_/.test(c.id || "")), "…the locker shows it without asking for a teamlogo_ doc that does not exist yet");
+      ok(errors.length === 0, "0 page errors, pre-migration fallback");
+      await ctx.close();
+    }
+
+    // ---- (9) the settings read is deduped: the reachability probe IS the first read.
+    // (Needs a settings doc: a 404 is deliberately never cached, so a league with NO settings doc
+    // still reads twice — the empty-league case is not what boot speed is about.)
+    {
+      const rulesProbe = await newTestPage(browser, fullSeed());
+      await bootPage(rulesProbe.page);
+      const defRules = await rulesProbe.page.evaluate(() => JSON.parse(JSON.stringify(window.__GFFL__.LG.DEFAULT_RULES)));
+      await rulesProbe.ctx.close();
+      const docs9 = migratedDocs(); docs9.settings = { kind: "settings", v: 1, rules: defRules, log: [] };
+      const { R, ctx, errors } = await restBoot(docs9);
+      const n = R.calls.filter((c) => c.op === "doc" && c.method === "GET" && c.id === "settings").length;
+      ok(n === 1, "boot reads the settings doc ONCE — the probe's answer feeds LG.loadRules (" + n + " GETs; it was 2, serially)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- (10) conditional refresh: unchanged big docs are asked about, not re-downloaded.
+    {
+      const docs = migratedDocs();
+      const pad = (n) => "x".repeat(n);
+      for (let i = 1; i <= 3; i++) docs["hist_200" + i] = { kind: "hist", season: 2000 + i, blob: pad(14000), n: i };
+      docs["roster_2026_w1_t1"] = { ...docs["roster_2026_w1_t1"], padNote: pad(6000) };
+      const { R, ctx, page, errors } = await restBoot(docs);
+      const out = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG, real = Date.now.bind(Date);
+        const first = await LG.db.list("hist");                       // full read: 3 x ~14 KB
+        await LG.db.get("roster_2026_w1_t1");                         // cached
+        window.__skew = 0; Date.now = () => real() + window.__skew;
+        window.__skew = 20000;                                        // past CACHE_STALE_MS (15 s)
+        const changes = []; LG.db.onChange = (k) => changes.push(k);
+        const again = await LG.db.list("hist");                       // serves the cache and refreshes behind it
+        await LG.db.get("roster_2026_w1_t1");
+        return { n1: first.length, n2: again.length };
+      });
+      await sleep(500);
+      const histFull = R.calls.filter((c) => c.op === "runQuery" && c.kind === "hist" && !c.select).length;
+      const histProbe = R.calls.filter((c) => c.op === "runQuery" && c.kind === "hist" && c.select).length;
+      const histGets = R.calls.filter((c) => c.op === "doc" && /^hist_/.test(c.id || "")).length;
+      ok(out.n1 === 3 && out.n2 === 3, "three hist docs, three on the second list (" + out.n1 + "/" + out.n2 + ")");
+      ok(histFull === 1, "the FULL hist list was downloaded once, at first read (" + histFull + ")");
+      ok(histProbe === 1 && histGets === 0, "…the stale refresh was ONE projected probe and ZERO doc GETs — nothing had moved (" + histProbe + " probe, " + histGets + " GETs)");
+      const probeBytes = (R.served || []).filter((x) => x.method === "POST" && !x.body.includes("blob") && x.body.includes("hist_200")).map((x) => x.bytes)[0] || 0;
+      ok(probeBytes > 0 && probeBytes < 1500, "…the probe answered with " + probeBytes + " bytes of names and updateTimes, against ~42000 for the full list");
+      // The app reads this roster itself while it boots, so counts are taken FROM A MARKER: warm,
+      // note where the call log stands, age the cache, ask again.
+      const mark = R.calls.length;
+      await page.evaluate(async () => { window.__skew += 20000; await window.__GFFL__.LG.db.get("roster_2026_w1_t1"); });
+      await sleep(400);
+      const rAfter = R.calls.slice(mark).filter((c) => c.op === "doc" && c.id === "roster_2026_w1_t1");
+      ok(rAfter.some((c) => /mask\.fieldPaths/.test(c.url)), "a stale >4 KB doc (a roster) is refreshed by a masked GET — name and updateTime only (" + rAfter.length + " reads)");
+      ok(!rAfter.some((c) => !/mask\.fieldPaths/.test(c.url)), "…and NOT re-downloaded in full while nothing about it changed");
+      // now one hist doc really changes server-side
+      R.docs.hist_2002 = { ...R.docs.hist_2002, n: 99 }; R.vers.hist_2002 = "2026-02-02T00:00:00.000000001Z";
+      const seenChange = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG; const changes = [];
+        LG.db.onChange = (k) => changes.push(k);
+        window.__skew += 20000;
+        await LG.db.list("hist");
+        await new Promise((r) => setTimeout(r, 600));
+        const now = await LG.db.list("hist");
+        return { changes, n2: (now.find((d) => d.id === "hist_2002") || {}).n, n1: (now.find((d) => d.id === "hist_2001") || {}).n };
+      });
+      const gets2 = R.calls.filter((c) => c.op === "doc" && /^hist_/.test(c.id || "") && !/mask\.fieldPaths/.test(c.url));
+      ok(gets2.length === 1 && gets2[0].id === "hist_2002", "when hist_2002 changes, exactly that doc is downloaded (" + gets2.map((g) => g.id).join(",") + ")");
+      ok(seenChange.n2 === 99 && seenChange.n1 === 1 && seenChange.changes.includes("hist"), "…the new value is what the list now holds, the untouched docs are unchanged, and onChange('hist') fired (" + JSON.stringify(seenChange) + ")");
+      // getFresh (the idempotency guards): a masked probe, then the kept body; a changed doc is a full read.
+      const g = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const a = await LG.db.getFresh("roster_2026_w1_t1");
+        const b = await LG.db.getFresh("roster_2026_w1_t1");
+        b.players.push({ key: "mutated" });                 // a caller that scribbles on what it was handed
+        const c = await LG.db.getFresh("roster_2026_w1_t1");
+        return { na: a.players.length, nc: c.players.length };
+      });
+      ok(g.na === 12 && g.nc === 12, "getFresh returns the real document each time and a caller's scribbling can't reach the next read (" + g.na + "/" + g.nc + ")");
+      const fr = R.calls.filter((c) => c.op === "doc" && c.id === "roster_2026_w1_t1" && c.method === "GET");
+      const frMasked = fr.filter((c) => /mask\.fieldPaths/.test(c.url)).length;
+      ok(frMasked >= 3, "…and those fresh reads were version probes, not downloads (" + frMasked + " masked GETs in total for this doc)");
+      R.docs.roster_2026_w1_t1 = { ...R.docs.roster_2026_w1_t1, players: R.docs.roster_2026_w1_t1.players.slice(0, 5) }; R.vers.roster_2026_w1_t1 = "2026-03-03T00:00:00.000000001Z";
+      const g2 = await page.evaluate(async () => (await window.__GFFL__.LG.db.getFresh("roster_2026_w1_t1")).players.length);
+      ok(g2 === 5, "a fresh read after the doc really changed returns the CHANGED doc (5 players, not the kept 12) (" + g2 + ")");
+      ok(errors.length === 0, "0 page errors through conditional refresh");
+      await ctx.close();
+    }
+
+    // ---- (11) the projection hazard, closed by construction: a team-doc field the app reads can't be projected away.
+    {
+      const docs = migratedDocs();
+      docs.team_1.somethingAddedNextYear = "kept";
+      const { R, ctx, page, errors } = await restBoot(docs);
+      const q = R.calls.filter((c) => c.op === "runQuery" && c.kind === "team");
+      ok(q.length >= 1 && q.every((c) => !c.select), "the boot team list is an UNPROJECTED query — no field list for a new field to be forgotten from (" + q.length + " queries)");
+      const kept = await page.evaluate(() => window.__GFFL__.LG.teamById(1).somethingAddedNextYear);
+      ok(kept === "kept", "…so a team field nobody has heard of yet still reaches the app");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- (12) the chat poll: quiet when hidden, a cheap probe most ticks, no repaint when nothing moved.
+    {
+      const docs = migratedDocs();
+      for (let i = 0; i < 5; i++) docs["chat_17911215" + String(i).padStart(5, "0") + "_aaa" + i] = { kind: "chat", teamId: 2, who: "Sam", text: "hello " + i, t: 1791121500000 + i, thread: null, reactions: {} };
+      const { R, ctx, page, errors } = await restBoot(docs);
+      await page.evaluate(() => { window.__GFFL__.UI.show("chat"); });
+      await waitOr(page, "#chatList .chatRowMsg", 9000);
+      const kinds = () => ({ full: R.calls.filter((c) => c.op === "runQuery" && c.kind === "chat").length, probe: R.calls.filter((c) => c.op === "runQuery" && c.range).length });
+      const base = kinds();
+      ok(base.full === 1 && base.probe === 0, "opening Chat does one full read of the room (" + base.full + " full, " + base.probe + " probe)");
+      const on = await page.evaluate(() => ({ timer: !!window.__GFFL__.UI._chatTimer, want: !!window.__GFFL__.UI._chatWant }));
+      ok(on.timer && on.want, "…and arms the poll");
+      // drive ticks by hand: 3 probes, then the 4th is a full read
+      await page.evaluate(() => { const L = document.getElementById("chatList"); L.firstElementChild.__keep = "same-node"; window.__st = { n: 0 }; });
+      for (let i = 0; i < 3; i++) await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st));
+      let k = kinds();
+      ok(k.full === 1 && k.probe === 3, "ticks 1-3 are id-range probes only: 3 probes, still 1 full read (" + k.probe + "/" + k.full + ")");
+      const probeBody = R.served.filter((x) => x.method === "POST" && x.bytes < 200).length;
+      ok(probeBody >= 3, "…and a probe with nothing newer answers with a few bytes (" + probeBody + " tiny answers)");
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st));
+      k = kinds();
+      ok(k.full === 2 && k.probe === 3, "tick 4 is the full read (reactions and deletes edit OLD docs, so a newer-id probe can't see them) (" + k.full + " full)");
+      const same = await page.evaluate(() => document.getElementById("chatList").firstElementChild.__keep);
+      ok(same === "same-node", "a full read that found nothing changed did NOT rebuild the list (the first row is the same DOM node)");
+      // someone else posts: the very next probe finds it and the list updates
+      R.docs["chat_1791121599999_zzzz"] = { kind: "chat", teamId: 3, who: "Pat", text: "fresh from another phone", t: 1791121599999, thread: null, reactions: {} };
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st));
+      const sees = await waitFnOr(page, () => document.getElementById("chatList").textContent.includes("fresh from another phone"));
+      ok(sees, "a NEW message is picked up by the next 8-second probe tick, not the 32-second one");
+      // someone else reacts to an old message: invisible to a probe, visible on the full tick
+      const firstId = Object.keys(R.docs).filter((x) => x.startsWith("chat_17911215")).sort()[0];
+      R.docs[firstId] = { ...R.docs[firstId], reactions: { "🔥": [2, 3] } };
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st)); // tick 6: probe
+      const early = await page.evaluate(() => !!document.querySelector("#chatList .chatReact"));
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st)); // tick 7: probe
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st)); // tick 8: FULL
+      const late = await waitFnOr(page, () => !!document.querySelector("#chatList .chatReact"));
+      ok(early === false && late === true, "someone else's reaction to an old message appears on the next FULL tick and not before (probe ticks: " + early + ", full tick: " + late + ")");
+      ok(true, "(documented trade: a reaction or delete from another phone takes up to 4 x 8 s = 32 s to show; the sender's own taps repaint at once)");
+      // hidden: the timer goes, the want stays, nothing is read
+      await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); document.dispatchEvent(new Event("visibilitychange")); });
+      const hid = await page.evaluate(() => ({ timer: window.__GFFL__.UI._chatTimer, want: !!window.__GFFL__.UI._chatWant }));
+      ok(hid.timer === null && hid.want === true, "backgrounding stops the chat timer and remembers that chat was wanted (" + JSON.stringify(hid) + ")");
+      const before = R.calls.length;
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, { n: 0 })); // even a tick that fires anyway reads nothing while hidden
+      await sleep(300);
+      ok(R.calls.length === before, "…and a tick that fires on a hidden page reads nothing (0 requests)");
+      await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => false }); document.dispatchEvent(new Event("visibilitychange")); });
+      const back = await waitFnOr(page, () => !!window.__GFFL__.UI._chatTimer);
+      ok(back, "returning to the page restarts the poll (and refreshes once)");
+      // leaving the view clears the want
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await sleep(200);
+      const left = await page.evaluate(() => ({ t: window.__GFFL__.UI._chatTimer && window.__GFFL__.UI._chatTimer.pfx, w: window.__GFFL__.UI._chatWant && window.__GFFL__.UI._chatWant.pfx }));
+      ok(!left.w && !left.t, "leaving the Chat tab (390 px: no rail chat) clears both the timer and the want (" + JSON.stringify(left) + ")");
+      ok(errors.length === 0, "0 page errors through the chat poll");
+      await ctx.close();
+    }
+  }
+
+  // AVG · the immutable script cache needs a bump (2026-10-04). netlify.toml now serves
+  // /assets/league/*.js as `immutable` for a year, so a changed lg-*.js under an OLD ?v= would
+  // never reach a phone that already holds that URL. tools/_gffl_asset_versions.json records the
+  // sha-256 of each file under the version it shipped as; the bytes on disk must be the bytes
+  // recorded for the current gffl-v. Changed a file? Bump the version in all four places, then
+  // `node tools/_gffl_asset_versions.mjs --record`.
+  if (section("AVG · lg-*.js bytes match the recorded hashes for the current gffl-v")) {
+    const crypto = require("crypto");
+    const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
+    const v = (html.match(/<meta name="gffl-v" content="([^"]+)"/) || [])[1];
+    const store = JSON.parse(fs.readFileSync(path.join(ROOT, "tools", "_gffl_asset_versions.json"), "utf8"));
+    ok(!!(v && store[v]), "AVG the current gffl-v (" + v + ") has a recorded entry");
+    for (const f of ["lg-core.js", "lg-data.js", "lg-ui.js"]) {
+      const h = crypto.createHash("sha256").update(fs.readFileSync(path.join(ROOT, "assets", "league", f))).digest("hex");
+      ok(!!(store[v] && store[v][f] === h), "AVG " + f + " is byte-for-byte what " + v + " recorded (else: bump the version, then record)");
+      const ref = html.match(new RegExp('assets/league/' + f.replace(".", "\\.") + '\\?v=([A-Za-z0-9]+)'));
+      ok(!!(ref && ref[1] === v), "AVG league.html loads " + f + " with ?v=" + v + " (" + (ref && ref[1]) + ")");
+    }
   }
 
   await browser.close();

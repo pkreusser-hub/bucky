@@ -698,7 +698,11 @@
         // logoData is the crest a family member uploaded in GFFL (a data: URL); logo is the old
         // ESPN import. GFFL shows `logoData || logo` everywhere (lg-ui.js teamSrc), so this does
         // too. Reading `logo` alone showed the stale ESPN art for every team that had uploaded.
-        owner, ownerFirst: owner.trim().split(/\s+/)[0] || "", colors: t.colors || null, logo: t.logoData || t.logo || "",
+        // 2026-10-04: GFFL now keeps a ~96 px `logoThumb` on the team doc and moves the full
+        // picture to its own doc (lg-core LG.saveTeamLogo), so the thumb is what a small slot
+        // reads; a team not yet migrated still has only the inline logoData, which is the
+        // fallback, and the ESPN `logo` URL is the last resort.
+        owner, ownerFirst: owner.trim().split(/\s+/)[0] || "", colors: t.colors || null, logo: t.logoThumb || t.logoData || t.logo || "",
       });
     }
     fireChange({ type: "teams" });
@@ -994,7 +998,7 @@
         structuredQuery: {
           from: [{ collectionId: FS_COLL }],
           where: { fieldFilter: { field: { fieldPath: "kind" }, op: "EQUAL", value: { stringValue: "team" } } },
-          select: { fields: [{ fieldPath: "teamId" }, { fieldPath: "name" }, { fieldPath: "abbrev" }, { fieldPath: "owner" }, { fieldPath: "colors" }, { fieldPath: "logo" }, { fieldPath: "logoData" }] },
+          select: { fields: [{ fieldPath: "teamId" }, { fieldPath: "name" }, { fieldPath: "abbrev" }, { fieldPath: "owner" }, { fieldPath: "colors" }, { fieldPath: "logo" }, { fieldPath: "logoThumb" }, { fieldPath: "logoData" }] },
         },
       };
       const url = FS_BASE.replace(/\/documents$/, "/documents:runQuery") + "?key=" + FS_KEY;

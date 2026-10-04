@@ -131,6 +131,24 @@
      "pos": "RB",
      "pts": 34.1
     }
+   ],
+   "games": [
+    {
+     "away": 1,
+     "home": 12
+    },
+    {
+     "away": 2,
+     "home": 11
+    },
+    {
+     "away": 3,
+     "home": 9
+    },
+    {
+     "away": 4,
+     "home": 5
+    }
    ]
   },
   "2": {
@@ -185,6 +203,24 @@
      "pos": "QB",
      "pts": 29.98
     }
+   ],
+   "games": [
+    {
+     "away": 11,
+     "home": 1
+    },
+    {
+     "away": 9,
+     "home": 12
+    },
+    {
+     "away": 5,
+     "home": 2
+    },
+    {
+     "away": 4,
+     "home": 3
+    }
    ]
   },
   "3": {
@@ -238,6 +274,24 @@
      "name": "Garrett Wilson",
      "pos": "WR",
      "pts": 24.7
+    }
+   ],
+   "games": [
+    {
+     "away": 1,
+     "home": 9
+    },
+    {
+     "away": 11,
+     "home": 5
+    },
+    {
+     "away": 12,
+     "home": 4
+    },
+    {
+     "away": 2,
+     "home": 3
     }
    ]
   }
