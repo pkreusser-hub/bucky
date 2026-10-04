@@ -25013,12 +25013,16 @@ async function openDetails(page, id) {
           const el = document.getElementById("muWp");
           const poly = el && el.querySelector("polyline.muwpline");
           const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
-          return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
+          return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length, early: !!document.getElementById("muWpEarly") };
         });
         // RESTAGED 2026-09-13: hiding a one-seed card left the bar with no
         // matching line. One stored minute still draws this-minute→now.
-        ok(hidden.exists && hidden.parent === true && hidden.n >= 2,
-          "…a one-tick card still draws a line (" + JSON.stringify(hidden) + ")");
+        // RESTAGED AGAIN 2026-10-04 (UI review): all-pre with ONE stored minute is exactly the
+        // flat stroke under a "58%" the review flagged. The card is still shown (the 09-13 rule —
+        // never a bar with nothing beside it) but as "No games yet" + the projected totals rather
+        // than a one-point line. A pre-kickoff series that has moved still draws, below.
+        ok(hidden.exists && hidden.parent === true && hidden.n === 0 && hidden.early === true,
+          "…a one-tick, all-pre card says \"No games yet\" rather than drawing a one-point line (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
         // Live scores and the clock move D.winProb. The graph is projected win %, so
@@ -27286,7 +27290,10 @@ async function openDetails(page, id) {
         "week 1 disables Previous and leaves Next open");
       ok(live.isCard === false && live.firstIsHead === true,
         "the cycler is not a .card — the first card is still the header");
-      ok(live.h > 0 && live.h <= 36,
+      // RESTAGED 2026-10-04: 36 -> 44. The Previous/Next arrows were 36x28, under the 44px tap
+      // target the UI review measured on a phone; the strip is as tall as its buttons now. It is
+      // still one slim row (not a card), which is what this check is for.
+      ok(live.h > 0 && live.h <= 44,
         "…and it stays narrow (" + live.h + "px)");
       ok(live.week === 1 && live.muWeek == null,
         "UI.week is untouched; _muWeek is null on the live board");
@@ -32104,6 +32111,271 @@ async function openDetails(page, id) {
       if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "gffl_mtc_matchup_390.png"), fullPage: true });
     }
     ok(errors.length === 0, "0 page errors (" + W + "px)");
+    await ctx.close();
+  }
+  }
+
+  if (section("UI1 · UI review fixes — tap targets, card names, waiver run line, early win card, out-starter swap-in, trade fits")) {
+  // 2026-10-04 UI review. Every expected number below is hand-computed in the comment above its
+  // check, from the fixture, not read back from the app.
+  function uiSeed() {
+    const s = seedWithWeeklyHistory();
+    const docs = { ...s.docs };
+    // W. Two (DEN, WR starter) is Out; W. Receiver (PHI, WR starter, game under way in this
+    // fixture) is Out too, to prove the locked case offers no swap. H. Healthy is the one
+    // eligible bench WR (I. Injured is Out himself).
+    const r1 = JSON.parse(JSON.stringify(docs["roster_2026_w1_t1"]));
+    for (const p of r1.players) {
+      if (p.name === "W. Two") p.injury = "Out";
+      if (p.name === "W. Receiver") p.injury = "Out";
+    }
+    docs["roster_2026_w1_t1"] = r1;
+    // Trade-fits rosters: the league starts 3 WR; team 2 carries 4, team 3 carries 5.
+    const wr = (n, team, i) => ({ key: "ui" + n + i, name: "UI WR " + n + i, pos: "WR", team, slot: i < 3 ? "WR" : "BENCH" });
+    docs["roster_2026_w1_t2"] = { kind: "roster", week: 1, teamId: 2, players: [
+      { key: "222111", name: "Q. Rival", pos: "QB", team: "DAL", slot: "QB" }, wr(2, "DAL", 0), wr(2, "DAL", 1), wr(2, "DAL", 2), wr(2, "DAL", 3)] };
+    docs["roster_2026_w1_t3"] = { kind: "roster", week: 1, teamId: 3, players: [0, 1, 2, 3, 4].map((i) => wr(3, "DEN", i)) };
+    return { ...s, docs };
+  }
+  const SEC_DAY = 24 * 3600 * 1000;
+  for (const vw of [{ width: 375, height: 812 }, { width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const W = vw.width;
+    const { ctx, page, errors } = await newTestPage(browser, uiSeed(), { vw });
+    await bootPage(page);
+    await waitOr(page, ".mucard", 12000);
+    await waitLive(page);
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_league_" + W + ".png"), fullPage: false });
+    const sideways = () => evalOr(page, () => document.documentElement.scrollWidth - window.innerWidth);
+    // ---- League: a name that does not fit its box shows the abbreviation; one that fits stays whole.
+    const fit = await evalOr(page, () => {
+      const UI = window.__GFFL__.UI;
+      const el = document.querySelector(".muteamname[data-abbr]");
+      const box = (e) => { const cs = getComputedStyle(e); return e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); };
+      const ink = (e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect().width; };
+      // every name currently on a card: nothing is cut (its ink fits its box)
+      const all = [...document.querySelectorAll(".muteamname[data-abbr]")];
+      const clipped = all.filter((e) => ink(e) > box(e) + 0.5).map((e) => e.textContent);
+      // force a long name: it must collapse to the abbreviation at a phone, and stay whole where it fits
+      const abbr = el.dataset.abbr;
+      el.dataset.full = "THE MAGNIFICENT SEVEN SPRINGS CHAMPIONS OF EVERYTHING";
+      UI.fitCardNames();
+      const longShown = el.textContent, longTitle = el.title;
+      el.dataset.full = "AB";
+      UI.fitCardNames();
+      const shortShown = el.textContent;
+      return { n: all.length, clipped, abbr, longShown, longTitle, shortShown };
+    });
+    ok(fit && fit.n >= 2 && fit.clipped.length === 0, "UI1 " + W + "px: no score-card name is cut off (" + JSON.stringify(fit && fit.clipped) + ", " + (fit && fit.n) + " names)");
+    ok(fit && fit.longShown === fit.abbr && /MAGNIFICENT/.test(fit.longTitle) && fit.shortShown === "AB",
+      "…a 52-letter name collapses to its abbreviation (" + (fit && fit.abbr) + ") with the full name in the title; a 2-letter name stays whole");
+
+    // ---- Waiver line: pure arithmetic, DST-safe. SEASON_START 2026-09-08 (Tue): week 4's Wednesday is
+    // Sep 30 08:00 CDT = 13:00Z, week 5's Oct 7 08:00 CDT = 13:00Z, week 9's Nov 4 08:00 CST = 14:00Z
+    // (Nov 1 fell back), week 8's Oct 28 08:00 CDT = 13:00Z.
+    if (W === 390) {
+      const line = await evalOr(page, (a, b, c, d) => {
+        const f = window.__GFFL__.UI.waiverRunLine;
+        return [f(a, 4), f(b, 4), f(c, 9), f(d, 18)];
+      }, Date.UTC(2026, 9, 4, 12), Date.UTC(2026, 9, 6, 20), Date.UTC(2026, 10, 3, 15), Date.UTC(2027, 0, 7));
+      // Oct 4 12:00Z: ran Sep 30 8:00 AM, next Oct 7 8:00 AM, 4d 1h away -> no countdown
+      ok(line && line[0] === "Ran Wed Sep 30, 8:00 AM CT · Next: Wed Oct 7, 8:00 AM CT", "waiver line after Wednesday's run, more than a day out: " + (line && line[0]));
+      // Oct 6 20:00Z -> Oct 7 13:00Z = 17h 0m
+      ok(line && line[1] === "Ran Wed Sep 30, 8:00 AM CT · Next: Wed Oct 7, 8:00 AM CT · in 17h 0m", "…under 24 h away it counts down: 17h 0m (" + (line && line[1]) + ")");
+      // week 9 (Nov 4 14:00Z) seen from Nov 3 15:00Z: 23h 0m — a naive +7d from 13:00Z would say 22h
+      ok(line && line[2] === "Next: Wed Nov 4, 8:00 AM CT · in 23h 0m", "…across the Nov 1 fall-back the next run is still 8:00 AM Central: 23h 0m (" + (line && line[2]) + ")");
+      ok(line && !/Next/.test(line[3]) && /^Ran Wed/.test(line[3]), "…after the last week's run there is no \"Next\" (" + (line && line[3]) + ")");
+    }
+
+    // ---- Matchup: tap targets, and the early-week card.
+    await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+    await waitOr(page, "#muWeekNav", 9000);
+    await waitOr(page, "#muHead", 9000);
+    const early = await evalOr(page, () => {
+      const c = document.getElementById("muWp");
+      return { has: !!document.getElementById("muWpEarly"), txt: c ? c.textContent.replace(/\s+/g, " ").trim() : null };
+    });
+    // Zero starters played or playing is the early-week state; the fixture's Sunday slate is under way, so no early card here.
+    ok(early && early.has === false, "UI1 " + W + "px: with a game under way the win-% card is not the early \"No games yet\" card (" + JSON.stringify(early) + ")");
+    // Nothing started: stub D.remaining to "nobody played, nobody playing", repaint. The card then says so and shows the projected
+    // totals the header carries (the fixture's: away 0.0, home 45.5) instead of a one-point line.
+    const eg = await evalOr(page, async () => {
+      const UI = window.__GFFL__.UI, D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+      const keep = D.remaining;
+      D.remaining = () => ({ played: 0, playing: 0, left: 9 });
+      await UI.renderMatchup(true);
+      D.remaining = keep;
+      const c = document.getElementById("muWpEarly");
+      const projs = [...document.querySelectorAll(".muhproj")].map((x) => x.textContent.trim());
+      const tag = (id) => { const t = LG.teamById(id); return t.abbrev || t.name; };
+      return { txt: c ? c.textContent.replace(/\s+/g, " ").trim() : null, projs, away: tag(UI.matchup[1]), home: tag(UI.matchup[0]), svg: !!(c && c.querySelector("svg")) };
+    });
+    ok(eg && eg.txt === "No games yet " + eg.away + " " + eg.projs[0] + " projected · " + eg.home + " " + eg.projs[1] + " projected" && eg.svg === false,
+      "…with nothing started it says \"No games yet\" and the projected totals, no flat line (" + JSON.stringify(eg) + ")");
+    await evalOr(page, () => window.__GFFL__.UI.renderMatchup(true));
+const sz = await evalOr(page, () => {
+      const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; };
+      return { prev: r("#muPrev"), next: r("#muNext"), sw: [...document.querySelectorAll(".muswitch")].map((e) => Math.round(e.getBoundingClientRect().height)) };
+    });
+    ok(sz && sz.prev[0] >= 44 && sz.prev[1] >= 44 && sz.next[0] >= 44 && sz.next[1] >= 44, "…the week arrows are at least 44x44 (" + JSON.stringify(sz && [sz.prev, sz.next]) + ")");
+    ok(sz && (sz.sw.length === 0 || sz.sw.every((h) => h >= 44)), "…the pairing chips are at least 44 high (" + JSON.stringify(sz && sz.sw) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_matchup_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on the matchup page");
+
+    // ---- My Team: the Out starter gets a flag + one-tap swap; the locked one gets a flag only.
+    await evalOr(page, () => window.__GFFL__.UI.show("team"));
+    await waitOr(page, ".lrow", 9000);
+    await waitOr(page, ".lflag", 9000);
+    const flags = await evalOr(page, () => [...document.querySelectorAll("#lockerStarters .lflag")].map((f) => ({
+      flag: f.dataset.flag, txt: f.textContent.replace(/\s+/g, " ").trim(), btn: !!f.querySelector(".swapin"),
+      prev: f.previousElementSibling && f.previousElementSibling.querySelector(".lname b").textContent })));
+    const two = (flags || []).find((f) => f.prev === "W. Two"), rec = (flags || []).find((f) => f.prev === "W. Receiver");
+    ok(flags && flags.length === 2 && two && two.btn && /^Out Swap in H\. Healthy WR/.test(two.txt),
+      "UI1 " + W + "px: W. Two (Out) is flagged with \"Swap in H. Healthy\" — the only eligible bench WR; I. Injured is Out himself (" + JSON.stringify(two && two.txt) + ")");
+    ok(rec && !rec.btn && /game has started/.test(rec.txt), "…W. Receiver (Out, game started) is flagged with no swap offered (" + JSON.stringify(rec && rec.txt) + ")");
+    const tap = await evalOr(page, () => {
+      const rows = [...document.querySelectorAll("#lockerStarters .lrow")];
+      const swp = (n) => { const r = rows.find((x) => x.textContent.includes(n)); const b = r && r.querySelector(".lswap"), d = r && r.querySelector(".ldrop"); return b && d ? { sw: [b.getBoundingClientRect().width, b.getBoundingClientRect().height], dr: [d.getBoundingClientRect().width, d.getBoundingClientRect().height], gap: d.getBoundingClientRect().left - b.getBoundingClientRect().right } : null; };
+      const pen = document.getElementById("lockerEditToggle");
+      let penHit = null;
+      if (pen) {
+        const b = pen.getBoundingClientRect();
+        // 6px outside every edge of the 30px disc is still the pencil
+        penHit = [[b.left - 6, b.top + b.height / 2], [b.right + 6, b.top + b.height / 2], [b.left + b.width / 2, b.top - 6], [b.left + b.width / 2, b.bottom + 6]]
+          .map(([x, y]) => document.elementFromPoint(x, y) === pen || pen.contains(document.elementFromPoint(x, y)));
+      }
+      return { p: swp("P. Passer"), penHit, minName: Math.min(...rows.filter((r) => r.querySelector(".linfo")).map((r) => Math.round(r.querySelector(".lname").clientWidth))) };
+    });
+    ok(tap && tap.p && tap.p.sw[1] >= 44 && tap.p.dr[0] >= 44 && tap.p.dr[1] >= 44 && tap.p.gap >= 8,
+      "…Swap and Drop are each 44 high, Drop 44 wide, 8px or more from Swap (" + JSON.stringify(tap && tap.p) + ")");
+    ok(!tap || !tap.penHit || tap.penHit.every(Boolean), "…the edit pencil's hit area reaches 6px past its disc on every side (" + JSON.stringify(tap && tap.penHit) + ")");
+    if (W < 700) ok(tap && tap.minName >= 140, "…the lineup name column keeps AD8's 140px floor (" + (tap && tap.minName) + "px)");
+    // best-bench choice by projection, with a stubbed projFor (the bench: H. Healthy 111777 WR, I. Injured Out, B. Backup RB)
+    const best = await evalOr(page, () => {
+      const UI = window.__GFFL__.UI, D = window.__GFFL__.D;
+      const keep = D.projFor;
+      const bench = [{ key: "b1", pos: "WR", team: "DEN", name: "B One" }, { key: "b2", pos: "WR", team: "DEN", name: "B Two" }, { key: "b3", pos: "RB", team: "DEN", name: "B Three" }];
+      const proj = { b1: 7.5, b2: 12.25, b3: 30 };
+      D.projFor = (k) => (k in proj ? proj[k] : keep(k));
+      const wrBest = UI._bestSwapIn("WR", bench), flexBest = UI._bestSwapIn("FLEX", bench), teBest = UI._bestSwapIn("TE", bench);
+      D.projFor = keep;
+      // issue detection: injury designation, and bye only off a populated slate of this week
+      const issue = { out: UI._starterIssue({ key: "x", pos: "WR", team: "DEN", injury: "Out" }), q: UI._starterIssue({ key: "x", pos: "WR", team: "DEN", injury: "Questionable" }),
+        ir: UI._starterIssue({ key: "x", pos: "RB", team: "DEN", injury: "IR" }), bye: UI._starterIssue({ key: "x", pos: "WR", team: "MIA" }),
+        dst: UI._starterIssue({ key: "dst_MIA", pos: "DST", team: "MIA" }), play: UI._starterIssue({ key: "x", pos: "WR", team: "DEN" }) };
+      return { wr: wrBest && wrBest.key, flex: flexBest && flexBest.key, te: teBest && teBest.key, issue };
+    });
+    // WR slot: b2 (12.25) beats b1 (7.5); b3 is an RB. FLEX takes any RB/WR/TE: b3 (30) wins. No TE on this bench.
+    ok(best && best.wr === "b2" && best.flex === "b3" && best.te === null, "…best bench pick is the highest projection that fits the slot: WR -> 12.25 not 7.5, FLEX -> the 30.0 RB, TE -> nobody (" + JSON.stringify(best && [best.wr, best.flex, best.te]) + ")");
+    ok(best && best.issue.out === "Out" && best.issue.q === "" && best.issue.ir === "IR" && best.issue.bye === "Bye" && best.issue.dst === "" && best.issue.play === "",
+      "…Out and IR are flagged, Questionable is not, a team off this week's slate is a Bye (not a D/ST), a player with a game is clear (" + JSON.stringify(best && best.issue) + ")");
+    await evalOr(page, () => document.querySelector(".swapin").scrollIntoView({ block: "center" }));
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_teamflag_" + W + ".png"), fullPage: false });
+    // the tap: the existing swap, nobody else moved
+    await evalOr(page, () => document.querySelector(".swapin").click());
+    const swapped = await waitFnOr(page, () => {
+      const st = document.querySelector("#lockerStarters"), bn = document.querySelector("#lockerBench");
+      return !!st && !!bn && st.textContent.includes("H. Healthy") && bn.textContent.includes("W. Two");
+    });
+    const doc = await evalOr(page, (k) => JSON.parse(localStorage.getItem(k)), LSPFX + "roster_2026_w1_t1") || { players: [] };
+    const slotOf = (n) => (doc.players.find((p) => p.name === n) || {}).slot;
+    ok(swapped && slotOf("H. Healthy") === "WR" && slotOf("W. Two") === "BENCH" && slotOf("W. Receiver") === "WR" && slotOf("I. Injured") === "BENCH" && slotOf("F. Flexman") === "FLEX",
+      "…one tap swaps exactly those two (H. Healthy to WR, W. Two to the bench) and nobody else (" + JSON.stringify(["H. Healthy", "W. Two", "W. Receiver", "I. Injured", "F. Flexman"].map(slotOf)) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_team_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on My Team");
+
+    // ---- Rosters: jump-chip tap size, a "you" dot instead of a red outline, and Trade fits.
+    // Synthetic Rest-of-season inputs run through the REAL LG.powerRosBoard (rules: QB1 RB2 WR2 TE1 K1 DST1, no FLEX/bench slots,
+    // bench weight 0.25, depth 3, no games played -> rating = roster):
+    //   team1 (me): QB20 RB10,10 WR5,5 TE8 K7 DST6, no bench          -> WR room 10
+    //   team2: QB15 RB12,12 WR15,15 +WR14 bench TE8 K7 DST6           -> WR room 30 + .25*14 = 33.5
+    //   team3: QB10 RB8,8 WR9,9 +WR8,7 bench TE5 K5 DST5              -> WR room 18 + .25*(8+7) = 21.75
+    // WR ranks: team2 1st, team3 2nd, team1 3rd of 3 -> my weakest room is WR (the others rank 1st or 2nd with 3 teams).
+    // Team 2 holds 4 WR for the league's 3 WR slots, team 3 holds 5: both are fits, ordered by their WR rank.
+    await evalOr(page, () => {
+      const LG = window.__GFFL__.LG;
+      const real = LG.powerRosBoard;
+      const P = (key, pos, slot) => ({ key, pos, slot });
+      const val = { };
+      const mk = (id, list) => list.map(([pos, v, slot], i) => { const k = "t" + id + pos + i; val[k] = v; return P(k, pos, slot); });
+      const active = {
+        1: mk(1, [["QB", 20, "QB"], ["RB", 10, "RB"], ["RB", 10, "RB"], ["WR", 5, "WR"], ["WR", 5, "WR"], ["TE", 8, "TE"], ["K", 7, "K"], ["DST", 6, "DST"]]),
+        2: mk(2, [["QB", 15, "QB"], ["RB", 12, "RB"], ["RB", 12, "RB"], ["WR", 15, "WR"], ["WR", 15, "WR"], ["WR", 14, "BENCH"], ["TE", 8, "TE"], ["K", 7, "K"], ["DST", 6, "DST"]]),
+        3: mk(3, [["QB", 10, "QB"], ["RB", 8, "RB"], ["RB", 8, "RB"], ["WR", 9, "WR"], ["WR", 9, "WR"], ["WR", 8, "BENCH"], ["WR", 7, "BENCH"], ["TE", 5, "TE"], ["K", 5, "K"], ["DST", 5, "DST"]]),
+      };
+      LG.powerRosBoard = () => real({ teams: [{ id: 1, pf: 0, w: 0, l: 0, t: 0 }, { id: 2, pf: 0, w: 0, l: 0, t: 0 }, { id: 3, pf: 0, w: 0, l: 0, t: 0 }],
+        active, valueOf: (k) => val[k], rules: { QB: 1, RB: 2, WR: 2, TE: 1, K: 1, DST: 1, FLEX: 0, BENCH: 6, IR: 2 }, odds: null, lastRanks: null });
+      window.__uiRealRos = real;
+    });
+    await evalOr(page, () => window.__GFFL__.UI.show("rosters"));
+    await waitOr(page, "#rsJump", 9000);
+    await waitOr(page, "#rsFits", 9000);
+    const rs = await evalOr(page, () => {
+      const chips = [...document.querySelectorAll("#rsJump button")];
+      const mine = document.querySelector("#rsJump button.mine");
+      const cs = mine && getComputedStyle(mine), af = mine && getComputedStyle(mine, "::after");
+      const fits = [...document.querySelectorAll("#rsFits .rsfit")].map((f) => ({ team: Number(f.dataset.team), txt: f.querySelector(".mut").textContent.replace(/\s+/g, " ").trim(), h: f.querySelector(".rsfitgo").getBoundingClientRect().height }));
+      const other = chips.find((c) => !c.classList.contains("mine"));
+      return { n: chips.length, minH: Math.min(...chips.map((c) => Math.round(c.getBoundingClientRect().height))),
+        mineBorder: cs && cs.borderTopColor, otherBorder: getComputedStyle(other).borderTopColor, dot: af && af.content, dotBg: af && af.backgroundColor,
+        title: mine && mine.title, head: document.querySelector("#rsFits p").textContent.replace(/\s+/g, " ").trim(), fits };
+    });
+    ok(rs && (W >= 700 || rs.minH >= 44), "UI1 " + W + "px: the Rosters jump chips are at least 44 high (" + (rs && rs.minH) + ")");
+    ok(rs && rs.mineBorder === rs.otherBorder && rs.dot !== "none" && rs.title === "Your team",
+      "…your own chip has the same outline as the rest, and a small dot instead (" + (rs && [rs.mineBorder, rs.otherBorder, rs.dot]) + ")");
+    ok(rs && rs.head.startsWith("Your WR room is 3rd of 3.") && rs.fits.length === 2
+      && rs.fits[0].team === 2 && rs.fits[0].txt === "4 WR for 3 slots · 1st at WR"
+      && rs.fits[1].team === 3 && rs.fits[1].txt === "5 WR for 3 slots · 2nd at WR" && rs.fits.every((f) => f.h >= 44),
+      "…Trade fits names the weakest room (WR, 3rd of 3) and the two teams with extra WRs, best WR room first (" + JSON.stringify(rs && [rs.head, rs.fits]) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_rosters_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on Rosters");
+    await evalOr(page, () => document.querySelector("#rsFits [data-trade=\"3\"]").click());
+    const went = await waitFnOr(page, () => !!document.getElementById("mvTradeCard"));
+    const cp = await evalOr(page, () => { const s = document.querySelector("#mvTradeCard select"); return { cp: window.__GFFL__.UI._tradeCp, sel: s && s.value, view: window.__GFFL__.UI.view }; });
+    ok(went && cp && cp.cp === 3 && String(cp.sel) === "3" && cp.view === "moves", "…\"Start a trade\" opens the Moves trade builder with team 3 picked (" + JSON.stringify(cp) + ")");
+
+    // ---- Moves: waiver run line is on the page, placeholder fits, filter chips are tall enough.
+    await waitOr(page, "#faSearch", 9000);
+    await waitOr(page, "#mvRunLine", 9000);
+    const mv = await evalOr(page, () => {
+      const inp = document.getElementById("faSearch");
+      const sp = document.createElement("span"); const cs = getComputedStyle(inp);
+      sp.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:" + cs.font + ";letter-spacing:" + cs.letterSpacing;
+      sp.textContent = inp.placeholder; document.body.appendChild(sp);
+      const w = sp.getBoundingClientRect().width; sp.remove();
+      const box = inp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      return { ph: inp.placeholder, w, box, chipH: Math.min(...[...document.querySelectorAll("#faPosChips .poschip, #faFilterChips .poschip")].map((c) => Math.round(c.getBoundingClientRect().height))),
+        run: document.getElementById("mvRunLine").textContent.trim(), runVisible: document.getElementById("mvRunLine").offsetParent !== null };
+    });
+    ok(mv && mv.ph === "Search players…" && mv.w <= mv.box, "UI1 " + W + "px: the search placeholder fits its box (" + (mv && [mv.ph, Math.round(mv.w), Math.round(mv.box)]) + ")");
+    ok(mv && mv.chipH >= 44, "…the Moves filter chips are at least 44 high (" + (mv && mv.chipH) + ")");
+    ok(mv && mv.runVisible && /Next: \w{3} \w{3} \d+, \d+:\d\d [AP]M CT/.test(mv.run), "…the waiver card says when the next run is (" + (mv && mv.run) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_moves_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on Moves");
+
+    // ---- Chat: the small pills keep their look but their hit area is 44 high.
+    await evalOr(page, () => window.__GFFL__.UI.show("chat"));
+    await waitOr(page, ".chatcompose", 9000);
+    const chat = await evalOr(page, () => {
+      const host = document.createElement("div");
+      host.innerHTML = '<div class="chatActions" style="position:relative;z-index:50;margin:40px 0"><button class="chatReply" type="button">Reply</button><button class="chatDel" type="button">Delete</button></div><div style="height:80px"></div>';
+      document.getElementById("main").appendChild(host); host.scrollIntoView({ block: "center" });
+      const out = [...host.querySelectorAll("button")].map((b) => {
+        const r = b.getBoundingClientRect(), cx = r.left + r.width / 2;
+        // 10px above and below the visible 22px pill is inside a 44px hit area
+        const dn = document.elementFromPoint(cx, r.bottom + 10);
+        return { h: Math.round(r.height), up: document.elementFromPoint(cx, r.top - 10) === b, down: dn === b, dn: dn && (dn.tagName + "." + dn.className + "#" + dn.id), y: Math.round(r.bottom + 10), vh: innerHeight };
+      });
+      const img = document.querySelector('[id$="ImgBtn"]');
+      host.remove();
+      return { out, img: img ? Math.round(img.getBoundingClientRect().height) : null };
+    });
+    ok(chat && chat.out.length === 2 && chat.out.every((b) => b.h <= 34 && b.up && b.down), "UI1 " + W + "px: chat Reply/Delete stay small but are tappable 10px above and below (" + JSON.stringify(chat && chat.out) + ")");
+    ok(chat && (chat.img == null || chat.img >= 44), "…the photo button is at least 44 high (" + (chat && chat.img) + ")");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_chat_" + W + ".png"), fullPage: false });
+    ok((await sideways()) <= 1, "…no sideways scroll on Chat");
+    if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "ui1_chat_" + W + ".png"), fullPage: false });
+    ok(errors.length === 0, "0 page errors (" + W + "px) " + errors.join(" | "));
     await ctx.close();
   }
   }
