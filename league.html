@@ -1327,6 +1327,8 @@
   .rsjump button { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:4px 10px 4px 5px;
                    background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-pill);
                    font:700 11px var(--font-display); letter-spacing:.4px; text-transform:uppercase; color:var(--ink2); }
+  .mvrunline { margin:-4px 0 12px; }
+  .nflwp.nogames { justify-content:flex-start; } .nflwp.nogames .nflwpv { align-items:flex-start; }
   .rsjump button.mine { border-color:var(--accent); }
   .rsjump .tcrest { margin:0; }
   .rsgrid { display:block; }
@@ -2418,6 +2420,38 @@
   /* The house [hidden]-override lesson, again: every one of these sets its own display, so the
      UA's [hidden]{display:none} would lose the cascade the moment one of them is toggled. */
   .actgrid[hidden], .actcard[hidden], .actrow[hidden], .actfilters[hidden] { display:none; }
+  /* ---- UI review 2026-10-04: tap targets >= 44px on a phone. Where the visual must stay small
+     (the pencil, the chat pills) the hit area grows through an invisible ::before instead. ---- */
+  .muweeknav button { min-width:44px; min-height:44px; }
+  .muswitch { min-height:44px; }
+  .rsjump button { min-height:44px; }
+  .poschip { min-height:44px; }
+  .chaticon { min-height:44px; }
+  .lswap, .ldrop { min-height:44px; }
+  .ldrop { min-width:44px; }
+  @media (max-width:1023px) { .lrow { gap:8px; } } /* pays for the 44px Drop: AD8's 140px name floor holds at 375 */
+  .lockerpencil::before, .chatActions button::before { content:""; position:absolute; }
+  .lockerpencil::before { inset:-8px; border-radius:50%; }
+  .chatActions button { position:relative; }
+  .chatActions button::before { inset:-12px -3px; }
+  /* Rosters jump strip: the red outline read as "selected". Your own team gets a small dot instead. */
+  .mvrunline { margin:-4px 0 12px; }
+  .nflwp.nogames { justify-content:flex-start; } .nflwp.nogames .nflwpv { align-items:flex-start; }
+  .rsjump button.mine { border-color:var(--border-card); position:relative; }
+  .rsjump button.mine::after { content:""; position:absolute; top:5px; right:6px; width:6px; height:6px;
+                               border-radius:50%; background:var(--accent); }
+  /* Unavailable starter (2026-10-04): the red .inj chip plus a one-tap swap under the row. */
+  .lflag { display:flex; align-items:center; gap:8px; margin:-2px 0 8px; padding:4px 12px; font-size:12.5px; }
+  .lflag > .mut { flex:1 1 0; min-width:0; }
+  .lflag[hidden] { display:none; }
+  .swapin { min-height:44px; display:inline-flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:1px;
+            border-color:var(--accent); text-transform:none; letter-spacing:0; padding:4px 12px; }
+  .swapin small { color:var(--mut); font-weight:500; font-size:11px; }
+  .rsfits p { margin:0 0 8px; }
+  .rsfit { display:flex; flex-wrap:wrap; align-items:center; gap:2px 10px; padding:6px 0; border-top:1px solid var(--divider); }
+  .rsfitwho { display:inline-flex; align-items:center; gap:6px; flex:1 1 0; min-width:0; }
+  .rsfit > .mut { order:3; flex:1 0 100%; }
+  .rsfitgo { min-height:44px; flex:0 0 auto; }
 </style>
 </head>
 <body>

@@ -2055,6 +2055,7 @@
       if (needSnap) { UI._pwPrevSnap = { week: prevWeek, doc: snap }; if (snap) changed = true; }
       if (odds && JSON.stringify(odds) !== JSON.stringify(UI._odds)) { UI._odds = odds; changed = true; }
       if (changed && UI.view === "league") renderLeague(true);
+      else if (changed && UI.view === "rosters") renderRosters(); // the Trade fits panel reads the same averages
     }).catch(() => {}).finally(() => { powerLoading = false; });
   }
   // This device computed a rest-of-season board for the league's own current week: offer it as
@@ -2966,6 +2967,7 @@
         ${logoutHtml()}`;
     }
     loadRobogoat();
+    fitCardNames(main()); hookFitOnFonts();
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI._muWeek = null;
       UI.matchup = el.dataset.mu.split("-").map(Number);
@@ -3220,7 +3222,7 @@
   function hookFitOnFonts() {
     if (fitFontsHooked || !document.fonts || !document.fonts.ready) return;
     fitFontsHooked = true;
-    document.fonts.ready.then(() => fitHeroNames()).catch(() => {});
+    document.fonts.ready.then(() => { fitHeroNames(); fitCardNames(); }).catch(() => {});
   }
   // "All-time series" line (plan §4.8's rivalries) — h2h is from the HOME
   // team's perspective (LG.headToHead(hId, aId)), so aWins is H's wins.
@@ -3286,6 +3288,31 @@
     // names. The bar is the whole row now, centered.
     return `<span class="herorow"><span class="mupbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
   }
+  // 2026-10-04 (UI review): at 375px the score cards cut names to "BATTLE KREU…", "CHULA V…".
+  // A name that cannot fit its box now shows the team's abbreviation instead (full name kept
+  // in the title); one that fits is untouched. The fit is MEASURED — a Range around the text
+  // against the name's content box — not guessed from a character count, because the width of
+  // "WYOMING COWBOYS" depends on the real display font. Reset to the full name first so a
+  // resize back to a wide viewport restores it.
+  function nameFitAttrs(t) {
+    const full = (t && t.name) || "";
+    return ` data-full="${esc(full)}" data-abbr="${esc(teamTag(t))}"`;
+  }
+  function fitCardNames(root) {
+    (root || document).querySelectorAll(".muteamname[data-abbr]").forEach((el) => {
+      el.textContent = el.dataset.full;
+      el.removeAttribute("title");
+      const cs = getComputedStyle(el);
+      const box = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      if (box > 0 && r.getBoundingClientRect().width > box + 0.5 && el.dataset.abbr) {
+        el.textContent = el.dataset.abbr;
+        el.title = el.dataset.full;
+      }
+    });
+  }
+  UI.fitCardNames = fitCardNames;
   function matchupCard(h, a) {
     const H = LG.teamById(h), A = LG.teamById(a);
     const mine = LG.myTeamId();
@@ -3306,9 +3333,9 @@
     const aStar = decided.winner === "B" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     const hStar = decided.winner === "A" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     return `<button class="mucard muslash ${isMine ? "mine" : ""}" data-mu="${h}-${a}" style="${slashVars}">
-      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
+      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", attrs: nameFitAttrs(A) })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}${hStar}</span>
+      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", attrs: nameFitAttrs(H) })}${logoTd(H)}${hStar}</span>
       ${matchupHeroExtra(h, a)}</button>`;
   }
 
@@ -4711,7 +4738,7 @@
   // .muhead. Stroke follows the mid line: above is away's on-dark colour,
   // below is home's. A 50/50 run stays muted. Colours come from
   // LG.teamPalette.
-  function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
+  function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick, early) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
     const now = Date.now();
@@ -4728,6 +4755,18 @@
       t0 = win.t0;
       t1 = win.t1;
       pts = typeof LG.wpViewRows === "function" ? LG.wpViewRows(stored, t0, t1, cur) : stored.slice();
+    }
+    // 2026-10-04 (UI review): before a single starter's game has kicked off, a series that has not
+    // moved (under two recorded minutes, or every minute the same %) draws a flat stroke under a "58%" that
+    // only restates the header bar. Say so in words and show the projected totals, which are what
+    // that % is made of. A pre-kickoff series that HAS moved (projections shifted during the week)
+    // still draws its line, and the sparkline returns the moment anything is played or playing.
+    // "Moved" is judged on what was RECORDED plus the current reading: the view always adds a
+    // live tip, so one recorded minute alone would otherwise read as a two-point line.
+    const vals = stored.map((r) => r.p).concat(Number.isFinite(cur) ? [cur] : []);
+    if (early && early.none && (stored.length < 2 || vals.every((v) => Math.abs(v - vals[0]) < 0.005))) {
+      return `<div class="nflwp nogames" id="muWpEarly">
+        <div class="nflwpv"><b>No games yet</b> <span class="mut small">${esc(teamTag(A))} ${LG.fmtPts(early.aProj)} projected · ${esc(teamTag(H))} ${LG.fmtPts(early.hProj)} projected</span></div></div>`;
     }
     if (pts.length < 2) return "";
     const plot = LG.WP_PLOT || { w: 220, h: 56 };
@@ -4946,7 +4985,8 @@
         </tr></tfoot>
       </table></div>`;
     const wpProj = browsing ? null : (d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : wp);
-    const muWpInner = browsing ? "" : matchupWinGraphHtml(hId, aId, wp, A, H, wpProj);
+    const muWpInner = browsing ? "" : matchupWinGraphHtml(hId, aId, wp, A, H, wpProj,
+      { none: !(aRem.played + aRem.playing + hRem.played + hRem.playing), aProj, hProj });
     const muBenchInner = (aBench.length || hBench.length) ? `<h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
@@ -6409,7 +6449,7 @@
     document.documentElement.style.setProperty("--chatlist-h", Math.max(200, h) + "px");
   }
   UI.sizeChatList = sizeChatList;
-  window.addEventListener("resize", () => { if (UI.view === "chat") sizeChatList(); });
+  window.addEventListener("resize", () => { if (UI.view === "chat") sizeChatList(); fitCardNames(); });
   async function renderChat() {
     const keep = snapshotChatComposer("chat");
     main().innerHTML = `<div class="card chatcard"><h2>League chat</h2>${chatWidgetHtml("chat")}</div>`;
@@ -6695,6 +6735,37 @@
     return esc(txSentence(tx));
   }
   UI.renderMoves = renderMoves;
+  // 2026-10-04 (UI review): the waiver block greyed out after Wednesday's run and showed only
+  // that past time, so nobody could see when the next run is. One line says both. The instants
+  // come from LG.waiverDeadline (Central, DST-safe — no time math here); this only formats them
+  // in America/Chicago, the league's clock, and adds an "in 5h 12m" countdown once the next run
+  // is under 24 hours away. Past the last week's run there is no "next".
+  function waiverRunLine(nowMs, week) {
+    const fmt = (ms) => {
+      const parts = {};
+      new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short",
+        day: "numeric", hour: "numeric", minute: "2-digit" }).formatToParts(new Date(ms))
+        .forEach((x) => { parts[x.type] = x.value; });
+      return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.hour}:${parts.minute} ${parts.dayPeriod} CT`;
+    };
+    const cur = LG.waiverDeadline(week);
+    const ran = nowMs >= cur;
+    const nextMs = ran ? (week < 18 ? LG.waiverDeadline(week + 1) : null) : cur;
+    const bits = [];
+    if (ran) bits.push("Ran " + fmt(cur));
+    if (nextMs != null) {
+      const left = nextMs - nowMs;
+      let t = "Next: " + fmt(nextMs);
+      if (left > 0 && left < 24 * 3600 * 1000) {
+        const mins = Math.max(1, Math.ceil(left / 60000));
+        t += " · in " + (mins >= 60 ? Math.floor(mins / 60) + "h " + (mins % 60) + "m" : mins + "m");
+      }
+      bits.push(t);
+    }
+    return bits.join(" · ");
+  }
+  UI.waiverRunLine = waiverRunLine;
+
   async function renderMoves() {
     const tid = LG.myTeamId();
     const T = LG.teamById(tid);
@@ -6896,6 +6967,7 @@
       ${pendHtml}
       <div class="card"><h2>Waivers</h2>
         ${wvBlocksHtml}
+        <div class="mut small mvrunline" id="mvRunLine">${esc(waiverRunLine(LG.now(), UI.week))}</div>
         ${myResultsHtml}
         ${isCommish() ? '<div class="rowline mvprow"><button id="mvProcessNow">Process now</button></div>' : ""}
         <div class="rowline"><span class="mut small">Filter:</span>
@@ -6905,7 +6977,7 @@
           </div>
         </div>
         <div class="poschips" id="faPosChips">${["ALL", "QB", "RB", "WR", "TE", "K", "DST"].map((p) => `<button type="button" class="poschip" data-pos="${p}">${p}</button>`).join("")}</div>
-        <input id="faSearch" placeholder="Search players… (optional — browse below)" autocomplete="off">
+        <input id="faSearch" placeholder="Search players…" autocomplete="off">
         <div id="faResults"></div>
       </div>
       <div class="card" id="mvTradeCard"><h2>${UI._counterOf ? "Counter " + esc(LG.teamName(cpId)) + "'s offer" : "Propose a trade"}</h2>
@@ -8521,6 +8593,48 @@
       UI.openLocker(T.id);
     });
   }
+  // ---------------- an unavailable starter, and the one-tap swap for him (2026-10-04) ----------------
+  // ESKY started Terry McLaurin (Out) and KRUZ started Jadarian Price (IR) on 2026-10-04 and the
+  // lineup said nothing but a small chip. A starter is UNAVAILABLE when his designation is a
+  // real "can't play" one (Out / IR / PUP / NFI / suspended / COVID / NA / DNR — the same
+  // injLabel table every other surface uses, so Q / D / P stay playable) or his team has no game
+  // on THIS week's slate (a bye — read off the very board D.gameDone reads, and only when that
+  // board is this league week's, because an empty or last-week board would call everyone a bye).
+  // "Inactive" game-day lists are not in any feed this app reads, so they are not flagged.
+  const UNAVAILABLE_INJ = new Set(["OUT", "IR", "IR-R", "PUP", "NFI", "SUS", "COV", "NA", "DNR"]);
+  function starterIssue(p) {
+    if (!p) return "";
+    const lab = injLabel(LG.injuryOf(p));
+    if (UNAVAILABLE_INJ.has(lab)) return lab === "OUT" ? "Out" : lab;
+    const d = D();
+    if (UI.week === LG.currentWeek() && d.S.games.size > 0 && !(d.boardWeekMismatch && d.boardWeekMismatch())
+      && p.pos !== "DST" && !d.S.games.get(d.slpTeam(p.team))) return "Bye";
+    return "";
+  }
+  // The best bench player to put in `slot`: eligible for it, no issue of his own, game not
+  // started, highest projection (a missing projection sorts last; the earlier bench row wins a tie).
+  function bestSwapIn(slot, bench) {
+    const d = D();
+    let best = null, bestProj = -Infinity;
+    for (const c of bench || []) {
+      if (!c || !LG.slotEligible(c.pos, slot) || playerLocked(c) || starterIssue(c)) continue;
+      const pr = d.projFor(c.key);
+      const v = pr == null || !Number.isFinite(Number(pr)) ? -1 : Number(pr);
+      if (v > bestProj) { best = c; bestProj = v; }
+    }
+    return best;
+  }
+  UI._starterIssue = starterIssue; UI._bestSwapIn = bestSwapIn; // test hooks
+  function swapInStripHtml(slot, idx, p, bench) {
+    const issue = starterIssue(p);
+    if (!issue) return "";
+    if (playerLocked(p)) return `<div class="lflag" data-flag="${esc(issue)}"><span class="inj">${esc(issue)}</span> <span class="mut">${escn(p.name)} — his game has started, so the slot is locked.</span></div>`;
+    const c = bestSwapIn(slot, bench);
+    if (!c) return `<div class="lflag" data-flag="${esc(issue)}"><span class="inj">${esc(issue)}</span> <span class="mut">${escn(p.name)} can't play — no eligible bench player is available.</span></div>`;
+    const pr = D().projFor(c.key);
+    return `<div class="lflag" data-flag="${esc(issue)}"><span class="inj">${esc(issue)}</span>
+      <button type="button" class="swapin" data-slot="${esc(slot)}" data-idx="${idx}" data-in="${esc(c.key)}">Swap in ${escn(c.name)} <small>${esc(c.pos)}${pr != null ? " · " + LG.fmtPts(pr) + " proj" : ""}</small></button></div>`;
+  }
   // My Team = Locker (merged 2026-08-07): the owner's OWN locker embeds the editable lineup
   // (tap-to-swap starters/bench/IR, kickoff locks — exactly what the old separate "team" page
   // did) as its roster section; every other team's locker keeps the plain read-only roster
@@ -8761,6 +8875,46 @@
   }
 
   UI.renderLocker = renderLocker;
+  // ---------------- ROSTERS: trade fits (2026-10-04) ----------------
+  // The viewer's weakest starting room (the worst power-rankings rank for QB/RB/WR/TE/K/DST on
+  // the Rest of season board — ties go to the room furthest behind the league's best, room /
+  // best) set against the other teams that carry MORE rostered players at that position than
+  // it has starting slots for (the FLEX is ignored: it is not a dedicated slot) and rank
+  // better there. Every number is read from LG.powerRosBoard and the rosters; nothing new is
+  // computed except those two comparisons. Returns null when there is no one to suggest.
+  function tradeFits(ros, mineId, rosters, rules, posOf) {
+    if (!ros || !ros.rows) return null;
+    const me = ros.rows.find((r) => r.teamId === mineId);
+    if (!me) return null;
+    const POS = ["QB", "RB", "WR", "TE", "K", "DST"];
+    const best = (k) => Math.max(...ros.rows.map((r) => LG.n(r.rooms[k])));
+    let weak = null, weakKey = null;
+    for (const k of POS) {
+      const key = [me.cats[k], best(k) > 0 ? -LG.n(me.rooms[k]) / best(k) : 0];
+      if (weak == null || key[0] > weakKey[0] || (key[0] === weakKey[0] && key[1] > weakKey[1])) { weak = k; weakKey = key; }
+    }
+    if (!weak) return null;
+    const slotsAt = LG.n(rules[weak]);
+    const fits = ros.rows.filter((r) => r.teamId !== mineId && r.cats[weak] < me.cats[weak]).map((r) => {
+      const count = ((rosters[r.teamId]) || []).filter((p) => p && p.slot !== "IR" && posOf(p) === weak).length;
+      return { teamId: r.teamId, rank: r.cats[weak], count, extra: count - slotsAt };
+    }).filter((f) => f.extra > 0).sort((a, b) => a.rank - b.rank).slice(0, 3);
+    return fits.length ? { pos: weak, rank: me.cats[weak], of: ros.rows.length, slots: slotsAt, fits } : null;
+  }
+  UI._tradeFits = tradeFits; // test hook
+  function tradeFitsHtml(tf) {
+    if (!tf) return "";
+    const ord = (n) => n + (["th", "st", "nd", "rd"][(n % 100 >= 11 && n % 100 <= 13) ? 0 : Math.min(n % 10, 4) % 4] || "th");
+    const rows = tf.fits.map((f) => {
+      const T = LG.teamById(f.teamId);
+      return T ? `<div class="rsfit" data-team="${T.id}">
+        <span class="rsfitwho">${crestHtml(T, "tmini")}${teamNameHtml(T)}</span>
+        <span class="mut small">${f.count} ${esc(tf.pos)} for ${tf.slots} slot${tf.slots === 1 ? "" : "s"} · ${ord(f.rank)} at ${esc(tf.pos)}</span>
+        <button type="button" class="rsfitgo" data-trade="${T.id}">Start a trade</button></div>` : "";
+    }).join("");
+    return `<section class="card rsfits" id="rsFits"><h2>Trade fits</h2>
+      <p class="mut small">Your ${esc(tf.pos)} room is ${ord(tf.rank)} of ${tf.of}. These teams carry more ${esc(tf.pos)}s than they start.</p>${rows}</section>`;
+  }
   // ---------------- ROSTERS — every team, one page (2026-09-08) ----------------
   // User: "a new page/tab to GFFL, 'Rosters', that lets you see all teams rosters in a fairly
   // compact and viewable form for both mobile and desktop." The seventh tab.
@@ -8835,10 +8989,35 @@
         : `<p class="mut rsnone">No roster yet.</p>`}
       </section>`;
     };
+    // Trade fits reads the Rest of season board, which needs the standings, the finalized weeks
+    // (for the season averages) and those averages; refreshPowerData fetches what is missing and
+    // repaints this page when it lands, so the panel simply appears a moment late on a cold visit.
+    let fitsHtml = "";
+    if (mine) {
+      try {
+        UI._standings = UI._standings || standings;
+        if (!UI._allWeekly && !UI._allWeeklyAsked) { UI._allWeeklyAsked = true; LG.db.list("weekly").then((w) => { UI._allWeekly = w || []; refreshPowerData(); }).catch(() => {}); }
+        const pb = powerBoards();
+        fitsHtml = tradeFitsHtml(tradeFits(pb.ros, mine, UI._rosters, (LG.rules || LG.DEFAULT_RULES).roster, posOf));
+        if (!pb.ros) refreshPowerData();
+      } catch (e) { fitsHtml = ""; }
+    }
     main().innerHTML = `
       <div class="rsjump" id="rsJump" aria-label="Jump to a team">${order.map((t) =>
-        `<button type="button" data-jump="${t.id}"${t.id === mine ? ' class="mine"' : ""}>${crestHtml(t, "tmini")}${esc(t.abbrev || initials(t.name))}</button>`).join("")}</div>
+        `<button type="button" data-jump="${t.id}"${t.id === mine ? ' class="mine" title="Your team" aria-label="' + esc(t.name) + ' (your team)"' : ""}>${crestHtml(t, "tmini")}${esc(t.abbrev || initials(t.name))}</button>`).join("")}</div>
+      ${fitsHtml}
       <div class="rsgrid" id="rsGrid">${order.map(teamCard).join("")}</div>`;
+    main().querySelectorAll("[data-trade]").forEach((b) => b.addEventListener("click", () => {
+      // The existing trade flow: the Moves page's builder starts with this team picked as the
+      // other side. Nothing is sent from here.
+      UI._tradeCp = Number(b.dataset.trade); UI._counterOf = null;
+      UI.go("moves");
+      let tries = 0;
+      const iv = setInterval(() => {
+        const card = document.getElementById("mvTradeCard");
+        if (card || ++tries > 40) { clearInterval(iv); if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" }); }
+      }, 100);
+    }));
     if (already) window.scrollTo(0, keepY);
     wireLockerTaps(main());
     wirePlayerCardTaps(main());
@@ -9036,7 +9215,7 @@
       // themselves — a locked Swap's title/aria-label, a blocked Drop's, "Empty — tap to fill".
       rosterHtml = `
         <div class="card"><h2>Lineup — week ${UI.week}</h2>
-          <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
+          <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i) + swapInStripHtml(s.slot, i, s.p, bench)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
           <div id="lockerIR">${ir.length ? ir.map((p, i) => rowHtml("IR", p, i)).join("") : '<p class="mut">Nobody stashed.</p>'}</div></div>`;
@@ -9213,6 +9392,19 @@
     // ITEM 32's contract is unchanged: openRosterCard registers ONE sentinel (so Back closes
     // the card and leaves the reader in the locker); every row in it, Cancel included, hands
     // that entry straight back so the following Back moves them to the previous VIEW.
+    // The one-tap suggestion under an unavailable starter: the SAME swap() the sheet uses, so the
+    // write path, the lineup ledger entry and the kickoff locks are all unchanged — the locks
+    // are simply re-checked here against live state, because the strip was painted a while ago.
+    document.querySelectorAll(".swapin").forEach((b) => b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const out = (starters[Number(b.dataset.idx)] || {}).p;
+      const inn = bench.find((x) => x.key === b.dataset.in);
+      if (!out || !inn) return;
+      if (playerLocked(out)) { toast(out.name + "'s game already started."); return; }
+      if (playerLocked(inn)) { toast(inn.name + "'s game already started."); return; }
+      b.disabled = true;
+      await swap(out, inn, b.dataset.slot);
+    }));
     function closeSwap() { UI.closeRosterCard(); }
     function openSwap(slot, idx) {
       let cur = null;
