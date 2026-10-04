@@ -6088,7 +6088,14 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".mucard", { timeout: 5000 });
     const wk15cards = await page.$$eval(".mucard", (els) => els.map((e) => ({
-      tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
+      // RESTAGED 2026-10-04: a name too wide for its card now shows the team's abbreviation
+      // (UI review: "CHULA V…" at 375px told two teams apart by nothing). The full name stays on
+      // the element as data-full (and title while abbreviated), so read that; a shown text that
+      // is neither the full name nor the abbreviation is still a failure.
+      tags: [...e.querySelectorAll(".muteamname")].map((n) => {
+        const shown = n.textContent.trim(), full = n.dataset.full || shown;
+        return shown === full || shown === n.dataset.abbr ? full : "?" + shown;
+      }),
     })));
     ok(wk15cards.length === 2, "week 15's matchup-card list: exactly the play-in + consolation A games (" + wk15cards.length + ")");
     // RESTAGED 2026-09-11: league-home cards paint the full name again. Scores is the
@@ -6104,7 +6111,14 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".mucard", { timeout: 5000 });
     const wk16cards = await page.$$eval(".mucard", (els) => els.map((e) => ({
-      tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
+      // RESTAGED 2026-10-04: a name too wide for its card now shows the team's abbreviation
+      // (UI review: "CHULA V…" at 375px told two teams apart by nothing). The full name stays on
+      // the element as data-full (and title while abbreviated), so read that; a shown text that
+      // is neither the full name nor the abbreviation is still a failure.
+      tags: [...e.querySelectorAll(".muteamname")].map((n) => {
+        const shown = n.textContent.trim(), full = n.dataset.full || shown;
+        return shown === full || shown === n.dataset.abbr ? full : "?" + shown;
+      }),
     })));
     ok(wk16cards.length === 2, "week 16's list: exactly semi2 (already known) + consolation B — semi1 is skipped, not guessed at (" + JSON.stringify(wk16cards) + ")");
     ok(wk16cards.some((c) => c.tags.includes("Battle Kreussers") && c.tags.includes("Team Seven")), "…semi2, fully resolved (team7 vs team1)");
