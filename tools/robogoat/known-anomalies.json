@@ -1,0 +1,6 @@
+{
+ "_about": "Scorer FAIL lines the RoboGoat author has already looked at. facts.mjs prints these as one quiet 'known' line; anything not listed prints as NEW. week: the week the scorer was run for. pattern: a regex over the FAIL line. count: the number the line opens with, so a second case in the same week is NEW.",
+ "known": [
+  { "week": 2, "count": 1, "pattern": "NO stat line at all", "reason": "Puka Nacua, ruled out and left in Elan's Week 2 lineup; his injury tag has since cleared. Checked 2026-10-03." }
+ ]
+}
