@@ -13216,7 +13216,22 @@ async function openDetails(page, id) {
           bars: cards.filter((c) => c.querySelector(".mupbar.mini")).length,
           fills: cards.filter((c) => c.querySelector(".mupbar.mini i")).length,
           unknown: cards.filter((c) => c.querySelector(".mupbar.mini.unknown")).length,
-          names: cards.map((c) => [...c.querySelectorAll(".muteamname")].map((n) => (n.textContent || "").trim())),
+          // RESTAGED 2026-10-04: the full name is painted when it FITS; a name wider than its box
+          // shows the team abbreviation instead (UI review: "CHULA V…" at 375px). `names` reads the
+          // full name off data-full; `abbrOk` proves each abbreviation was earned — the full name,
+          // measured with a Range in the same box, really is wider than the box.
+          names: cards.map((c) => [...c.querySelectorAll(".muteamname")].map((n) => (n.dataset.full || n.textContent || "").trim())),
+          abbrOk: cards.every((c) => [...c.querySelectorAll(".muteamname")].every((n) => {
+            const shown = (n.textContent || "").trim();
+            if (!n.dataset.full || shown === n.dataset.full) return true;
+            if (shown !== n.dataset.abbr) return false;
+            n.textContent = n.dataset.full;
+            const cs = getComputedStyle(n), box = n.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+            const r = document.createRange(); r.selectNodeContents(n);
+            const w = r.getBoundingClientRect().width;
+            n.textContent = shown;
+            return w > box + 0.5;
+          })),
           nameFit: cards.every((c) => [...c.querySelectorAll(".muteamname")].every((n) => n.scrollWidth <= n.clientWidth + 1)),
           scorePx: (() => {
             const s = document.querySelector(".mucard.mine .muscore");
@@ -13251,7 +13266,8 @@ async function openDetails(page, id) {
       ok((home.names || []).some((pair) => pair.includes("Battle Kreussers") && pair.includes("End Zone Goats")),
         "league-home cards paint the full team name (" + JSON.stringify(home.names) + ")");
       ok((home.names || []).every((pair) => pair.length === 2 && pair.every((n) => !/^T\d+$/.test(n))),
-        "…not the Scores-tab abbreviation");
+        "…the full names are read off data-full, so none is a bare abbreviation");
+      ok(home.abbrOk === true, "…and a card shows an abbreviation only where the full name, measured, is wider than its box");
       ok(home.scorePx != null && home.scorePx <= 24, "…the hero score is small enough to keep the names (" + home.scorePx + "px)");
       ok(home.minH > 0 && home.inside === true,
         "every strip is genuinely visible and inside its own card (shortest " + home.minH + "px) — the hero's grid-row:3 does not leak onto the compact cards");
