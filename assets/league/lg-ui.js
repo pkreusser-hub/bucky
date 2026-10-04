@@ -5481,7 +5481,7 @@
   // Returns "" until any stat has landed, so pre-game rows stay two lines tall.
   function statSummary(p, row) {
     if (!row || !row.src) return "";
-    const side = row[row.src];
+    const side = row.picked || row[row.src];
     const st = side && side.stats;
     if (!st) return "";
     const n = (k) => Number(st[k]) || 0;

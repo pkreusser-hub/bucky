@@ -1,0 +1,716 @@
+{
+ "games": {
+  "401872658": {
+   "header": {
+    "competitions": [
+     {
+      "status": {
+       "type": {
+        "id": "3",
+        "name": "STATUS_FINAL",
+        "state": "post",
+        "completed": true,
+        "description": "Final",
+        "detail": "Final",
+        "shortDetail": "Final"
+       },
+       "isTBDFlex": false
+      },
+      "competitors": [
+       {
+        "team": {
+         "abbreviation": "PIT"
+        },
+        "score": "20"
+       },
+       {
+        "team": {
+         "abbreviation": "ATL"
+        },
+        "score": "13"
+       }
+      ]
+     }
+    ]
+   },
+   "boxscore": {
+    "teams": [
+     {
+      "team": {
+       "abbreviation": "ATL"
+      },
+      "statistics": [
+       {
+        "name": "interceptions",
+        "displayValue": "2"
+       },
+       {
+        "name": "sacksYardsLost",
+        "displayValue": "4-25"
+       },
+       {
+        "name": "fumblesLost",
+        "displayValue": "0"
+       },
+       {
+        "name": "interceptions",
+        "displayValue": "2"
+       }
+      ]
+     },
+     {
+      "team": {
+       "abbreviation": "PIT"
+      },
+      "statistics": [
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       },
+       {
+        "name": "sacksYardsLost",
+        "displayValue": "2-15"
+       },
+       {
+        "name": "fumblesLost",
+        "displayValue": "1"
+       },
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       }
+      ]
+     }
+    ]
+   },
+   "scoringPlays": [
+    {
+     "team": {
+      "abbreviation": "PIT"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Chris Boswell 43 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "ATL"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Bijan Robinson 23 Yd pass from Cooper Rush (Nick Folk Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "PIT"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Chris Boswell 28 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "PIT"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Pat Freiermuth 6 Yd pass from Aaron Rodgers (Chris Boswell Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "ATL"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Nick Folk 51 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "PIT"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "T.J. Watt 35 Yd Interception Return (Chris Boswell Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "ATL"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Nick Folk 43 Yd Field Goal"
+    }
+   ]
+  },
+  "401872924": {
+   "header": {
+    "competitions": [
+     {
+      "status": {
+       "type": {
+        "id": "3",
+        "name": "STATUS_FINAL",
+        "state": "post",
+        "completed": true,
+        "description": "Final",
+        "detail": "Final",
+        "shortDetail": "Final"
+       },
+       "isTBDFlex": false
+      },
+      "competitors": [
+       {
+        "team": {
+         "abbreviation": "TEN"
+        },
+        "score": "10"
+       },
+       {
+        "team": {
+         "abbreviation": "NYJ"
+        },
+        "score": "23"
+       }
+      ]
+     }
+    ]
+   },
+   "boxscore": {
+    "teams": [
+     {
+      "team": {
+       "abbreviation": "NYJ"
+      },
+      "statistics": [
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       },
+       {
+        "name": "sacksYardsLost",
+        "displayValue": "0-0"
+       },
+       {
+        "name": "fumblesLost",
+        "displayValue": "0"
+       },
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       }
+      ]
+     },
+     {
+      "team": {
+       "abbreviation": "TEN"
+      },
+      "statistics": [
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       },
+       {
+        "name": "sacksYardsLost",
+        "displayValue": "3-13"
+       },
+       {
+        "name": "fumblesLost",
+        "displayValue": "1"
+       },
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       }
+      ]
+     }
+    ]
+   },
+   "scoringPlays": [
+    {
+     "team": {
+      "abbreviation": "NYJ"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Kenyon Sadiq 3 Yd Rush (Jason Sanders Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "TEN"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Joey Slye 42 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "NYJ"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Jason Sanders 33 Yd Field Goal "
+    },
+    {
+     "team": {
+      "abbreviation": "NYJ"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Breece Hall 4 Yd Rush (Jason Sanders Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "NYJ"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Jason Sanders 51 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "NYJ"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Jason Sanders 52 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "TEN"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Elic Ayomanor 11 Yd pass from Cam Ward (Joey Slye Kick)"
+    }
+   ]
+  },
+  "401872929": {
+   "header": {
+    "competitions": [
+     {
+      "status": {
+       "type": {
+        "id": "3",
+        "name": "STATUS_FINAL",
+        "state": "post",
+        "completed": true,
+        "description": "Final",
+        "detail": "Final",
+        "shortDetail": "Final"
+       },
+       "isTBDFlex": false
+      },
+      "competitors": [
+       {
+        "team": {
+         "abbreviation": "PHI"
+        },
+        "score": "24"
+       },
+       {
+        "team": {
+         "abbreviation": "WSH"
+        },
+        "score": "22"
+       }
+      ]
+     }
+    ]
+   },
+   "boxscore": {
+    "teams": [
+     {
+      "team": {
+       "abbreviation": "WSH"
+      },
+      "statistics": [
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       },
+       {
+        "name": "sacksYardsLost",
+        "displayValue": "1-1"
+       },
+       {
+        "name": "fumblesLost",
+        "displayValue": "0"
+       },
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       }
+      ]
+     },
+     {
+      "team": {
+       "abbreviation": "PHI"
+      },
+      "statistics": [
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       },
+       {
+        "name": "sacksYardsLost",
+        "displayValue": "3-21"
+       },
+       {
+        "name": "fumblesLost",
+        "displayValue": "0"
+       },
+       {
+        "name": "interceptions",
+        "displayValue": "0"
+       }
+      ]
+     }
+    ]
+   },
+   "scoringPlays": [
+    {
+     "team": {
+      "abbreviation": "WSH"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Drew Stevens 55 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "PHI"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Dallas Goedert 17 Yd pass from Jalen Hurts (Jake Elliott Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "PHI"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Dontayvion Wicks 9 Yd pass from Jalen Hurts (Jake Elliott Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "WSH"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Jacory Croskey-Merritt 1 Yd Rush (Drew Stevens PAT blocked)"
+    },
+    {
+     "team": {
+      "abbreviation": "PHI"
+     },
+     "type": {
+      "abbreviation": "FG"
+     },
+     "text": "Jake Elliott 35 Yd Field Goal"
+    },
+    {
+     "team": {
+      "abbreviation": "WSH"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Stefon Diggs 10 Yd pass from Jayden Daniels (Drew Stevens Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "PHI"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Dallas Goedert 43 Yd pass from Jalen Hurts (Jake Elliott Kick)"
+    },
+    {
+     "team": {
+      "abbreviation": "WSH"
+     },
+     "type": {
+      "abbreviation": "TD"
+     },
+     "text": "Antonio Williams 1 Yd pass from Jayden Daniels (Two-Point Pass Conversion Failed)"
+    }
+   ]
+  }
+ },
+ "slp": {
+  "WAS": {
+   "sack": 3,
+   "qb_hit": 5,
+   "def_forced_punts": 7,
+   "pos_rank_std": 999,
+   "gp": 1,
+   "def_pr_yd": 53,
+   "penalty": 6,
+   "sack_yd": 21,
+   "tkl_ast": 22,
+   "pos_rank_half_ppr": 999,
+   "def_kr_yd": 154,
+   "pts_allow": 24,
+   "def_pr": 4,
+   "fan_pts_allow_k": 6,
+   "def_st_tkl_solo": 6,
+   "def_pr_ypa": 13.25,
+   "pts_std": 3,
+   "def_kr_ypa": 30.8,
+   "def_pr_lng": 19,
+   "yds_allow": 318,
+   "fan_pts_allow_def": 4,
+   "pts_allow_21_27": 1,
+   "def_kr": 5,
+   "pos_rank_ppr": 999,
+   "def_kr_lng": 36,
+   "penalty_yd": 45,
+   "def_3_and_out": 5,
+   "fan_pts_allow_qb": 24.72,
+   "fan_pts_allow_wr": 26.1,
+   "tkl_loss": 10,
+   "pts_half_ppr": 3,
+   "def_pass_def": 2,
+   "yds_allow_300_349": 1,
+   "fan_pts_allow_te": 23.7,
+   "tkl": 48,
+   "tkl_solo": 26,
+   "fan_pts_allow": 92.02,
+   "td": 3,
+   "pts_ppr": 3,
+   "fan_pts_allow_rb": 11.5
+  },
+  "PHI": {
+   "sack": 1,
+   "qb_hit": 2,
+   "def_forced_punts": 6,
+   "pos_rank_std": 999,
+   "gp": 1,
+   "def_pr_yd": 37,
+   "penalty": 5,
+   "sack_yd": 1,
+   "tkl_ast": 28,
+   "pos_rank_half_ppr": 999,
+   "def_kr_yd": 75,
+   "pts_allow": 22,
+   "def_pr": 4,
+   "fan_pts_allow_k": 4,
+   "def_st_tkl_solo": 7,
+   "def_pr_ypa": 9.25,
+   "pts_std": 4,
+   "ff": 1,
+   "def_kr_ypa": 25,
+   "yds_allow_200_299": 1,
+   "def_pr_lng": 15,
+   "yds_allow": 295,
+   "fan_pts_allow_def": 3,
+   "pts_allow_21_27": 1,
+   "def_kr": 3,
+   "pos_rank_ppr": 999,
+   "def_kr_lng": 29,
+   "penalty_yd": 40,
+   "def_3_and_out": 5,
+   "fan_pts_allow_qb": 17.66,
+   "fan_pts_allow_wr": 36.7,
+   "tkl_loss": 2,
+   "pts_half_ppr": 4,
+   "def_pass_def": 2,
+   "fan_pts_allow_te": 6.9,
+   "tkl": 62,
+   "blk_kick": 1,
+   "tkl_solo": 34,
+   "fan_pts_allow": 84.16,
+   "td": 3,
+   "pts_ppr": 4,
+   "fan_pts_allow_rb": 18.9
+  },
+  "ATL": {
+   "sack": 2,
+   "qb_hit": 6,
+   "def_forced_punts": 4,
+   "pos_rank_std": 999,
+   "gp": 1,
+   "def_pr_yd": 33,
+   "penalty": 9,
+   "sack_yd": 15,
+   "tkl_ast": 26,
+   "pos_rank_half_ppr": 999,
+   "def_kr_yd": 123,
+   "pts_allow": 14,
+   "def_4_and_stop": 2,
+   "def_pr": 3,
+   "fan_pts_allow_k": 8,
+   "def_st_tkl_solo": 4,
+   "def_pr_ypa": 11,
+   "pts_std": 6,
+   "ff": 1,
+   "def_kr_ypa": 30.75,
+   "yds_allow_200_299": 1,
+   "pts_allow_14_20": 1,
+   "def_pr_lng": 14,
+   "tkl_solo_misc": 1,
+   "yds_allow": 264,
+   "fan_pts_allow_def": 20,
+   "def_kr": 4,
+   "pos_rank_ppr": 999,
+   "def_kr_lng": 40,
+   "penalty_yd": 96,
+   "def_3_and_out": 4,
+   "fan_pts_allow_qb": 12.54,
+   "fan_pts_allow_wr": 22.4,
+   "tkl_loss": 4,
+   "pts_half_ppr": 6,
+   "def_pass_def": 5,
+   "fum_rec": 1,
+   "fan_pts_allow_te": 19.4,
+   "tkl": 56,
+   "tkl_solo": 30,
+   "fan_pts_allow": 76.74,
+   "td": 1,
+   "pts_ppr": 6,
+   "fan_pts_allow_rb": 14.4
+  },
+  "PIT": {
+   "sack": 4,
+   "qb_hit": 5,
+   "def_forced_punts": 6,
+   "pos_rank_std": 999,
+   "gp": 1,
+   "def_pr_yd": 13,
+   "penalty": 7,
+   "sack_yd": 25,
+   "tkl_ast": 30,
+   "pos_rank_half_ppr": 999,
+   "def_kr_yd": 74,
+   "pts_allow": 13,
+   "def_pr": 2,
+   "fan_pts_allow_k": 8,
+   "def_st_tkl_solo": 4,
+   "def_pr_ypa": 6.5,
+   "pts_std": 20,
+   "int_ret_yd": 45,
+   "ff": 2,
+   "def_kr_ypa": 24.67,
+   "yds_allow_200_299": 1,
+   "def_pr_lng": 8,
+   "int": 2,
+   "yds_allow": 238,
+   "fan_pts_allow_def": 6,
+   "def_kr": 3,
+   "pos_rank_ppr": 999,
+   "def_kr_lng": 27,
+   "penalty_yd": 52,
+   "def_3_and_out": 2,
+   "fan_pts_allow_qb": 7.72,
+   "fan_pts_allow_wr": 9.9,
+   "tkl_loss": 7,
+   "pts_half_ppr": 20,
+   "def_pass_def": 6,
+   "tkl": 62,
+   "def_td": 1,
+   "tkl_solo": 32,
+   "fan_pts_allow": 60.02,
+   "td": 2,
+   "pts_ppr": 20,
+   "pts_allow_7_13": 1,
+   "fan_pts_allow_rb": 34.4
+  },
+  "NYJ": {
+   "sack": 3,
+   "qb_hit": 5,
+   "def_forced_punts": 7,
+   "pos_rank_std": 999,
+   "gp": 1,
+   "def_pr_yd": 29,
+   "penalty": 8,
+   "sack_yd": 13,
+   "tkl_ast": 16,
+   "pos_rank_half_ppr": 999,
+   "pts_allow": 10,
+   "def_pr": 2,
+   "fan_pts_allow_k": 5,
+   "def_st_tkl_solo": 4,
+   "def_pr_ypa": 14.5,
+   "pts_std": 9,
+   "def_pr_lng": 15,
+   "def_st_fum_rec": 1,
+   "yds_allow": 195,
+   "pos_rank_ppr": 999,
+   "def_kr_lng": -2,
+   "penalty_yd": 48,
+   "def_3_and_out": 4,
+   "fan_pts_allow_qb": 11.7,
+   "fan_pts_allow_wr": 24.4,
+   "tkl_loss": 4,
+   "pts_half_ppr": 9,
+   "def_pass_def": 3,
+   "fan_pts_allow_te": 8.5,
+   "tkl": 42,
+   "tkl_solo": 26,
+   "yds_allow_100_199": 1,
+   "fan_pts_allow": 58.4,
+   "td": 2,
+   "pts_ppr": 9,
+   "def_st_ff": 1,
+   "pts_allow_7_13": 1,
+   "fan_pts_allow_rb": 8.8
+  },
+  "TEN": {
+   "qb_hit": 1,
+   "def_forced_punts": 3,
+   "pos_rank_std": 999,
+   "gp": 1,
+   "def_pr_yd": -5,
+   "penalty": 4,
+   "tkl_ast": 43,
+   "pos_rank_half_ppr": 999,
+   "def_kr_yd": 62,
+   "pts_allow": 23,
+   "def_pr": 1,
+   "fan_pts_allow_k": 14,
+   "def_st_tkl_solo": 1,
+   "yds_allow_350_399": 1,
+   "def_pr_ypa": -5,
+   "def_kr_ypa": 20.67,
+   "def_pr_lng": -5,
+   "yds_allow": 367,
+   "fan_pts_allow_def": 9,
+   "pts_allow_21_27": 1,
+   "def_kr": 3,
+   "pos_rank_ppr": 999,
+   "def_kr_lng": 27,
+   "penalty_yd": 25,
+   "def_3_and_out": 3,
+   "fan_pts_allow_qb": 9.3,
+   "fan_pts_allow_wr": 28.6,
+   "tkl_loss": 2,
+   "def_pass_def": 2,
+   "fan_pts_allow_te": 14.6,
+   "tkl": 74,
+   "tkl_solo": 31,
+   "fan_pts_allow": 90.3,
+   "td": 1,
+   "fan_pts_allow_rb": 23.8
+  }
+ }
+}

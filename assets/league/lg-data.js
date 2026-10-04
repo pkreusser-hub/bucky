@@ -118,6 +118,28 @@
   // is precisely the class of input D.num exists for. A string "150" used to survive into the
   // normalized line, where the fg_0_39 SUM below turned three of them into "000" by
   // concatenation and D.score then multiplied it. Same law as D.score/paPoints, one layer up.
+  // fgm_yds_over_30 is the sum of (yds - 30) over made FGs of 30+ (checked on real rows: 94 yds =
+  // 40-49 + 50-59 kicks, over_30 34 = 94 - 2*30). So yards = over_30 + 30 per long make + the
+  // short makes at their bucket midpoints. No over_30 either: midpoint per bucket; no buckets: 33/FG.
+  function fgYdsFromBuckets(st) {
+    const made = num(st.fgm);
+    const b = (k) => num(st[k]);
+    const short = b("fgm_0_19") + b("fgm_20_29");
+    const long = b("fgm_30_39") + b("fgm_40_49") + b("fgm_50_59") + b("fgm_60p");
+    const hi = Math.max(b("fgm_50_59") + b("fgm_60p"), b("fgm_50p")); // fgm_50p is the aggregate 50+ bucket
+    const knownLong = b("fgm_30_39") + b("fgm_40_49") + hi;
+    if (st.fgm_yds_over_30 != null && num(st.fgm_yds_over_30) >= 0) {
+      const nLong = Math.max(0, Math.min(made, knownLong || long));
+      return num(st.fgm_yds_over_30) + 30 * nLong + (made - nLong) * 25;
+    }
+    const bucketed = short + knownLong;
+    if (bucketed > 0) {
+      return b("fgm_0_19") * 15 + b("fgm_20_29") * 25 + b("fgm_30_39") * 35 + b("fgm_40_49") * 45
+        + b("fgm_50_59") * 54 + b("fgm_60p") * 62 + Math.max(0, b("fgm_50p") - b("fgm_50_59") - b("fgm_60p")) * 54
+        + Math.max(0, made - bucketed) * 33;
+    }
+    return made * 33;
+  }
   function normSlp(st, isDst) {
     if (isDst == null) isDst = st.pts_allow != null;
     const n = empty();
@@ -127,6 +149,17 @@
     n.rec = num(st.rec); n.rec_yd = num(st.rec_yd); n.rec_td = num(st.rec_td); n.rec_2pt = num(st.rec_2pt);
     n.fum_lost = num(st.fum_lost);
     n.fg_made_yd = num(st.fgm_yds);
+    // Latent guard (2026-10-04). This league prices kickers PER YARD (fg_made_yd 0.1; the three
+    // distance-bucket rules are 0), so a Sleeper payload that kept fgm but dropped fgm_yds would
+    // zero every FG while hasStats() stayed true (xpm) and no health/conflict signal fired.
+    // Sleeper carries fgm_yds on every real row today (0 exceptions, weeks 1-3). If it is ever
+    // missing with fgm>0, rebuild the yards from the row's own distance fields, flag it
+    // (non-enumerable fgApprox, so hasStats/KEYS loops never see it) and warn ONCE.
+    if (num(st.fgm) > 0 && st.fgm_yds == null) {
+      n.fg_made_yd = fgYdsFromBuckets(st);
+      Object.defineProperty(n, "fgApprox", { value: true, enumerable: false });
+      if (!D._fgYdsWarned) { D._fgYdsWarned = true; console.warn("[GFFL] Sleeper kicker row has fgm but no fgm_yds - pricing FG yards from distance buckets (approximate)"); }
+    }
     n.dst_2pt_ret = num(st.def_2pt);
     // one_pt_safety: no Sleeper key exists — once-a-decade play, reads 0 here
     // (documented approximation; ESPN side doesn't parse it either).
@@ -1860,9 +1893,33 @@
     for (const k in st) if (st[k]) return true;
     return false;
   }
+  // D/ST reconcile (2026-10-04, real-data audit weeks 1-3: D/ST lines 1-4 pts short). The
+  // ESPN-derived D/ST line (deriveEspnDst) can NEVER carry dst_fum_forced or dst_blk, and its
+  // fum_rec (opponent "fumblesLost") ran +1 over Sleeper's fum_rec in 7 of 96 real team-games
+  // (one sack too). mergeRow's fresher-`last` rule let that incomplete line win and finalize
+  // wrote it into the write-once weekly doc. So for a defense row where BOTH sides have stats:
+  // the two keys ESPN cannot see (forced fumble, blocked kick) always come from Sleeper (max, so
+  // a future ESPN source that does carry them is never undercut); once the game is FINAL the
+  // two keys ESPN over-counts (fum_rec, sack) are Sleeper's too. Live, those two stay on the
+  // fresher side exactly as before - the documented live speed is untouched. Everything else
+  // (pa, int, tds, safety) stays with whichever side mergeRow picks. Returns a new side object;
+  // the stored row.espn is never mutated. ESPN-only rows keep the derived line as the fallback,
+  // and a degraded pin (espn-only / sleeper-only) is left alone.
+  const DST_SLP_ALWAYS = ["dst_fum_forced", "dst_blk"], DST_SLP_FINAL = ["dst_fum_rec", "dst_sack"];
+  function dstReconcile(side, s, final) {
+    const st = Object.assign({}, side.stats);
+    for (const k of DST_SLP_ALWAYS) st[k] = Math.max(num(side.stats[k]), num(s.stats[k]));
+    if (final) for (const k of DST_SLP_FINAL) st[k] = num(s.stats[k]);
+    return { stats: st, raw: side.raw, last: side.last };
+  }
   function mergeRow(row) {
     const mode = D.S.health.mode;
-    const e = row.espn, s = row.slp;
+    let e = row.espn;
+    const s = row.slp;
+    if (mode !== "espn-only" && mode !== "sleeper-only" && e && s && String(row.key).startsWith("dst_") && hasStats(e) && hasStats(s)) {
+      const g0 = D.S.games.get(slpTeam(row.team));
+      e = dstReconcile(e, s, !!(g0 && g0.state === "post"));
+    }
     let pick = null, src = "";
     if (mode === "espn-only") {
       if (hasStats(e) || !hasStats(s)) { pick = e || s; src = e ? "espn" : (s ? "slp" : ""); }
@@ -1889,6 +1946,7 @@
     else if (e) { pick = e; src = "espn"; }
     else if (s) { pick = s; src = "slp"; }
     row.src = src;
+    row.picked = pick; // the side the points came from (a D/ST's is the reconciled copy, not row.espn)
     row.pts = pick ? D.score(pick.stats) : null;
     // ⚠ means SETTLED disagreement: game final and the sources still differ.
     // During live play the freshest source legitimately leads by 10-40s

@@ -32108,6 +32108,89 @@ async function openDetails(page, id) {
   }
   }
 
+  // ===================== RVS · review fix batch (2026-10-04): scoring =====================
+  // Node-only (lg-data.js in a vm, no browser). Fixtures are REAL: tools/fixtures/
+  // gffl_dst_w1_2026.json holds the trimmed ESPN summaries (PHI@WSH, PIT@ATL, TEN@NYJ, 2026 w1)
+  // plus the Sleeper /stats rows for those defenses, copied unmodified from the live APIs.
+  if (section("RVS1 · D/ST merge - Sleeper owns forced fumbles, blocks and (final) fum_rec/sack; kicker fgm_yds guard")) {
+    const vm = require("vm");
+    const FX = JSON.parse(fs.readFileSync(path.join(ROOT, "tools", "fixtures", "gffl_dst_w1_2026.json"), "utf8"));
+    // the league's real rules (production settings.rules.scoring, read 2026-10-04) - only the keys these checks price
+    const SC = { dst_sack: 1, dst_int: 2, dst_fum_rec: 1, dst_fum_forced: 1, dst_blk: 3, dst_td: 6, dst_safety: 4, dst_kr_td: 8,
+      dst_pa_0: 0, dst_pa_7_13: 0, dst_pa_14_17: 0, dst_pa_18_27: 0, fg_made_yd: 0.1, xp_made: 1, fg_miss: -1, rush_yd: 0.1, rush_td: 6 };
+    function loadD() {
+      let src = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-data.js"), "utf8");
+      const warns = [];
+      const LGx = { rules: { scoring: SC }, SEASON: 2026, floorPts: (n) => (n == null ? null : Math.max(0, n)), n: (v) => (Number.isFinite(Number(v)) ? Number(v) : 0) };
+      const con = { log() {}, error() {}, info() {}, warn: (m) => warns.push(String(m)) };
+      const cx = vm.createContext({ window: { LG: LGx }, document: {}, console: con, setTimeout, clearTimeout, setInterval, fetch: () => Promise.reject(new Error("no net")),
+        localStorage: { getItem() { return null; }, setItem() {} }, navigator: {}, location: { search: "", href: "" }, URLSearchParams, Date, Math, JSON, Map, Set, Promise });
+      vm.runInContext(src, cx, { filename: "lg-data.js" });
+      return { D: LGx.data, warns };
+    }
+    const { D, warns } = loadD();
+    const espnLine = (gameId, team) => D.deriveEspnDst(FX.games[gameId]).get("dst_" + team).stats;
+    function rowOf(team, gameId, state, { espnLast = 2, slpLast = 1, withSlp = true, mode = "dual" } = {}) {
+      D.S.health.mode = mode;
+      D.S.games.set(team, { state });
+      const e = espnLine(gameId, team), s = FX.slp[team];
+      return { key: "dst_" + team, team, pos: "DST", name: team + " D/ST", espn: { stats: e, raw: {}, last: espnLast },
+        slp: withSlp ? { stats: D.normSlp(s, true), raw: s, last: slpLast } : null, official: null };
+    }
+    // ---- 2026 w1 Eagles (PHI@WSH, final): hand-computed from the real boxes ----
+    // ESPN-derived line: 1 sack, PA 22 (pa_18_27 pays 0) = 1 pt. Sleeper: sack 1 + ff 1 + blk_kick 1 = 1*1 + 1*1 + 1*3 = 5.
+    ok(D.score(espnLine("401872929", "PHI"), SC) === 1, "RVS1 real w1 PHI: the ESPN-derived line alone scores 1 (sack only) - the stored-1 defect");
+    const phi = D.mergeRow(rowOf("PHI", "401872929", "post"));
+    ok(phi.pts === 5, "RVS1 real w1 PHI final, ESPN fresher: merged D/ST = 5 (sack 1 + forced fumble 1 + blocked kick 3), was 1 (got " + phi.pts + ")");
+    ok(phi.picked && phi.picked.stats.dst_blk === 1 && phi.picked.stats.dst_fum_forced === 1, "RVS1 the picked side carries dst_blk 1 and dst_fum_forced 1 (statSummary reads it)");
+    ok(phi.src === "espn", "RVS1 src stays espn (fresher side still the base; only Sleeper's fields overlaid)");
+    // ---- 2026 w1 Steelers (PIT@ATL): sack 4 + int 2*2 + def TD 6 + ff 2 = 16; ESPN-derived 14 ----
+    const pit = D.mergeRow(rowOf("PIT", "401872658", "post"));
+    ok(D.score(espnLine("401872658", "PIT"), SC) === 14 && pit.pts === 16, "RVS1 real w1 PIT: ESPN-derived 14 -> merged 16 (2 forced fumbles) (got " + pit.pts + ")");
+    // ---- 2026 w1 Jets (TEN@NYJ): ESPN fumblesLost says fum_rec 1, Sleeper fum_rec absent (only def_st_fum_rec) ----
+    const nyjF = D.mergeRow(rowOf("NYJ", "401872924", "post"));
+    ok(D.score(espnLine("401872924", "NYJ"), SC) === 4 && nyjF.pts === 3, "RVS1 real w1 NYJ final: ESPN 3 sacks + 1 fum_rec = 4, Sleeper owns fum_rec once final -> 3 (got " + nyjF.pts + ")");
+    const nyjL = D.mergeRow(rowOf("NYJ", "401872924", "in"));
+    ok(nyjL.pts === 4, "RVS1 same defense LIVE (game in): fresher-wins is untouched for fum_rec/sack - still ESPN's 4 (live speed preserved) (got " + nyjL.pts + ")");
+    const phiL = D.mergeRow(rowOf("PHI", "401872929", "in"));
+    ok(phiL.pts === 5, "RVS1 live: the two keys ESPN can never carry (ff, blk) still come from Sleeper = 5 (got " + phiL.pts + ")");
+    // ---- fallbacks ----
+    const phiE = D.mergeRow(rowOf("PHI", "401872929", "post", { withSlp: false }));
+    ok(phiE.pts === 1 && phiE.src === "espn", "RVS1 ESPN-only D/ST keeps the derived line as the fallback (1)");
+    const phiPin = D.mergeRow(rowOf("PHI", "401872929", "post", { mode: "espn-only" }));
+    ok(phiPin.pts === 1, "RVS1 a degraded espn-only pin is left alone (no Sleeper overlay) = 1");
+    const phiS = D.mergeRow(rowOf("PHI", "401872929", "post", { espnLast: 1, slpLast: 2 }));
+    ok(phiS.pts === 5 && phiS.src === "slp", "RVS1 Sleeper fresher: Sleeper line as before = 5");
+    const rowN = rowOf("PHI", "401872929", "post"); const before = JSON.stringify(rowN.espn.stats);
+    D.mergeRow(rowN);
+    ok(JSON.stringify(rowN.espn.stats) === before, "RVS1 the stored row.espn stats are never mutated by the reconcile (applySide diffs against them)");
+    D.S.health.mode = "dual";
+    ok(rowN.conflict === false, "RVS1 post-game conflict no longer fires on the missing ff/blk (reconciled ESPN side = Sleeper side)");
+    // non-DST rows: the documented fresher-wins is byte-identical
+    D.S.games.set("PHI", { state: "post" });
+    const pl = { key: "4362628", team: "PHI", pos: "RB", name: "Test RB", espn: { stats: Object.assign({}, D.deriveEspnDst(FX.games["401872929"]).get("dst_PHI").stats, { dst_sack: 0, rush_yd: 100 }), raw: {}, last: 2 },
+      slp: { stats: Object.assign(D.normSlp({ rush_yd: 80 }, false)), raw: {}, last: 1 }, official: null };
+    pl.espn.stats.dst_pa = null; pl.espn.stats.dst_sack = 0;
+    D.mergeRow(pl);
+    ok(pl.pts === 10 && pl.src === "espn", "RVS1 a non-D/ST row is untouched: fresher ESPN 100 rush yds = 10.0 (got " + pl.pts + ")");
+
+    // ---- kicker guard (latent): real Sleeper row 650 (w1), fgm_yds removed ----
+    const k650 = { fga: 4, fgm: 2, fgm_40_49: 1, fgm_50_59: 1, fgm_50p: 1, fgm_lng: 51, fgm_pct: 50, fgm_yds: 94, fgm_yds_over_30: 34, fgmiss: 2, fgmiss_40_49: 1, fgmiss_50_59: 1, fgmiss_50p: 1, xpa: 1, xpm: 1 };
+    const intact = D.normSlp(k650, false);
+    ok(intact.fg_made_yd === 94 && !intact.fgApprox && D.score(intact, SC) === 8.4 && warns.length === 0, "RVS1 real kicker row with fgm_yds: 94 yds, no flag, no warn; 9.4 + XP 1 - 2 misses = 8.4");
+    const noYd = Object.assign({}, k650); delete noYd.fgm_yds;
+    const g1 = D.normSlp(noYd, false);
+    ok(g1.fg_made_yd === 94 && g1.fgApprox === true && D.score(g1, SC) === 8.4, "RVS1 fgm_yds dropped: rebuilt from fgm_yds_over_30 (34) + 30 x 2 long makes = 94 -> same 8.4, flagged fgApprox");
+    ok(Object.keys(g1).indexOf("fgApprox") === -1, "RVS1 the flag is non-enumerable (hasStats/KEYS loops never see it)");
+    const k1945 = { fgm: 2, fgm_20_29: 1, fgm_40_49: 1, fgm_yds_over_30: 13, xpm: 2 }; // real row 1945 minus fgm_yds (true 71)
+    ok(D.normSlp(k1945, false).fg_made_yd === 13 + 30 * 1 + 25 * 1, "RVS1 over_30 13 + 30 (one 30+ make) + 25 (one short make at its bucket midpoint) = 68 (true 71)");
+    const kBk = { fgm: 2, fgm_20_29: 1, fgm_40_49: 1, xpm: 2 };
+    ok(D.normSlp(kBk, false).fg_made_yd === 25 + 45, "RVS1 no over_30 either: bucket midpoints 25 + 45 = 70");
+    ok(D.normSlp({ fgm: 3, xpm: 1 }, false).fg_made_yd === 99, "RVS1 no distance fields at all: 33 per FG = 99");
+    ok(warns.length === 1 && /fgm_yds/.test(warns[0]), "RVS1 console.warn fires once per page, not per row (" + warns.length + " warn(s) for 4 guarded rows)");
+    ok(D.normSlp({ fgm: 0, xpm: 3 }, false).fg_made_yd === 0 && !D.normSlp({ fgm: 0, xpm: 3 }, false).fgApprox, "RVS1 an XP-only kicker (fgm 0, no fgm_yds - 4-5 per real week) is NOT flagged");
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
