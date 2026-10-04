@@ -2031,6 +2031,26 @@
   // Post-paint, detached: season averages (past weeks' D.weekStats), last week's snapshot, and
   // on the phone the playoff odds (the desktop's first batch already read them). Repaints once
   // if any of it changed what the card shows. A warm return to League asks for nothing new.
+  // The in-progress week's per-matchup win probability, for LG.playoffOdds (2026-10-04): the
+  // same D.winProb the score cards use, flipped to the HOME side. Undefined (= the odds sim
+  // keeps its plain Elo game) unless this is the current, unfinalized regular-season week AND at
+  // least one of its starters has already played — before kickoff there is nothing live to add.
+  function liveOddsInput() {
+    try {
+      const d = D();
+      if (UI._weeklyDoc || UI.week !== LG.currentWeek() || UI.week > LG.rules.seasonWeeks || !UI._rosters) return undefined;
+      const games = [];
+      let started = false;
+      for (const [h, a] of (UI._wkGames || [])) {
+        const hKeys = teamStarters(h).map((p) => p.key), aKeys = teamStarters(a).map((p) => p.key);
+        if (!hKeys.length || !aKeys.length) continue;
+        const hr = d.remaining(hKeys), ar = d.remaining(aKeys);
+        if (hr.played + hr.playing + ar.played + ar.playing > 0) started = true;
+        games.push({ home: h, away: a, pHome: 1 - d.winProb(aKeys, hKeys) }); // winProb is the AWAY side's
+      }
+      return started && games.length ? { week: UI.week, games } : undefined;
+    } catch (e) { return undefined; }
+  }
   let powerLoading = false;
   function refreshPowerData() {
     if (powerLoading) return;
@@ -2046,7 +2066,7 @@
       needAvg ? Promise.all(weeks.map((w) => D().weekStats(w, { season: LG.SEASON, seasonType: "regular" }).catch(() => null)))
         .then((maps) => ({ key, avg: LG.seasonAverages(maps) })) : null,
       needSnap ? LG.loadPowerSnap(prevWeek).catch(() => null) : null,
-      needOdds ? LG.playoffOdds().catch(() => null) : null,
+      needOdds ? LG.playoffOdds({ live: liveOddsInput() }).catch(() => null) : null,
     ]).then(([avg, snap, odds]) => {
       let changed = false;
       if (avg) { UI._pwAvg = avg; changed = true; }
@@ -2120,7 +2140,9 @@
     const table = `<table class="tbl standtbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
     const footnote = anyProvisional ? '<p class="mut small standprovnote">* Provisional — decided this week, not yet official</p>' : "";
     // The whole point of the desktop table: it is NOT wrapped in a scroller.
-    return `<div class="card standcard"><h2>Standings</h2>${wide ? table : `<div class="panner">${table}</div>`}${footnote}</div>`;
+    // One line naming the applied order (rules.tiebreak) — the table is ranked by LG.rankTeams.
+    const orderNote = `<p class="mut small standrule">${esc(LG.tiebreakText())}</p>`;
+    return `<div class="card standcard"><h2>Standings</h2>${wide ? table : `<div class="panner">${table}</div>`}${footnote}${orderNote}</div>`;
   }
   // ---------------- ALL-TIME (2026-08-11 desktop pass) ----------------
   // The record book, reduced to the one thing the user asked to keep: "record book should show
@@ -2786,7 +2808,7 @@
       // here would put a network round trip in front of the first pixel for no gain.
       if (wide) {
         const [rb, tx, streaks, odds] = await Promise.all([
-          LG.recordBook(), LG.loadTx(), LG.loadStreaks(), LG.playoffOdds(),
+          LG.recordBook(), LG.loadTx(), LG.loadStreaks(), LG.playoffOdds({ live: liveOddsInput() }),
         ]);
         UI._recordBook = rb; UI._tx = tx; UI._streaks = streaks; UI._odds = odds;
       }
@@ -2826,10 +2848,8 @@
       }
       st = clone;
     }
-    const rows = [...LG.teams].sort((a, b) => {
-      const A = st[a.id] || { w: 0, pf: 0 }, B = st[b.id] || { w: 0, pf: 0 };
-      return (B.w - A.w) || (B.pf - A.pf);
-    });
+    // win% (a tie is half a win), then rules.tiebreak — the same ranking the seeds and the waiver order use
+    const rows = LG.rankTeams(LG.teams.map((t) => t.id), st).map((id) => LG.teamById(id));
     const finalizeBtn = (wkGames.length && isCommish() && !UI._weeklyDoc)
       ? `<div class="rowline"><button id="finalizeBtn">Finalize week ${UI.week}</button></div>` : "";
     const noGamesMsg = !schedule ? `No schedule yet${isCommish() ? " — generate one in Rules" : ""}.`
@@ -6577,6 +6597,7 @@
     "active-full": "your lineup and bench are full, and dropping someone off IR doesn't free a spot",
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
+    "bad-bid": "a bid must be a whole number of dollars, $0 or more",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
     "stale-week": "live scoring has moved on from that week", "no-live-data": "live scoring hasn't loaded yet",
     preseason: "the NFL is still in preseason — nothing counts yet",
@@ -7706,7 +7727,7 @@
     const playInTxt = playIn === 2 ? `, ${p.byes + 1}v${p.byes + 2} play-in` : "";
     return `${p.teams}-team playoffs (top ${p.byes} get byes${playInTxt}) · starts week ${p.startWeek}, week-by-week single elimination.`;
   }
-  function scheduleSummaryLine(r) { return `${r.seasonWeeks}-week regular season, double round robin.`; }
+  function scheduleSummaryLine(r) { return `${r.seasonWeeks}-week regular season, double round robin. ${LG.tiebreakText(r)}`; }
   // S2: draftAt has no group (it's a flat top-level rules field), so it gets the same plain-
   // English treatment as the other summary lines above rather than a raw table row.
   function draftAtSummaryLine(r) {
@@ -8760,7 +8781,7 @@
     if (UI.view !== "rosters") return; // the reader moved on while the rosters were loading
     const mine = LG.myTeamId();
     const rank = (id) => standings[id] || { w: 0, l: 0, t: 0, pf: 0 };
-    const order = [...LG.teams].sort((a, b) => { const A = rank(a.id), B = rank(b.id); return (B.w - A.w) || (B.pf - A.pf); });
+    const order = LG.rankTeams(LG.teams.map((t) => t.id), standings).map((id) => LG.teamById(id));
     const slots = starterSlotList();
     const POS_ORDER = d.LEAGUE_POS || ["QB", "RB", "WR", "TE", "K", "DST"];
     const posOf = (p) => (d.leaguePos ? d.leaguePos(p.pos) : p.pos);
@@ -8851,7 +8872,7 @@
     const bannerSeasons = new Set(historyBanners.map((b) => b.season));
     const banners = [...historyBanners, ...liveBanners.filter((b) => !bannerSeasons.has(b.season))].sort((a, b) => a.season - b.season);
     const st = standings[teamId] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
-    const rows = [...LG.teams].sort((a, b) => { const A = standings[a.id] || { w: 0, pf: 0 }, B = standings[b.id] || { w: 0, pf: 0 }; return (B.w - A.w) || (B.pf - A.pf); });
+    const rows = LG.rankTeams(LG.teams.map((t) => t.id), standings).map((id) => LG.teamById(id));
     const place = rows.findIndex((t) => t.id === teamId) + 1;
     // THE TROPHY CASE (2026-08-12, user: "add a trophy case to each My Team page, Champion,
     // Runner Up and Point total champion"). It SUPERSEDES the plain Championships card: the

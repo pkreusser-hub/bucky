@@ -481,6 +481,31 @@
   // OPTIONS preflight for a JSON POST answers 200 with POST + content-type allowed, and a real
   // :runQuery POST answers 200 + ACAO with the league's 8 team docs. Auth is the public web
   // API key already in this page; the rules are public — the same posture the SDK had.
+  // ⭐ SERVER-TIME OFFSET (2026-10-04). LG.now() drives the lineup locks and the waiver / trade
+  // deadlines, and it read the DEVICE clock — one family Mac ran ~5 minutes slow (302-322 s,
+  // measured on 91 docs) and could act that long past a lock. Firestore already tells us the
+  // server's time for free: a write's response carries `updateTime` and a query's rows carry
+  // `readTime`. Each sample gives offset = server − (the midpoint of the request on OUR clock);
+  // the sample with the smallest round trip is the most accurate, so that one is kept (and
+  // replaced after 5 minutes, so a clock that is stepped or drifting is followed). An offset
+  // beyond ±15 minutes is not a skewed clock but a mocked/broken one and is IGNORED — falling
+  // back to exactly the old behaviour. Only LG.now() uses it; persisted stamps stay Date.now().
+  LG.clockOffset = 0;
+  let clockBest = null; // {rtt, at, off}
+  function noteServerTime(iso, sentAt, recvAt) {
+    try {
+      const srv = Date.parse(iso);
+      const rtt = recvAt - sentAt;
+      if (!Number.isFinite(srv) || !(rtt >= 0) || rtt > 5000) return;
+      const off = srv - (sentAt + recvAt) / 2;
+      if (Math.abs(off) > 15 * 60e3) return;
+      if (!clockBest || rtt <= clockBest.rtt || recvAt - clockBest.at > 5 * 60e3) {
+        clockBest = { rtt, at: recvAt, off };
+        LG.clockOffset = Math.round(off);
+      }
+    } catch (e) { /* a clock sample is a courtesy */ }
+  }
+  LG.noteServerTime = noteServerTime;
   const FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
   const FS_BASE = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents";
   const FS_TIMEOUT_MS = 12000;
@@ -689,6 +714,7 @@
         ? "&currentDocument.exists=false"
         : "&currentDocument.updateTime=" + encodeURIComponent(v);
       const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY + "&" + mask + pre;
+      const t0 = Date.now();
       const r = await fsFetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -704,6 +730,7 @@
       }
       markHealthy();
       const j = await r.json().catch(() => null);
+      if (j) noteServerTime(j.updateTime, t0, Date.now());
       if (j && j.fields) mirrorPut(id, fsDecFields(j.fields));
       return { ok: true, doc: j && j.fields ? fsDecFields(j.fields) : null, v: (j && j.updateTime) || null };
     },
@@ -726,6 +753,7 @@
       const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY + "&" + mask;
       // PATCH + an updateMask naming exactly the top-level keys we are writing IS setDoc's
       // merge:true: listed fields are replaced, unlisted fields on the server are left alone.
+      const t0 = Date.now();
       const r = await fsFetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -734,6 +762,7 @@
       if (!r.ok) throw new Error("Firestore write failed (" + r.status + ")");
       markHealthy();
       const j = await r.json().catch(() => null);
+      if (j) noteServerTime(j.updateTime, t0, Date.now());
       // Keep the mirror tracking our own writes: the response carries the merged document.
       if (j && j.fields) mirrorPut(id, fsDecFields(j.fields));
     },
@@ -747,6 +776,7 @@
     async list(kind) {
       const q = { from: [{ collectionId: LG.COLL }] };
       if (kind) q.where = { fieldFilter: { field: { fieldPath: "kind" }, op: "EQUAL", value: { stringValue: kind } } };
+      const t0 = Date.now();
       const r = await fsFetch(FS_BASE + ":runQuery?key=" + FS_KEY, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -754,6 +784,7 @@
       }, "Firestore query");
       if (!r.ok) throw new Error("Firestore query failed (" + r.status + ")");
       const rows = await r.json();
+      if (Array.isArray(rows) && rows[0]) noteServerTime(rows[0].readTime, t0, Date.now());
       const out = [];
       for (const row of (Array.isArray(rows) ? rows : [])) {
         // A runQuery stream legitimately contains rows with no `document` (a readTime-only
@@ -763,6 +794,37 @@
         const doc = fsDecFields(row.document.fields);
         mirrorPut(id, doc);
         out.push({ ...doc, id }); // id LAST — a doc's own stray `id` field must never clobber its doc-id
+      }
+      markHealthy();
+      return out;
+    },
+    // A WINDOWED read of an append-only ledger whose doc ids are `<kind>_<epoch ms>_<rand>`
+    // (act, chat, tx): a range on the document NAME, which Firestore serves from its built-in
+    // index — no composite index, and no `kind` equality filter to need one. Only the rows from
+    // `sinceMs` on are read (and billed), instead of the whole collection every time.
+    async listSince(kind, sinceMs) {
+      const path = (id) => "projects/amen-farms-app/databases/(default)/documents/" + LG.COLL + "/" + id;
+      const field = { fieldPath: "__name__" };
+      const q = {
+        from: [{ collectionId: LG.COLL }],
+        where: { compositeFilter: { op: "AND", filters: [
+          { fieldFilter: { field, op: "GREATER_THAN_OR_EQUAL", value: { referenceValue: path(kind + "_" + Math.max(0, Math.floor(sinceMs))) } } },
+          { fieldFilter: { field, op: "LESS_THAN", value: { referenceValue: path(kind + "_a") } } }, // "_" < "a": past every digit
+        ] } },
+      };
+      const r = await fsFetch(FS_BASE + ":runQuery?key=" + FS_KEY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ structuredQuery: q }),
+      }, "Firestore query");
+      if (!r.ok) throw new Error("Firestore query failed (" + r.status + ")");
+      const rows = await r.json();
+      const out = [];
+      for (const row of (Array.isArray(rows) ? rows : [])) {
+        if (!row || !row.document || !row.document.name) continue;
+        const id = String(row.document.name).split("/").pop();
+        const doc = fsDecFields(row.document.fields);
+        out.push({ ...doc, id });
       }
       markHealthy();
       return out;
@@ -1092,6 +1154,18 @@
       }
       throw new Error("cas-contention:" + id);
     },
+    // Rows of an id-timestamped ledger (`<kind>_<ms>_<rand>`) from `sinceMs` on, newest not
+    // guaranteed first. Never cached (a window is not the kind's list, and must not answer for
+    // it). A backend with no range query falls back to the whole list, filtered by the row's own
+    // `t` — the same rows, just not cheaper.
+    async listSince(kind, sinceMs) {
+      LG.db.stats.lists++;
+      const be = backend();
+      // The range query is the optimisation, never the only way: if the backend refuses it
+      // (an index it does not have, an older fake cloud) the whole list answers instead.
+      if (be.listSince) { try { return await be.listSince(kind, sinceMs); } catch (e) { /* fall through */ } }
+      return (await be.list(kind)).filter((d) => Number(d.t) >= sinceMs);
+    },
     async list(kind) {
       if (kind === "chat") { LG.db.stats.lists++; return backend().list(kind); } // see the note above
       const key = kind || "";
@@ -1189,13 +1263,36 @@
     trades: { reviewHours: 48, veto: "vote", vetoVotes: 4, deadlineWeek: 11 },
     keepers: { max: 3, costRoundsEarlier: 1, costFloor: 1, maxYears: 3, waiverCost: "last-round", mustBeOnFinalRoster: true },
     playoffs: { teams: 5, startWeek: 15, byes: 3 },
+    // TIEBREAKERS (2026-10-04). Teams are ranked on win% with a tie counting HALF a win (the
+    // ESPN rule), and teams still level are separated by these, in order: "h2h" = record in
+    // the games the tied teams played against EACH OTHER, "pf" = points for. Anything still
+    // level falls to team id so the order is deterministic. One rule for the standings table,
+    // the bracket seeds, the waiver order and the playoff-odds simulation (LG.rankTeams).
+    tiebreak: ["h2h", "pf"],
   };
   LG.rules = null;
   LG.rulesDoc = null;
+  function mergeRules(base, over) {
+    if (!over || typeof over !== "object" || Array.isArray(over)) return over === undefined ? base : over;
+    const out = { ...base };
+    for (const k of Object.keys(over)) {
+      const b = base && base[k], o = over[k];
+      out[k] = (b && typeof b === "object" && !Array.isArray(b) && o && typeof o === "object" && !Array.isArray(o)) ? mergeRules(b, o) : o;
+    }
+    return out;
+  }
+  LG.mergeRules = mergeRules;
   LG.loadRules = async function () {
     const doc = await LG.db.get("settings");
-    if (doc && doc.rules) { LG.rulesDoc = doc; LG.rules = doc.rules; }
-    else {
+    if (doc && doc.rules) {
+      // DEEP-MERGE the stored rules over the defaults (2026-10-04): a settings doc that lacks a
+      // block (`trades`, `waivers`, `playoffs`) or a field (`seasonWeeks`) used to throw in
+      // tradeDeadlinePassed / waiverDeadline / teamFaab, or drop every week from the standings
+      // (`(wd.week||0) <= undefined` is false). Stored values always win; arrays and scalars
+      // replace wholesale; only plain objects merge. The doc itself is left as stored — a save
+      // writes the merged object, which is the complete one.
+      LG.rulesDoc = doc; LG.rules = mergeRules(LG.DEFAULT_RULES, doc.rules);
+    } else {
       // season: LG.SEASON at READ time, not the DEFAULT_RULES literal (frozen at whatever
       // LG.SEASON read at module-eval time), so a league with no settings doc yet reads the
       // season it is actually running — the 2025 replay included — everywhere the rules
@@ -1635,11 +1732,91 @@
   LG.loadWeeklyDocs = async function () {
     return (await LG.db.list("weekly")).filter((wd) => !LG.weeklyIsVoid(wd));
   };
+  // ================= RANKING: WIN% WITH TIES, THEN THE TIEBREAKERS (2026-10-04) ===============
+  // Seeding, waiver priority and the playoff-odds sim used to sort on `w` then `pf`, so a tie
+  // (tallied in `t`, never used) was worth nothing: 1-0-1 ranked BELOW 1-1. Every ranking now
+  // goes through LG.rankTeams: win% = (w + 0.5 t) / games, then rules.tiebreak in order
+  // (default ["h2h","pf"]), then team id. Pure — `st[id]` is {w,l,t,pf,h2h:{oppId:[w,l,t]}}.
+  const TB_NAMES = { h2h: "head-to-head record among the tied teams", pf: "points for" };
+  LG.tiebreakOrder = function (rules) {
+    const r = (rules || LG.rules || LG.DEFAULT_RULES).tiebreak;
+    const list = Array.isArray(r) ? r : LG.DEFAULT_RULES.tiebreak;
+    return list.filter((k) => TB_NAMES[k]);
+  };
+  // The one line the standings footer prints.
+  LG.tiebreakText = function (rules) {
+    const o = LG.tiebreakOrder(rules).map((k) => TB_NAMES[k]);
+    return "Ranked by win % (a tie counts as half a win)" + (o.length ? ", then " + o.join(", then ") : "") + ".";
+  };
+  LG.winPct = function (r) {
+    const g = (r ? LG.n(r.w) + LG.n(r.l) + LG.n(r.t) : 0);
+    return g ? (LG.n(r.w) + 0.5 * LG.n(r.t)) / g : 0;
+  };
+  // Best first. opts.rule overrides rules.tiebreak; opts.h2h(a,b) -> [w,l,t] overrides the
+  // st[a].h2h lookup (the sim keeps its own matrix); opts.idDesc flips only the FINAL team-id
+  // fallback (the waiver order is this list reversed, and a full tie there has always put the
+  // lower id first). A group still level after a rule is re-ranked from the START of the rule
+  // list once it has shrunk (the usual head-to-head restart), and a group in which some pair has not met
+  // yet falls through to the next rule.
+  LG.rankTeams = function (ids, st, opts) {
+    const o = opts || {};
+    const rule = o.rule || LG.tiebreakOrder();
+    const h2h = o.h2h || ((a, b) => { const m = st[a] && st[a].h2h; return m && m[b]; });
+    const idCmp = o.idDesc ? (a, b) => b - a : (a, b) => a - b;
+    const key = (id, group, k) => {
+      if (k === "pf") return LG.n(st[id] && st[id].pf);
+      let w = 0, g = 0; // h2h: win% in the games played against the rest of THIS group
+      for (const x of group) {
+        if (x === id) continue;
+        const r = h2h(id, x);
+        // Head-to-head is only FAIR when every member has met every other (a double round robin
+        // is, by the end): T5 beating T6 says nothing about T7, who T5 has not played yet. Any
+        // pair that has not met makes the rule null for the whole group.
+        if (!r || r[0] + r[1] + r[2] === 0) return null;
+        w += r[0] + 0.5 * r[2]; g += r[0] + r[1] + r[2];
+      }
+      return g ? w / g : null; // null = this rule cannot separate them (not everyone has met)
+    };
+    // Returns BLOCKS (arrays of ids, best block first). Normally every block is one team. With
+    // opts.blocks a group that would be separated by "pf" is returned as ONE block instead —
+    // the odds enumeration uses it, because points-for is not knowable until the games are
+    // played (a team is only certain of a place if no tie-on-PF can move it).
+    const resolve = (group, rules) => {
+      if (group.length < 2) return [group];
+      if (!rules.length) return group.slice().sort(idCmp).map((id) => [id]);
+      if (o.blocks && rules[0] === "pf") return [group];
+      const keys = new Map(group.map((id) => [id, key(id, group, rules[0])]));
+      if ([...keys.values()].some((v) => v === null)) {
+        // Some of the group never played each other (or only some did): head-to-head cannot rank
+        // them fairly, so the whole group moves on to the next rule.
+        return resolve(group, rules.slice(1));
+      }
+      const sorted = group.slice().sort((a, b) => keys.get(b) - keys.get(a));
+      const out = [];
+      for (let i = 0; i < sorted.length;) {
+        let j = i + 1;
+        while (j < sorted.length && Math.abs(keys.get(sorted[j]) - keys.get(sorted[i])) < 1e-9) j++;
+        const sub = sorted.slice(i, j);
+        out.push(...resolve(sub, sub.length === group.length ? rules.slice(1) : rules));
+        i = j;
+      }
+      return out;
+    };
+    const byPct = (ids || []).slice().sort((a, b) => LG.winPct(st[b]) - LG.winPct(st[a]));
+    const blocks = [];
+    for (let i = 0; i < byPct.length;) {
+      let j = i + 1;
+      while (j < byPct.length && Math.abs(LG.winPct(st[byPct[j]]) - LG.winPct(st[byPct[i]])) < 1e-9) j++;
+      blocks.push(...resolve(byPct.slice(i, j), rule));
+      i = j;
+    }
+    return o.blocks ? blocks : [].concat(...blocks);
+  };
   LG.loadStandings = async function () {
     const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
     const weekly = (await LG.loadWeeklyDocs()).filter((wd) => (wd.week || 0) <= sw);
     const st = {};
-    for (const t of LG.teams) st[t.id] = { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
+    for (const t of LG.teams) st[t.id] = { w: 0, l: 0, t: 0, pf: 0, pa: 0, h2h: {} };
     for (const wd of weekly) {
       for (const m of (wd.matchups || [])) {
         const [h, a] = [m.home, m.away];
@@ -1648,9 +1825,10 @@
         // otherwise turn this team's PF into NaN for the rest of the season's table.
         st[h].pf += LG.n(m.homePts); st[h].pa += LG.n(m.awayPts);
         st[a].pf += LG.n(m.awayPts); st[a].pa += LG.n(m.homePts);
-        if (m.homePts > m.awayPts) { st[h].w++; st[a].l++; }
-        else if (m.awayPts > m.homePts) { st[a].w++; st[h].l++; }
-        else { st[h].t++; st[a].t++; }
+        const hh = (st[h].h2h[a] = st[h].h2h[a] || [0, 0, 0]), aa = (st[a].h2h[h] = st[a].h2h[h] || [0, 0, 0]);
+        if (m.homePts > m.awayPts) { st[h].w++; st[a].l++; hh[0]++; aa[1]++; }
+        else if (m.awayPts > m.homePts) { st[a].w++; st[h].l++; aa[0]++; hh[1]++; }
+        else { st[h].t++; st[a].t++; hh[2]++; aa[2]++; }
       }
     }
     return st;
@@ -1796,7 +1974,21 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  LG.playoffOdds = async function () {
+  // ⭐ EXACT CLINCH / ELIMINATION (2026-10-04). With PO_EXACT_MAX or fewer games left there are
+  // at most 2^14 = 16,384 ways the season can finish, so every one is walked and a team is
+  // reported 100 only if it makes the playoffs in ALL of them, 0 only if it misses in ALL —
+  // certain, not sampled. A Monte Carlo cannot say that: with 1000 draws a team whose true
+  // chance is 0.1% prints 0 in ~37% of seeds. The tiebreaks use the real rules, with points-for
+  // treated as unknowable (LG.rankTeams opts.blocks), so a team that only a future PF tie could
+  // move is never called clinched. Above the threshold the Monte Carlo runs as before, but a
+  // sample can only ever say 1..99 — never a lock.
+  const PO_EXACT_MAX = 14;
+  // opts.live = { week, games: [{ home, away, pHome }] } — the in-progress week's own win
+  // probability per matchup (D.winProb, flipped to the home side). When a remaining game of
+  // that week matches, the sim uses pHome instead of the Elo coin; lg-core stays pure (no
+  // lg-data import) because the caller hands the numbers in. pHome of exactly 0 or 1 is a
+  // decided game and removes the other outcome from the enumeration.
+  LG.playoffOdds = async function (opts) {
     const rules = LG.rules || LG.DEFAULT_RULES;
     const sw = rules.seasonWeeks;
     const ids = LG.teams.map((t) => t.id).sort((a, b) => a - b);
@@ -1805,22 +1997,33 @@
     const weekly = (await LG.loadWeeklyDocs()).filter((wd) => (wd.week || 0) <= sw);
     const finalized = new Set(weekly.map((wd) => wd.week));
     const base = {};
-    for (const id of ids) base[id] = { w: 0, pf: 0, g: 0 };
+    for (const id of ids) base[id] = { w: 0, l: 0, t: 0, pf: 0, g: 0, h2h: {} };
     for (const wd of weekly) {
       for (const m of (wd.matchups || [])) {
         const h = base[m.home], a = base[m.away];
         if (!h || !a) continue;
         const hp = LG.n(m.homePts), ap = LG.n(m.awayPts);
         h.pf += hp; a.pf += ap; h.g++; a.g++;
-        if (hp > ap) h.w++; else if (ap > hp) a.w++;
+        const hh = (h.h2h[m.away] = h.h2h[m.away] || [0, 0, 0]), aa = (a.h2h[m.home] = a.h2h[m.home] || [0, 0, 0]);
+        // Ties are half a win and head-to-head ties are counted as such (LG.rankTeams).
+        if (hp > ap) { h.w++; a.l++; hh[0]++; aa[1]++; } else if (ap > hp) { a.w++; h.l++; aa[0]++; hh[1]++; } else { h.t++; a.t++; hh[2]++; aa[2]++; }
       }
     }
     const weeks = await LG.loadSchedule();
+    const live = opts && opts.live && Array.isArray(opts.live.games) ? opts.live : null;
+    const liveP = new Map(); // "home-away" -> P(home wins), for the live week only
+    if (live) for (const g of live.games) if (g && Number.isFinite(g.pHome)) liveP.set(g.home + "-" + g.away, Math.min(1, Math.max(0, g.pHome)));
     const rem = [];
     for (let w = 1; w <= sw; w++) {
       if (finalized.has(w)) continue;
       for (const g of ((weeks && weeks[w - 1]) || [])) {
-        if (base[g[0]] && base[g[1]]) rem.push([g[0], g[1]]);
+        if (base[g[0]] && base[g[1]]) {
+          const pl = live && live.week === w ? liveP.get(g[0] + "-" + g[1]) : undefined;
+          // 3 dp keeps the cache key stable between ticks; an UNDECIDED game (0 < p < 1) never rounds
+          // onto 0 or 1, which the enumeration reads as "already over".
+          const pr = pl === undefined ? null : (pl <= 0 || pl >= 1 ? pl : Math.min(0.999, Math.max(0.001, Math.round(pl * 1000) / 1000)));
+          rem.push([g[0], g[1], pr]);
+        }
       }
     }
     let totPF = 0, totG = 0;
@@ -1832,34 +2035,146 @@
     const sample = poSampleWeight(gBar, sw, ids.length ? 2 * rem.length / ids.length : 0);
     const s = {};
     for (const id of ids) s[id] = (base[id].pf + priorW * mean) / (base[id].g + priorW);
-    const key = ["poCalm1", LG.SEASON, sw, spots, rem.length, ids.join(",")].concat(
-      ids.map((id) => id + ":" + base[id].w + ":" + Math.round(base[id].pf * 10) + ":" + base[id].g)).join("~");
+    // The key names the ACTUAL remaining schedule (who plays whom, and any live probability)
+    // and the results so far (record, ties, PF, head-to-head) — rem.length alone served stale
+    // odds after a mid-season schedule regeneration with the same game count.
+    const key = ["poCalm2", LG.SEASON, sw, spots, LG.tiebreakOrder(rules).join("+"), ids.join(","),
+      rem.map((g) => g[0] + "v" + g[1] + (g[2] == null ? "" : "@" + g[2])).join(",")].concat(
+      ids.map((id) => id + ":" + base[id].w + ":" + base[id].t + ":" + Math.round(base[id].pf * 10) + ":" + base[id].g + ":" +
+        Object.keys(base[id].h2h).sort((x, y) => x - y).map((o) => o + "=" + base[id].h2h[o].join("/")).join(";"))).join("~");
     if (LG._poCache && LG._poCache.key === key) return LG._poCache.odds;
     const rnd = poRng(poHash(key));
-    const counts = {}, wSim = {}, pfSim = {};
-    for (const id of ids) counts[id] = 0;
+    const tbRule = LG.tiebreakOrder(rules);
+    const remN = {}; for (const id of ids) remN[id] = 0;
+    for (const g of rem) { remN[g[0]]++; remN[g[1]]++; }
+    const pOf = (g) => (g[2] != null ? g[2] : 1 / (1 + Math.pow(10, -((s[g[0]] - s[g[1]]) / PO_SCALE))));
+    const counts = {}, wSim = {}, pfSim = {}, hm = {}, simSt = {};
+    for (const id of ids) { counts[id] = 0; hm[id] = {}; simSt[id] = { w: 0, l: 0, t: 0, pf: 0 }; }
+    const h2hOf = (a, b) => hm[a][b];
+    const loadSim = () => {
+      for (const id of ids) {
+        wSim[id] = base[id].w; pfSim[id] = base[id].pf;
+        for (const o of ids) hm[id][o] = base[id].h2h[o] ? base[id].h2h[o].slice() : undefined;
+      }
+    };
+    const play = (h, a, homeWon) => {
+      const w = homeWon ? h : a, l = homeWon ? a : h;
+      wSim[w]++;
+      const x = (hm[w][l] = hm[w][l] || [0, 0, 0]), y = (hm[l][w] = hm[l][w] || [0, 0, 0]);
+      x[0]++; y[1]++;
+    };
+    const fillSt = () => {
+      for (const id of ids) {
+        const r = simSt[id];
+        r.w = wSim[id]; r.t = base[id].t; r.l = base[id].g + remN[id] - wSim[id] - base[id].t; r.pf = pfSim[id];
+      }
+    };
     for (let n = 0; n < PO_SIMS; n++) {
-      for (const id of ids) { wSim[id] = base[id].w; pfSim[id] = base[id].pf; }
+      loadSim();
       for (const g of rem) {
         const h = g[0], a = g[1];
-        const p = 1 / (1 + Math.pow(10, -((s[h] - s[a]) / PO_SCALE)));
-        if (rnd() < p) wSim[h]++; else wSim[a]++;
-        // Simulated points-for, so the app's OWN seeding tiebreak (wins → PF → teamId) still
+        play(h, a, rnd() < pOf(g));
+        // Simulated points-for, so the app's OWN seeding tiebreak (win% → h2h → PF → teamId) still
         // decides a tie. The noise is what keeps it from collapsing onto the teamId tiebreak in
         // the pre-season case, where every strength is identical.
         pfSim[h] += s[h] + (rnd() - 0.5) * PO_PF_NOISE;
         pfSim[a] += s[a] + (rnd() - 0.5) * PO_PF_NOISE;
       }
-      // The app's own seeding rules — the same sort LG.buildBracket uses.
-      const order = ids.slice().sort((x, y) => (wSim[y] - wSim[x]) || (pfSim[y] - pfSim[x]) || (x - y));
+      fillSt();
+      // The app's own seeding rules — the same ranking LG.buildBracket uses.
+      const order = LG.rankTeams(ids, simSt, { rule: tbRule, h2h: h2hOf });
       for (let i = 0; i < spots; i++) counts[order[i]]++;
+    }
+    // EXACT pass (see PO_EXACT_MAX). `sure[id]` = made it in every outcome; `never[id]` = missed
+    // in every outcome. Fixed-outcome games (live p of 0 or 1) are not branched on.
+    const sure = {}, never = {};
+    for (const id of ids) { sure[id] = false; never[id] = false; }
+    const exact = rem.length <= PO_EXACT_MAX;
+    if (exact) {
+      for (const id of ids) { sure[id] = true; never[id] = true; }
+      const free = [], fixed = [];
+      rem.forEach((g, i) => { (g[2] === 0 || g[2] === 1 ? fixed : free).push(i); });
+      const noGamesLeft = rem.length === 0; // points-for is final, so it decides ties for real
+      // FAST PATH: most outcomes are settled by win% alone — if the team in the last playoff spot
+      // is strictly ahead of the first team out, membership is fixed and no tiebreak is needed.
+      // Only a tie at the cutoff pays for the full LG.rankTeams. (2^14 outcomes: ~0.2 s worst case on a desktop.)
+      const ix = new Map(ids.map((id, i) => [id, i]));
+      const w0 = ids.map((id) => base[id].w), t0 = ids.map((id) => base[id].t);
+      const gFin = ids.map((id) => base[id].g + remN[id]);
+      const gm = rem.map((g) => [ix.get(g[0]), ix.get(g[1])]);
+      const n = ids.length;
+      const ws = new Array(n), pct = new Array(n), inNow = new Array(n);
+      for (let mask = 0; mask < (1 << free.length); mask++) {
+        for (let i = 0; i < n; i++) ws[i] = w0[i];
+        for (const i of fixed) ws[rem[i][2] === 1 ? gm[i][0] : gm[i][1]]++;
+        free.forEach((i, bit) => { ws[(mask & (1 << bit)) ? gm[i][0] : gm[i][1]]++; });
+        for (let i = 0; i < n; i++) pct[i] = gFin[i] ? (ws[i] + 0.5 * t0[i]) / gFin[i] : 0;
+        // Team i is IN for certain when at most spots-1 teams are level with or ahead of it, OUT for
+        // certain when at least `spots` teams are strictly ahead; anything else sits on the cutoff.
+        let ambiguous = false;
+        for (let i = 0; i < n && !ambiguous; i++) {
+          let ge = 0, gt = 0;
+          for (let j = 0; j < n; j++) {
+            if (j === i) continue;
+            const d = pct[j] - pct[i];
+            if (d > 1e-9) { gt++; ge++; } else if (d >= -1e-9) ge++;
+          }
+          if (ge <= spots - 1) inNow[i] = 1; else if (gt >= spots) inNow[i] = 0; else ambiguous = true;
+        }
+        if (!ambiguous) {
+          for (let i = 0; i < n; i++) { if (inNow[i]) never[ids[i]] = false; else sure[ids[i]] = false; }
+        } else {
+          loadSim();
+          for (const i of fixed) play(rem[i][0], rem[i][1], rem[i][2] === 1);
+          free.forEach((i, bit) => play(rem[i][0], rem[i][1], !!(mask & (1 << bit))));
+          fillSt();
+          const blocks = noGamesLeft
+            ? LG.rankTeams(ids, simSt, { rule: tbRule, h2h: h2hOf }).map((id) => [id])
+            : LG.rankTeams(ids, simSt, { rule: tbRule, h2h: h2hOf, blocks: true });
+          let lo = 0;
+          for (const blk of blocks) {
+            const hi = lo + blk.length - 1;
+            for (const id of blk) {
+              if (!(hi < spots)) sure[id] = false;
+              if (!(lo >= spots)) never[id] = false;
+            }
+            lo += blk.length;
+          }
+        }
+        if (ids.every((id) => !sure[id] && !never[id])) break; // everyone is undecided: nothing left to prove
+      }
+    }
+    // BOUNDS pass — certainty without enumeration, so a lock/elimination is also reported when
+    // MORE than PO_EXACT_MAX games remain (a 10-0 team with four weeks left). Win% bounds on the
+    // final season, each team's own extremes taken independently (so they over-count rivals, which
+    // only ever makes the claim more conservative): X is IN if at most spots-1 rivals can finish at
+    // or above X's worst case; OUT if at least `spots` rivals finish strictly above X's best case
+    // even in THEIR worst case. Ties in the standings are never assumed away (>= for the former).
+    const worstP = {}, bestP = {};
+    for (const id of ids) {
+      const we = base[id].w + 0.5 * base[id].t, gF = base[id].g + remN[id];
+      worstP[id] = gF ? we / gF : 0;
+      bestP[id] = gF ? (we + remN[id]) / gF : 0;
+    }
+    for (const id of ids) {
+      let atOrAbove = 0, strictlyAbove = 0;
+      for (const o of ids) {
+        if (o === id) continue;
+        if (bestP[o] >= worstP[id] - 1e-9) atOrAbove++;
+        if (worstP[o] > bestP[id] + 1e-9) strictlyAbove++;
+      }
+      if (atOrAbove <= spots - 1) { sure[id] = true; never[id] = false; }
+      else if (strictlyAbove >= spots) { never[id] = true; sure[id] = false; }
     }
     const raws = {};
     for (const id of ids) {
       const c = counts[id];
-      // A LOCK is only ever reported when EVERY simulated season agreed. 99.6% rounding up to
-      // "100%" would be the app claiming a clinch it hasn't got.
-      raws[id] = c === PO_SIMS ? 100 : c === 0 ? 0 : Math.min(99, Math.max(1, Math.round((c / PO_SIMS) * 100)));
+      // A LOCK is only reported when it is CERTAIN: the exact pass says so. A sample can only say
+      // 1..99 — 99.6% rounding up to "100%" would be the app claiming a clinch it hasn't got, and
+      // a true 0.1% team must never print 0.
+      if (sure[id]) raws[id] = 100;
+      else if (never[id]) raws[id] = 0;
+      else raws[id] = Math.min(99, Math.max(1, Math.round((c / PO_SIMS) * 100)));
     }
     // Pre-season is already the field. After games land, walk toward the Monte Carlo
     // in proportion to the sample — a 1-0 record cannot look like a lock.
@@ -1868,14 +2183,14 @@
     return odds;
   };
   // Waiver priority order, WORST record first (plan §4.3's FAAB tie-break):
-  // fewer wins, then fewer points-for, then lower teamId — deterministic even
+  // lower win% (ties = half a win), then the tiebreakers reversed (default: loser of the
+  // head-to-head, then fewer points-for), then lower teamId — deterministic even
   // on an untouched 0-0-0 season.
   LG.waiverPriorityOrder = async function () {
     const st = await LG.loadStandings();
-    return LG.teams.map((t) => t.id).sort((a, b) => {
-      const A = st[a] || { w: 0, pf: 0 }, B = st[b] || { w: 0, pf: 0 };
-      return (A.w - B.w) || (A.pf - B.pf) || (a - b);
-    });
+    // The standings order reversed (ties are half a win, then rules.tiebreak). idDesc so that a
+    // full tie — the whole league on an untouched 0-0-0 season — still puts the lower id first.
+    return LG.rankTeams(LG.teams.map((t) => t.id), st, { idDesc: true }).reverse();
   };
   // FAAB budget lives on the team doc; a team that's never spent reads full.
   LG.teamFaab = (t) => (t && t.faab != null ? t.faab : (LG.rules || LG.DEFAULT_RULES).waivers.budget);
@@ -2350,7 +2665,7 @@
     return "League move.";
   };
   LG.loadTx = async function () {
-    return (await LG.db.list("tx")).sort((a, b) => b.t - a.t);
+    return [...(await LG.db.list("tx"))].sort((a, b) => b.t - a.t); // copy: list() hands back the cache's own array
   };
 
   // ---------------- THE ACTIVITY LEDGER (2026-09-04) ----------------
@@ -2426,8 +2741,17 @@
       return Promise.resolve(LG.db.set(id, doc)).then(() => id, () => null);
     } catch (e) { return Promise.resolve(null); }
   };
-  LG.loadAct = async function () {
-    return (await LG.db.list("act")).sort((a, b) => b.t - a.t);
+  // BOUNDED (2026-10-04). The ledger grows ~250 rows a week (1,017 by week 4) and this used to
+  // read ALL of it, then the 15s background refresh stringified all of it again. The only reader
+  // is the commissioner's Activity page, whose per-team counts and "last seen" are about RECENT
+  // use, so the read is a window: the last ACT_WINDOW_DAYS days, newest ACT_MAX rows, via a
+  // range query on the doc id (LG.db.listSince). The page already prints its date span, so a
+  // truncated window is visible rather than silent. opts.days overrides (0 = everything).
+  const ACT_WINDOW_DAYS = 28, ACT_MAX = 1500;
+  LG.loadAct = async function (opts) {
+    const days = opts && opts.days != null ? opts.days : ACT_WINDOW_DAYS;
+    const rows = days > 0 ? await LG.db.listSince("act", Date.now() - days * 86400e3) : [...(await LG.db.list("act"))];
+    return rows.sort((a, b) => b.t - a.t).slice(0, ACT_MAX);
   };
   // Roster KEYS are what a trade doc carries, and a key is unreadable in a sentence. This
   // resolves each one to a name through the live directory when it is loaded and falls back to
@@ -2611,9 +2935,25 @@
     return { kind: "claims", week, claims, processed: false, results: (doc && doc.results) || null };
   };
   LG.saveClaims = (week, doc) => LG.db.set(LG.claimsId(LG.SEASON, week), { kind: "claims", week, ...doc });
+  // ENGINE-SIDE BID VALIDATION (2026-10-04). The UI clamps today, but the engine is what writes
+  // the purse: a missing/NaN bid made the sort NaN and `faab - bid` NaN, and Math.max(0, NaN)
+  // is NaN — a NaN purse on the team doc. A bid is a whole number of dollars >= 0.
+  //   LG.validBid(x)  -> the bid as a whole dollar number, or null when it is not one
+  //   LG.cleanBid(x)  -> same, but never null: anything unusable reads as $0 (the run's belt)
+  LG.validBid = (b) => {
+    if (typeof b !== "number" || !Number.isFinite(b) || b < 0 || Math.floor(b) !== b) return null;
+    return b;
+  };
+  LG.cleanBid = (b) => {
+    const v = typeof b === "number" ? b : Number(b);
+    return Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+  };
   LG.addClaim = async function (week, claim) {
+    if (claim && claim.bid != null && LG.validBid(claim.bid) == null) return { ok: false, reason: "bad-bid" };
     const wk = await LG.db.getFresh(LG.claimsId(LG.SEASON, week));
-    if (wk && wk.processed) return { ok: false, reason: "already-processed" };
+    // A stored plan (see processWaiversRun) is the week's resolution — a claim filed now would
+    // never be in it, so the week is closed to new claims exactly as if it were processed.
+    if (wk && (wk.processed || wk.plan)) return { ok: false, reason: "already-processed" };
     // RETIRED 2026-09-23 (user: "That should never stop a waiver claim"): the IR stash check
     // no longer refuses a claim at submit or at the waiver run. It still guards the instant
     // free-agent add and trades, and the My Team / Moves banner still says who is healthy.
@@ -2641,7 +2981,7 @@
   };
   LG.cancelClaim = async function (week, claimId, byTeamId) {
     const wk = await LG.db.getFresh(LG.claimsId(LG.SEASON, week));
-    if (wk && wk.processed) return { ok: false, reason: "already-processed" };
+    if (wk && (wk.processed || wk.plan)) return { ok: false, reason: "already-processed" };
     const id = LG.claimDocId(LG.SEASON, week, claimId);
     const c = await LG.db.getFresh(id);
     if (c && c.teamId === byTeamId) {
@@ -2777,6 +3117,10 @@
     // the week processed with everyone else's bids missing).
     const doc = await LG.loadClaims(week, { fresh: true });
     if (doc.processed) return doc;
+    // A plan already on the doc means an earlier run resolved this week and died before it
+    // committed: apply THAT resolution, never a new one (see the note at the plan write below).
+    const raw = await LG.db.getFresh(LG.claimsId(LG.SEASON, week));
+    if (raw && raw.plan && !raw.processed) { await LG.db.listFresh("team"); await LG.loadTeams(); return applyWaiverPlan(week, raw.plan); }
     // FRESH TEAMS, for the same reason the claims are read fresh: this run both CHECKS bids
     // against each purse and DEDUCTS from it, and a cached team list is exactly how a page
     // decides a bid is affordable out of money another device already spent (bug 3's other
@@ -2784,7 +3128,9 @@
     // real current data rather than a second round trip.
     await LG.db.listFresh("team");
     await LG.loadTeams();
-    const claims = doc.claims || [];
+    // Belt for claims already on disk with a bad bid (see LG.cleanBid): the run never sorts or
+    // subtracts a NaN.
+    const claims = (doc.claims || []).map((c) => (LG.validBid(c.bid) === c.bid ? c : { ...c, bid: LG.cleanBid(c.bid) }));
     if (!claims.length) {
       // Same commit-under-CAS as the loaded path below: nothing to move, but the week is still
       // being permanently settled, and two devices must not both claim to have settled it.
@@ -2911,6 +3257,40 @@
     // anything, because each write re-applies its own delta against the truth.
     const pre = await LG.loadClaims(week, { fresh: true });
     if (pre.processed) return pre;
+
+    // ⭐ THE RESOLUTION IS PERSISTED BEFORE ANY ROSTER MOVES (2026-10-04, engine review HIGH-1).
+    // The run below is "idempotent" only for the ROSTER deltas; the resolution above is not — it
+    // reads the rosters, so once a winner's roster has been written the same claim re-resolves
+    // as `player-taken` (the winner now owns his man), is never charged, gets no tx row and is
+    // told he lost. That is exactly what a partial roster failure used to leave behind: team 1
+    // moved, team 2's write threw, the re-run found team 1 "already owns" FA1. The fix is to make
+    // the first resolution THE resolution: {results, spend, txs, roster ops} are written to the
+    // week's claims doc under a CAS (first plan wins; a processed doc or an existing plan
+    // aborts), and every run — this one, a re-run after a failure, another device — applies
+    // the stored plan. Nothing but the plan decides who won, so a replay cannot re-decide.
+    // JSON round trip: drops `undefined` fields, which Firestore refuses.
+    const plan = JSON.parse(JSON.stringify({
+      claims, results, txs, spend: Object.fromEntries(spend), ops: Object.fromEntries(rosterOps),
+    }));
+    const stored = await LG.db.update(LG.claimsId(LG.SEASON, week), (cur) => {
+      if (cur && (cur.processed || cur.plan)) return null;
+      return { kind: "claims", week, processed: false, plan };
+    });
+    if (!stored.ok) {
+      const d = stored.doc;
+      if (!d || d.processed || !d.plan) return LG.loadClaims(week, { fresh: true });
+      return applyWaiverPlan(week, d.plan); // another run's plan stands — apply THAT one
+    }
+    return applyWaiverPlan(week, plan);
+  }
+  // Applies a stored waiver plan: idempotent roster deltas, then the commit, then the money.
+  // Reached from the run above and from a RE-run (the plan is read back at the top of
+  // processWaiversRun).
+  async function applyWaiverPlan(week, plan) {
+    const claims = plan.claims || [], results = plan.results || [], txs = plan.txs || [];
+    const spend = new Map(Object.entries(plan.spend || {}).map(([k, v]) => [Number(k), v]));
+    const rosterOps = new Map(Object.entries(plan.ops || {}).map(([k, v]) => [Number(k), v]));
+    const dirtyTeams = new Set([...rosterOps.keys()]);
 
     // The roster writes, as DELTAS. Each op is re-applied to the roster as it stands at the
     // instant of the write, so a trade, a free-agent add or another device's waiver run that
@@ -3092,7 +3472,10 @@
       const n = Number(rosterRules[slot]) || 0;
       for (let i = 0; i < n; i++) slots.push(slot);
     }
-    const players = roster || [];
+    // An IR man CANNOT start (LG.irEligible / the lineup builders never field the IR slot), so he
+    // is not a candidate for any starting slot — counting him let a trade strip the roster of its
+    // only startable TE while an injured TE sat on IR (engine review MEDIUM-2, 2026-10-04).
+    const players = (roster || []).filter((p) => p.slot !== "IR");
     // Fewest-eligible-first: a scheduling heuristic that keeps the search small (a TE slot with
     // one candidate is worth pinning down before a FLEX slot with six candidates). Correctness
     // does NOT depend on this order — the augmenting-path search below is EXACT for any order,
@@ -3188,9 +3571,11 @@
   LG.loadTrade = (id, opts) => (opts && opts.fresh ? LG.db.getFresh(id) : LG.db.get(id));
   LG.saveTrade = (doc) => LG.db.set(doc.id, doc);
   LG.loadTrades = async function () {
-    return (await LG.db.list("trade")).sort((a, b) => b.t - a.t);
+    return [...(await LG.db.list("trade"))].sort((a, b) => b.t - a.t);
   };
-  LG.tradeDeadlinePassed = () => LG.currentWeek() > ((LG.rules && LG.rules.trades.deadlineWeek) || 99);
+  // `??`, not `||` (2026-10-04): a commissioner deadline of 0 means "no trades this season" and
+  // `0 || 99` turned it into "never passes".
+  LG.tradeDeadlinePassed = () => LG.currentWeek() > ((LG.rules && LG.rules.trades && LG.rules.trades.deadlineWeek) ?? 99);
   // opts (S7, optional — every pre-S7 call site passes nothing and is byte-identical):
   //   opts.counterOf — the trade doc id this offer answers. Stamped on the doc; it is what
   //                    makes a chain a chain, and the ONLY thing Moves needs to render one.
@@ -3301,7 +3686,8 @@
     // (LG.tradeDeadlinePassed above is a DIFFERENT concept — the league-calendar trade
     // deadline — and correctly stays on the season clock.)
     const now = Date.now();
-    const reviewMs = ((LG.rules && LG.rules.trades.reviewHours) || 24) * 3600e3;
+    // `??` not `||` (2026-10-04): reviewHours 0 is "no review window", not 24h.
+    const reviewMs = ((LG.rules && LG.rules.trades && LG.rules.trades.reviewHours) ?? 24) * 3600e3;
     // CAS (2026-08-18): offered -> accepted is a STATUS TRANSITION, and the doc it transitions
     // is shared with the proposer's device (cancel), every other owner (veto) and the receiver
     // themselves on a second phone. The mutate re-tests the same two conditions the read above
@@ -3341,7 +3727,8 @@
     if (!doc || doc.status !== "accepted") return doc;
     if (byTeamId === doc.from || byTeamId === doc.to) return doc;
     if ((doc.vetoes || []).includes(byTeamId)) return doc;
-    const needed = (LG.rules && LG.rules.trades.vetoVotes) || 4;
+    // `??` (2026-10-04); floored at 1 — zero votes needed would let an empty ballot kill nothing sensibly.
+    const needed = Math.max(1, (LG.rules && LG.rules.trades && LG.rules.trades.vetoVotes) ?? 4);
     const r = await LG.db.update(id, (cur) => {
       if (!cur || cur.status !== "accepted") return null;               // executed/cancelled/already vetoed
       if (byTeamId === cur.from || byTeamId === cur.to) return null;    // a party may not vote
@@ -3563,7 +3950,7 @@
     } catch (e) { return null; }
   };
   LG.loadAllChat = async function () {
-    return (await LG.db.list("chat")).sort((a, b) => b.t - a.t); // newest first
+    return [...(await LG.db.list("chat"))].sort((a, b) => b.t - a.t); // newest first
   };
   LG.loadChat = async function (thread) {
     const key = thread || null;
@@ -3605,7 +3992,9 @@
   // phase's instant and clamped inside week 1 (see the phase block at the top of this file).
   // Off the replay it is the real wall clock, exactly as it always was. Precedence, highest
   // first: the test override, then the replay clock, then Date.now().
-  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.SIM_2025 ? LG.simNow() : Date.now());
+  // Off the replay it is the wall clock CORRECTED to server time (LG.clockOffset, see
+  // noteServerTime) — 0 until the first Firestore round trip lands, and always 0 on a local backend.
+  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.SIM_2025 ? LG.simNow() : Date.now() + LG.clockOffset);
 
   // ================= THE LEAGUE RUNS ON CENTRAL TIME, NOT ON A FIXED OFFSET (2026-09-02, S4) ==
   // Both of the functions below used to anchor on `new Date(SEASON_START + "T05:00:00-05:00")`
@@ -3704,7 +4093,14 @@
   LG.fmtPts = (n) => {
     if (n == null) return "—";
     const v = typeof n === "number" ? n : Number(n);
-    return Number.isFinite(v) ? (Math.round(v * 100) / 100).toFixed(1) : "—";
+    if (!Number.isFinite(v)) return "—";
+    // Round HALF UP (away from zero) on the 1-dp display, in integer math: scores are sums of
+    // 2-dp stat lines, and `toFixed(1)` of a float like 12.35 (stored 12.3499…) or 8.25 gave
+    // "12.3" / "8.3" — half the ties rounded down and half up. Settle the value to hundredths
+    // first (kills float noise), then round the hundredths to tenths.
+    const c = Math.round(Math.abs(v) * 100); // hundredths, integer
+    const tenths = Math.floor((c + 5) / 10);
+    return ((v < 0 && tenths > 0 ? -tenths : tenths) / 10).toFixed(1);
   };
   // The same rule for anything formatted with a raw toFixed: a finite number, or a dash.
   LG.fmtNum = (n, dp) => {
@@ -3957,8 +4353,22 @@
     const teamPts = {};
     for (const m of matchups) { teamPts[m.home] = m.homePts; teamPts[m.away] = m.awayPts; }
     const teamIds = Object.keys(teamPts).map(Number);
+    // ⭐ AWARD TIES ARE CO-AWARDS (2026-10-04). Week 2 of 2026 had LR and SLN both at 151.82 and
+    // the award went to team 5 purely by iteration (id) order. An award is one object with one
+    // `teamId` that every reader (RoboGoat's facts, the weekly doc) already understands, so a
+    // tie keeps that shape — the first tied team by id stays `teamId` — and ADDS `tied`: the
+    // other co-winners' ids, only when there are any. Whoever renders or narrates the award can
+    // name them all; one that ignores `tied` still shows a correct co-winner, never a wrong one.
+    // Equality is on the rounded value the award is stored with (2 dp), not raw float noise.
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const withTied = (best, valueOf) => {
+      if (!best) return best;
+      const tied = teamIds.filter((t) => t !== best.teamId && valueOf(t) === valueOf(best.teamId));
+      return tied.length ? { ...best, tied } : best;
+    };
     let topScore = null;
     for (const tid of teamIds) if (!topScore || teamPts[tid] > topScore.pts) topScore = { teamId: tid, pts: teamPts[tid] };
+    topScore = withTied(topScore, (t) => r2(teamPts[t]));
     let bust = null;
     for (const tid of teamIds) {
       for (const p of await fzStarters(week, tid, rosters)) {
@@ -3971,14 +4381,21 @@
       }
     }
     let benchBlunder = null;
+    const diffOf = {};
     for (const tid of teamIds) {
       const optimal = await fzOptimalTotal(week, tid, fz, rosters);
       const actual = teamPts[tid];
       const diff = Math.round((optimal - actual) * 100) / 100;
+      diffOf[tid] = diff;
       if (diff > 0.01 && (!benchBlunder || diff > benchBlunder.diff)) benchBlunder = { teamId: tid, optimal, actual, diff };
     }
+    // Bench Blunder is team-level too, so it co-awards the same way. Bust of the Week names ONE
+    // PLAYER, and a tie there is a different question (two players, maybe one team): left as
+    // first-found.
+    benchBlunder = withTied(benchBlunder, (t) => diffOf[t]);
     return { topScore, bust, benchBlunder };
   }
+  LG._fzAwards = fzAwards; // test hook (tools/_verify-core.cjs) — nothing in the app calls it
 
   // Algorithmic power rankings (plan §4.9): score = 4×wins + 0.05×PF + 2×(wins in the last 3
   // games played). Pure function of the persisted "weekly" docs (+ optionally one not-yet-
@@ -4321,14 +4738,13 @@
     }
     if (missing.length) return { ok: false, reason: "weeks-not-final", missing };
 
-    // Seeds = final regular-season standings, wins -> PF -> teamId asc (a fully deterministic
+    // Seeds = final regular-season standings, win% -> tiebreakers -> teamId asc (a fully deterministic
     // tiebreak — LG.loadStandings() itself only sorts wins/PF, so the teamId tiebreak is added
     // here, not relied on from Array#sort stability).
     const st = await LG.loadStandings();
-    const seeds = LG.teams.map((t) => t.id).sort((a, b) => {
-      const A = st[a] || { w: 0, pf: 0 }, B = st[b] || { w: 0, pf: 0 };
-      return (B.w - A.w) || (B.pf - A.pf) || (a - b);
-    });
+    // 2026-10-04: win% with a tie as half a win, then rules.tiebreak (default head-to-head then
+    // PF), then teamId — LG.rankTeams. Ties used to count for nothing here.
+    const seeds = LG.rankTeams(LG.teams.map((t) => t.id), st);
 
     const pf = rules.playoffs || {};
     const playoffCount = Math.max(0, Math.min(pf.teams || 0, seeds.length));
@@ -4551,7 +4967,7 @@
   // team is just `LG.teamById(id)`; a franchise that no longer exists here
   // falls back to whatever name that season's own doc recorded for it.
   LG.loadHistory = async function () {
-    return (await LG.db.list("hist")).sort((a, b) => a.season - b.season);
+    return [...(await LG.db.list("hist"))].sort((a, b) => a.season - b.season);
   };
   // The COMPLETE award table (kind "awards") — champions, runner-up, points,
   // toilet — including defunct franchises. The trophy case used to read only

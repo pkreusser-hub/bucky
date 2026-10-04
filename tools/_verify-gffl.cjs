@@ -23895,6 +23895,11 @@ async function openDetails(page, id) {
                 dbVal.__listArmed = true;
                 const orig = dbVal.list.bind(dbVal);
                 dbVal.list = (kind) => { window.__kinds.push(kind); return orig(kind); };
+                // RESTAGED 2026-10-04 (engine review): LG.loadAct now reads a 28-day WINDOW through
+                // LG.db.listSince (a range read on the doc id) instead of list("act") — the same
+                // read of the same ledger, so the recorder must see that door too or the "it IS
+                // read when the view opens" check below would go blind to the only way in.
+                if (dbVal.listSince) { const origSince = dbVal.listSince.bind(dbVal); dbVal.listSince = (kind, ms) => { window.__kinds.push(kind); return origSince(kind, ms); }; }
               },
             });
           },
@@ -26825,7 +26830,12 @@ async function openDetails(page, id) {
     }
 
     {
-      const { ctx, page, errors } = await newTestPage(browser, tkSeed(10), { vw: DESK });
+      // RESTAGED 2026-10-04 (engine review, exact clinch/elimination): this fixture was week 10 (16 games
+      // left). Above PO_EXACT_MAX (14) games the odds are SAMPLED, and a sample is never allowed to
+      // claim a lock or an elimination (a true 0.1% team printed 0 in ~37% of seeds), so the 0-10 team
+      // paints a small percent there instead of 0. The same shape one week later (12 games left) is
+      // enumerated exactly and is certain, which is what this check is about: week 11, 11-0 vs 0-11.
+      const { ctx, page, errors } = await newTestPage(browser, tkSeed(11), { vw: DESK });
       await bootPage(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
@@ -26835,11 +26845,11 @@ async function openDetails(page, id) {
         const st = await LG.loadStandings();
         return { o, rec1: st[1], rec8: st[8] };
       });
-      ok(late && late.rec1 && late.rec1.w === 10 && late.rec8 && late.rec8.w === 0,
-        "the week-10 fixture is 10-0 vs 0-10 (" + JSON.stringify({ a: late && late.rec1, b: late && late.rec8 }) + ")");
+      ok(late && late.rec1 && late.rec1.w === 11 && late.rec8 && late.rec8.w === 0,
+        "the week-11 fixture is 11-0 vs 0-11 (" + JSON.stringify({ a: late && late.rec1, b: late && late.rec8 }) + ")");
       ok(late && late.o[1] === 100 && late.o[8] === 0,
         "a real late-season lock and elimination still paint 100 / 0 (" + JSON.stringify(late && late.o) + ")");
-      ok(errors.length === 0, "0 page errors on the week-10 lock");
+      ok(errors.length === 0, "0 page errors on the week-11 lock");
       await ctx.close();
     }
   }
@@ -31047,8 +31057,15 @@ async function openDetails(page, id) {
       const locked = Object.keys(o).filter((k) => o[k] === 100).map(Number).sort((x, y) => x - y);
       const open = Object.keys(o).filter((k) => o[k] !== 100 && o[k] !== 0).map(Number);
       const openSum = open.reduce((x, k) => x + o[k], 0);
-      ok(b.spots === 5 && b.sw === 14 && locked.join() === "1,2,4,7" && open.length === 4,
-        "the board: teams 1, 2, 4, 7 clinched, four undecided for one spot (" + JSON.stringify(o) + ")");
+      // RESTAGED 2026-10-04 (engine review, exact clinch/elimination): with 4 games left this board is
+      // ENUMERATED, not sampled, and the sampled "four undecided" was never true. Week 14 is 1v7, 8v6,
+      // 2v5, 3v4 on records 7-8-6-8-6-5-7-5 (hand-tallied above). T6 and T8 play each other and top out at
+      // 6 wins, and in every one of the 16 outcomes the 5th seed goes to a 6-or-7-win team that the
+      // head-to-head already places ahead of them -> T6 and T8 are ELIMINATED (0); T3 and T5 are the two
+      // that are really alive for the one open spot (T3 wins it in more outcomes: 73 / 27).
+      const out = Object.keys(o).filter((k) => o[k] === 0).map(Number).sort((x, y) => x - y);
+      ok(b.spots === 5 && b.sw === 14 && locked.join() === "1,2,4,7" && out.join() === "6,8" && open.join() === "3,5",
+        "the board: teams 1, 2, 4, 7 clinched, 6 and 8 eliminated, 3 and 5 undecided for one spot (" + JSON.stringify(o) + ")");
       // One spot open → the undecided must add to 100, give or take one point of rounding each.
       ok(Math.abs(openSum - 100) <= open.length,
         "⭐ the four chasers add up to one spot — " + openSum + "%, not 153% (" + open.map((k) => o[k]).join("/") + ")");
@@ -32106,6 +32123,51 @@ async function openDetails(page, id) {
     ok(errors.length === 0, "0 page errors (" + W + "px)");
     await ctx.close();
   }
+  }
+
+  // ENG1 · engine review fixes that reach the screen: the standings are ranked with ties as half a win and the
+  // tiebreak rule is printed under the table; the Rules view states it too. (The engine itself is covered, faster
+  // and without Chrome, by tools/_verify-core.cjs.)
+  if (section("ENG1 · standings ranked by win% with ties, tiebreak rule printed under the table")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    // HAND-COMPUTED two finalized weeks (8 teams, 4 games a week).
+    //   wk1: 1-2 tie 100/100 · 3 beat 4 120-60 · 5 beat 6 100-90 · 7 beat 8 90-80
+    //   wk2: 1 beat 4 90-50 · 6 beat 2 85-80 · 3 beat 5 130-100 · 8 beat 7 95-90
+    //   T3 2-0 (1.0) · T1 1-0-1 (.75, pf 190) · T5 1-1 (.5, pf 200) · T7 1-1 (.5, pf 180) · T6 1-1 (.5, pf 175)
+    //   · T8 1-1 (.5, pf 175) · T2 0-1-1 (.25) · T4 0-2 (0).
+    //   The .5 group {5,6,7,8} has pairs that never met (5 v 7), so head-to-head does not apply and PF decides:
+    //   5 (200), 7 (180), then 6 and 8 level on 175 -> team id.
+    //   The OLD wins-then-PF sort ranked T1 (one win, pf 190) BELOW T5 (one win, pf 200): [3, 5, 1, 7, 6, 8, 2, 4].
+    const wk = (n, ms) => ({ kind: "weekly", week: n, matchups: ms.map(([home, away, homePts, awayPts]) => ({ home, away, homePts, awayPts })),
+      awards: {}, power: [1, 2, 3, 4, 5, 6, 7, 8].map((id, i) => ({ teamId: id, rank: i + 1, score: 100 - i * 4 })), accuracy: null, finalizedAt: 1000 + n });
+    const s = fullSeed();
+    s.docs.weekly_2026_w1 = wk(1, [[1, 2, 100, 100], [3, 4, 120, 60], [5, 6, 100, 90], [7, 8, 90, 80]]);
+    s.docs.weekly_2026_w2 = wk(2, [[1, 4, 90, 50], [2, 6, 80, 85], [3, 5, 130, 100], [7, 8, 90, 95]]);
+    for (const vw of [{ width: 1440, height: 980 }, { width: 390, height: 844 }]) {
+      const { ctx, page, errors } = await newTestPage(browser, s, { vw });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => { window.__GFFL__.UI.week = 2; window.__GFFL__.UI.show("league"); });
+      await waitFnOr(page, () => !!document.querySelector(".standcard .standtbl tbody tr"));
+      const got = (await evalOr(page, () => ({
+        order: [...document.querySelectorAll(".standcard .standtbl tbody tr .teamlink")].map((e) => Number(e.dataset.locker)),
+        note: ((document.querySelector(".standcard .standrule") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+        under: (() => { const n = document.querySelector(".standcard .standrule"), t = document.querySelector(".standcard .standtbl"); return !!(n && t && (t.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)); })(),
+      }))) || {};
+      ok(JSON.stringify(got.order) === JSON.stringify([3, 1, 5, 7, 6, 8, 2, 4]), "ENG1 (" + vw.width + "px) standings order: T3 2-0, T1 1-0-1 above the 1-1 teams (a tie is half a win), then PF 200/180, then 175 level -> id (" + JSON.stringify(got.order) + ")");
+      ok(got.note === "Ranked by win % (a tie counts as half a win), then head-to-head record among the tied teams, then points for." && got.under === true,
+        "ENG1 (" + vw.width + "px) one line under the table names the applied order (" + JSON.stringify(got.note) + ")");
+      ok(errors.length === 0, "ENG1 0 page errors (" + vw.width + "px)");
+      if (vw.width === 1440) {
+        await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+        await waitFnOr(page, () => /regular season/.test(document.body.textContent));
+        const rl = await evalOr(page, () => document.body.textContent.replace(/\s+/g, " "));
+        ok(/14-week regular season, double round robin\. Ranked by win % \(a tie counts as half a win\), then head-to-head/.test(rl || ""),
+          "ENG1 the Rules view states the tiebreak order beside the schedule line");
+      }
+      await ctx.close();
+    }
   }
 
   await browser.close();
