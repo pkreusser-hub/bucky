@@ -39,6 +39,8 @@ const RZ = {
   STAGE_MAX: 25000, // the longest a cut waits for the big 8-bit view to finish the play it's showing
   STALE: 45000,     // news this old is no longer news
   seen: new Map(),  // gameId -> last play id seen on the scoreboard
+  seenIds: new Map(), // gameId -> every play id that game's scoreboard has ever shown (news only once)
+  played: new Set(), // "gameId|playId" of every play the 8-bit view has shown in RedZone
   totals: new Map(), // gameId -> away + home points at the last poll (a score with no scoreValue)
   pending: new Map(), // gameId -> {play, kind, prio, at}: something happened there, not shown yet
   cur: null,        // {gid, play, kind, prio, since, at, manual}
@@ -119,7 +121,15 @@ function rzOnBoard(evs, now = Date.now()) {
     if (!id) continue;
     const prev = RZ.seen.get(ev.id);
     RZ.seen.set(ev.id, id);
-    if (prev === undefined || prev === id) {
+    // A play is news once. ESPN's scoreboard can step back to a play it showed before (the touchdown
+    // again after its try's odd id), and a play the 8-bit view already ran in RedZone is not news either
+    // (2026-10-04, user: "its sometimes bouncing back to plays its already shown, need logic not to show
+    // the same play twice").
+    let ids = RZ.seenIds.get(ev.id);
+    if (!ids) { ids = new Set(); RZ.seenIds.set(ev.id, ids); }
+    const again = ids.has(id) || rzPlayed(ev.id, id);
+    ids.add(id);
+    if (prev === undefined || prev === id || again) {
       // Same play, but the situation behind it may have moved (the red zone starts with the next snap).
       if (RZ.cur?.gid === ev.id && RZ.cur.play?.id === id) RZ.cur.play = lp;
       continue;
@@ -195,6 +205,11 @@ function rzCut(gid, news, now, manual = false) {
   RZ.pending.delete(gid);
   rzFollow(gid);
 }
+
+// What the 8-bit view has shown in RedZone (sd-reenact.js marks each play it stages there). Arriving
+// back at a game, a play in here is put up as it ended, not run again.
+const rzPlayed = (gid, pid) => pid != null && RZ.played.has(`${gid}|${pid}`);
+function rzMarkPlayed(gid, pid) { if (pid != null && rzFollowing()) RZ.played.add(`${gid}|${pid}`); }
 
 /* ───────────── the big view follows ───────────── */
 // 2026-10-04, user: "the card on the top right is changing to new plays and games but not the 8 bit

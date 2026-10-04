@@ -2808,7 +2808,7 @@ async function main() {
       // ── the director, on the real polls. Each poll is ingested at its own recorded time.
       const real = await probe((snaps) => {
         if (typeof rzOnBoard !== "function") return { err: "no rzOnBoard" };
-        RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.dead?.clear(); RZ.lastNews?.clear(); RZ.cur = null;
+        RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.dead?.clear(); RZ.lastNews?.clear(); RZ.seenIds?.clear(); RZ.played?.clear(); RZ.cur = null;
         const out = [];
         for (const s of snaps) {
           const evs = s.sb.events.map(normEvent);
@@ -2852,7 +2852,7 @@ async function main() {
         if (typeof rzOnBoard !== "function") return { err: "no rzOnBoard" };
         const base = sb.events.map(normEvent).filter((e) => e.state === "in");
         const [A, B, C] = base.map((e) => structuredClone(e));
-        const reset = () => { RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.dead?.clear(); RZ.lastNews?.clear(); RZ.cur = null; };
+        const reset = () => { RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.dead?.clear(); RZ.lastNews?.clear(); RZ.seenIds?.clear(); RZ.played?.clear(); RZ.cur = null; };
         const setEvs = (evs) => { S.events = evs; S.byId = new Map(evs.map((e) => [e.id, e])); };
         const sit = (ev, o) => { ev.sit = { ...(ev.sit || {}), ...o }; ev.name = "STATUS_IN_PROGRESS"; ev.period = 2; ev.detail = "5:00 - 2nd"; return ev; };
         let n = 0;
@@ -2933,6 +2933,17 @@ async function main() {
         A.home.score += 1; play(A, "Extra Point Good", { scoreValue: 1 }); rzOnBoard([A, B, C], s(5));
         out.t8b = RZ.cur.gid === A.id && RZ.cur.play.id === tdId && RZ.cur.kind === "score";
         rzTick(s(9)); out.t8c = RZ.cur.gid !== A.id;
+        // T8c · 2026-10-04, user: "its sometimes bouncing back to plays its already shown, need logic not to
+        // show the same play twice". A scoreboard that steps back to a play it showed before isn't news
+        // twice, and neither is a play the 8-bit view already ran in RedZone.
+        start(false);
+        play(B, "Rush"); const pId = B.sit.lastPlay.id; rzOnBoard([A, B, C], s(1));
+        RZ.pending.clear();
+        play(B, "Pass Reception"); rzOnBoard([A, B, C], s(2)); RZ.pending.clear();
+        B.sit = { ...B.sit, lastPlay: { ...B.sit.lastPlay, id: pId, type: { text: "Rush" } } }; rzOnBoard([A, B, C], s(3));
+        out.t8d = !RZ.pending.has(B.id);
+        play(C, "Rush"); RZ.played?.add(C.id + "|" + C.sit.lastPlay.id); rzOnBoard([A, B, C], s(4));
+        out.t8e = !RZ.pending.has(C.id);
         // T9 · timeouts and quarter ends aren't news
         start(false);
         play(B, "Timeout"); rzOnBoard([A, B, C], s(9)); play(C, "End Period"); rzOnBoard([A, B, C], s(10));
@@ -2957,6 +2968,8 @@ async function main() {
       ok(RU.t7 === true, `a game that goes to halftime loses the card at once (${RU.t7})`);
       ok(RU.t8 === true, `a touchdown and its extra point both unseen: the touchdown is what waits (${RU.t8})`);
       ok(RU.t8b === true && RU.t8c === true, `the touchdown on screen stays up when its try arrives, then the card moves on at 8 s (${RU.t8b}, ${RU.t8c})`);
+      ok(RU.t8d === true, `a play the scoreboard shows again later is not news a second time (${RU.t8d})`);
+      ok(RU.t8e === true, `a play the 8-bit view already ran in RedZone is not news (${RU.t8e})`);
       ok(RU.t9 === true, `timeouts and quarter ends are not news (${RU.t9})`);
       ok(RU.t10 === "meta,score,score,pat,turnover,big,redzone,play,dead,dead", `play kinds: timeout, timeout +3 points, TD, try, INT, 25-yd catch, red-zone run, run, kickoff, punt (${RU.t10})`);
 
@@ -3106,6 +3119,15 @@ async function main() {
       });
       ok(busy.waits === true && busy.after === true && busy.capped === true, `a cut waits while the big view is mid-play (${busy.waits}), goes once the play is done (${busy.after}), and never waits past 25 s (${busy.capped})`);
       await wait(400);
+      // Back to a game RedZone already showed, with no new snap there since: the 8-bit view shows the game
+      // as it stands (its last play put at its end), it doesn't run Pollard's run again.
+      await probe(() => { RZ.pending.clear(); rzCut("401872973", null, Date.now()); });
+      let back = true;
+      try { await page.waitForFunction(() => G?.id === "401872973" && SIDE.gameId === "401872973" && SIDE.sc, { timeout: 10000 }); } catch { back = false; }
+      await wait(200);
+      const again = await probe(() => ({ id: String(SIDE.playId), t: +SIDE.t.toFixed(2), T: SIDE.sc ? +SIDE.sc.T.toFixed(2) : null, played: typeof rzPlayed === "function" ? rzPlayed("401872973", "401872973521") : null }));
+      ok(back && again.played !== false && again.id === "401872973521" && again.T != null && again.t >= again.T,
+        `back at a game RedZone already showed, its last play is put up as it ended, not run again (${JSON.stringify(again)})`);
       // Picking a game yourself leaves RedZone for that game's own screen; the entry goes back in.
       const pick = await probe(async () => {
         const a = document.querySelector('.gv-side-list a[href^="#g"]');

@@ -1626,3 +1626,38 @@ New checks:
 Bite: main's app files with the new suite score 369/392. They fail the 22 new and restaged RedZone
 checks and the webfont check. Main shows the card on every game, polls every 5 s outside RedZone, and
 has no entry or `#redzone`. The two restaged strip checks pass on both.
+
+## RedZone shows each play once (2026-10-04)
+
+User: "its sometimes bouncing back to plays its already shown, need logic not to show the same play
+twice".
+
+Two ways a play came back:
+- **Returning to a game.** Every cut rebuilds the game view, so the 8-bit stage arrives fresh. In
+  RedZone an arrival ran the newest play from the snap, even when RedZone had already shown it before
+  leaving that game. On the fixture: TEN @ BAL, away and back with no new snap, ran Pollard's run
+  again from 0.18 s.
+- **The scoreboard stepping back.** The director called a play news whenever it differed from the
+  last one seen for that game. ESPN can go P, then Q (the try's odd id), then P again, and P was news
+  twice.
+
+Fix:
+- `RZ.played` holds "game|play" for every play the 8-bit view stages in RedZone. `sidePlay` marks
+  each one through `rzMarkPlayed`, which only records while following, so a game's own screen is
+  untouched.
+- Arriving in RedZone on a play (or touchdown) already in there, the stage settles it (`sideSettle`:
+  the play put at its end, the game as it stands) instead of running it.
+- `RZ.seenIds` holds every play id a game's scoreboard has shown. A play is news once, and never when
+  the stage has already run it.
+
+Cache-bust ?v=20261004g.
+
+VERIFY: sunday 394/395 (the one failure is the webfont ink check that fails the same way on HEAD in
+this container), sunday-ff 56/56. RESTAGED: none. New:
+- the scoreboard showing a play again later is not news a second time;
+- a play the 8-bit view already ran in RedZone is not news;
+- back at TEN @ BAL after a cut away, the stage holds 401872973521 at its end (t ≥ T) instead of
+  running it.
+
+Bite: main's app files with the new suite score 391/395. They fail the 3 new checks and the webfont
+check. On main, the return runs the play again from t = 0.18 of 4.67.

@@ -3643,9 +3643,15 @@ function sideUpdate() {
   if (SIDE.arrive) {
     SIDE.arrive = false;
     const sc = SIDE.sc, done = sc && (sc.huddle || sc.clear || sc.timeout || SIDE.t >= sc.T) && SIDE.gatePlay == null;
-    // Following RedZone, the card just cut here for a play: run it, from the snap.
+    // Following RedZone, the card just cut here for a play: run it, from the snap. Unless RedZone has
+    // already shown it (back at a game it left, no new snap since): then the game as it stands, once.
     const follow = typeof rzFollowing === 'function' && rzFollowing();
-    if (String(latest.id) !== String(SIDE.playId) || !done) { const td = raArriveTD(latest); if (td) sidePlay(td); else if (follow) sidePlay(latest); else sideSettle(latest); return; }
+    if (String(latest.id) !== String(SIDE.playId) || !done) {
+      const td = raArriveTD(latest), run = td || latest;
+      if (follow && rzPlayed(G.id, run.id)) sideSettle(latest);
+      else if (td) sidePlay(td); else if (follow) sidePlay(latest); else sideSettle(latest);
+      return;
+    }
   }
   // The play on the stage came back from a review: the call was shown, now the ruling.
   if (String(latest.id) === String(SIDE.playId) && SIDE.reviewed !== String(latest.id) && raReview(latest) && SIDE.lastPlay && !raReview(SIDE.lastPlay) && !SIDE.rp) { sideReview(latest); return; }
@@ -3768,6 +3774,7 @@ function raReviewed(p, rv, from) {
 function sidePlay(p) {
   clearTimeout(SIDE.idle); SIDE.idle = 0;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
+  if (typeof rzMarkPlayed === 'function' && G) rzMarkPlayed(G.id, p.id);   // RedZone shows each play once
   let sc = null;
   // Every play walks out of the huddle into its formation. (A live game cut straight to the snap for
   // one night, 2026-09-28, to win back 3.4 s; then, user: "its looking like our changes to make the
