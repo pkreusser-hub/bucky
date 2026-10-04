@@ -33663,6 +33663,26 @@ const sz = await evalOr(page, () => {
     }
   }
 
+  // AVG · the immutable script cache needs a bump (2026-10-04). netlify.toml now serves
+  // /assets/league/*.js as `immutable` for a year, so a changed lg-*.js under an OLD ?v= would
+  // never reach a phone that already holds that URL. tools/_gffl_asset_versions.json records the
+  // sha-256 of each file under the version it shipped as; the bytes on disk must be the bytes
+  // recorded for the current gffl-v. Changed a file? Bump the version in all four places, then
+  // `node tools/_gffl_asset_versions.mjs --record`.
+  if (section("AVG · lg-*.js bytes match the recorded hashes for the current gffl-v")) {
+    const crypto = require("crypto");
+    const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
+    const v = (html.match(/<meta name="gffl-v" content="([^"]+)"/) || [])[1];
+    const store = JSON.parse(fs.readFileSync(path.join(ROOT, "tools", "_gffl_asset_versions.json"), "utf8"));
+    ok(!!(v && store[v]), "AVG the current gffl-v (" + v + ") has a recorded entry");
+    for (const f of ["lg-core.js", "lg-data.js", "lg-ui.js"]) {
+      const h = crypto.createHash("sha256").update(fs.readFileSync(path.join(ROOT, "assets", "league", f))).digest("hex");
+      ok(!!(store[v] && store[v][f] === h), "AVG " + f + " is byte-for-byte what " + v + " recorded (else: bump the version, then record)");
+      const ref = html.match(new RegExp('assets/league/' + f.replace(".", "\\.") + '\\?v=([A-Za-z0-9]+)'));
+      ok(!!(ref && ref[1] === v), "AVG league.html loads " + f + " with ?v=" + v + " (" + (ref && ref[1]) + ")");
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
