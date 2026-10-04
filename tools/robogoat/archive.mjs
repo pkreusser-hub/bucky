@@ -72,9 +72,11 @@ footer a{color:var(--navy)}
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#013369">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="RoboGoat · GFFL">
+<meta property="og:url" content="https://goatfantasyleague.com/robogoat/">
 <meta property="og:title" content="RoboGoat · GFFL">
 <meta property="og:description" content="Every RoboGoat preview and recap for the Goat Fantasy Football League.">
-${issues[0] && issues[0].share ? `<meta property="og:image" content="https://goatfantasyleague.com/robogoat/${issues[0].share}">\n` : ""}<link rel="icon" href="/icons/gffl-192.png">
+${issues[0] && issues[0].share ? `<meta property="og:image" content="https://goatfantasyleague.com/robogoat/${issues[0].share}">\n<meta name="twitter:card" content="summary_large_image">\n` : ""}<link rel="icon" href="/icons/gffl-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">

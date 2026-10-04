@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { ROOT } from "./lib.mjs";
+import { picksProblems, rankingProblems } from "./analysis.mjs";
 
 // ---------------------------------------------------------------- formatting
 /** Python's f"{x:.{d}f}": correctly rounded, ties to even on the exact binary value. */
@@ -74,6 +75,17 @@ export function buildIssue(dir) {
   const seasonFile = join(D, "..", "season.json");
   const season = existsSync(seasonFile) ? JSON.parse(readFileSync(seasonFile, "utf8")) : {};
   const W = issue.week, RECAP = issue.type === "recap";
+  // The hand-written picks columns must agree with the scores: season.json's pick results, this
+  // issue's picksWeek / picksRecord / picks. Weeks are paired from season.json (facts.mjs keeps the
+  // pairings) or, for an older week, from that week's recap issue.json.
+  const pairings = (w) => {
+    const sw = season.weeks && season.weeks[String(w)];
+    if (sw && sw.games) return sw.games;
+    const f = join(D, "..", `week-${w}`, "issue.json");
+    return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")).games.map((g) => ({ away: g.away, home: g.home })) : null;
+  };
+  const pp = picksProblems(season, issue, pairings);
+  if (pp.length) throw new Error(`${dir}: picks do not agree with the scores:\n  ` + pp.join("\n  "));
   const rootRel = relative(D, join(ROOT, "robogoat")).split("\\").join("/") || ".";
 
   const TEAMS = issue.teams; // id -> { name, owner, color, short }
@@ -82,7 +94,8 @@ export function buildIssue(dir) {
   const REC = issue.records; // id -> "2-1"
   const LOGO = (tid) => `${rootRel}/logos/team-${tid}.jpg`;
   const logo = (tid, cls = "lg") => `<img class="${cls}" src="${LOGO(tid)}" alt="" width="40" height="40">`;
-  const WON = new Set((issue.games || []).filter((g) => g.awayPts != null).map((g) => (g.awayPts > g.homePts ? g.away : g.home)));
+  // A tied game has no winner (it used to count as a home win).
+  const WON = new Set((issue.games || []).filter((g) => g.awayPts != null && g.awayPts !== g.homePts).map((g) => (g.awayPts > g.homePts ? g.away : g.home)));
   const HEAD = "https://a.espncdn.com/combiner/i?img=/i/headshots/nfl/players/full/{}.png&w=280&h=203";
   // Two decimals only where one decimal would print a tie between different numbers.
   const showVals = (vals) => {
@@ -317,6 +330,9 @@ export function buildIssue(dir) {
     }
     const lines = text.split("\n").filter((l) => l.trim());
     if (sec.includes("power rankings")) {
+      const rp = rankingProblems(lines, (season.rankings || {})[String(W)] || null, REC,
+        BYNAME, Object.fromEntries(Object.keys(TEAMS).map((t) => [t, tm(t).owner])));
+      if (rp.length) throw new Error(`${dir}: ` + rp.join("; "));
       let items = "";
       for (const l of lines) {
         const m = /^(\d+)\.\s*(.+?) \((\w+), (\d-\d)\)\.\s*(.*)$/.exec(l);
@@ -359,6 +375,8 @@ export function buildIssue(dir) {
   const kindLabel = RECAP ? "Recap" : "Preview";
   const TITLE = issue.title || `RoboGoat · GFFL Week ${W} ${kindLabel}`;
   const css = readFileSync(join(ROOT, "tools/robogoat/page.css"), "utf8");
+  // Canonical address, from the issue's share image (…/robogoat/2026/week-3/share.png).
+  const pageUrl = String(issue.share).replace(/share\.png$/, "");
   const page = `<!doctype html>
 <html lang="en">
 <head>
@@ -369,6 +387,8 @@ export function buildIssue(dir) {
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#013369">
 <meta property="og:type" content="article">
+<meta property="og:site_name" content="RoboGoat · GFFL">
+<meta property="og:url" content="${attr(pageUrl)}">
 <meta property="og:title" content="${attr(TITLE)}">
 <meta property="og:description" content="${attr(issue.description)}">
 <meta property="og:image" content="${issue.share}">
