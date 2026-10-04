@@ -1010,6 +1010,9 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 .rzn-logo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #e0262b; box-shadow: 0 0 0 3px color-mix(in srgb, #e0262b 25%, transparent); animation: rzn-pulse 1.6s ease-in-out infinite; }
 @keyframes rzn-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, #e0262b 0%, transparent); } }
 .rzn-n { margin-left: auto; font: 700 12px/1 var(--cond); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.rzn-follow { min-height: 26px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); font: 700 11px/1 var(--cond); letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
+.rzn-follow:hover { color: var(--ink); border-color: var(--muted); }
+.rzn-follow[aria-pressed="true"] { background: var(--pylon); border-color: var(--pylon); color: var(--pylon-ink); }
 .rzn-screen { position: relative; border-radius: 8px; overflow: hidden; background: var(--surface-2); }
 /* The cut: a red bar sweeps across the screen as the new game comes up. */
 .rzn-screen.cut::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(100deg, transparent 0 30%, var(--pylon) 30% 70%, transparent 70%); transform: translateX(-100%); animation: rzn-wipe 0.45s ease-out forwards; }
@@ -1054,6 +1057,17 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 .rzn-rx { margin-top: 4px; font-size: 12px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rzn-rx .yds { color: var(--ink-2); }
 .rzn-empty { padding: 14px 4px; font-size: 13px; color: var(--muted); }
+/* Phone (no sidebar): the card sits in the main column under the 8-bit field, inset like the last-play
+   card. Following, it drops its own screen (the field right above is showing that game) and keeps the
+   channels and the feed. Tap targets go to 44px. */
+@media (max-width: 1079px) {
+  .g-body > .rzn { margin: 10px var(--gutter) 0; }
+  .rzn.following .rzn-screen { display: none; }
+  .rzn-ch, .rzn-follow { min-height: 44px; }
+  .rzn-ch { padding: 0 10px; font-size: 13px; }
+  .rzn-chs { gap: 6px; }
+  .rzn-feed { max-height: 60dvh; }
+}
 
 /* Field view ↔ big 8-bit view */
 .fv-tog { position: relative; flex: none; min-height: 32px; padding: 0 11px; margin-left: 8px; border-radius: 999px; font: 400 9px/1 "Press Start 2P", monospace; letter-spacing: 0; text-transform: uppercase; color: var(--stadium-ink); box-shadow: inset 0 0 0 1.5px var(--stadium-ctl-line); background: var(--stadium-ctl); white-space: nowrap; }

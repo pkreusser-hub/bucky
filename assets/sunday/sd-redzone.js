@@ -15,7 +15,8 @@
      first. The credits come from the same core-API play engine as the game view's per-play chips
      (FF.playCredits), fetched for each game with a GFFL starter in it, not only the open one.
 
-   Desktop only: the card lives in the game view's sidebar, which exists at 1080px and up, and only
+   On desktop the card lives at the top of the game view's sidebar (1080px and up); on a phone it sits
+   under the 8-bit field (rzPlace, 2026-10-04: "Also need it to be on mobile"). Only
    for the NFL's current week (another week has no live games to follow).
 
    Needs from sd-app.js (shared global scope): $, esc, S, G, isWide, miniField, logoImg, playLine,
@@ -25,29 +26,37 @@
 
 const RZ = {
   MIN: 7000,        // a play stays on screen at least this long
-  HOLD_SCORE: 14000, // a score (or a viewer's own pick) stays this long
+  HOLD_SCORE: 8000, // a score stays this long; then its game is between drives and the card moves on
+  HOLD_PICK: 14000, // a game the viewer tapped stays this long
   MAX: 30000,       // nothing new anywhere for this long: move on to the next game worth watching
   RZ_MAX: 90000,    // ...unless the game on screen is inside the 20; then it may hold this long
-  TIE: 20000,       // equal news elsewhere takes the card once the current game has had this long
+  TIE: 20000,
+  STAGE_MAX: 25000, // the longest a cut waits for the big 8-bit view to finish the play it's showing       // equal news elsewhere takes the card once the current game has had this long
   STALE: 45000,     // news this old is no longer news
   seen: new Map(),  // gameId -> last play id seen on the scoreboard
   totals: new Map(), // gameId -> away + home points at the last poll (a score with no scoreValue)
   pending: new Map(), // gameId -> {play, kind, prio, at}: something happened there, not shown yet
   cur: null,        // {gid, play, kind, prio, since, at, manual}
   shown: new Map(), // gameId -> when the card last left it (the rotation favours games not seen lately)
+  dead: new Set(),  // games between drives: a score, a try, a kickoff, a punt or a turnover was their last play
+  lastNews: new Map(), // gameId -> when it last had a real snap (the rotation goes where the action is)
   cuts: 0,          // bumped on every cut, so the stage can play its wipe
   feedTimer: null,
 };
 // What a play is worth to the director. Higher wins the card.
-const RZ_PRIO = { score: 100, turnover: 80, redzone: 60, big: 50, gffl: 35, play: 15, pat: 10, meta: -1 };
-const RZ_LABEL = { score: '', turnover: '', redzone: 'Red zone', big: 'Big play', gffl: '', play: '', pat: '', meta: '' };
+// A kickoff, punt or try ('dead') is shown when it happens in the game on screen but never pulls the
+// card to its game.
+const RZ_PRIO = { score: 100, turnover: 80, redzone: 60, big: 50, gffl: 35, play: 15, pat: 0, dead: 0, meta: -1 };
+const RZ_LABEL = { score: '', turnover: '', redzone: 'Red zone', big: 'Big play', gffl: '', play: '', pat: '', dead: '', meta: '' };
 
 // Is the board on the NFL's current week? (S.week is set only when the viewer picked another.)
 function rzThisWeek() {
   if (!S.cur) return false;
   return !S.week || (S.week.st === S.cur.st && S.week.wk === S.cur.wk);
 }
-function rzShown() { return !!(G && isWide() && S.loaded && rzThisWeek()); }
+// On every screen size (2026-10-04, user: "Also need it to be on mobile"): the sidebar's top on desktop,
+// under the 8-bit field on a phone (rzPlace).
+function rzShown() { return !!(G && S.loaded && rzThisWeek()); }
 function rzActive() { return rzShown() && !document.hidden; }
 // Games the card may sit on: live and not at halftime.
 const rzOnAir = (ev) => !!ev && ev.state === 'in' && !isHalftime(ev);
@@ -64,6 +73,12 @@ function rzOwners(ev, lp) {
   return out;
 }
 
+// Inside the 20 for real. ESPN leaves isRedZone set after the drive is over: recorded 2026-10-04,
+// DAL @ HOU still read red zone through 95 s of TV timeout after its field goal, until the kickoff,
+// and the card sat on a game with nothing happening (user: "as soon as a field goal is kicked that
+// game should no longer be the redzone feature, it should bounce around to games with activity").
+// A game whose last play ended a drive is not in the red zone, whatever the flag says.
+const rzInRZ = (ev) => !!(ev?.sit?.isRedZone && !RZ.dead.has(ev.id) && !isHalftime(ev));
 const rzIsMeta = (lp) => /timeout|end of|end period|two-minute|coin toss|^end /.test(String(lp?.type?.text || '').toLowerCase());
 // Sort one new scoreboard play into the director's buckets. `scored` is the rise in the game's total
 // points since the last poll. A score can land between two polls with the last play already moved
@@ -74,11 +89,12 @@ function rzClassify(ev, lp, scored = 0) {
   const text = String(lp?.text || '');
   if (rzIsMeta(lp) || !lp) return scored >= 2 ? 'score' : 'meta';
   if (/extra point|two-point|2pt|conversion/.test(t)) return 'pat';
+  if (/kickoff|punt|touchback|fair catch/.test(t) && !(+lp.scoreValue > 0) && !/touchdown|fumble|interception|blocked|safety/.test(t)) return 'dead';
   if ((+lp.scoreValue > 0) || /touchdown|field goal good|safety/.test(t) || (scored >= 2 && !/no good|missed|blocked/.test(t))) {
     if (!/nullified|no play/i.test(text)) return 'score';
   }
   if (/interception|fumble recovery \(opp|turnover on downs|blocked|missed field goal|field goal missed/.test(t)) return 'turnover';
-  if (ev.sit?.isRedZone) return 'redzone';
+  if (rzInRZ(ev)) return 'redzone';
   if (Math.abs(+lp.statYardage || 0) >= 20) return 'big';
   if (rzOwners(ev, lp).some((o) => o.starter)) return 'gffl';
   return 'play';
@@ -103,15 +119,24 @@ function rzOnBoard(evs, now = Date.now()) {
       continue;
     }
     const delta = was != null ? total - was : 0;
+    // Drive state first: a score, try, kickoff, punt or turnover ends the drive; the next snap from
+    // scrimmage starts one. (A score behind a timeout ends it too.)
+    const ends = (k) => k === 'score' || k === 'pat' || k === 'dead' || k === 'turnover';
+    if (rzIsMeta(lp) && delta >= 2) RZ.dead.add(ev.id);
+    else if (!rzIsMeta(lp)) {
+      const k0 = /kickoff|punt|extra point|two-point|conversion|touchdown|field goal good|safety|interception|fumble recovery \(opp|turnover on downs|missed field goal|field goal missed|blocked/i.test(String(lp.type?.text || '')) || +lp.scoreValue > 0 || delta >= 2;
+      if (k0) RZ.dead.add(ev.id); else RZ.dead.delete(ev.id);
+    }
     const kind = rzClassify(ev, lp, delta);
     if (kind === 'meta') continue;
+    if (!ends(kind)) RZ.lastNews.set(ev.id, now);
     const news = { play: lp, kind, prio: RZ_PRIO[kind], at: now, delta: kind === 'score' ? delta : 0 };
     const big = (k) => k === 'score' || k === 'turnover';
     if (RZ.cur?.gid === ev.id) {
       // The game on screen shows its new play where it is. A score restarts the hold; a lesser play
       // inside the hold doesn't replace it, and the try after a touchdown never does (recorded
       // 2026-10-04: TEN @ BAL's touchdown, then "Extra Point Good" two polls, 31 s, later).
-      if (big(RZ.cur.kind) && (kind === 'pat' || now - RZ.cur.since < RZ.HOLD_SCORE) && news.prio < RZ.cur.prio) { RZ.cur.at = now; continue; }
+      if (big(RZ.cur.kind) && (kind === 'pat' || kind === 'dead' || now - RZ.cur.since < RZ.HOLD_SCORE) && news.prio < RZ.cur.prio) continue;
       Object.assign(RZ.cur, { play: lp, kind, prio: news.prio, at: now, delta: news.delta });
       if (kind === 'score') RZ.cur.since = now;
       RZ.pending.delete(ev.id);
@@ -130,20 +155,24 @@ function rzHold(now) {
   const c = RZ.cur;
   if (!c) return -Infinity;
   const ev = S.byId.get(c.gid);
-  if ((c.kind === 'score' || c.manual) && now - c.since < RZ.HOLD_SCORE) return Infinity;
-  if (ev?.sit?.isRedZone) return RZ_PRIO.redzone;
+  if (c.manual && now - c.since < RZ.HOLD_PICK) return Infinity;
+  if (c.kind === 'score' && now - c.since < RZ.HOLD_SCORE) return Infinity;
+  if (rzInRZ(ev)) return RZ_PRIO.redzone;
   return 0;
 }
-// The game to fall back to when nothing new is happening: the red zone first, then the game
-// the scoreboard already ranks highest (close, late, upset watch, your GFFL players), less the
-// longer-ago it was on.
+// The game to go to when no play is waiting: the red zone first, then a game that just ran a snap,
+// then the game the scoreboard already ranks highest (close, late, upset watch, your GFFL players),
+// less the more recently it was on. A game between drives is last.
 function rzBestGame(now, except) {
   let best = null, bestS = -Infinity;
   for (const ev of S.events || []) {
     if (!rzOnAir(ev) || ev.id === except) continue;
     const s = ev.sit || {};
     const ytg = s.yardLine != null && s.possession ? (s.possession === ev.home.id ? s.yardLine : 100 - s.yardLine) : null;
-    let sc = excitement(ev) + (s.isRedZone ? 60 + (ytg != null ? Math.max(0, 20 - ytg) : 0) : 0);
+    let sc = excitement(ev) + (rzInRZ(ev) ? 60 + (ytg != null ? Math.max(0, 20 - ytg) : 0) : 0);
+    const act = RZ.lastNews.get(ev.id);
+    if (act != null && now - act < 20000) sc += 30;
+    if (RZ.dead.has(ev.id)) sc -= 80;
     const last = RZ.shown.get(ev.id);
     if (last != null) sc -= Math.max(0, 40 - (now - last) / 3000);  // just left it: 40 down, back to even after 2 minutes
     if (sc > bestS) { bestS = sc; best = ev; }
@@ -159,6 +188,38 @@ function rzCut(gid, news, now, manual = false) {
   RZ.cur = { gid, play, kind: kind === 'meta' ? 'play' : kind, prio: news?.prio ?? 0, since: now, at: news?.at ?? now, manual, delta: news?.delta || 0 };
   RZ.pending.delete(gid);
   RZ.cuts++;
+  rzFollow(gid);
+}
+
+/* ───────────── the big screen follows ───────────── */
+// 2026-10-04, user: "the card on the top right is changing to new plays and games but not the 8 bit
+// field view, which should also be changing. also on redzone view we dont have to start with teams in
+// huddles, can go straight to the play". While following (the default; the card's "Big screen"
+// button), every cut also opens that game in the big view, as a tap on a sidebar game does
+// (replaceState + route, no history). Picking a game yourself from the Scores list, the phone strip or
+// the feed stops following; the button brings it back. Phones too (the card sits under the field there).
+const rzFollowing = () => store.get('rzFollow', true) !== false && rzActive();
+function rzFollow(gid) {
+  if (!rzFollowing() || !G || G.id === gid) return;
+  // After the poll or tick that cut has finished (loadBoard is still mid-render when rzOnBoard cuts).
+  setTimeout(() => {
+    if (!rzFollowing() || !G || G.id === gid || RZ.cur?.gid !== gid) return;
+    // The swap rebuilds the game view and puts it back at the top; whoever is scrolled down reading the
+    // feed (a phone, mostly) stays where they were.
+    const v = $('#game-view'), y = v ? v.scrollTop : 0;
+    history.replaceState(history.state, '', '#g' + gid);
+    route();
+    if (v && y) { v.scrollTop = y; requestAnimationFrame(() => { v.scrollTop = y; }); }
+  }, 0);
+}
+// The big stage is still busy with the game the card is on: it hasn't staged a play there yet (the
+// game view is loading its summary), or the play is still running up to its result. A cut waits for
+// it, so the big view isn't yanked away mid-play, but never longer than RZ.STAGE_MAX.
+function rzStageBusy(now) {
+  const c = RZ.cur;
+  if (!c || !rzFollowing() || G?.id !== c.gid || typeof SIDE === 'undefined' || now - c.since >= RZ.STAGE_MAX) return false;
+  if (SIDE.gameId !== c.gid || !SIDE.sc) return true;
+  return !!(SIDE.running && SIDE.resultAt != null && SIDE.t < SIDE.resultAt + 1.5);
 }
 
 // Once a second (and after every poll): stay, or cut.
@@ -180,7 +241,7 @@ function rzTick(now = Date.now()) {
     return rzRender();
   }
   const dwell = now - c.since;
-  if (dwell < RZ.MIN) return rzRender();
+  if (dwell < RZ.MIN || rzStageBusy(now)) return rzRender();
   const hold = rzHold(now);
   let best = null;
   for (const [gid, n] of RZ.pending) {
@@ -188,9 +249,15 @@ function rzTick(now = Date.now()) {
     if (!best || n.prio > best.n.prio || (n.prio === best.n.prio && n.at > best.n.at)) best = { gid, n };
   }
   if (best && (best.n.prio > hold || (best.n.prio === hold && dwell >= RZ.TIE))) { rzCut(best.gid, best.n, now); return rzRender(); }
+  // The drive on screen is over (its score has had its 8 s, or a punt, kickoff or turnover): go
+  // where the action is now, without waiting for a quiet spell. Unless the viewer picked this game.
+  if (RZ.dead.has(c.gid) && hold !== Infinity) {
+    const ev = rzBestGame(now, c.gid);
+    if (ev && !RZ.dead.has(ev.id)) { rzCut(ev.id, null, now); return rzRender(); }
+  }
   // Nothing new worth a cut. Rotate after a quiet spell, but a game in the red zone keeps the card.
   const quiet = now - Math.max(c.since, c.at);
-  const limit = curEv.sit?.isRedZone ? RZ.RZ_MAX : RZ.MAX;
+  const limit = rzInRZ(curEv) ? RZ.RZ_MAX : RZ.MAX;
   if (quiet >= limit && !RZ.pending.size) {
     const ev = rzBestGame(now, c.gid);
     if (ev) rzCut(ev.id, null, now);
@@ -283,7 +350,7 @@ function rzMoment(ev, c) {
     return /field goal/.test(t) ? `Field goal${by}` : /safety/.test(t) ? `Safety${by}` : `Touchdown${by}`;
   }
   if (c.kind === 'turnover') return /interception/.test(t) ? `Interception` : /fumble/.test(t) ? 'Fumble lost' : /downs/.test(t) ? 'Turnover on downs' : /block/.test(t) ? 'Blocked' : 'No good';
-  if (ev.sit?.isRedZone) return 'Red zone';
+  if (rzInRZ(ev)) return 'Red zone';
   return RZ_LABEL[c.kind] || '';
 }
 function rzStageHTML(ev, c) {
@@ -299,7 +366,7 @@ function rzStageHTML(ev, c) {
       : rzOwners(ev, c.play).map((o) => `<span class="ffp ${ffSide(o.teamId)}${o.starter ? '' : ' bench'}" style="--c:${ffColor(o.teamId)}">${ffTag(o.teamId, !o.starter, 16)}${esc(ffShort(o.name))}</span>`).join('');
   }
   const text = c.play && !rzIsMeta(c.play) ? playLine(c.play) : '';
-  return `<a class="rzn-stage${s.isRedZone ? ' in-rz' : ''}${c.kind === 'score' ? ' scored' : ''}" href="#g${esc(ev.id)}" aria-label="${esc(`${ev.away.name} at ${ev.home.name}. Open this game`)}">
+  return `<a class="rzn-stage${rzInRZ(ev) ? ' in-rz' : ''}${c.kind === 'score' ? ' scored' : ''}" href="#g${esc(ev.id)}" aria-label="${esc(`${ev.away.name} at ${ev.home.name}. Open this game`)}">
     <div class="rzn-bug">${side(ev.away)}${side(ev.home)}<span class="rzn-clk">${esc(statusText(ev))}</span></div>
     ${miniField(ev)}
     <div class="rzn-sit">${moment ? `<span class="rzn-mo k-${c.kind}">${esc(moment)}</span>` : ''}<span class="rzn-dd">${dd}</span></div>
@@ -310,25 +377,37 @@ function rzStageHTML(ev, c) {
 function rzChannels() {
   const live = (S.events || []).filter((e) => e.state === 'in').sort((a, b) => a.date - b.date || (a.id > b.id ? 1 : -1));
   return live.map((ev) => {
-    const on = RZ.cur?.gid === ev.id, rz = ev.sit?.isRedZone && !isHalftime(ev), news = RZ.pending.has(ev.id);
+    const on = RZ.cur?.gid === ev.id, rz = rzInRZ(ev), news = RZ.pending.has(ev.id);
     return `<button class="rzn-ch${on ? ' on' : ''}${rz ? ' rz' : ''}${news ? ' news' : ''}${isHalftime(ev) ? ' half' : ''}" data-rz-game="${esc(ev.id)}" aria-pressed="${on}" aria-label="${esc(`${ev.away.name} at ${ev.home.name}${rz ? ', in the red zone' : ''}`)}">${esc(ev.away.abbr)} ${ev.away.score ?? 0}<i>·</i>${esc(ev.home.abbr)} ${ev.home.score ?? 0}</button>`;
   }).join('');
 }
 let rzLastCut = -1;
+// Desktop: first in the sidebar, top right. Phone (no sidebar): in the main column, right under the
+// field, so the 8-bit view it drives is just above it.
+function rzPlace(el) {
+  const side = document.querySelector('.gv-side'), field = document.querySelector('#game-view .field-sec');
+  if (isWide()) { if (side && side.firstElementChild !== el) side.prepend(el); }
+  else if (field && field.nextElementSibling !== el) field.after(el);
+}
 function rzRender() {
   const el = $('#redzone');
   if (!el) return;
   const on = rzShown();
   if (el.hidden === on) el.hidden = !on;
   if (!on) return;
+  rzPlace(el);
+  // A phone following RedZone already shows that game in the 8-bit view right above: no second screen.
+  el.classList.toggle('following', store.get('rzFollow', true) !== false);
   if (!el.firstElementChild) {
-    el.innerHTML = `<div class="rzn-h"><span class="rzn-logo">Red<b>Zone</b></span><span class="rzn-n" id="rzn-n"></span></div>
+    el.innerHTML = `<div class="rzn-h"><span class="rzn-logo">Red<b>Zone</b></span><span class="rzn-n" id="rzn-n"></span><button class="rzn-follow" id="rzn-follow" aria-pressed="true" title="The big view follows RedZone from game to game">Big screen</button></div>
       <div class="rzn-screen" id="rzn-screen"></div>
       <div class="rzn-chs" id="rzn-chs" role="group" aria-label="Live games"></div>
       <div class="rzn-fh">League fantasy feed <small id="rzn-fn"></small></div>
       <div class="rzn-feed" id="rzn-feed" aria-live="off"></div>`;
     rzLastCut = -1;
   }
+  const fb = $('#rzn-follow');
+  if (fb) fb.setAttribute('aria-pressed', String(store.get('rzFollow', true) !== false));
   const live = (S.events || []).filter((e) => e.state === 'in').length;
   $('#rzn-n').textContent = live ? `${live} live` : '';
   const scr = $('#rzn-screen');
@@ -358,6 +437,21 @@ function rzMount() {
 }
 
 document.addEventListener('click', (e) => {
+  if (e.target.closest('#rzn-follow')) {
+    const on = store.get('rzFollow', true) === false;
+    store.set('rzFollow', on);
+    rzRender();
+    if (on && RZ.cur) rzFollow(RZ.cur.gid);
+    return;
+  }
+  // Picking a game yourself takes the big screen back from RedZone (capture phase: before sd-app.js
+  // swaps the game in). The RedZone screen itself is the game being followed, so it doesn't.
+  if (e.target.closest('.gv-side-list a[href^="#g"], .g-strip a[href^="#g"], #rzn-feed a[href^="#g"]') && store.get('rzFollow', true) !== false) {
+    store.set('rzFollow', false);
+    requestAnimationFrame(rzRender);
+  }
+}, true);
+document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-rz-game]');
   if (!b) return;
   e.preventDefault();
@@ -366,4 +460,5 @@ document.addEventListener('click', (e) => {
 });
 setInterval(() => { if (rzActive()) rzTick(Date.now()); }, 1000);
 RZ.feedTimer = setInterval(rzFeedTick, 15000);
+window.addEventListener('resize', () => rzRender());
 document.addEventListener('visibilitychange', () => { if (!document.hidden && rzShown()) { rzTick(Date.now()); rzFeedTick(); } });

@@ -1454,3 +1454,115 @@ failing all 34 new checks and the same webfont check, every pre-existing check s
 container has no `chrome` channel, so the suite ran from a scratch copy launched on
 `/opt/pw-browsers/chromium`.
 
+
+## RedZone goes where the action is: a finished drive gives up the card (2026-10-04)
+
+User: "its not switching to games with action, for example as soon as a field goal is kicked that
+game should no longer be the redzone feature, it should bounce around to games with activity".
+
+The recording shows the cause. After DAL @ HOU's field goal (17:20:16Z), ESPN kept the game's
+`isRedZone` set through 95 s of TV timeout, until the kickoff. The director read the flag as a
+red-zone hold, so only a score or turnover elsewhere could take the card, and it sat on a game with
+nothing happening until TEN @ BAL's touchdown 49 s later. Kickoffs and tries in the game on screen
+also counted as news there and kept resetting its quiet timer.
+
+- **Drive state** (`RZ.dead`). A score (including one that lands behind a timeout), a try, a kickoff,
+  a punt or a turnover ends the game's drive; its next snap from scrimmage starts one. `rzInRZ(ev)` is
+  `isRedZone` and not between drives. Every red-zone rule (the hold, the 90 s quiet hold, the rotation
+  bonus, the moment tag, the stage's red edge, the channel's red dot) now reads that, not the raw flag.
+- **A score holds 8 s, down from 14.** Then, with its drive over, the card leaves at once for a game that
+  is playing. It doesn't wait for news or a quiet spell. A game the viewer tapped still holds 14 s
+  (`HOLD_PICK`).
+- **Kickoffs and punts are `dead` (priority 0), and tries are priority 0.** They show when they happen in
+  the game on screen but never pull the card to their own game, and they don't keep a finished drive on
+  screen.
+- **The rotation** (`rzBestGame`) adds 30 for a game that ran a snap in the last 20 s
+  (`RZ.lastNews`) and takes 80 off a game between drives.
+
+Cache-bust ?v=20261004c.
+
+VERIFY: sunday 376/377 (the one failure is the webfont ink check that fails the same way on HEAD in
+this container), sunday-ff 56/56. RESTAGED, with the reason at each check: on the real polls, "15 s
+later the touchdown is still up" is now "15 s after the touchdown the card is on another game"; "a
+score holds the card 14 s" is now 8 s; "the touchdown stays up when its try arrives 31 s later" is
+now "stays up when its try arrives 4 s in, then moves on at 8 s"; the play-kinds check adds kickoff and
+punt as `dead`. New: on the real polls the card is off DAL @ HOU 16 s and 31 s after the field goal
+(17:20:32 and 17:20:47); a field goal with the flag still on and nothing waiting anywhere still leaves
+at 8 s; a kickoff or punt elsewhere doesn't pull the card; a scoring game isn't in the red zone again
+until a new drive snaps inside the 20; leaving a finished drive, the card goes to the game that just
+ran a play. Bite: main's sd-redzone.js with the new suite scores 367/377. The 9 failures are the new
+and restaged checks plus the same webfont check. Main stays on DAL @ HOU at 17:20:32 and 17:20:47, as
+the user saw.
+
+## RedZone drives the big 8-bit view, straight to the snap (2026-10-04)
+
+User: "the card on the top right is changing to new plays and games but not the 8 bit field view,
+which should also be changing. also on redzone view we dont have to start with teams in huddles, can
+go straight to the play".
+
+- **The big view follows the card** (`rzFollowing`, `rzFollow` in sd-redzone.js). Every cut also opens
+  that game in the big view, the way a tap on a sidebar game does (`replaceState` + `route()`, no history
+  entry). It is deferred a tick, because `rzOnBoard` can cut in the middle of `loadBoard`. Following is
+  on by default. The **Big screen** button in the card's header turns it off and on (`sun.rzFollow`).
+  Picking a game yourself from the Scores list, the phone strip or the feed turns it off; tapping the
+  RedZone screen (the game being followed) doesn't. Desktop and the current week only, like the card.
+- **A cut waits for the big view** (`rzStageBusy`): it doesn't leave while the stage hasn't yet staged
+  a play for the game it just cut to (the summary is loading), or while that play is still running up to
+  its result + 1.5 s. It never waits more than 25 s (`RZ.STAGE_MAX`).
+- **Straight to the snap.** While following, `sidePlay` builds every play with no scene to come from
+  (`raBuild(p, ev, qbs, {})`), so both teams start set at the line and the ball is snapped at 1.1 s.
+  That replaces the huddle break and walk-up (4 s to 6 s). And arriving at a game, the newest play
+  runs from the snap instead of being put straight at its end (`sideSettle`), since the card cut there
+  for that play. Not following, both behave as before.
+
+Cache-bust ?v=20261004d.
+
+VERIFY: sunday 382/383 (the one failure is the webfont ink check that fails the same way on HEAD in
+this container), sunday-ff 56/56. RESTAGED: none. The section's earlier checks now run with following
+off (`sun.rzFollow` false), so the director's checks don't swap the open game under the rest of the
+section. New, on a new fixture (`tools/fixtures/sunday/rz-sum-401872973.json`, TEN @ BAL's real
+summary as polled at 17:20:47Z, poll 3 of rz-sb):
+- a cut opens the game in the big view with no history entry;
+- the play the card cut for (Pollard to the BLT 3, 401872973521) runs from the snap: tS 1.1, no huddle,
+  stage clock short of the result;
+- the next play while following snaps at 1.1 s, and not following it walks out of the huddle (4 s);
+- a cut waits while the big view is mid-play, goes once it's done, and never waits past 25 s;
+- tapping a Scores-list game stops following, and the next cut leaves the big view alone;
+- "Big screen" turns following back on and the big view goes to the card's game;
+- on a phone there is nothing to follow.
+
+Bite: the previous commit's app files with the new suite score 375/383. They fail the 7 new checks and
+the webfont check.
+
+## RedZone on phones (2026-10-04)
+
+User: "Also need it to be on mobile".
+
+Phones have no sidebar, so the card moves (`rzPlace`). At 1080px and up it is first in `.gv-side`, as
+before. Below that it sits in the main column right under `.field-sec`, so the 8-bit view it drives is
+just above it, and a resize moves it. `rzShown` no longer needs `isWide()`: the card, the director, the
+5 s scoreboard poll, the feed's core-API fetches and following all run on phones now.
+
+- **Following on a phone, the card drops its own screen** (`.rzn.following .rzn-screen`): the field
+  above is showing that game. It keeps its header with **Big screen**, the channels and the league feed
+  (up to 60dvh, scrolling inside the card). Not following, the screen is back.
+- **44px tap targets** on the channels and the Big screen button.
+- **A cut no longer throws you to the top.** `openGameView` sets the game view's `scrollTop` to 0, and
+  every followed cut rebuilds it. `rzFollow` puts the scroll back right after the swap and again on the
+  next frame. Desktop had the same jump; it just showed less there.
+- Tapping a game in the phone strip stops following, as a Scores-list tap does on desktop.
+
+Cache-bust ?v=20261004e.
+
+VERIFY: sunday 386/387 (the one failure is the webfont ink check that fails the same way on HEAD in
+this container), sunday-ff 56/56. RESTAGED, with the reason at the check: "on a phone there is no
+sidebar, no card, and nothing for the big view to follow" is now four phone checks:
+- the card sits right after `.field-sec` in `.g-body`, inside 16 to 374px of a 390px screen, with no
+  sideways scroll, active and following;
+- following, the card's screen is hidden, and not following it is shown;
+- every channel and the button is at least 44px tall;
+- a followed cut at scrollTop 300 swaps the game and leaves the scroll at 300.
+
+A fifth check, back at 1440px the card is first in the sidebar again, is a control and passes on both
+sides. Bite: the previous commit's app files with the new suite score 382/387. They fail the 4 phone
+checks and the webfont check.

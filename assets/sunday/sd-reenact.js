@@ -3643,7 +3643,9 @@ function sideUpdate() {
   if (SIDE.arrive) {
     SIDE.arrive = false;
     const sc = SIDE.sc, done = sc && (sc.huddle || sc.clear || sc.timeout || SIDE.t >= sc.T) && SIDE.gatePlay == null;
-    if (String(latest.id) !== String(SIDE.playId) || !done) { const td = raArriveTD(latest); if (td) sidePlay(td); else sideSettle(latest); return; }
+    // Following RedZone, the card just cut here for a play: run it, from the snap.
+    const follow = typeof rzFollowing === 'function' && rzFollowing();
+    if (String(latest.id) !== String(SIDE.playId) || !done) { const td = raArriveTD(latest); if (td) sidePlay(td); else if (follow) sidePlay(latest); else sideSettle(latest); return; }
   }
   // The play on the stage came back from a review: the call was shown, now the ruling.
   if (String(latest.id) === String(SIDE.playId) && SIDE.reviewed !== String(latest.id) && raReview(latest) && SIDE.lastPlay && !raReview(SIDE.lastPlay) && !SIDE.rp) { sideReview(latest); return; }
@@ -3772,8 +3774,11 @@ function sidePlay(p) {
   // live 8 bit feed faster worked, now we have some room to back off a little since its like 10 seconds
   // ahead of the tv broadcast. so lets see if we can allow them to leave the huddle each play". The
   // 2 s polling stays.)
-  const rv = raReview(p);
-  try { sc = rv ? raReviewed(p, rv, sideFrom(p)) : raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
+  // Following RedZone (sd-redzone.js), a play starts with both teams set at the line, no huddle and no
+  // walk-up (2026-10-04, user: "on redzone view we dont have to start with teams in huddles, can go
+  // straight to the play"): raBuild with no scene to come from snaps at 1.1 s.
+  const rv = raReview(p), from = typeof rzFollowing === 'function' && rzFollowing() ? {} : sideFrom(p);
+  try { sc = rv ? raReviewed(p, rv, from) : raBuild(p, G.ev, raQBs(), from); } catch (err) { console.error(err); }
   if (SIDE.gatePlay != null && typeof gameGateRelease === 'function') { gameGateRelease(SIDE.gatePlay); SIDE.gatePlay = null; }   // an earlier play never showed its result
   if (sc) {
     sc.gameId = G.id;
