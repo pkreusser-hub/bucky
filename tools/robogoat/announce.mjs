@@ -9,9 +9,12 @@
 // issue's public URL and refuses unless that page is up and carries the issue's own description
 // (a push to a 404, or to last week's page, is worse than no push).
 //
-// It goes through the same notify function the app's own week-final push uses
-// (LG.pushWeekRecap in lg-core.js): { gfflAll: true, kind: "recap" }, so a device that muted
-// "Week recaps" in the app's notification settings is skipped.
+// It goes through the same notify function the app's own pushes use: { gfflAll: true, kind }.
+// A RECAP issue rides kind "recap" (the app's own week-final push, LG.pushWeekRecap, uses the same
+// kind), so a device that muted "Week recaps" is skipped. A PREVIEW issue rides kind "preview" —
+// its own "RoboGoat previews" row in the Alerts card (lg-ui.js ALERT_KIND_ROWS). It used to send
+// "recap" too, which meant muting the week-final scoreboard push silently muted the Thursday
+// preview, under a label ("Week recaps") that never said so.
 "use strict";
 
 import { readFileSync } from "node:fs";
@@ -32,7 +35,7 @@ const hook = m[1];
 const payload = {
   secret: LG_PASS, familyKey: FAM_KEY,
   title: `RoboGoat · ${m[2]}`, body: hook[0].toUpperCase() + hook.slice(1), url,
-  gfflAll: true, kind: "recap",
+  gfflAll: true, kind: /preview$/.test(m[2]) ? "preview" : "recap",
 };
 
 if (!argv.includes("--send")) {

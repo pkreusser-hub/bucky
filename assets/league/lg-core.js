@@ -2494,7 +2494,7 @@
   // skipped, so last night's phones do not wake up to roster spam.
   // Returns a promise for the SUITE's benefit (so a check can await the call having been made);
   // no producer awaits it, and it never rejects.
-  LG.PUSH_KINDS = ["trade", "waivers", "recap", "injury", "mention", "chat", "smack", "moves"];
+  LG.PUSH_KINDS = ["trade", "waivers", "recap", "preview", "injury", "lineup", "mention", "chat", "smack", "moves"];
   LG.pushNotify = function (opts) {
     opts = opts || {};
     const payload = {

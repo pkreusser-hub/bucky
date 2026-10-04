@@ -37,8 +37,11 @@ messaging.onBackgroundMessage((payload) => {
     body,
     icon: "/icons/icon-192.png",
     // one tag = new pushes REPLACE the old tray entry instead of stacking,
-    // so the launcher badge can't climb; renotify keeps the buzz on replace
-    tag: "bucky-workorders",
+    // so the launcher badge can't climb; renotify keeps the buzz on replace.
+    // The farm app sends no tag, so it keeps this one shared tag unchanged. The league sends a
+    // per-kind tag (notify.mjs: "gffl-<kind>"), so a chat line replaces an older chat line but
+    // never an unread trade offer.
+    tag: d.tag || "bucky-workorders",
     renotify: true,
     data: { url },
   });
@@ -51,7 +54,18 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     (async () => {
       const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const client of allClients) {
+      // Prefer the window already on the target page (the league's own window for a league
+      // push, not a family-app tab on the same origin); only then fall back to the first one.
+      let want = null;
+      try { want = new URL(targetUrl, self.location.origin); } catch (e) { /* unparseable: no preference */ }
+      const sameDoc = (c) => {
+        try {
+          const u = new URL(c.url);
+          return !!want && u.origin === want.origin && u.pathname === want.pathname;
+        } catch (e) { return false; }
+      };
+      const ordered = allClients.filter(sameDoc).concat(allClients.filter((c) => !sameDoc(c)));
+      for (const client of ordered) {
         // Focus an existing BUCKY tab/window if one is already open.
         if ("focus" in client) {
           await client.focus();

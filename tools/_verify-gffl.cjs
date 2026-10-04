@@ -27438,8 +27438,15 @@ async function openDetails(page, id) {
       }) || {};
       const movesRow = (card.kinds || []).find((k) => k.kind === "moves");
       const otherRows = (card.kinds || []).filter((k) => k.kind !== "moves");
-      ok(card.kinds && card.kinds.length === 8 && otherRows.every((k) => k.on && k.checked === "true" && k.sw === "On"),
-        "the ON card lists every kind, seven default on (" + JSON.stringify(card.labels) + ")");
+      // RESTAGED 2026-10-04 (push review): 8 rows / seven default-on became 10 / nine. Two kinds were
+      // added, both default ON like every kind but League moves — "Lineup warnings" (the new
+      // lineupwarn.mjs push) and "RoboGoat previews" (previews used to ride "Week recaps", so
+      // muting the week-final scoreboard push silently muted them too). The rule this check
+      // protects — every row on except League moves — is unchanged and still asserted below.
+      ok(card.kinds && card.kinds.length === 10 && otherRows.every((k) => k.on && k.checked === "true" && k.sw === "On"),
+        "the ON card lists every kind, nine default on (" + JSON.stringify(card.labels) + ")");
+      ok(card.labels && card.labels.includes("Lineup warnings") && card.labels.includes("RoboGoat previews"),
+        "…including the new Lineup warnings and RoboGoat previews rows");
       ok(movesRow && movesRow.on === false && movesRow.checked === "false" && movesRow.sw === "Off",
         "…and League moves is Off until they turn it on");
       // RESTAGED 2026-09-30: the matchup thread is "Smack talk" now (user: "rename it to smack
@@ -32106,6 +32113,332 @@ async function openDetails(page, id) {
     ok(errors.length === 0, "0 page errors (" + W + "px)");
     await ctx.close();
   }
+  }
+
+  // ================= PU · push client, service worker, league token refresh =================
+  // 2026-10-04 push review. Five things the review found wrong, each asserted by what the code
+  // DOES, not by reading its source:
+  //   1. BuckyPush.disable() on a fresh page load never deleted the FCM token or the Firestore
+  //      token doc (it only did so when enable()/updateExtra() had already cached the SDK in
+  //      this page) — the league's "Turn off" left the phone subscribed, gfflTeam and all.
+  //   2. The league never re-ran enable() after login, so a rotated token went stale.
+  //   3. A corrupt buckyPushState threw out of status(), i.e. out of the Alerts card's render.
+  //   4. enable() awaited serviceWorker.register() BEFORE Notification.requestPermission(); on
+  //      iOS the prompt must come inside the user gesture.
+  //   5. firebase-messaging-sw.js used one tag for every push and focused the first window.
+  // The Firebase SDK is replaced with recording modules served in place of gstatic's, so the
+  // calls are observable; the page is real Chromium on the suite's static server.
+  if (section("PU · push-client disable/permission order/corrupt state, service-worker tags, league token refresh")) {
+    const FAKE_FB = {
+      app: `export function initializeApp(c, n) { (window.__fb = window.__fb || []).push({ op: "initializeApp", n }); return { n }; }`,
+      messaging: `const L = (o) => (window.__fb = window.__fb || []).push(o);
+        export function getMessaging(a) { L({ op: "getMessaging" }); return { a }; }
+        export async function getToken(m, o) { L({ op: "getToken", sw: !!(o && o.serviceWorkerRegistration) }); return "TOK-" + (window.__tok || "A"); }
+        export async function deleteToken(m) { L({ op: "deleteToken" }); return true; }`,
+      firestore: `const L = (o) => (window.__fb = window.__fb || []).push(o);
+        export function getFirestore(a) { return { a }; }
+        export function doc(db, c, i) { return { c, i }; }
+        export async function setDoc(r, d, o) { L({ op: "setDoc", c: r.c, i: r.i, d, o }); }
+        export async function deleteDoc(r) { L({ op: "deleteDoc", c: r.c, i: r.i }); }`,
+    };
+    const pcSrc = fs.readFileSync(path.join(ROOT, "push-client.js"), "utf8");
+    // A blank document on the suite's origin with push-client.js loaded fresh, and a localStorage
+    // state seeded BEFORE it loads — so nothing in the page has touched Firebase yet.
+    const pushPage = async (savedRaw) => {
+      const ctx = await browser.createBrowserContext();
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        const u = req.url();
+        const m = /gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|messaging|firestore)\.js$/.exec(u);
+        if (m) return req.respond({ status: 200, contentType: "text/javascript", headers: { "Access-Control-Allow-Origin": "*" }, body: FAKE_FB[m[1]] });
+        if (/gstatic|googleapis|firebase/.test(u)) return req.abort();
+        req.continue();
+      });
+      await page.goto(BASE + "/push-client.js");
+      await page.evaluate((raw) => {
+        if (raw != null) localStorage.setItem("buckyPushState", raw); else localStorage.removeItem("buckyPushState");
+        window.__order = [];
+        window.__perm = { resolve: null };
+        Notification.requestPermission = () => { window.__order.push("perm"); return new Promise((r) => { window.__perm.resolve = () => r("granted"); }); };
+        navigator.serviceWorker.register = () => { window.__order.push("register"); return Promise.resolve({ scope: "/" }); };
+      }, savedRaw == null ? null : savedRaw);
+      await page.addScriptTag({ content: pcSrc });
+      return { ctx, page, errors };
+    };
+    const fb = (page) => page.evaluate(() => window.__fb || []);
+
+    // ---- PU1: "Turn off" on a FRESH page really unsubscribes ----
+    {
+      const saved = JSON.stringify({ token: "T1", familyKey: "famx", user: "Peter", docId: "doc1", extra: { gfflTeam: 3 } });
+      const { ctx, page, errors } = await pushPage(saved);
+      ok((await fb(page)).length === 0, "PU1: the page starts with no Firebase module loaded (the review's exact precondition)");
+      const r = await page.evaluate(() => window.BuckyPush.disable());
+      const ops = await fb(page);
+      ok(r === true, "PU1: disable() answers true");
+      ok(ops.some((o) => o.op === "deleteToken"), "PU1: the FCM token was deleted (" + ops.map((o) => o.op).join(",") + ")");
+      ok(ops.some((o) => o.op === "deleteDoc" && o.c === "pushTokens_famx" && o.i === "doc1"),
+        "PU1: the Firestore token doc pushTokens_famx/doc1 — the one carrying gfflTeam — was deleted");
+      ok(ops.findIndex((o) => o.op === "getMessaging") < ops.findIndex((o) => o.op === "deleteToken"),
+        "PU1: the messaging instance was created BEFORE deleteToken used it");
+      ok((await page.evaluate(() => localStorage.getItem("buckyPushState"))) === null, "PU1: …and the local enrollment is cleared");
+      ok((await page.evaluate(() => window.BuckyPush.status().enabled)) === false, "PU1: status() reads not enabled afterwards");
+      ok(errors.length === 0, "PU1: 0 page errors");
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await pushPage(null);
+      const r = await page.evaluate(() => window.BuckyPush.disable());
+      ok(r === false && (await fb(page)).length === 0, "PU1b: with nothing enrolled, disable() is a no-op that touches no Firebase");
+      await ctx.close();
+    }
+
+    // ---- PU2: a corrupt buckyPushState never throws out of status() ----
+    for (const raw of ["{not json", "null", "42", "\"str\"", "[1,2]"]) {
+      const { ctx, page } = await pushPage(raw);
+      const r = await page.evaluate(() => {
+        let st = null, threw = false;
+        try { st = window.BuckyPush.status(); } catch (e) { threw = true; }
+        return { threw, enabled: st && st.enabled, extra: st && st.extra };
+      });
+      ok(r.threw === false && r.enabled === false && r.extra === null, "PU2: status() with state " + raw + " reads as not enrolled and does not throw (" + JSON.stringify(r) + ")");
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await pushPage("{not json");
+      const out = await page.evaluate(async () => {
+        let upd = null;
+        try { await window.BuckyPush.updateExtra({ gfflMutes: [] }); } catch (e) { upd = String(e.message); }
+        const dis = await window.BuckyPush.disable();
+        return { upd, dis, left: localStorage.getItem("buckyPushState") };
+      });
+      ok(/No push enrollment/.test(out.upd || ""), "PU2: updateExtra() on corrupt state rejects with the plain \"No push enrollment\" error (" + out.upd + ")");
+      ok(out.dis === true && out.left === null, "PU2: disable() on corrupt state still clears the key (so the Alerts card can recover)");
+      ok((await fb(page)).some((o) => o.op === "deleteToken") && !(await fb(page)).some((o) => o.op === "deleteDoc"),
+        "PU2: …deleting the token but, with no docId on record, no doc");
+      await ctx.close();
+    }
+
+    // ---- PU3: permission is requested before the service worker is registered ----
+    {
+      const { ctx, page, errors } = await pushPage(null);
+      await page.evaluate(() => { window.__enableP = window.BuckyPush.enable("Peter", "famx", null, { gfflTeam: 2, gfflMutes: ["moves"] }).then((r) => { window.__enabled = r; }, (e) => { window.__enableErr = String(e.message); }); });
+      await sleep(150);
+      let order = await page.evaluate(() => window.__order.slice());
+      ok(JSON.stringify(order) === '["perm"]', "PU3: while the permission prompt is still open, serviceWorker.register has NOT been called (" + JSON.stringify(order) + ")");
+      await page.evaluate(() => window.__perm.resolve());
+      await waitFnOr(page, () => window.__enabled || window.__enableErr);
+      order = await page.evaluate(() => window.__order.slice());
+      ok(JSON.stringify(order) === '["perm","register"]', "PU3: …and register runs after the grant (" + JSON.stringify(order) + ")");
+      const ops = await fb(page);
+      const sd = ops.find((o) => o.op === "setDoc");
+      ok(!!sd && sd.c === "pushTokens_famx" && sd.o && sd.o.merge === true && sd.d.gfflTeam === 2 && sd.d.user === "Peter" && sd.d.token === "TOK-A",
+        "PU3: the token doc is still written with merge:true, user, token and the league's gfflTeam (" + JSON.stringify(sd && sd.d) + ")");
+      const st = await page.evaluate(() => JSON.parse(localStorage.getItem("buckyPushState")));
+      ok(st && st.familyKey === "famx" && st.extra && st.extra.gfflTeam === 2 && st.docId === sd.i, "PU3: the saved enrollment carries familyKey, extra and the doc id");
+      ok(errors.length === 0, "PU3: 0 page errors");
+      await ctx.close();
+    }
+    {
+      // The family app's call shape (no extra): the doc has no gfflTeam and the same user/token fields.
+      const { ctx, page } = await pushPage(null);
+      await page.evaluate(() => { window.__enableP = window.BuckyPush.enable("Isaac", "famx").then((r) => { window.__enabled = r; }, (e) => { window.__enableErr = String(e.message); }); });
+      await sleep(100); await page.evaluate(() => window.__perm.resolve());
+      await waitFnOr(page, () => window.__enabled || window.__enableErr);
+      const sd = (await fb(page)).find((o) => o.op === "setDoc");
+      ok(!!sd && !("gfflTeam" in sd.d) && sd.d.user === "Isaac" && sd.o.merge === true, "PU3b: the family app's 2-arg enable() writes no gfflTeam and is otherwise unchanged");
+      await ctx.close();
+    }
+
+    // ---- PU4: the service worker — per-kind tag, and the window that matches the target ----
+    {
+      const swSrc = fs.readFileSync(path.join(ROOT, "firebase-messaging-sw.js"), "utf8");
+      const shown = [], listeners = {}, calls = { focus: [], navigate: [], open: [] };
+      let bg = null;
+      const mkClient = (id, url) => ({ id, url, focus: async () => { calls.focus.push(id); }, navigate: async (u) => { calls.navigate.push([id, u]); } });
+      let clientList = [];
+      const self_ = {
+        registration: { showNotification: (t, o) => shown.push({ t, o }) },
+        addEventListener: (type, fn) => { listeners[type] = fn; },
+        location: { origin: "https://goatfantasyleague.com" },
+      };
+      const firebase_ = { initializeApp() {}, messaging: () => ({ onBackgroundMessage: (fn) => { bg = fn; } }) };
+      const clients_ = { matchAll: async () => clientList, openWindow: async (u) => { calls.open.push(u); } };
+      new Function("self", "importScripts", "firebase", "clients", swSrc)(self_, () => {}, firebase_, clients_);
+      bg({ data: { title: "Farm", body: "work order", url: "/index.html" } });
+      bg({ data: { title: "Trade offer", body: "x", url: "https://goatfantasyleague.com/league.html#moves", tag: "gffl-trade" } });
+      bg({ data: { title: "Chat", body: "y", url: "https://goatfantasyleague.com/league.html", tag: "gffl-chat" } });
+      ok(shown[0].o.tag === "bucky-workorders", "PU4: a push with no tag (every family-app push) keeps the shared \"bucky-workorders\" tag — the farm app is unchanged");
+      ok(shown[1].o.tag === "gffl-trade" && shown[2].o.tag === "gffl-chat" && shown[1].o.tag !== shown[2].o.tag,
+        "PU4: a trade offer and a chat line carry different tags, so the chat cannot replace the unread offer");
+      ok(shown.every((s) => s.o.renotify === true), "PU4: renotify stays on");
+      const click = async (target) => {
+        calls.focus.length = 0; calls.navigate.length = 0; calls.open.length = 0;
+        let p = null;
+        listeners.notificationclick({ notification: { close() {}, data: { url: target } }, waitUntil: (x) => { p = x; } });
+        await p;
+      };
+      clientList = [mkClient("family", "https://goatfantasyleague.com/index.html"), mkClient("league", "https://goatfantasyleague.com/league.html#chat")];
+      await click("https://goatfantasyleague.com/league.html#moves");
+      ok(calls.focus.join() === "league" && calls.navigate.length === 1 && calls.navigate[0][0] === "league" && calls.navigate[0][1].endsWith("#moves"),
+        "PU4: with a family tab listed FIRST and the league window second, the league push focuses and navigates the LEAGUE window (" + JSON.stringify(calls) + ")");
+      clientList = [mkClient("family", "https://goatfantasyleague.com/index.html")];
+      await click("https://goatfantasyleague.com/league.html#moves");
+      ok(calls.focus.join() === "family" && calls.open.length === 0, "PU4: with no matching window it falls back to the first open one, as before");
+      clientList = [mkClient("a", "https://goatfantasyleague.com/index.html"), mkClient("b", "https://goatfantasyleague.com/games.html")];
+      await click("/index.html");
+      ok(calls.focus.join() === "a", "PU4: a farm push still lands on the farm window (relative target resolved against the worker's origin)");
+      clientList = [];
+      await click("https://goatfantasyleague.com/league.html");
+      ok(calls.open.join() === "https://goatfantasyleague.com/league.html" && calls.focus.length === 0, "PU4: with no window at all, one is opened");
+    }
+
+    // ---- PU5: the league heals its push token once per session ----
+    // BuckyPush is defined as an accessor the page's own push-client.js cannot overwrite, so the
+    // REAL boot path is what calls it.
+    const leaguePage = async ({ perm, extra, optout }) => {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await page.evaluateOnNewDocument((perm, extra, optout) => {
+        window.__pushCalls = [];
+        const stub = {
+          isSupported: () => true,
+          status: () => ({ supported: true, permission: perm, enabled: !!extra, user: "Peter", familyKey: "x", extra }),
+          enable: async (u, f, o, ex) => { window.__pushCalls.push({ u, f, o, extra: ex }); return { token: "T" }; },
+          disable: async () => true, updateExtra: async () => true,
+        };
+        Object.defineProperty(window, "BuckyPush", { configurable: true, get: () => stub, set: () => {} });
+        try { Object.defineProperty(Notification, "permission", { configurable: true, get: () => perm }); } catch (e) {}
+        if (optout) localStorage.setItem("gffl_pushoptout", "1");
+      }, perm, extra, !!optout);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      return { ctx, page, errors };
+    };
+    {
+      const { ctx, page, errors } = await leaguePage({ perm: "granted", extra: { gfflTeam: 1 } });
+      ok(await waitFnOr(page, () => window.__pushCalls.length >= 1), "PU5: booting the league on a granted, enrolled phone re-runs enable() without being asked");
+      const c = await page.evaluate(() => window.__pushCalls.slice());
+      ok(c.length === 1 && c[0].extra && c[0].extra.gfflTeam === 1 && JSON.stringify(c[0].extra.gfflMutes) === '["moves"]' && c[0].f === FAM && c[0].o === null,
+        "PU5: …with the SAME extra the login sends: gfflTeam 1 and the device's mute list (" + JSON.stringify(c[0]) + ")");
+      await page.evaluate(() => window.__GFFL__.UI._refreshPush());
+      await page.evaluate(() => window.__GFFL__.UI.boot());
+      await sleep(300);
+      ok((await page.evaluate(() => window.__pushCalls.length)) === 1, "PU5: a second call and a second boot() in the same page session do not re-enroll (once per session)");
+      ok(errors.length === 0, "PU5: 0 page errors");
+      await ctx.close();
+    }
+    for (const [label, opts] of [
+      ["permission not yet asked", { perm: "default", extra: { gfflTeam: 1 } }],
+      ["permission denied", { perm: "denied", extra: { gfflTeam: 1 } }],
+      ["a family-only enrollment (no gfflTeam)", { perm: "granted", extra: null }],
+      ["the sticky opt-out is set", { perm: "granted", extra: { gfflTeam: 1 }, optout: true }],
+    ]) {
+      const { ctx, page } = await leaguePage(opts);
+      await sleep(500);
+      ok((await page.evaluate(() => window.__pushCalls.length)) === 0, "PU5: no silent enroll when " + label + " — a heal must never prompt, re-add a device that opted out, or enrol a farm-only phone");
+      await ctx.close();
+    }
+
+    // ---- PU6: notify.mjs — one push per token, sends in parallel, per-kind tag, push log ----
+    // The stub Firestore is tools/_fakefs.mjs (refuses unmasked writes, JS-number integerValue,
+    // a precondition that does not hold). Hand counts are in each message.
+    {
+      const fakefs = await import(pathToFileURL(path.join(ROOT, "tools", "_fakefs.mjs")).href);
+      const realFetch = global.fetch;
+      const saved = { sa: process.env.FIREBASE_SERVICE_ACCOUNT, sec: process.env.BUCKY_NOTIFY_SECRET, to: process.env.NOTIFY_FETCH_TIMEOUT_MS };
+      const kp = require("crypto").generateKeyPairSync("rsa", { modulusLength: 2048 });
+      process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({ client_email: "t@amen-farms-app.iam.gserviceaccount.com", private_key: kp.privateKey.export({ type: "pkcs8", format: "pem" }) });
+      process.env.BUCKY_NOTIFY_SECRET = "pu-secret";
+      process.env.NOTIFY_FETCH_TIMEOUT_MS = "400";
+      const BASE_DOC = "projects/amen-farms-app/databases/(default)/documents";
+      let store, fcm, delay, inflight, maxInflight, behavior;
+      const rows = [];
+      const addTok = (docId, token, team, user) => {
+        const f = { token: { stringValue: token } };
+        if (team != null) f.gfflTeam = { integerValue: String(team) };
+        if (user) f.user = { stringValue: user };
+        rows.push({ document: { name: BASE_DOC + "/pushTokens_pufam/" + docId, fields: f } });
+      };
+      const resp = (status, obj) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+      const deleted = [];
+      global.fetch = async (url, init) => {
+        const u = String(url);
+        init = init || {};
+        if (u.includes("oauth2.googleapis.com")) return resp(200, { access_token: "t", expires_in: 3600 });
+        if (u.includes("fcm.googleapis.com")) {
+          const body = JSON.parse(init.body);
+          fcm.push(body);
+          const b = behavior.get(body.message.token) || { status: 200, body: { name: "ok" } };
+          inflight++; maxInflight = Math.max(maxInflight, inflight);
+          await new Promise((r) => setTimeout(r, delay));
+          inflight--;
+          return resp(b.status, b.body);
+        }
+        if (u.includes(":runQuery")) return resp(200, rows);
+        const m = /\/documents\/(.+?)(\?|$)/.exec(u);
+        if (m) {
+          if ((init.method || "GET") === "DELETE" && /^pushTokens_/.test(m[1])) { deleted.push(m[1].split("/")[1]); return resp(200, {}); }
+          const r = fakefs.handleDoc(store, BASE_DOC, init.method || "GET", m[1], new URL(u).searchParams, init.body ? JSON.parse(init.body) : null);
+          return resp(r.status, r.body);
+        }
+        return resp(404, {});
+      };
+      const call = async (payload) => {
+        const mod = await import(pathToFileURL(path.join(ROOT, "netlify", "functions", "notify.mjs")).href + "?pu6=" + Date.now());
+        const req = new Request("http://x/.netlify/functions/notify", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ secret: "pu-secret", familyKey: "pufam", title: "T", body: "B", ...payload }) });
+        const res = await mod.default(req);
+        return res.json();
+      };
+      const reset6 = () => { store = fakefs.createStore(); fcm = []; delay = 0; inflight = 0; maxInflight = 0; behavior = new Map(); rows.length = 0; deleted.length = 0; };
+      const logOf = () => { const d = fakefs.getDocFields(store, "pushlog_pufam", String(new Date().getUTCFullYear())); return d ? fakefs.decode(d.entries) : []; };
+      try {
+        // dedupe + tag + log
+        reset6();
+        addTok("d1", "TOK_A", 1); addTok("d2", "TOK_A", 1); addTok("d3", "TOK_B", 5); addTok("d4", "TOK_C", null, "Dad");
+        const o1 = await call({ gfflAll: true, kind: "chat" });
+        ok(o1.sent === 2 && fcm.length === 2, "PU6: three league docs on two tokens -> two pushes; the family-only device is outside gfflAll (sent " + o1.sent + ", FCM calls " + fcm.length + ")");
+        ok(fcm.every((c) => c.message.data.tag === "gffl-chat"), "PU6: a league send with kind=chat carries tag gffl-chat");
+        ok(logOf().length === 2 && logOf().every((e) => e.kind === "chat") && logOf().map((e) => e.team).sort().join() === "1,5",
+          "PU6: the push log has one {kind:chat} entry per delivered token, teams 1 and 5 (" + JSON.stringify(logOf()) + ")");
+        ok(fakefs.getDocFields(store, "pushlog_pufam", String(new Date().getUTCFullYear())) !== null, "PU6: …in pushlog_<fam>/<year>, written by a masked PATCH (the fake refuses any other)");
+        // no kind (family push) -> no tag, no log
+        reset6(); addTok("d1", "TOK_A", 1, "Dad");
+        const o2 = await call({ targetUser: "Dad" });
+        ok(o2.sent === 1 && fcm[0].message.data.tag === undefined, "PU6: a family push (no kind) carries no tag, so the service worker keeps \"bucky-workorders\"");
+        ok(logOf().length === 0, "PU6: …and writes nothing to the league push log");
+        // dead shared token prunes every doc
+        reset6(); addTok("d1", "TOK_DEAD", 2); addTok("d2", "TOK_DEAD", 2);
+        behavior.set("TOK_DEAD", { status: 404, body: { error: { status: "UNREGISTERED" } } });
+        const o3 = await call({ gfflTeam: 2, kind: "trade" });
+        ok(o3.sent === 0 && o3.pruned === 2 && deleted.sort().join() === "d1,d2" && fcm.length === 1, "PU6: a dead token shared by two docs is sent once and both docs are pruned (" + JSON.stringify(o3) + ")");
+        // parallel and bounded
+        reset6();
+        for (let i = 0; i < 16; i++) addTok("p" + i, "TOK_P" + i, 1 + (i % 8));
+        delay = 120;
+        const t0 = Date.now();
+        const o4 = await call({ gfflAll: true, kind: "recap" });
+        const ms = Date.now() - t0;
+        ok(o4.sent === 16 && maxInflight > 1 && maxInflight <= 8, "PU6: 16 devices, sends overlap but never exceed 8 in flight (max " + maxInflight + ")");
+        ok(ms < 1500, "PU6: 16 sends x 120 ms finished in " + ms + " ms (a sequential loop is ~1920 ms)");
+        // cap: 299 old entries + 16 new -> 300, oldest dropped
+        reset6();
+        const old = Array.from({ length: 299 }, (_, i) => ({ mapValue: { fields: { t: { integerValue: String(1000 + i) }, kind: { stringValue: "old" }, team: { integerValue: "3" } } } }));
+        fakefs.putDoc(store, "pushlog_pufam", String(new Date().getUTCFullYear()), { entries: { arrayValue: { values: old } } });
+        addTok("c1", "TOK_C1", 1); addTok("c2", "TOK_C2", 2);
+        await call({ gfflAll: true, kind: "smack" });
+        const lg = logOf();
+        ok(lg.length === 300 && lg[0].t === 1001 && lg[299].kind === "smack", "PU6: the log is capped at 300 — 299 + 2 delivered = 301, the oldest dropped (" + lg.length + ")");
+      } finally {
+        global.fetch = realFetch;
+        for (const [k, v] of [["FIREBASE_SERVICE_ACCOUNT", saved.sa], ["BUCKY_NOTIFY_SECRET", saved.sec], ["NOTIFY_FETCH_TIMEOUT_MS", saved.to]]) {
+          if (v === undefined) delete process.env[k]; else process.env[k] = v;
+        }
+      }
+    }
   }
 
   await browser.close();
