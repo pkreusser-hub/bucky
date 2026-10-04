@@ -116,3 +116,18 @@
   for = "/*.webmanifest"
   [headers.values]
     Content-Type = "application/manifest+json"
+
+# GFFL self-hosted fonts (2026-10-04). Versioned vendor files that never change in place — if one
+# is ever replaced, give the new file a new NAME (a new @font-face url), because "immutable" means
+# a browser will not even ask. Without this each launch revalidates them (a round trip apiece).
+[[headers]]
+  for = "/assets/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# The ~10 byte version file the home-screen copy of league.html compares itself against. It must
+# NEVER be served from a cache: a cached answer is exactly the stale-copy bug it exists to catch.
+[[headers]]
+  for = "/gffl-version.txt"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"

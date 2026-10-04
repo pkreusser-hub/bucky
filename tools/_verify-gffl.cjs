@@ -2215,7 +2215,7 @@ function startStatic() {
     // handed back as application/octet-stream is one Chrome will fetch and then ignore, so the
     // section that fetches and parses it would be testing the harness, not the file.
     const mime = { ".html": "text/html", ".js": "text/javascript", ".webmanifest": "application/manifest+json",
-                   ".json": "application/json", ".png": "image/png" }[path.extname(p)] || "application/octet-stream";
+                   ".json": "application/json", ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain" }[path.extname(p)] || "application/octet-stream";
     res.writeHead(200, { "Content-Type": mime });
     res.end(fs.readFileSync(p));
   });
@@ -2691,15 +2691,34 @@ function restRespond(req, u, R) {
   if (R.hang) { R.calls.push({ method, url: u, hung: true }); return; }
   if (method === "OPTIONS") return req.respond({ status: 200, headers: cors, body: "" });
   if (R.fail) { R.calls.push({ method, url: u, failed: true }); return req.abort(); }
-  const json = (obj, status) => req.respond({ status: status || 200, contentType: "application/json", headers: cors, body: JSON.stringify(obj) });
+  // R.served (2026-10-04, boot/perf): what each answer CONTAINED, so a check can say "no boot
+  // response carried a full logo" about the wire rather than about the wrapper.
+  const json = (obj, status) => {
+    const body = JSON.stringify(obj);
+    (R.served = R.served || []).push({ method, url: u, bytes: body.length, body });
+    return req.respond({ status: status || 200, contentType: "application/json", headers: cors, body });
+  };
+  // A projection / mask keeps ONLY the fields it names, exactly as Firestore does — a fixture
+  // that returned everything regardless would be kinder than the real service and could never
+  // catch a field a projection forgot.
+  const project = (wire, paths) => {
+    if (!paths || !paths.length) return wire;
+    const f = {}; for (const k of Object.keys(wire.fields || {})) if (paths.includes(k)) f[k] = wire.fields[k];
+    return { ...wire, fields: f };
+  };
   if (u.includes(":runQuery")) {
     let q = {};
     try { q = (JSON.parse(req.postData() || "{}").structuredQuery) || {}; } catch (e) { /* malformed */ }
-    const kind = q.where && q.where.fieldFilter ? q.where.fieldFilter.value.stringValue : null;
-    R.calls.push({ method, op: "runQuery", kind, coll: ((q.from || [])[0] || {}).collectionId, url: u });
+    const kind = q.where && q.where.fieldFilter && q.where.fieldFilter.field.fieldPath === "kind" ? q.where.fieldFilter.value.stringValue : null;
+    // The document-NAME range query (the chat probe): ids strictly between the two bounds.
+    const rng = q.where && q.where.compositeFilter ? q.where.compositeFilter.filters.map((x) => x.fieldFilter.value.referenceValue.split("/").pop()) : null;
+    const sel = q.select && q.select.fields ? q.select.fields.map((x) => x.fieldPath) : null;
+    R.calls.push({ method, op: "runQuery", kind, range: rng, select: sel, coll: ((q.from || [])[0] || {}).collectionId, url: u });
     const rows = Object.entries(R.docs)
       .filter(([, d]) => !kind || d.kind === kind)
-      .map(([id, d]) => ({ document: fsWireDoc(id, d, R), readTime: "2026-01-01T00:00:00Z" }));
+      .filter(([id]) => !rng || (id > rng[0] && id < rng[1]))
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([id, d]) => ({ document: project(fsWireDoc(id, d, R), sel), readTime: "2026-01-01T00:00:00Z" }));
     // A zero-result runQuery really does answer with one document-LESS row, not an empty array.
     return json(rows.length ? rows : [{ readTime: "2026-01-01T00:00:00Z" }]);
   }
@@ -2711,7 +2730,8 @@ function restRespond(req, u, R) {
   if (method === "GET") {
     const d = R.docs[id];
     if (!d) return json({ error: { code: 404, status: "NOT_FOUND", message: "Document not found." } }, 404);
-    return json(fsWireDoc(id, d, R));
+    const mask = [...u.matchAll(/[?&]mask\.fieldPaths=([^&]+)/g)].map((x) => decodeURIComponent(x[1]));
+    return json(project(fsWireDoc(id, d, R), mask));
   }
   if (method === "PATCH") {
     let payload = {};
@@ -5202,7 +5222,11 @@ async function openDetails(page, id) {
     // findIndex could no longer find the row it had just written, and a stale DUPLICATE got
     // pushed instead of updating in place — LG.teamById kept returning the pre-edit team
     // forever. Prove logoData survived the round trip too (same object, same bug class).
-    const savedLogo = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).logoData);
+    // RESTAGED 2026-10-04 (boot/perf): the picture a small slot shows is now the team doc's
+    // `logoThumb` (the full logoData lives in its own teamlogo doc), so that is what must
+    // survive the round trip AND be the src every crest below renders — "the uploaded logo
+    // appears everywhere" is unchanged, the string it appears AS is the thumb.
+    const savedLogo = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).logoThumb);
     ok(typeof savedLogo === "string" && savedLogo.startsWith("data:image/"),
       "…and the logo image itself (not just the colour) survives — no stale duplicate shadowing the edited team");
     const listedOnce = await page1.evaluate(() => window.__GFFL__.LG.teams.filter((t) => t.id === 1).length);
@@ -16402,17 +16426,23 @@ async function openDetails(page, id) {
         const t = window.__GFFL__.LG.teamById(1);
         return t && t.colors && t.colors.secondary;
       }, { timeout: 9000 });
-      const ex = await page.evaluate(() => {
+      // RESTAGED 2026-10-04 (boot/perf): the FULL picture no longer lives on the team doc —
+      // it is team-logo doc `teamlogo_<id>` (so no team-list read carries it); the team doc
+      // holds only the small `logoThumb`. The old rule ("stored as a data: URL on the team
+      // doc") was a statement about WHERE, and WHERE is exactly what this change moved; the
+      // 160KB budget and the data: URL shape are still asserted, on the doc that now holds it.
+      const ex = await page.evaluate(async () => {
         const t = window.__GFFL__.LG.teamById(1);
         const p = window.__GFFL__.LG.teamPalette(t);
-        return { colors: t.colors, custom: !!t.colorsCustom, logo: (t.logoData || "").slice(0, 15),
-                 len: (t.logoData || "").length, three: [p.primary, p.secondary, p.tertiary] };
+        const full = (await window.__GFFL__.LG.db.get("teamlogo_1")) || {};
+        return { colors: t.colors, custom: !!t.colorsCustom, logo: (full.logoData || "").slice(0, 15),
+                 len: (full.logoData || "").length, three: [p.primary, p.secondary, p.tertiary] };
       });
       ok(ex.colors && ex.colors.primary && ex.colors.secondary && ex.colors.tertiary,
         "an uploaded logo PROPOSES all three colours, not one (" + JSON.stringify(ex.colors) + ")");
       ok(new Set(ex.three).size === 3, "…and the three are genuinely distinct — not three shades of the same band (" + JSON.stringify(ex.three) + ")");
       ok(ex.custom === false, "…with the hand-picked latch still OFF (nobody has touched a swatch)");
-      ok(ex.logo.startsWith("data:image/"), "…and the picture itself is stored as a data: URL on the team doc");
+      ok(ex.logo.startsWith("data:image/"), "…and the picture itself is stored as a data: URL, in its own teamlogo doc");
       ok(ex.len > 0 && ex.len <= 160000, "…inside the logo's OWN 160KB budget, split from chat's 80KB (" + ex.len + " chars)");
 
       // A HAND-PICK latches. From here a new logo may change the picture and nothing else.
@@ -16423,9 +16453,10 @@ async function openDetails(page, id) {
         inp.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await page.waitForFunction(() => window.__GFFL__.LG.teamById(1).colorsCustom === true, { timeout: 9000 });
-      const picked = await page.evaluate(() => {
+      const picked = await page.evaluate(async () => {
         const t = window.__GFFL__.LG.teamById(1);
-        return { colors: t.colors, custom: t.colorsCustom, logoStill: (t.logoData || "").startsWith("data:image/") };
+        const full = (await window.__GFFL__.LG.db.get("teamlogo_1")) || {};
+        return { colors: t.colors, custom: t.colorsCustom, logoStill: (full.logoData || "").startsWith("data:image/") && (t.logoThumb || "").startsWith("data:image/") };
       });
       ok(picked.colors.primary === "#2f8f4e" && picked.colors.primary !== before,
         "a swatch override saves the chosen colour exactly (" + before + " → " + picked.colors.primary + ")");
@@ -16472,7 +16503,7 @@ async function openDetails(page, id) {
       await uploadLogo(page, FLAT_ART_LOGO);
       await page.waitForFunction(() => {
         const t = window.__GFFL__.LG.teamById(1);
-        return t && (t.logoData || "").length > 0;
+        return t && (t.logoThumb || "").length > 0; // RESTAGED 2026-10-04: the team doc holds the thumb, not the full picture
       }, { timeout: 9000 });
       await sleep(400);
       const afterReupload = await page.evaluate(() => {
@@ -16511,9 +16542,18 @@ async function openDetails(page, id) {
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await openLocker(page, 1);
       await uploadLogo(page, TRANSPARENT_LOGO);
-      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoData || "").length > 0, { timeout: 9000 });
+      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoThumb || "").length > 0, { timeout: 9000 });
+      // RESTAGED 2026-10-04: the full picture is read from its own teamlogo doc now; and the
+      // team doc's cut-out flag + thumb are asserted too, because the thumb's mime (webp) can
+      // no longer say "this was a PNG with transparency" the way the stored data:image/png did.
+      const thumbInfo = await page.evaluate(async () => {
+        const t = window.__GFFL__.LG.teamById(1);
+        return { cut: t.logoCut, thumbLen: (t.logoThumb || "").length, thumbMime: (t.logoThumb || "").slice(0, 14), inlineFull: t.logoData };
+      });
+      ok(thumbInfo.cut === true && thumbInfo.thumbLen > 0 && thumbInfo.thumbLen <= 14000 && !thumbInfo.inlineFull,
+        "the team doc carries a small thumb (" + thumbInfo.thumbLen + " chars, " + thumbInfo.thumbMime + ") and logoCut=true for a transparent upload — and no inline full picture");
       const t = await page.evaluate(async () => {
-        const stored = window.__GFFL__.LG.teamById(1).logoData;
+        const stored = ((await window.__GFFL__.LG.db.get("teamlogo_1")) || {}).logoData;
         // Decode what was actually SAVED and read its corner — the pixel a cut-out mark leaves
         // empty and the one that came back black.
         const px = await new Promise((res) => {
@@ -16556,8 +16596,9 @@ async function openDetails(page, id) {
       // AN OPAQUE logo must NOT be pushed onto the PNG path — JPEG is far smaller and is what
       // every photo-ish mark wants. This is the no-regression half.
       await uploadLogo(page, FLAT_ART_LOGO); // fills its whole canvas — genuinely opaque
-      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoData || "").startsWith("data:image/jpeg"), { timeout: 9000 });
+      await page.waitForFunction(async () => (((await window.__GFFL__.LG.db.get("teamlogo_1")) || {}).logoData || "").startsWith("data:image/jpeg"), { timeout: 9000 });
       ok(true, "an OPAQUE logo still takes the JPEG path — transparency is detected, never assumed");
+      ok(await page.evaluate(() => window.__GFFL__.LG.teamById(1).logoCut === false), "…and its logoCut flag flips back to false with it");
       ok(errors.length === 0, "0 page errors through the transparent-logo path");
       await ctx.close();
     }
@@ -25806,7 +25847,12 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- TG6: a stale iOS document reloads when the live HTML has a new ?v= ----
+    // ---- TG6: a stale iOS document reloads when the live version file has a new token ----
+    // RESTAGED 2026-10-04 (boot/perf): the comparison used to download the whole 58 KB
+    // league.html and regex the gffl-v meta out of it, on every launch AND every foreground.
+    // It now reads /gffl-version.txt (~10 bytes). The behaviour under test — stale token
+    // reloads, current token does not, a focused composer is never yanked — is unchanged;
+    // only the thing fetched moved. Section BTP holds the file to the meta.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -25821,9 +25867,9 @@ async function openDetails(page, id) {
         UI._freshAt = 0;
         const orig = window.fetch;
         window.fetch = async (u, o) => {
-          if (String(u).includes("/league.html")) {
-            return new Response('<meta name="gffl-v" content="stale99">',
-              { status: 200, headers: { "Content-Type": "text/html" } });
+          if (String(u).includes("/gffl-version.txt")) {
+            return new Response("stale99\n",
+              { status: 200, headers: { "Content-Type": "text/plain" } });
           }
           return orig(u, o);
         };
@@ -25831,10 +25877,10 @@ async function openDetails(page, id) {
         const nStale = window.__reloads;
         UI._freshAt = 0;
         window.fetch = async (u, o) => {
-          if (String(u).includes("/league.html")) {
+          if (String(u).includes("/gffl-version.txt")) {
             const have = (document.querySelector('meta[name="gffl-v"]') || {}).content || "20260915e";
-            return new Response('<meta name="gffl-v" content="' + have + '">',
-              { status: 200, headers: { "Content-Type": "text/html" } });
+            return new Response(have + "\n",
+              { status: 200, headers: { "Content-Type": "text/plain" } });
           }
           return orig(u, o);
         };
@@ -25846,9 +25892,9 @@ async function openDetails(page, id) {
         document.body.appendChild(t);
         t.focus();
         window.fetch = async (u, o) => {
-          if (String(u).includes("/league.html")) {
-            return new Response('<meta name="gffl-v" content="stale99">',
-              { status: 200, headers: { "Content-Type": "text/html" } });
+          if (String(u).includes("/gffl-version.txt")) {
+            return new Response("stale99\n",
+              { status: 200, headers: { "Content-Type": "text/plain" } });
           }
           return orig(u, o);
         };
@@ -33246,6 +33292,373 @@ const sz = await evalOr(page, () => {
         ok(/14-week regular season, double round robin\. Ranked by win % \(a tie counts as half a win\), then head-to-head/.test(rl || ""),
           "ENG1 the Rules view states the tiebreak order beside the schedule line");
       }
+      await ctx.close();
+    }
+  }
+
+  // ---- BTP · boot / perf pass (2026-10-04): logos out of the team list, the version file,
+  // self-hosted fonts, conditional refreshes, the chat poll's manners.
+  // Hand-computed expectations throughout; fixtures are shaped like the live service (typed
+  // `fields`, an updateTime on every doc, projections that DROP what they don't name).
+  if (section("BTP · boot/perf — thumbs not logos in team reads, version file, fonts, conditional refresh, chat poll")) {
+    const fsx = require("fs");
+    const PNG1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const SENT = "FULLLOGOSENTINEL";
+    const fullLogo = (n) => PNG1 + SENT + "A".repeat(60000) + "#" + n; // ~60 KB, like a real 512px JPEG data URI
+    const thumbOf = (n) => PNG1 + "#thumb" + n;                         // what the migration/upload leaves on the team doc
+    // post-migration league: thumbs on the team docs, full pictures in their own docs
+    const migratedDocs = () => {
+      const docs = JSON.parse(JSON.stringify(fullSeed().docs));
+      for (let i = 1; i <= 8; i++) {
+        docs["team_" + i].logoThumb = thumbOf(i); docs["team_" + i].logoCut = i === 3;
+        docs["teamlogo_" + i] = { kind: "teamlogo", teamId: i, logoData: fullLogo(i), t: 1 };
+      }
+      return docs;
+    };
+    // pre-migration league: the full picture inline on the team doc, no thumb (production today)
+    const legacyDocs = () => {
+      const docs = JSON.parse(JSON.stringify(fullSeed().docs));
+      for (let i = 1; i <= 8; i++) docs["team_" + i].logoData = fullLogo(i);
+      return docs;
+    };
+    const restBoot = async (docs, seedOpts) => {
+      const R = restFixture(docs);
+      const t = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter", ...(seedOpts || {}) }, { rest: R });
+      await t.page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(t.page, ".mucard", 15000);
+      return { R, ...t };
+    };
+
+    // ---- (1) static: the version file, the meta and the ?v= strings are ONE value.
+    {
+      const html = fsx.readFileSync(path.join(ROOT, "league.html"), "utf8");
+      const file = fsx.readFileSync(path.join(ROOT, "gffl-version.txt"), "utf8");
+      const meta = (html.match(/<meta name="gffl-v" content="([^"]+)"/) || [])[1];
+      const qv = [...html.matchAll(/assets\/league\/lg-(?:core|data|ui)\.js\?v=([A-Za-z0-9]+)/g)].map((m) => m[1]);
+      ok(/^[A-Za-z0-9]+\n?$/.test(file) && file.length <= 32, "gffl-version.txt is one bare token (" + JSON.stringify(file) + ") — a ~10 byte file, not a page");
+      ok(!!meta && file.trim() === meta, "…and it equals the gffl-v meta (" + file.trim() + " / " + meta + ") — a bump that forgets the file would strand every installed copy on the old build");
+      ok(qv.length === 3 && qv.every((v) => v === meta), "…and all three ?v= strings (" + qv.join(",") + ") — the three values move together or the stale-copy check is lying");
+      ok(/fetch\("\/gffl-version\.txt\?n="/.test(html) && !/fetch\("\/league\.html/.test(html),
+        "the standalone head check fetches the version file and no longer the 58 KB league.html");
+      const ui = fsx.readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
+      ok(/fetch\("\/gffl-version\.txt\?n="/.test(ui) && !/fetch\("\/league\.html/.test(ui), "…and so does UI.checkAppFresh (every foreground)");
+    }
+
+    // ---- (2) static: fonts are self-hosted, nothing render-blocking comes from Google.
+    {
+      const html = fsx.readFileSync(path.join(ROOT, "league.html"), "utf8");
+      ok(!/<link[^>]+fonts\.(googleapis|gstatic)\.com/.test(html), "league.html has no <link> to fonts.googleapis.com / fonts.gstatic.com — the render-blocking CSS is gone");
+      const faces = [...html.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
+      ok(faces.length === 4, "four @font-face rules: Barlow Condensed 500/600/700 and one Inter variable file (" + faces.length + ")");
+      ok(faces.every((f) => /font-display:\s*swap/.test(f)), "…all font-display:swap");
+      const files = faces.map((f) => (f.match(/url\(([^)]+)\)/) || [])[1]);
+      ok(files.every((f) => f && fsx.existsSync(path.join(ROOT, f)) && fsx.statSync(path.join(ROOT, f)).size > 10000), "…each pointing at a real woff2 under assets/fonts/ (" + files.join(", ") + ")");
+      const w = faces.map((f) => (f.match(/font-weight:\s*([0-9 ]+);/) || [])[1].trim());
+      ok(w.join("|") === "500|600|700|400 700", "…covering exactly the weights league.html loaded from Google before: 500/600/700 and Inter 400-700 (" + w.join("|") + ")");
+      const pre = [...html.matchAll(/<link rel="preload" href="([^"]+)" as="font" type="font\/woff2" crossorigin>/g)].map((m) => m[1]);
+      ok(pre.length === 2 && pre.every((f) => files.includes(f)), "the two above-the-fold faces (Barlow 700, Inter) are preloaded, crossorigin (" + pre.join(", ") + ")");
+      const toml = fsx.readFileSync(path.join(ROOT, "netlify.toml"), "utf8");
+      ok(/for = "\/assets\/fonts\/\*"\s*\n\s*\[headers\.values\]\s*\n\s*Cache-Control = "public, max-age=31536000, immutable"/.test(toml), "netlify.toml serves /assets/fonts/* immutable for a year (a launch no longer revalidates four font files)");
+      ok(/for = "\/gffl-version\.txt"\s*\n\s*\[headers\.values\]\s*\n\s*Cache-Control = "no-cache, no-store, must-revalidate"/.test(toml), "…and /gffl-version.txt is never cacheable (a cached answer is the bug it exists to catch)");
+      ok(/<link rel="preconnect" href="https:\/\/firestore\.googleapis\.com" crossorigin>/.test(html), "<link rel=preconnect> to firestore.googleapis.com, crossorigin — the first request is a 3-RTT handshake on a phone");
+    }
+
+    // ---- (3) the self-hosted faces really load in the page, from this origin.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      const fontReqs = [];
+      page.on("request", (r) => { if (/\.woff2(\?|$)/.test(r.url())) fontReqs.push(r.url().replace(BASE, "")); });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await sleep(600);
+      const st = await page.evaluate(async () => {
+        await document.fonts.ready;
+        return [...document.fonts].map((f) => f.family.replace(/"/g, "") + " " + f.weight + " " + f.status).sort();
+      });
+      ok(st.length === 4 && st.every((x) => /loaded$|unloaded$/.test(x)) && st.some((x) => /^Inter 400 700 loaded$/.test(x)),
+        "document.fonts carries the four self-hosted faces and Inter is LOADED (" + st.join("; ") + ")");
+      ok(fontReqs.length >= 2 && fontReqs.every((u) => u.startsWith("/assets/fonts/")), "…fetched from /assets/fonts/ on the same origin (" + fontReqs.join(", ") + ")");
+      const measured = await page.evaluate(() => {
+        // The suite measures REAL fonts: a Range over a heading must be wider in the loaded Barlow Condensed
+        // than in the generic fallback the stack would otherwise use, and the face must report as loaded.
+        const el = document.querySelector("h1, h2, .mucard") || document.body;
+        return { fam: getComputedStyle(el).fontFamily.slice(0, 60), ok: document.fonts.check('700 16px "Barlow Condensed"') && document.fonts.check('400 16px "Inter"') };
+      });
+      ok(measured.ok === true, "…and document.fonts.check() agrees both families are usable now (" + measured.fam + ")");
+      ok(errors.length === 0, "0 page errors with self-hosted fonts");
+      await ctx.close();
+    }
+
+    // ---- (4) the standalone launch asks for the version file, not league.html.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      const urls = [];
+      page.on("request", (r) => urls.push(r.url().replace(BASE, "")));
+      await page.evaluateOnNewDocument(() => { Object.defineProperty(navigator, "standalone", { configurable: true, get() { return true; } }); });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 15000);
+      const ver = urls.filter((u) => u.startsWith("/gffl-version.txt"));
+      const html = urls.filter((u) => /^\/league\.html\?n=/.test(u));
+      ok(ver.length === 1 && html.length === 0, "a home-screen launch makes ONE request for /gffl-version.txt and none for league.html?n= (" + ver.length + "/" + html.length + ")");
+      ok(errors.length === 0, "0 page errors on a standalone launch");
+      await ctx.close();
+    }
+
+    // ---- (5) thumb generation: 96 px max side, webp, small; transparency survives.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      const r = (await evalOr(page, async () => {
+        const mk = (w, h, alpha) => { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; const c = cv.getContext("2d");
+          if (!alpha) { c.fillStyle = "#1f9d55"; c.fillRect(0, 0, w, h); } c.fillStyle = "#d81f26"; c.fillRect(w / 4, h / 4, w / 2, h / 2); return cv.toDataURL(alpha ? "image/png" : "image/jpeg", 0.9); };
+        const dims = (u) => new Promise((res) => { const i = new Image(); i.onload = () => {
+          const cv = document.createElement("canvas"); cv.width = i.width; cv.height = i.height; const c = cv.getContext("2d"); c.drawImage(i, 0, 0);
+          res({ w: i.width, h: i.height, corner: [...c.getImageData(0, 0, 1, 1).data] }); }; i.src = u; });
+        const sq = await window.__GFFL__.UI.makeLogoThumb(mk(512, 512, false));
+        const wide = await window.__GFFL__.UI.makeLogoThumb(mk(288, 192, true));
+        return { sq: { len: sq.length, mime: sq.slice(0, 15), ...(await dims(sq)) }, wide: { len: wide.length, mime: wide.slice(0, 15), ...(await dims(wide)) } };
+      })) || { sq: { w: 0, h: 0, len: 0 }, wide: { w: 0, h: 0, len: 0, corner: [0, 0, 0, 255] } }; // no hook = every check below fails, not a crash
+      ok(r.sq.w === 96 && r.sq.h === 96, "a 512x512 logo thumbs to 96x96 (" + r.sq.w + "x" + r.sq.h + ")");
+      ok(r.wide.w === 96 && r.wide.h === 64, "a 288x192 logo thumbs to 96x64 — aspect kept, long side 96 (" + r.wide.w + "x" + r.wide.h + ")");
+      ok(r.sq.len > 0 && r.sq.len <= 14000 && r.wide.len <= 14000, "…each inside the 14000-char thumb budget (" + r.sq.len + " / " + r.wide.len + ") against 60-110 KB originals");
+      ok(r.wide.corner[3] === 0, "…and a cut-out's empty corner is still transparent in the thumb (alpha " + r.wide.corner[3] + ")");
+      ok(errors.length === 0, "0 page errors making thumbs");
+      await ctx.close();
+    }
+
+    // ---- (6) the migration script: dry-run by default, writes only behind --write, in the safe order.
+    {
+      const mig = fsx.readFileSync(path.join(ROOT, "tools", "_gffl_logo_thumbs.mjs"), "utf8");
+      const ui = fsx.readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
+      ok(/const WRITE = process\.argv\.includes\("--write"\)/.test(mig) && /if \(!WRITE\) \{ console\.log\("\\nDry run/.test(mig),
+        "tools/_gffl_logo_thumbs.mjs is a DRY RUN unless --write is on the command line");
+      const writes = [...mig.matchAll(/method: "PATCH"|method: 'PATCH'/g)].length;
+      ok(writes === 1 && mig.indexOf("if (!WRITE)") > 0 && mig.indexOf("if (!WRITE)") < mig.indexOf("await send(logoReq)"),
+        "…its single PATCH call site is reached only after the dry-run return (" + writes + " PATCH site)");
+      ok(mig.indexOf("gffl_backup_logos_") > 0 && mig.indexOf("writeFileSync(path.join(dir, `team_${p.id}.json`)") < mig.indexOf("await send(logoReq)"),
+        "…the backup of every team doc is written BEFORE the first PATCH");
+      ok(mig.indexOf("await send(logoReq)") < mig.indexOf("await send(teamReq)"), "…the full picture lands in teamlogo_<id> (and is read back) BEFORE logoData is removed from the team doc");
+      ok(/updateMask\.fieldPaths="/.test(mig) && /\["logoThumb", "logoCut", "logoData"\]/.test(mig) && /currentDocument\.updateTime/.test(mig),
+        "…the team PATCH is masked to logoThumb/logoCut/logoData only and carries an updateTime precondition");
+      const num = (src, n) => Number((src.match(new RegExp("const THUMB_DIM = (\\d+), THUMB_CAP = (\\d+)")) || [0, 0, 0])[n]);
+      ok(num(mig, 1) === num(ui, 1) && num(mig, 2) === num(ui, 2) && num(ui, 1) === 96 && num(ui, 2) === 14000,
+        "…and its THUMB_DIM/THUMB_CAP (" + num(mig, 1) + "/" + num(mig, 2) + ") are the uploader's (" + num(ui, 1) + "/" + num(ui, 2) + ")");
+    }
+
+    // ---- (7) post-migration boot over the wire: no full logo in any boot response, thumbs in the slots.
+    {
+      const { R, ctx, page, errors } = await restBoot(migratedDocs());
+      const served = R.served || [];
+      const withFull = served.filter((x) => x.body.includes(SENT));
+      ok(served.length > 5 && withFull.length === 0, "NO boot response carried a full logo — 0 of " + served.length + " Firestore answers contain the full-picture marker");
+      const teamQ = R.calls.findIndex((c) => c.op === "runQuery" && c.kind === "team");
+      const teamBytes = (served.filter((x) => x.method === "POST" && x.body.includes('"logoThumb"'))[0] || {}).bytes || 0;
+      // 8 team docs; the thumb is ~66 chars of PNG + marker; each wire doc is well under 1.2 KB
+      ok(teamQ >= 0 && teamBytes > 0 && teamBytes < 8 * 1200, "…so the team-list answer is " + teamBytes + " bytes (< 8 x 1200), not 8 x ~60 KB");
+      ok(!R.calls.some((c) => c.op === "doc" && /^teamlogo_/.test(c.id || "")), "…and the league home never read a teamlogo_ doc at all");
+      const m = await page.evaluate((thumb1) => {
+        const main = document.getElementById("main");
+        const imgs = [...main.querySelectorAll(".tcrest img")];
+        const av = document.querySelector("#hAvatar img");
+        const mirror = localStorage.getItem("lg_gffl_" + (new URL(location.href).searchParams.get("fam")) + "_team_1") || "";
+        return { html: main.innerHTML.length, n: imgs.length, allThumb: imgs.every((i) => (i.getAttribute("src") || "").startsWith("data:image/png")  && (i.getAttribute("src") || "").length < 200),
+          av: av && av.getAttribute("src") === thumb1, mirror: mirror.length };
+      }, thumbOf(1));
+      ok(m.n >= 2 && m.allThumb, "every crest in the League view is the thumb (" + m.n + " crests, each src < 200 chars) — none inlines a full logo");
+      ok(m.html < 60000, "…so #main's HTML is " + m.html + " chars (< 60000; with eight inlined 60 KB logos it is > 480000)");
+      ok(m.av === true, "…and the header avatar is team 1's thumb");
+      ok(m.mirror > 0 && m.mirror < 2000, "…and the localStorage mirror of team_1 is " + m.mirror + " chars, not 60 KB (the mirror is written on every read)");
+      // the locker is the one place the full picture is wanted
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lockerhead", 9000);
+      const big = await waitFnOr(page, (sent) => { const im = document.querySelector(".lockerhead img.lockerlogo"); return !!im && (im.getAttribute("src") || "").includes(sent); }, SENT);
+      ok(big, "the locker upgrades its hero to the FULL picture (src carries the full-logo marker)");
+      ok(R.calls.filter((c) => c.op === "doc" && c.id === "teamlogo_1").length === 1, "…by ONE read of teamlogo_1 (hand: one team opened, one GET)");
+      ok(!R.calls.some((c) => c.op === "doc" && /^teamlogo_[2-8]$/.test(c.id || "")), "…and no other team's picture was fetched");
+      // team 3 is a cut-out (logoCut true): the crest class must say so even though the thumb is a PNG-or-webp either way
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".tcrest");
+      const cut = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".tbl tr")];
+        const r3 = rows.find((r) => /Wyoming Cowboys/.test(r.textContent)), r2 = rows.find((r) => /End Zone Goats/.test(r.textContent));
+        return { t3: !!(r3 && r3.querySelector(".tcrest.cutout")), t2: !!(r2 && r2.querySelector(".tcrest.cutout")) };
+      });
+      ok(cut.t3 === true && cut.t2 === false, "logoCut drives the cut-out look: team 3 (logoCut true) is a cutout crest, team 2 is not (" + JSON.stringify(cut) + ")");
+      ok(errors.length === 0, "0 page errors, post-migration boot");
+      await ctx.close();
+    }
+
+    // ---- (8) PRE-migration fallback: only an inline logoData, no thumb — logos still show, nothing breaks.
+    {
+      const { R, ctx, page, errors } = await restBoot(legacyDocs());
+      const m = await page.evaluate(() => {
+        const imgs = [...document.querySelectorAll("#main .tcrest img")];
+        return { n: imgs.length, full: imgs.every((i) => (i.getAttribute("src") || "").includes("FULLLOGOSENTINEL")), av: ((document.querySelector("#hAvatar img") || {}).src || "").includes("FULLLOGOSENTINEL") };
+      });
+      ok(m.n >= 2 && m.full, "a team doc that still has only inline logoData keeps its crest (" + m.n + " crests show it)");
+      ok(m.av, "…and the header avatar");
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lockerhead", 9000);
+      const loc = await page.evaluate(() => ((document.querySelector(".lockerhead img.lockerlogo") || {}).src || "").includes("FULLLOGOSENTINEL"));
+      ok(loc && !R.calls.some((c) => c.op === "doc" && /^teamlogo_/.test(c.id || "")), "…the locker shows it without asking for a teamlogo_ doc that does not exist yet");
+      ok(errors.length === 0, "0 page errors, pre-migration fallback");
+      await ctx.close();
+    }
+
+    // ---- (9) the settings read is deduped: the reachability probe IS the first read.
+    // (Needs a settings doc: a 404 is deliberately never cached, so a league with NO settings doc
+    // still reads twice — the empty-league case is not what boot speed is about.)
+    {
+      const rulesProbe = await newTestPage(browser, fullSeed());
+      await bootPage(rulesProbe.page);
+      const defRules = await rulesProbe.page.evaluate(() => JSON.parse(JSON.stringify(window.__GFFL__.LG.DEFAULT_RULES)));
+      await rulesProbe.ctx.close();
+      const docs9 = migratedDocs(); docs9.settings = { kind: "settings", v: 1, rules: defRules, log: [] };
+      const { R, ctx, errors } = await restBoot(docs9);
+      const n = R.calls.filter((c) => c.op === "doc" && c.method === "GET" && c.id === "settings").length;
+      ok(n === 1, "boot reads the settings doc ONCE — the probe's answer feeds LG.loadRules (" + n + " GETs; it was 2, serially)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- (10) conditional refresh: unchanged big docs are asked about, not re-downloaded.
+    {
+      const docs = migratedDocs();
+      const pad = (n) => "x".repeat(n);
+      for (let i = 1; i <= 3; i++) docs["hist_200" + i] = { kind: "hist", season: 2000 + i, blob: pad(14000), n: i };
+      docs["roster_2026_w1_t1"] = { ...docs["roster_2026_w1_t1"], padNote: pad(6000) };
+      const { R, ctx, page, errors } = await restBoot(docs);
+      const out = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG, real = Date.now.bind(Date);
+        const first = await LG.db.list("hist");                       // full read: 3 x ~14 KB
+        await LG.db.get("roster_2026_w1_t1");                         // cached
+        window.__skew = 0; Date.now = () => real() + window.__skew;
+        window.__skew = 20000;                                        // past CACHE_STALE_MS (15 s)
+        const changes = []; LG.db.onChange = (k) => changes.push(k);
+        const again = await LG.db.list("hist");                       // serves the cache and refreshes behind it
+        await LG.db.get("roster_2026_w1_t1");
+        return { n1: first.length, n2: again.length };
+      });
+      await sleep(500);
+      const histFull = R.calls.filter((c) => c.op === "runQuery" && c.kind === "hist" && !c.select).length;
+      const histProbe = R.calls.filter((c) => c.op === "runQuery" && c.kind === "hist" && c.select).length;
+      const histGets = R.calls.filter((c) => c.op === "doc" && /^hist_/.test(c.id || "")).length;
+      ok(out.n1 === 3 && out.n2 === 3, "three hist docs, three on the second list (" + out.n1 + "/" + out.n2 + ")");
+      ok(histFull === 1, "the FULL hist list was downloaded once, at first read (" + histFull + ")");
+      ok(histProbe === 1 && histGets === 0, "…the stale refresh was ONE projected probe and ZERO doc GETs — nothing had moved (" + histProbe + " probe, " + histGets + " GETs)");
+      const probeBytes = (R.served || []).filter((x) => x.method === "POST" && !x.body.includes("blob") && x.body.includes("hist_200")).map((x) => x.bytes)[0] || 0;
+      ok(probeBytes > 0 && probeBytes < 1500, "…the probe answered with " + probeBytes + " bytes of names and updateTimes, against ~42000 for the full list");
+      // The app reads this roster itself while it boots, so counts are taken FROM A MARKER: warm,
+      // note where the call log stands, age the cache, ask again.
+      const mark = R.calls.length;
+      await page.evaluate(async () => { window.__skew += 20000; await window.__GFFL__.LG.db.get("roster_2026_w1_t1"); });
+      await sleep(400);
+      const rAfter = R.calls.slice(mark).filter((c) => c.op === "doc" && c.id === "roster_2026_w1_t1");
+      ok(rAfter.some((c) => /mask\.fieldPaths/.test(c.url)), "a stale >4 KB doc (a roster) is refreshed by a masked GET — name and updateTime only (" + rAfter.length + " reads)");
+      ok(!rAfter.some((c) => !/mask\.fieldPaths/.test(c.url)), "…and NOT re-downloaded in full while nothing about it changed");
+      // now one hist doc really changes server-side
+      R.docs.hist_2002 = { ...R.docs.hist_2002, n: 99 }; R.vers.hist_2002 = "2026-02-02T00:00:00.000000001Z";
+      const seenChange = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG; const changes = [];
+        LG.db.onChange = (k) => changes.push(k);
+        window.__skew += 20000;
+        await LG.db.list("hist");
+        await new Promise((r) => setTimeout(r, 600));
+        const now = await LG.db.list("hist");
+        return { changes, n2: (now.find((d) => d.id === "hist_2002") || {}).n, n1: (now.find((d) => d.id === "hist_2001") || {}).n };
+      });
+      const gets2 = R.calls.filter((c) => c.op === "doc" && /^hist_/.test(c.id || "") && !/mask\.fieldPaths/.test(c.url));
+      ok(gets2.length === 1 && gets2[0].id === "hist_2002", "when hist_2002 changes, exactly that doc is downloaded (" + gets2.map((g) => g.id).join(",") + ")");
+      ok(seenChange.n2 === 99 && seenChange.n1 === 1 && seenChange.changes.includes("hist"), "…the new value is what the list now holds, the untouched docs are unchanged, and onChange('hist') fired (" + JSON.stringify(seenChange) + ")");
+      // getFresh (the idempotency guards): a masked probe, then the kept body; a changed doc is a full read.
+      const g = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const a = await LG.db.getFresh("roster_2026_w1_t1");
+        const b = await LG.db.getFresh("roster_2026_w1_t1");
+        b.players.push({ key: "mutated" });                 // a caller that scribbles on what it was handed
+        const c = await LG.db.getFresh("roster_2026_w1_t1");
+        return { na: a.players.length, nc: c.players.length };
+      });
+      ok(g.na === 12 && g.nc === 12, "getFresh returns the real document each time and a caller's scribbling can't reach the next read (" + g.na + "/" + g.nc + ")");
+      const fr = R.calls.filter((c) => c.op === "doc" && c.id === "roster_2026_w1_t1" && c.method === "GET");
+      const frMasked = fr.filter((c) => /mask\.fieldPaths/.test(c.url)).length;
+      ok(frMasked >= 3, "…and those fresh reads were version probes, not downloads (" + frMasked + " masked GETs in total for this doc)");
+      R.docs.roster_2026_w1_t1 = { ...R.docs.roster_2026_w1_t1, players: R.docs.roster_2026_w1_t1.players.slice(0, 5) }; R.vers.roster_2026_w1_t1 = "2026-03-03T00:00:00.000000001Z";
+      const g2 = await page.evaluate(async () => (await window.__GFFL__.LG.db.getFresh("roster_2026_w1_t1")).players.length);
+      ok(g2 === 5, "a fresh read after the doc really changed returns the CHANGED doc (5 players, not the kept 12) (" + g2 + ")");
+      ok(errors.length === 0, "0 page errors through conditional refresh");
+      await ctx.close();
+    }
+
+    // ---- (11) the projection hazard, closed by construction: a team-doc field the app reads can't be projected away.
+    {
+      const docs = migratedDocs();
+      docs.team_1.somethingAddedNextYear = "kept";
+      const { R, ctx, page, errors } = await restBoot(docs);
+      const q = R.calls.filter((c) => c.op === "runQuery" && c.kind === "team");
+      ok(q.length >= 1 && q.every((c) => !c.select), "the boot team list is an UNPROJECTED query — no field list for a new field to be forgotten from (" + q.length + " queries)");
+      const kept = await page.evaluate(() => window.__GFFL__.LG.teamById(1).somethingAddedNextYear);
+      ok(kept === "kept", "…so a team field nobody has heard of yet still reaches the app");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- (12) the chat poll: quiet when hidden, a cheap probe most ticks, no repaint when nothing moved.
+    {
+      const docs = migratedDocs();
+      for (let i = 0; i < 5; i++) docs["chat_17911215" + String(i).padStart(5, "0") + "_aaa" + i] = { kind: "chat", teamId: 2, who: "Sam", text: "hello " + i, t: 1791121500000 + i, thread: null, reactions: {} };
+      const { R, ctx, page, errors } = await restBoot(docs);
+      await page.evaluate(() => { window.__GFFL__.UI.show("chat"); });
+      await waitOr(page, "#chatList .chatRowMsg", 9000);
+      const kinds = () => ({ full: R.calls.filter((c) => c.op === "runQuery" && c.kind === "chat").length, probe: R.calls.filter((c) => c.op === "runQuery" && c.range).length });
+      const base = kinds();
+      ok(base.full === 1 && base.probe === 0, "opening Chat does one full read of the room (" + base.full + " full, " + base.probe + " probe)");
+      const on = await page.evaluate(() => ({ timer: !!window.__GFFL__.UI._chatTimer, want: !!window.__GFFL__.UI._chatWant }));
+      ok(on.timer && on.want, "…and arms the poll");
+      // drive ticks by hand: 3 probes, then the 4th is a full read
+      await page.evaluate(() => { const L = document.getElementById("chatList"); L.firstElementChild.__keep = "same-node"; window.__st = { n: 0 }; });
+      for (let i = 0; i < 3; i++) await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st));
+      let k = kinds();
+      ok(k.full === 1 && k.probe === 3, "ticks 1-3 are id-range probes only: 3 probes, still 1 full read (" + k.probe + "/" + k.full + ")");
+      const probeBody = R.served.filter((x) => x.method === "POST" && x.bytes < 200).length;
+      ok(probeBody >= 3, "…and a probe with nothing newer answers with a few bytes (" + probeBody + " tiny answers)");
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st));
+      k = kinds();
+      ok(k.full === 2 && k.probe === 3, "tick 4 is the full read (reactions and deletes edit OLD docs, so a newer-id probe can't see them) (" + k.full + " full)");
+      const same = await page.evaluate(() => document.getElementById("chatList").firstElementChild.__keep);
+      ok(same === "same-node", "a full read that found nothing changed did NOT rebuild the list (the first row is the same DOM node)");
+      // someone else posts: the very next probe finds it and the list updates
+      R.docs["chat_1791121599999_zzzz"] = { kind: "chat", teamId: 3, who: "Pat", text: "fresh from another phone", t: 1791121599999, thread: null, reactions: {} };
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st));
+      const sees = await waitFnOr(page, () => document.getElementById("chatList").textContent.includes("fresh from another phone"));
+      ok(sees, "a NEW message is picked up by the next 8-second probe tick, not the 32-second one");
+      // someone else reacts to an old message: invisible to a probe, visible on the full tick
+      const firstId = Object.keys(R.docs).filter((x) => x.startsWith("chat_17911215")).sort()[0];
+      R.docs[firstId] = { ...R.docs[firstId], reactions: { "🔥": [2, 3] } };
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st)); // tick 6: probe
+      const early = await page.evaluate(() => !!document.querySelector("#chatList .chatReact"));
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st)); // tick 7: probe
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, window.__st)); // tick 8: FULL
+      const late = await waitFnOr(page, () => !!document.querySelector("#chatList .chatReact"));
+      ok(early === false && late === true, "someone else's reaction to an old message appears on the next FULL tick and not before (probe ticks: " + early + ", full tick: " + late + ")");
+      ok(true, "(documented trade: a reaction or delete from another phone takes up to 4 x 8 s = 32 s to show; the sender's own taps repaint at once)");
+      // hidden: the timer goes, the want stays, nothing is read
+      await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); document.dispatchEvent(new Event("visibilitychange")); });
+      const hid = await page.evaluate(() => ({ timer: window.__GFFL__.UI._chatTimer, want: !!window.__GFFL__.UI._chatWant }));
+      ok(hid.timer === null && hid.want === true, "backgrounding stops the chat timer and remembers that chat was wanted (" + JSON.stringify(hid) + ")");
+      const before = R.calls.length;
+      await evalOr(page, () => window.__GFFL__.UI._chatTick("chat", null, { n: 0 })); // even a tick that fires anyway reads nothing while hidden
+      await sleep(300);
+      ok(R.calls.length === before, "…and a tick that fires on a hidden page reads nothing (0 requests)");
+      await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => false }); document.dispatchEvent(new Event("visibilitychange")); });
+      const back = await waitFnOr(page, () => !!window.__GFFL__.UI._chatTimer);
+      ok(back, "returning to the page restarts the poll (and refreshes once)");
+      // leaving the view clears the want
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await sleep(200);
+      const left = await page.evaluate(() => ({ t: window.__GFFL__.UI._chatTimer && window.__GFFL__.UI._chatTimer.pfx, w: window.__GFFL__.UI._chatWant && window.__GFFL__.UI._chatWant.pfx }));
+      ok(!left.w && !left.t, "leaving the Chat tab (390 px: no rail chat) clears both the timer and the want (" + JSON.stringify(left) + ")");
+      ok(errors.length === 0, "0 page errors through the chat poll");
       await ctx.close();
     }
   }

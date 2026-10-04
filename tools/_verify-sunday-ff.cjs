@@ -367,6 +367,11 @@ async function sectionF() {
   // 2026-09-27, user: "its pulling the old espn logos for the GFFL teams, not the new logos".
   // An uploaded crest lives in logoData (7 of the 8 live teams have one); the mask left it out.
   ok(teamMask.includes("logoData") && teamMask.includes("logo"), "F5 the team query asks for logoData (the uploaded crest) as well as logo (" + teamMask.join(",") + ")");
+  // 2026-10-04 (GFFL boot/perf): GFFL keeps a small `logoThumb` on the team doc and moves the full
+  // picture to teamlogo_<id>. This query is a PROJECTION, and a projection silently drops any field
+  // it forgets — so the thumb must be named here or Sunday would fall back to the stale ESPN art
+  // the day the logoData migration runs. logoData stays in the list for the days before it does.
+  ok(teamMask.includes("logoThumb"), "F5 the team query also asks for logoThumb (a projection drops what it forgets) (" + teamMask.join(",") + ")");
   ok(FF.projFor("dst_PIT") == null, "F5 before Sleeper answers, dst_PIT has no projection yet");
   slpResolve();
   await new Promise((r) => setTimeout(r, 20));
@@ -380,6 +385,11 @@ async function sectionF() {
   ]);
   ok(FF.teams.get(1).logo === "data:image/jpeg;base64,/9j/4AAQ", "F7 an uploaded crest (logoData) wins over the old ESPN logo (" + FF.teams.get(1).logo.slice(0, 30) + ")");
   ok(FF.teams.get(4).logo === "https://i.imgur.com/Bq9H8IS.gif", "F7 a team with no upload keeps its logo URL");
+  // 2026-10-04: a migrated team has the 96 px thumb and NO inline logoData; the thumb is the crest.
+  FF.setTeams([{ teamId: 1, name: "Battle Kreussers", logo: "https://g.espncdn.com/old.svg", logoThumb: "data:image/webp;base64,UklG" }]);
+  ok(FF.teams.get(1).logo === "data:image/webp;base64,UklG", "F7 a migrated team's logoThumb is its crest (no inline logoData any more)");
+  FF.setTeams([{ teamId: 1, name: "Battle Kreussers", logo: "https://g.espncdn.com/old.svg", logoThumb: "data:image/webp;base64,UklG", logoData: "data:image/jpeg;base64,/9j/4AAQ" }]);
+  ok(FF.teams.get(1).logo === "data:image/webp;base64,UklG", "F7 …and the thumb wins over a leftover inline logoData (the small slot never inlines the big one)");
 
   // F6 — a live play rewritten after it first appeared (review, added penalty). ingestPlays is
   // idempotent by play id, so without forgetPlay the corrected version was skipped forever.
