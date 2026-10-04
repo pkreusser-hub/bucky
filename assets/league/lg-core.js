@@ -440,6 +440,13 @@
     },
   };
 
+  // Same contract as rest.listIdRange, over this device's own store (the suite's backend).
+  local.listIdRange = async function (prefix, afterId) {
+    const out = [];
+    for (const d of await local.list()) if (d.id.startsWith(prefix) && d.id > afterId && d.id < prefix + "~") out.push(d);
+    return out;
+  };
+
   let cloud = null;
   LG.backendMode = "local";
   // ---------------- SERVER-CONFIRMED EMPTINESS (live bug, 2026-08-08) ----------------
@@ -635,6 +642,24 @@
   function markHealthy() { LG.backendDegraded = false; LG.backendError = ""; }
   LG._markDegraded = markDegraded; // test hook
 
+  // ---- what this page last SAW of each doc (2026-10-04, boot/auto-check pass) ----
+  // Firestore stamps every document with an `updateTime`, and a read costs the same whether it
+  // is the doc or only its stamp. The 15-second background refresh used to re-download every
+  // cached list and doc in full — ~430 KB a minute of an idle tab, nearly all of it bytes that
+  // had not changed. This remembers, per doc id, the updateTime of the copy we hold and how big
+  // the last full read was, so the refresh can ask "has it moved?" first (rest.getIfChanged /
+  // rest.listIfChanged) and only pay for the docs that have. The probe reads ONLY the stamp: a
+  // projection is used to LEARN versions, never to BUILD a document, so a field forgotten from
+  // it can't vanish from anything the app shows (the hazard a projected team read would carry).
+  const docUT = new Map();      // id -> updateTime of the copy this page holds
+  const docBytes = new Map();   // id -> decoded size of the last full read (GET) of that doc
+  const listBytes = new Map();  // kind -> decoded size of the last full list of that kind
+  const docRaw = new Map();     // id -> {ut, txt}: the raw body of the last full GET, for getFreshProbe
+  const RAW_MAX_BYTES = 300000; // a doc bigger than this is never kept raw
+  const PROBE_MIN_BYTES = 4000; // below this a full re-read is no dearer than the probe
+  const PROBE_LIST_MIN_BYTES = 30000;
+  const noteUT = (id, j) => { if (j && j.updateTime) docUT.set(id, j.updateTime); else docUT.delete(id); docRaw.delete(id); };
+
   // ---- the five operations ----
   const rest = {
     async get(id) {
@@ -642,13 +667,54 @@
       const r = await fsFetch(url, { method: "GET" }, "Firestore read");
       // 404 is a real answer from a real server: this doc does not exist. That is what makes
       // server-confirmed absence free here — there is no cache that could have invented it.
-      if (r.status === 404) { markHealthy(); return null; }
+      if (r.status === 404) { markHealthy(); docUT.delete(id); docRaw.delete(id); return null; }
       if (!r.ok) throw new Error("Firestore read failed (" + r.status + ")");
-      const j = await r.json();
+      const txt = await r.text();
+      const j = JSON.parse(txt);
       const doc = fsDecFields(j && j.fields);
       markHealthy();
+      noteUT(id, j); docBytes.set(id, txt.length);
+      if (j && j.updateTime && txt.length >= PROBE_MIN_BYTES && txt.length <= RAW_MAX_BYTES) docRaw.set(id, { ut: j.updateTime, txt });
+      else docRaw.delete(id);
       mirrorPut(id, doc);
       return doc;
+    },
+    // A FRESH read (the idempotency race guards: "what is the real current state?") that does
+    // not re-download a doc nobody has touched. The probe asks the SERVER for the doc's current
+    // updateTime (a one-field masked GET); if it equals the stamp of the last full read, that
+    // read's body IS the current document — decoded afresh from the kept text, so a caller that
+    // mutates what it was handed can't reach the next caller — and nothing else is trusted: not
+    // LG.db's cache (an optimistic write that later failed would still be sitting in it), only
+    // the raw body of a read the server has just vouched for. Any doubt is a full GET.
+    async getFreshProbe(id) {
+      const snap = docRaw.get(id);
+      if (!snap) return this.get(id);
+      const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY + "&mask.fieldPaths=kind";
+      const r = await fsFetch(url, { method: "GET" }, "Firestore read");
+      if (r.ok) {
+        const j = await r.json().catch(() => null);
+        if (j && j.updateTime && j.updateTime === snap.ut) {
+          markHealthy();
+          return fsDecFields(JSON.parse(snap.txt).fields);
+        }
+      } else if (r.status !== 404) throw new Error("Firestore read failed (" + r.status + ")");
+      return this.get(id);
+    },
+    // "Has this doc moved since the copy I hold?" — a GET masked down to one field, so the
+    // answer is the doc's name and updateTime (~250 bytes) instead of the doc. Resolves
+    // {same:true} when the stamp matches, else {doc} (the full read, exactly what get() gives).
+    // Anything unexpected (no stamp held, a small doc, a failed probe) just does the full read.
+    async getIfChanged(id) {
+      const have = docUT.get(id);
+      if (!have || (docBytes.get(id) || 0) < PROBE_MIN_BYTES) return { doc: await this.get(id) };
+      const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY + "&mask.fieldPaths=kind";
+      const r = await fsFetch(url, { method: "GET" }, "Firestore read");
+      if (r.ok) {
+        const j = await r.json().catch(() => null);
+        markHealthy();
+        if (j && j.updateTime && j.updateTime === have) return { same: true };
+      } else if (r.status !== 404) throw new Error("Firestore read failed (" + r.status + ")");
+      return { doc: await this.get(id) };
     },
     // ---- COMPARE-AND-SWAP (2026-08-18) ----
     // Same GET as above; the ONE addition is that the response's own `updateTime` — which
@@ -668,6 +734,7 @@
       const j = await r.json();
       const doc = fsDecFields(j && j.fields);
       markHealthy();
+      noteUT(id, j);
       mirrorPut(id, doc);
       return { doc, v: (j && j.updateTime) || null };
     },
@@ -704,7 +771,7 @@
       }
       markHealthy();
       const j = await r.json().catch(() => null);
-      if (j && j.fields) mirrorPut(id, fsDecFields(j.fields));
+      if (j && j.fields) { noteUT(id, j); mirrorPut(id, fsDecFields(j.fields)); }
       return { ok: true, doc: j && j.fields ? fsDecFields(j.fields) : null, v: (j && j.updateTime) || null };
     },
     // See local.foreignGet — read-only, another app's collection, never mirrored. A 404 is a
@@ -735,13 +802,14 @@
       markHealthy();
       const j = await r.json().catch(() => null);
       // Keep the mirror tracking our own writes: the response carries the merged document.
-      if (j && j.fields) mirrorPut(id, fsDecFields(j.fields));
+      if (j && j.fields) { noteUT(id, j); mirrorPut(id, fsDecFields(j.fields)); }
     },
     async del(id) {
       const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY;
       const r = await fsFetch(url, { method: "DELETE" }, "Firestore delete");
       if (!r.ok && r.status !== 404) throw new Error("Firestore delete failed (" + r.status + ")"); // 404 = already gone
       markHealthy();
+      docUT.delete(id); docRaw.delete(id);
       mirrorPut(id, null);
     },
     async list(kind) {
@@ -753,19 +821,92 @@
         body: JSON.stringify({ structuredQuery: q }),
       }, "Firestore query");
       if (!r.ok) throw new Error("Firestore query failed (" + r.status + ")");
-      const rows = await r.json();
+      const txt = await r.text();
+      const rows = JSON.parse(txt);
       const out = [];
+      // The average doc size of this read stands in for each doc's own (stringifying every one
+      // to measure it would cost more than the probe saves); it only has to say "big enough that
+      // asking first beats re-reading" — see getIfChanged.
+      const nDocs = (Array.isArray(rows) ? rows : []).filter((x) => x && x.document).length || 1;
       for (const row of (Array.isArray(rows) ? rows : [])) {
         // A runQuery stream legitimately contains rows with no `document` (a readTime-only
         // heartbeat, or the single {} a zero-result query answers with).
         if (!row || !row.document || !row.document.name) continue;
         const id = String(row.document.name).split("/").pop();
         const doc = fsDecFields(row.document.fields);
+        noteUT(id, row.document); docBytes.set(id, Math.round(txt.length / nDocs));
         mirrorPut(id, doc);
         out.push({ ...doc, id }); // id LAST — a doc's own stray `id` field must never clobber its doc-id
       }
       markHealthy();
+      listBytes.set(kind || "", txt.length);
       return out;
+    },
+    // Docs whose ID sorts strictly after `afterId` and starts with `prefix` — the document NAME
+    // is a field every collection indexes automatically, so this needs no composite index
+    // (a kind=="chat" AND t>x query would). Chat ids are chat_<13-digit ms>_<rand>, so "after
+    // the last id I saw" means "newer than the last message I saw", and when nothing is newer
+    // the answer is empty and bills as one read instead of the whole conversation.
+    async listIdRange(prefix, afterId) {
+      const ref = (id) => "projects/amen-farms-app/databases/(default)/documents/" + LG.COLL + "/" + id;
+      const q = {
+        from: [{ collectionId: LG.COLL }],
+        where: { compositeFilter: { op: "AND", filters: [
+          { fieldFilter: { field: { fieldPath: "__name__" }, op: "GREATER_THAN", value: { referenceValue: ref(afterId) } } },
+          { fieldFilter: { field: { fieldPath: "__name__" }, op: "LESS_THAN", value: { referenceValue: ref(prefix + "~") } } },
+        ] } },
+      };
+      const r = await fsFetch(FS_BASE + ":runQuery?key=" + FS_KEY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ structuredQuery: q }),
+      }, "Firestore query");
+      if (!r.ok) throw new Error("Firestore query failed (" + r.status + ")");
+      const rows = await r.json();
+      const out = [];
+      for (const row of (Array.isArray(rows) ? rows : [])) {
+        if (!row || !row.document || !row.document.name) continue;
+        const id = String(row.document.name).split("/").pop();
+        out.push({ ...fsDecFields(row.document.fields), id });
+      }
+      markHealthy();
+      return out;
+    },
+    // The list refresh that only pays for what moved. ONE query for the kind, projected down to
+    // a single field, answers every doc's name and updateTime (~200 bytes a doc); the docs whose
+    // stamp matches the copy in `prev` are reused as they are, and only the ones that moved (or
+    // are new) are read in full. The projection is used to learn versions and nothing else — see
+    // the note above docUT. A `prev` doc this page cannot vouch for (no stamp held, e.g. an
+    // optimistic local write) is simply re-read. Resolves {docs, changed}; throws like list().
+    async listIfChanged(kind, prev) {
+      const q = { from: [{ collectionId: LG.COLL }], select: { fields: [{ fieldPath: "kind" }] } };
+      if (kind) q.where = { fieldFilter: { field: { fieldPath: "kind" }, op: "EQUAL", value: { stringValue: kind } } };
+      const r = await fsFetch(FS_BASE + ":runQuery?key=" + FS_KEY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ structuredQuery: q }),
+      }, "Firestore query");
+      if (!r.ok) throw new Error("Firestore query failed (" + r.status + ")");
+      const rows = await r.json();
+      const prevById = new Map((prev || []).map((d) => [d.id, d]));
+      const slots = [];   // in server order: a held doc, or the id to read
+      let changed = false;
+      for (const row of (Array.isArray(rows) ? rows : [])) {
+        if (!row || !row.document || !row.document.name) continue;
+        const id = String(row.document.name).split("/").pop();
+        const old = prevById.get(id);
+        if (old && row.document.updateTime && docUT.get(id) === row.document.updateTime) slots.push({ doc: old });
+        else { slots.push({ id }); changed = true; }
+      }
+      if (slots.length !== prevById.size) changed = true; // something was removed
+      const out = await Promise.all(slots.map(async (sl) => {
+        if (sl.doc) return sl.doc;
+        const d = await this.get(sl.id);
+        return d ? { ...d, id: sl.id } : null;
+      }));
+      markHealthy();
+      try { localStorage.setItem(SNAPSTAMP_KEY, String(Date.now())); } catch (e) { /* the stamp is a bonus */ }
+      return { docs: out.filter(Boolean), changed };
     },
   };
 
@@ -774,10 +915,16 @@
     // Prove reachability with one read before claiming cloud mode. Under REST a 404 is a
     // perfectly good proof of reachability (a fresh league has no settings doc yet) — only a
     // network failure, a timeout or a non-404 error status throws.
-    await cloud.get("settings");
+    const probed = await cloud.get("settings");
     LG.backendMode = "cloud";
     LG.mirrorOffline = false;
     markHealthy();
+    // The probe IS the settings read (2026-10-04). Boot's very next call is LG.loadRules() ->
+    // LG.db.get("settings"), which used to find an empty cache and make the same round trip
+    // again, serially behind this one (~0.7 s on a 150 ms-RTT phone). A doc that exists is
+    // handed to the cache so that read is answered from it; a 404 is never cached (a cached
+    // null is the mechanism the SERVER-CONFIRMED EMPTINESS note above is about).
+    if (probed) cacheUpsert("settings", probed);
   }
   LG.backendReady = (async () => {
     try { await initCloud(); }
@@ -877,6 +1024,9 @@
     // ranks, read back a week later for the LW column. (The retired `aipower` Grok docs are no
     // longer read by anything, so their entry went with them.)
     powersnap: "powersnap",
+    // 2026-10-04: `teamlogo_<id>` — a team's FULL-SIZE logo, split out of the team doc (see
+    // LG.saveTeamLogo). Read one doc at a time by the locker; never listed.
+    teamlogo: "teamlogo",
   };
   function kindOf(id) {
     const s = String(id || "");
@@ -983,8 +1133,14 @@
         if (LG.backendMode === "cloud" && meta && !meta.refreshing && Date.now() - meta.at > CACHE_STALE_MS) {
           meta.refreshing = true;
           LG.db.stats.gets++;
-          backend().get(id).then((fresh) => {
+          // A big doc is asked "has it moved?" first (see getIfChanged) — a roster doc nobody
+          // touched costs ~250 bytes a minute instead of ~11 KB. Backends without it (the
+          // local one, a test fake) answer with the plain read, as before.
+          const be = backend();
+          (be.getIfChanged ? be.getIfChanged(id) : be.get(id).then((d) => ({ doc: d }))).then((res) => {
             meta.refreshing = false; meta.at = Date.now();
+            if (res.same) return;
+            const fresh = res.doc;
             const changed = JSON.stringify(fresh) !== JSON.stringify(docCache.get(id));
             if (fresh) docCache.set(id, fresh); else docCache.delete(id);
             if (changed && LG.db.onChange) LG.db.onChange(kindOf(id));
@@ -1005,7 +1161,8 @@
     // this" idempotency guards, which must see the true current backend state.
     async getFresh(id) {
       LG.db.stats.fresh++;
-      const v = await backend().get(id);
+      const be = backend();
+      const v = await (be.getFreshProbe ? be.getFreshProbe(id) : be.get(id));
       cacheUpsert(id, v); // adopt the truth (and drop any stale row from every list cache)
       return v;
     },
@@ -1092,6 +1249,14 @@
       }
       throw new Error("cas-contention:" + id);
     },
+    // Docs with ids after `afterId` under `prefix`, uncached — or null when this backend can't
+    // answer that cheaply (a test fake), so the caller falls back to a full list.
+    async listIdRange(prefix, afterId) {
+      const be = backend();
+      if (!be.listIdRange) return null;
+      LG.db.stats.lists++;
+      return be.listIdRange(prefix, afterId);
+    },
     async list(kind) {
       if (kind === "chat") { LG.db.stats.lists++; return backend().list(kind); } // see the note above
       const key = kind || "";
@@ -1101,14 +1266,25 @@
           entry.refreshing = true;
           LG.db.stats.lists++;
           const wasOk = !LG.backendDegraded;
-          backend().list(kind).then((fresh) => {
+          // A heavy kind (hist, roster, tx — whatever the last full read measured past
+          // PROBE_LIST_MIN_BYTES) is refreshed by version probe: only the docs that moved are
+          // downloaded, and "did anything change" is known outright instead of by stringifying
+          // a megabyte twice. Every other kind, and every backend without the probe, is the
+          // plain list it always was.
+          const be = backend();
+          const heavy = be.listIfChanged && (listBytes.get(kind || "") || 0) >= PROBE_LIST_MIN_BYTES;
+          (heavy
+            ? be.listIfChanged(kind, entry.docs)
+            : be.list(kind).then((fresh) => ({ docs: fresh, changed: null }))
+          ).then((res) => {
             entry.refreshing = false;
+            const fresh = res.docs;
             // Never let a quiet background refresh REPLACE real cached rows with an empty
             // result that the read itself couldn't confirm (an offline-cache answer). Keeping
             // the last known-good rows is strictly better than blanking the league behind the
             // user's back (live bug 2026-08-08).
             if (!fresh.length && entry.docs.length && wasOk && LG.backendDegraded) return;
-            const changed = JSON.stringify(fresh) !== JSON.stringify(entry.docs);
+            const changed = res.changed != null ? res.changed : JSON.stringify(fresh) !== JSON.stringify(entry.docs);
             entry.docs = fresh; entry.at = Date.now();
             for (const d of fresh) { docCache.set(d.id, d); docAt.set(d.id, { at: Date.now(), refreshing: false }); }
             if (changed && LG.db.onChange) LG.db.onChange(kind);
@@ -1336,6 +1512,43 @@
       // plain write is what this function has always done there, unchanged.
       return LG.db.set(docId, build(null));
     }
+  };
+  // ---------------- a team's picture: a thumb on the team doc, the full logo in its own doc ----------------
+  // (2026-10-04, boot/perf pass.) The full logo — a 512 px JPEG or a 288 px PNG, 13-90 KB of
+  // base64 — used to live INSIDE team_<id>. Every team-list read (boot, the 60 s auto-check,
+  // every 15 s cache refresh) therefore carried all eight logos (490 KB), they were mirrored to
+  // localStorage, and every <img> in the app inlined the whole string (the League view's HTML
+  // was 1.45 MB for a 28 px crest). Now:
+  //   · team_<id>.logoThumb — a ~96 px picture, a few KB, shown in every small slot;
+  //   · team_<id>.logoCut   — true when the picture has a transparent background (the thumb is
+  //                           webp/jpeg/png, so its mime no longer says so the way the old
+  //                           stored `data:image/png` did);
+  //   · teamlogo_<id>.logoData — the full picture, read ONLY where it is shown big (the locker)
+  //                           or re-read for colours. It is a separate DOC, not a projected
+  //                           field, on purpose: a projection silently drops any field it
+  //                           forgets, so a team field added next year would vanish from the
+  //                           app; a separate doc cannot be forgotten out of anything.
+  // Until tools/_gffl_logo_thumbs.mjs has run against production, team docs still carry
+  // `logoData` and no thumb: every reader below falls back to it, so nothing goes blank.
+  LG.loadTeamLogo = async function (t) {
+    if (!t) return "";
+    if (t.logoData) return t.logoData; // a not-yet-migrated team doc carries the full picture itself
+    const id = Number(t.teamId != null ? t.teamId : t.id);
+    if (Number.isFinite(id)) {
+      try {
+        const d = await LG.db.get("teamlogo_" + id);
+        if (d && d.logoData) return d.logoData;
+      } catch (e) { /* offline / degraded — the thumb below still shows */ }
+    }
+    return t.logoThumb || t.logo || "";
+  };
+  // Writes the full picture to its own doc FIRST, then the thumb + flag (and clears any old
+  // inline logoData, so a not-yet-migrated team doesn't keep shipping its 50 KB). If the second
+  // write fails the old thumb stays beside the new full picture: wrong-looking but never blank.
+  LG.saveTeamLogo = async function (teamId, o) {
+    const id = Number(teamId);
+    await LG.db.set("teamlogo_" + id, { kind: "teamlogo", teamId: id, logoData: o.logoData, t: Date.now() });
+    await LG.saveTeam({ ...(o.extra || {}), teamId: id, logoThumb: o.logoThumb, logoCut: !!o.logoCut, logoData: null });
   };
   LG.teamById = (id) => LG.teams.find((t) => t.id === Number(id)) || null;
 
@@ -3562,8 +3775,17 @@
       return doc;
     } catch (e) { return null; }
   };
+  // LG.chatLastId — the greatest chat doc id any full read has seen. The chat poll's cheap
+  // probe asks "is there a chat doc after this id?" (LG.db.listIdRange); it is only ever the
+  // trigger for a full read, never a substitute for one, because a reaction edits an OLD message
+  // and a delete removes one, and neither shows up as a newer id.
+  LG.chatLastId = null;
   LG.loadAllChat = async function () {
-    return (await LG.db.list("chat")).sort((a, b) => b.t - a.t); // newest first
+    const all = await LG.db.list("chat");
+    let max = null;
+    for (const m of all) if (max == null || m.id > max) max = m.id;
+    LG.chatLastId = max;
+    return all.sort((a, b) => b.t - a.t); // newest first
   };
   LG.loadChat = async function (thread) {
     const key = thread || null;

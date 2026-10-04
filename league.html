@@ -29,8 +29,12 @@
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
 <meta name="gffl-v" content="20261001a">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
-     the network. Compare gffl-v against a no-store copy and replace if this
-     snapshot is stale. Browser tabs skip — they already revalidate. -->
+     the network. Compare gffl-v against the live /gffl-version.txt (a ~10 byte file, fetched
+     no-store) and replace if this snapshot is stale. Browser tabs skip — they already
+     revalidate. This used to fetch the WHOLE 58 KB league.html no-store on every launch and
+     regex the meta out of it, racing 370 KB of scripts for the same cellular link.
+     gffl-version.txt is maintained BY HAND next to the gffl-v meta and the ?v= strings below
+     (a bump that forgets it is caught by the suite, section BOOT_PERF). -->
 <script>
 (function () {
   var standalone = false;
@@ -39,21 +43,44 @@
   var haveEl = document.querySelector('meta[name="gffl-v"]');
   var have = haveEl && haveEl.content;
   if (!have) return;
-  fetch("/league.html?n=" + Date.now(), { cache: "no-store" }).then(function (r) {
+  window.__gfflVerAt = Date.now(); // lg-ui's checkAppFresh skips its forced twin inside 5 s of this
+  fetch("/gffl-version.txt?n=" + Date.now(), { cache: "no-store" }).then(function (r) {
     return r.ok ? r.text() : "";
-  }).then(function (html) {
-    var m = html.match(/name=["']gffl-v["'][^>]*content=["']([^"']+)["']/) || html.match(/lg-ui\.js\?v=([A-Za-z0-9]+)/);
-    var live = m && m[1];
-    if (!live || live === have) return;
+  }).then(function (txt) {
+    var live = String(txt || "").trim();
+    if (!/^[A-Za-z0-9]+$/.test(live) || live === have) return;
     var u = new URL(location.href);
     u.searchParams.set("n", String(Date.now()));
     location.replace(u.pathname + u.search + u.hash);
   }).catch(function () {});
 })();
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Fonts are SELF-HOSTED (assets/fonts/, the Google latin subsets, byte-identical to what
+     fonts.googleapis.com served): the Google CSS was render-blocking on a cold origin and was
+     the first paint (FCP 1.8 s on the modelled iPhone). The @font-face block is inline below,
+     font-display:swap, and the two above-the-fold faces are preloaded. -->
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preload" href="assets/fonts/BarlowCondensed-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/Inter-var.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  /* Self-hosted faces — see the note above the preloads. Inter ships as ONE variable file
+     covering 400-700 (that is how Google serves it too); Barlow Condensed is one file per
+     weight. Weight 800, used in a few places, resolves to the 700 face exactly as it did when
+     only 500/600/700 were declared. unicode-range is the Google "latin" range, so a glyph
+     outside it (an emoji, a CJK name) falls through to the system exactly as before. */
+  @font-face { font-family:'Barlow Condensed'; font-style:normal; font-weight:500; font-display:swap;
+    src:url(assets/fonts/BarlowCondensed-500.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+  @font-face { font-family:'Barlow Condensed'; font-style:normal; font-weight:600; font-display:swap;
+    src:url(assets/fonts/BarlowCondensed-600.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+  @font-face { font-family:'Barlow Condensed'; font-style:normal; font-weight:700; font-display:swap;
+    src:url(assets/fonts/BarlowCondensed-700.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+  @font-face { font-family:'Inter'; font-style:normal; font-weight:400 700; font-display:swap;
+    src:url(assets/fonts/Inter-var.woff2) format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+</style>
 <style>
   /* ============ The GFFL design tokens ============
      Item 9 (playtest batch 2, 2026-08-08): retheme'd to match ffdraft.html's aesthetic —

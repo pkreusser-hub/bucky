@@ -3114,7 +3114,18 @@
   //
   // Nothing here reads t.colors. LG.teamStyle(t) → LG.palStyle(LG.teamPalette(t)) is the only
   // path, and section AM reads this file to prove it.
-  function teamSrc(t) { return (t && (t.logoData || t.logo)) || ""; }
+  //
+  // 2026-10-04 (boot/perf): the picture a SMALL slot shows is the team's `logoThumb` (~96 px, a
+  // few KB). The full `logoData` used to ride inside every team doc and get inlined into every
+  // <img>, which made the League view's HTML 1.45 MB for a 28 px crest. Order: thumb, then the
+  // inline full picture (a team doc not yet migrated by tools/_gffl_logo_thumbs.mjs still has
+  // only that), then the legacy ESPN `logo` URL. The full picture is fetched only where it is
+  // shown big — see lockerBigLogo.
+  function teamSrc(t) { return (t && (t.logoThumb || t.logoData || t.logo)) || ""; }
+  // Is this team's picture a cut-out? `logoCut` is the stored answer (the thumb's mime can't
+  // say: it is webp/jpeg whatever the original was); a team with no flag falls back to what the
+  // src itself says, which is exactly the pre-thumb rule.
+  function teamIsCut(t, src) { return t && t.logoCut != null ? !!t.logoCut : isCutoutLogo(src); }
   // A CUT-OUT logo — one with a genuinely transparent background — must sit DIRECTLY on the
   // colour behind it: no panel, no ring, no drop shadow, and never cropped (2026-08-11, user:
   // "a picture with transparent background should blend seamlessly with the color behind, no
@@ -3127,7 +3138,7 @@
   }
   function crestHtml(t, cls) {
     const src = teamSrc(t);
-    const c = "tcrest " + (cls || "") + (isCutoutLogo(src) ? " cutout" : "");
+    const c = "tcrest " + (cls || "") + (src && teamIsCut(t, src) ? " cutout" : "");
     const style = LG.teamStyle(t || {});
     if (src) return `<span class="${c}" style="${esc(style)}"><img src="${esc(src)}" alt="" loading="lazy"></span>`;
     return `<span class="${c} tcrest-ph" style="${esc(style)}">${esc(initials(t && t.name))}</span>`;
@@ -4375,6 +4386,7 @@
     if (d && d.S && d.S.running) d.stop();
     stopScoresPoll();
     stopNflGamePoll();
+    pauseChatPoll();
   };
   // Home-screen iOS (Add to Home Screen, navigator.standalone) is the stuck
   // case — Safari in a tab already re-requests the document. The installed
@@ -4391,13 +4403,6 @@
     return false;
   }
   UI.isStandalone = isStandalone;
-  function readAppV(html) {
-    const meta = String(html || "").match(/name=["']gffl-v["'][^>]*content=["']([^"']+)["']/)
-      || String(html || "").match(/content=["']([^"']+)["'][^>]*name=["']gffl-v["']/);
-    if (meta) return meta[1];
-    const scr = String(html || "").match(/lg-ui\.js\?v=([A-Za-z0-9]+)/);
-    return scr ? scr[1] : "";
-  }
   function haveAppV() {
     const m = document.querySelector('meta[name="gffl-v"]');
     if (m && m.content) return m.content;
@@ -4444,11 +4449,19 @@
     if (typingInApp()) return false;
     const have = haveAppV();
     if (!have) return false;
+    // A home-screen launch fires BOTH league.html's own head check and this one (the pageshow
+    // that opens the app calls onForeground). The head check stamps window.__gfflVerAt; asking
+    // again inside 5 s would only repeat the answer it is already fetching.
+    if (opts.force && window.__gfflVerAt && Date.now() - window.__gfflVerAt < 5000) return false;
     UI._freshBusy = true;
     try {
-      const r = await fetch("/league.html?n=" + Date.now(), { cache: "no-store" });
+      // The ~10 byte version file, not the 58 KB league.html it used to download on every
+      // foreground (2026-10-04). It is maintained by hand with the gffl-v meta and the ?v=
+      // strings; the suite (BOOT_PERF) fails a bump that forgets it.
+      const r = await fetch("/gffl-version.txt?n=" + Date.now(), { cache: "no-store" });
       if (!r.ok) return false;
-      const live = readAppV(await r.text());
+      const txt = String(await r.text() || "").trim();
+      const live = /^[A-Za-z0-9]+$/.test(txt) ? txt : "";
       UI._freshAt = Date.now();
       if (live && live !== have) {
         UI._reloadApp();
@@ -4462,6 +4475,7 @@
     }
   };
   UI.onForeground = function () {
+    resumeChatPoll(); // before the D guard below: chat has nothing to do with the live-score engine
     const d = D();
     if (!d || typeof d.wake !== "function") return false;
     const weekMoved = UI.syncLeagueWeek();
@@ -5991,6 +6005,38 @@
     return out; // still too big — the caller reports it rather than silently flattening
   }
   UI.resizeLogoToDataUrl = resizeLogoToDataUrl; // test hook
+  // The ~96 px picture every small slot shows (2026-10-04). Encoded as webp where the browser
+  // can (Chrome, Firefox, Safari 17+ on desktop); a browser that can't encode webp hands back
+  // PNG from toDataURL("image/webp"), so the mime is checked and a cut-out falls to PNG while an
+  // opaque logo falls to JPEG (a 96 px JPEG is ~3 KB; a 96 px PNG of a photo is not). The size
+  // is bounded: if it still exceeds THUMB_CAP the picture is shrunk, never stored oversize.
+  const THUMB_DIM = 96, THUMB_CAP = 14000;
+  function makeLogoThumb(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let dim = THUMB_DIM, out = "";
+        for (let i = 0; i < 3; i++) {
+          let w = img.width, h = img.height;
+          if (w >= h) { h = Math.max(1, Math.round(h * dim / w)); w = dim; }
+          else { w = Math.max(1, Math.round(w * dim / h)); h = dim; }
+          const cv = document.createElement("canvas");
+          cv.width = w; cv.height = h;
+          const ctx = cv.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          const alpha = hasTransparency(ctx, w, h);
+          out = cv.toDataURL("image/webp", 0.8);
+          if (!/^data:image\/webp/.test(out)) out = alpha ? cv.toDataURL("image/png") : cv.toDataURL("image/jpeg", 0.8);
+          if (out.length <= THUMB_CAP) break;
+          dim = Math.round(dim * 0.75);
+        }
+        resolve(out);
+      };
+      img.src = dataUrl;
+    });
+  }
+  UI.makeLogoThumb = makeLogoThumb; // test hook
   // The single gate every image path (file pick, meme-library re-post) runs
   // through — exposed so tests can drive the oversized-refusal path directly
   // without needing a real >320px source image to prove the cap.
@@ -6254,6 +6300,17 @@
     const last = msgs.slice(-80);
     const byId = new Map(msgs.map((m) => [m.id, m]));
     const tid = LG.myTeamId();
+    // NOTHING CHANGED → NO REPAINT (2026-10-04). The poll used to rebuild the whole list every
+    // 8 s whether or not a message had moved — 818 KB of innerHTML on the live league, re-
+    // decoding every image, and wiping an open reaction palette out from under a thumb. The
+    // signature covers everything chatMsgHtml reads that can change under it: the messages (id,
+    // text, reactions), who is looking (team, commissioner), how teams are drawn (name, thumb)
+    // and which player names are linkable. A first paint has no signature and always runs.
+    const sig = last.map((m) => m.id + "|" + (m.text || "").length + "|" + JSON.stringify(m.reactions || {})).join(";")
+      + "#" + tid + (isCommish() ? "c" : "") + "#" + LG.teams.map((t) => (t.name || "") + (t.logoThumb || t.logoData || t.logo || "").length).join(",")
+      + "#" + playerNameIndex().sig;
+    if (listEl.dataset.rendered && listEl.dataset.sig === sig) return;
+    listEl.dataset.sig = sig;
     listEl.innerHTML = last.length ? last.map((m) => chatMsgHtml(m, byId, tid)).join("") : '<p class="mut">No messages yet — say hi!</p>';
     listEl.dataset.rendered = "1";
     wireChatMsgEvents(idPfx, listEl, thread);
@@ -6371,15 +6428,58 @@
     }
   }
   UI._chatTimer = null;
-  function startChatPoll(idPfx, thread) {
-    if (UI._chatTimer && UI._chatTimer.pfx === idPfx && UI._chatTimer.thread === (thread || null)) return; // already running
-    stopChatPoll();
-    const h = setInterval(() => refreshChatList(idPfx, thread), 8000);
+  // The poll that is WANTED (which list, which thread) outlives the timer: onBackground stops the
+  // timer but keeps the want, and onForeground restarts it if that list is still on screen.
+  // stopChatPoll (leaving the view) clears both. 2026-10-04: the poll used to run on a hidden
+  // page and a backgrounded tab — 26 doc reads every 8 s, ~11k an hour, against a free quota of
+  // 50k a day — and nothing stopped it but navigating away.
+  UI._chatWant = null;
+  // Most ticks ask one cheap question — "is there a chat doc newer than the last one I saw?" —
+  // and stop if not. Every CHAT_FULL_EVERY-th tick (and every send/react/delete, which call
+  // refreshChatList themselves) does the full read, because a reaction EDITS an old message and
+  // a delete removes one; neither would ever show as a newer id. So someone else's reaction or
+  // delete can take up to CHAT_FULL_EVERY * 8 s to appear; a new message appears within 8 s.
+  const CHAT_POLL_MS = 8000, CHAT_FULL_EVERY = 4;
+  UI._chatPollMs = CHAT_POLL_MS;  // test seam only — read when a timer is armed; production never changes it
+  UI._chatFullEvery = CHAT_FULL_EVERY;
+  async function chatPollTick(idPfx, thread, state) {
+    if (document.hidden || !$("#" + idPfx + "List")) return;
+    state.n++;
+    if (state.n % UI._chatFullEvery !== 0 && LG.chatLastId) {
+      let fresh = null;
+      try { fresh = await LG.db.listIdRange("chat_", LG.chatLastId); } catch (e) { fresh = null; }
+      if (fresh && !fresh.length) return; // nothing newer: no 26-doc read, no repaint
+    }
+    await refreshChatList(idPfx, thread);
+  }
+  function armChatTimer(idPfx, thread) {
+    const state = { n: 0 };
+    const h = setInterval(() => chatPollTick(idPfx, thread, state).catch(() => {}), UI._chatPollMs);
     UI._chatTimer = { h, pfx: idPfx, thread: thread || null };
   }
+  function startChatPoll(idPfx, thread) {
+    UI._chatWant = { pfx: idPfx, thread: thread || null };
+    if (UI._chatTimer && UI._chatTimer.pfx === idPfx && UI._chatTimer.thread === (thread || null)) return; // already running
+    if (UI._chatTimer) { clearInterval(UI._chatTimer.h); UI._chatTimer = null; }
+    if (document.hidden) return; // wanted, but nobody is looking — onForeground starts it
+    armChatTimer(idPfx, thread);
+  }
   function stopChatPoll() {
+    UI._chatWant = null;
     if (UI._chatTimer) { clearInterval(UI._chatTimer.h); UI._chatTimer = null; }
   }
+  // Background: the timer goes, the want stays. Foreground: catch up once, then resume.
+  function pauseChatPoll() {
+    if (UI._chatTimer) { clearInterval(UI._chatTimer.h); UI._chatTimer = null; }
+  }
+  function resumeChatPoll() {
+    const w = UI._chatWant;
+    if (!w || UI._chatTimer || document.hidden) return;
+    if (!$("#" + w.pfx + "List")) { UI._chatWant = null; return; } // the list went away while we were away
+    refreshChatList(w.pfx, w.thread).catch(() => {});
+    armChatTimer(w.pfx, w.thread);
+  }
+  UI._pauseChatPoll = pauseChatPoll; UI._resumeChatPoll = resumeChatPoll; UI._chatTick = chatPollTick; // test hooks
   UI.renderChat = renderChat;
   // The chat list's height is MEASURED, not guessed (2026-08-14): the real gap between the
   // list's own top and the top of the bottom nav, minus whatever of the card sits below it
@@ -8431,11 +8531,14 @@
           // instead of in a black box.
           const dataUrl = await resizeLogoToDataUrl(file, LOGO_CAP);
           if (dataUrl.length > LOGO_CAP) { toast("That logo is too big — try a smaller image."); return; }
+          // The thumb is made HERE, at upload, from the full picture just resized — one canvas
+          // pass on the uploader's own device, so no reader ever pays for the big one on a list.
+          const thumb = await makeLogoThumb(dataUrl);
           // THE LATCH. Extraction proposes; a human's pick is final. Once anyone has touched a
           // swatch (colorsCustom) a new logo changes the PICTURE and nothing else — the team's
           // scheme is theirs, and silently repainting the whole app off a re-upload would be
           // the app overruling a deliberate choice. "↺ from logo" is the way back.
-          const delta = { teamId: T.id, logoData: dataUrl };
+          const delta = { teamId: T.id };
           // A LOCAL FLAG, not a read of `delta.colors` — section AM3 forbids any
           // `<something>.colors` read in this file (a render site outside the contrast law is
           // the one way that whole batch can rot), and the ledger detail below needs the same
@@ -8447,7 +8550,10 @@
               if (p && p.primary) { delta.colors = { primary: p.primary, secondary: p.secondary || null, tertiary: p.tertiary || null }; tookColors = true; }
             } catch (e2) { /* keep whatever colours are already on file */ }
           }
-          await LG.saveTeam(delta); // DELTA only — never a whole spread team (lg-core's saveTeam note)
+          // Full picture → its own doc; thumb + cut-out flag → the team doc (LG.saveTeamLogo).
+          // `delta` rides in the SAME team write (a DELTA only — never a whole spread team, see
+          // lg-core's saveTeam note), so a logo and the colours read off it land together.
+          await LG.saveTeamLogo(T.id, { logoData: dataUrl, logoThumb: thumb, logoCut: isCutoutLogo(dataUrl), extra: delta });
           LG.logAct("team_edit", T.id, { fields: tookColors ? ["logo", "colors"] : ["logo"] });
           await LG.loadTeams();
           toast(T.colorsCustom ? "Logo updated — your colours were kept." : "Logo updated.");
@@ -8504,7 +8610,8 @@
     const reset = $("#lockerColorReset");
     if (reset) reset.addEventListener("click", async () => {
       if (!(await gate())) return;
-      const src = T.logoData || T.logo || "";
+      // The FULL picture, not the thumb: the palette is read off real pixels (2026-10-04).
+      const src = await LG.loadTeamLogo(T);
       if (!src) { toast("No logo to read colours from yet."); return; }
       let p = null;
       try { p = await extractPalette(src); } catch (e) { p = null; }
@@ -9025,7 +9132,7 @@
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
         </button>` : ""}
         <div class="lockerhead-inner">
-          ${logoSrc ? `<img class="lockerlogo${isCutoutLogo(logoSrc) ? " cutout" : ""}" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
+          ${logoSrc ? `<img class="lockerlogo${teamIsCut(T, logoSrc) ? " cutout" : ""}" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
           <div class="lockerid">
             <h1 class="lockername tname big">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>
@@ -9087,6 +9194,17 @@
     }
     paintHealth();
     fitHeroNames(); hookFitOnFonts(); // the hero name fits, never clips
+    if (T.logoThumb && !T.logoData) lockerBigLogo(T, teamId);
+  }
+  // The locker hero is the one place a logo is shown big (up to 128 px), so it paints at once
+  // from the thumb and then swaps in the FULL picture — one GET of this team's own
+  // teamlogo_<id> doc, cached after that — instead of every team list carrying all eight.
+  function lockerBigLogo(T, teamId) {
+    LG.loadTeamLogo(T).then((full) => {
+      if (!full || UI.view !== "locker" || Number(UI.lockerTeamId) !== Number(teamId)) return;
+      const im = document.querySelector("#main .lockerhead img.lockerlogo");
+      if (im && im.getAttribute("src") !== full) im.src = full;
+    }).catch(() => {});
   }
   // S1 GRANDFATHERING. Devices that claimed a team before owner PINs existed stay valid — the
   // local claim is never revoked — but the team has no lock on it, so the next device to tap it
