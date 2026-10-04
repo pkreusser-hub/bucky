@@ -13,19 +13,39 @@
 // sports.mjs deliberately (no shared modules between functions in this repo).
 "use strict";
 
+import { timingSafeEqual } from "node:crypto";
+
 const FF_BASE = process.env.SPORTS_FF_BASE_URL || "https://lm-api-reads.fantasy.espn.com";
 const FF_LEAGUE_ID = /^\d{1,12}$/.test(process.env.ESPN_LEAGUE_ID || "") ? process.env.ESPN_LEAGUE_ID : "705063";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
 const SECRET = () => process.env.BUCKY_NOTIFY_SECRET || process.env.FAMILY_PASSWORD || "";
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
+// CORS: the same allowlist sports.mjs / notify.mjs use (2026-10-04 review; it was "*"). The league
+// lives on both hostnames of this one site; localhost/127.0.0.1 are for the suites and local previews.
+// A foreign origin gets the site's own origin back, so a browser on another site is refused.
+const ALLOWED_ORIGINS = new Set([
+  "https://amenfarms.netlify.app",
+  "https://goatfantasyleague.com",
+  "https://www.goatfantasyleague.com",
+  "http://localhost:8080",
+  "http://localhost:3000",
+  "http://127.0.0.1:8080",
+  "http://127.0.0.1:3000",
+]);
+const corsFor = (origin) => ({
+  "Access-Control-Allow-Origin": ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
+  Vary: "Origin",
+});
+const mkJson = (cors) => (obj, status = 200) =>
+  new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...cors } });
+// Constant-time secret comparison (equal-length buffers; unequal lengths fail without a compare).
+const safeEq = (a, b) => {
+  const x = Buffer.from(String(a ?? "")), y = Buffer.from(String(b ?? ""));
+  return x.length === y.length && timingSafeEqual(x, y);
 };
-const json = (obj, status = 200) =>
-  new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...CORS } });
 
 function ffCookies() {
   const s2 = process.env.ESPN_S2, swid = process.env.ESPN_SWID;
@@ -47,14 +67,27 @@ function ffCookies() {
 const LEAGUE_FETCH_TIMEOUT_MS = Number(process.env.LEAGUE_FETCH_TIMEOUT_MS) || 7000;
 const LEAGUE_FETCH_TIMEOUT_MS_SHORT = Number(process.env.LEAGUE_FETCH_TIMEOUT_MS_SHORT) || 2500;
 
+// The deadline covers the BODY too (2026-10-04 review): the timer used to be cleared when headers
+// arrived, so r.json() / r.text() on a slow 8 MB body had no deadline at all and the platform's 502
+// replaced our { ok:false }. Now the timer is cleared only once the caller has read the body (json,
+// text or arrayBuffer); a response whose body is never read just lets it fire harmlessly (unref'd).
 async function timedFetch(url, opts, ms) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms || LEAGUE_FETCH_TIMEOUT_MS);
+  timer.unref?.();
+  let r;
   try {
-    return await fetch(url, { ...(opts || {}), signal: ctrl.signal });
-  } finally {
+    r = await fetch(url, { ...(opts || {}), signal: ctrl.signal });
+  } catch (e) {
     clearTimeout(timer);
+    throw e;
   }
+  for (const m of ["json", "text", "arrayBuffer"]) {
+    if (typeof r?.[m] !== "function") continue;
+    const orig = r[m].bind(r);
+    r[m] = async () => { try { return await orig(); } finally { clearTimeout(timer); } };
+  }
+  return r;
 }
 // AbortError means OUR deadline fired, not a real network failure — report it honestly
 // rather than folding it into the generic "fetch-failed" reason.
@@ -571,12 +604,14 @@ async function lgGifSearch(body) {
 }
 
 export default async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  const cors = corsFor(req.headers.get("origin") || "");
+  const json = mkJson(cors);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (req.method !== "POST") return json({ ok: false, reason: "method" }, 405);
   let body;
   try { body = await req.json(); } catch { return json({ ok: false, reason: "bad-json" }, 400); }
   const secret = SECRET();
-  if (!secret || body?.secret !== secret) return json({ ok: false, reason: "unauthorized" }, 401);
+  if (!secret || !safeEq(body?.secret, secret)) return json({ ok: false, reason: "unauthorized" }, 401);
 
   const action = String(body?.action || "");
   if (action === "lg_espn_settings") return json(await lgEspnSettings(body));

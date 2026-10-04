@@ -90,6 +90,9 @@ function startFfUpstream() {
     if (ffUp.mode === "http500") { res.writeHead(500); res.end("nope"); return; }
     // "hang": never respond — proves the ABORT fires (item 1's timeout hardening).
     if (ffUp.mode === "hang") { return; }
+    // "slowbody": the headers and the first bytes arrive, then the body never finishes — the case a
+    // deadline cleared when headers arrive does not cover (an 8.8 MB ownership body on a bad link).
+    if (ffUp.mode === "slowbody") { res.writeHead(200, { "Content-Type": "application/json" }); res.write('{"teams":[{"id":1,'); return; }
     // A private league answers 401 unless BOTH cookies are the good pair.
     const okAuth = ffUp.lastCookie.includes("espn_s2=" + GOOD_S2) && ffUp.lastCookie.includes("SWID={" + GOOD_SWID + "}");
     if (!okAuth) { res.writeHead(401, { "Content-Type": "application/json" }); res.end('{"messages":["You are not authorized"]}'); return; }
@@ -688,6 +691,92 @@ async function sectionLeagueTimeouts() {
   elapsed = Date.now() - t0;
   ok(r.status === 200 && !!r.json && r.json.ok === true && elapsed < 300,
     `a normal (fast) fantasy upstream is unaffected by the timeout budget (${elapsed}ms, ok=${r.json && r.json.ok})`);
+}
+
+
+// ---------------- section FN: function hardening (2026-10-04 GFFL review) ----------------
+// Node-only, same fake upstreams as T and L: the deadline covers the BODY read; league.mjs's CORS is
+// the allowlist, not "*"; secrets compare in constant time; a stale ESPN_SEASON is ignored.
+async function sectionFunctionHardening() {
+  section("FN · body deadlines, CORS allowlist, secret comparison, ESPN_SEASON");
+  const lmod = await import(pathToFileURL(path.join(ROOT, "netlify", "functions", "league.mjs")).href);
+  const callLeagueRaw = async (body, origin, method) => {
+    const init = { method: method || "POST", headers: { "content-type": "application/json", ...(origin ? { origin } : {}) } };
+    if (init.method === "POST") init.body = JSON.stringify(body || {});
+    const resp = await lmod.default(new Request("http://localhost/.netlify/functions/league", init));
+    const text = await resp.text(); let j = null; try { j = JSON.parse(text); } catch (e) {}
+    return { status: resp.status, headers: resp.headers, json: j };
+  };
+  ffAuthGood();
+
+  // The body read is under the deadline (budgets: 600 ms single call, set by initHandler / section L).
+  ffUp.mode = "slowbody";
+  let t0 = Date.now();
+  let r = await call({ secret: "amenfarms", action: "ff_league" });
+  let ms = Date.now() - t0;
+  ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "timeout" && ms > 300 && ms < 1500,
+    `sports ff_league: a fantasy upstream that sends headers then stalls the body ends at the 600 ms deadline as { ok:false, reason:"timeout" } (${ms} ms, ${JSON.stringify(r.json)})`);
+  t0 = Date.now();
+  r = await call({ secret: "amenfarms", action: "nfl_ownership" });
+  ms = Date.now() - t0;
+  ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "timeout" && ms > 300 && ms < 1500,
+    `sports nfl_ownership (the 8.8 MB body): the same stall ends at the deadline, not never (${ms} ms, ${JSON.stringify(r.json)})`);
+  t0 = Date.now();
+  r = await callLeagueRaw({ secret: "amenfarms", action: "lg_espn_settings" });
+  ms = Date.now() - t0;
+  ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "timeout" && ms > 300 && ms < 1500,
+    `league lg_espn_settings: the same stall ends at the deadline (${ms} ms, ${JSON.stringify(r.json)})`);
+  ffUp.mode = "normal";
+  r = await call({ secret: "amenfarms", action: "ff_league" });
+  const rl = await callLeagueRaw({ secret: "amenfarms", action: "lg_espn_settings" });
+  ok(r.json && r.json.ok === true && rl.json && rl.json.ok === true, "…and ff_league and lg_espn_settings still succeed when the body arrives in time");
+
+  // league.mjs CORS: the sports.mjs / notify.mjs allowlist, never "*".
+  const acao = async (origin, method) => (await callLeagueRaw({ secret: "amenfarms", action: "nope" }, origin, method)).headers.get("access-control-allow-origin");
+  const got = {
+    site: await acao("https://amenfarms.netlify.app"), gffl: await acao("https://goatfantasyleague.com"), www: await acao("https://www.goatfantasyleague.com"),
+    local: await acao("http://localhost:8080"), evil: await acao("https://evil.example"), none: await acao(""), pre: await acao("https://evil.example", "OPTIONS"), preGood: await acao("https://goatfantasyleague.com", "OPTIONS"),
+  };
+  ok(got.site === "https://amenfarms.netlify.app" && got.gffl === "https://goatfantasyleague.com" && got.www === "https://www.goatfantasyleague.com" && got.local === "http://localhost:8080",
+    `league.mjs echoes the site's own origins and localhost (${JSON.stringify(got)})`);
+  ok(got.evil === "https://amenfarms.netlify.app" && got.none === "https://amenfarms.netlify.app" && got.pre === "https://amenfarms.netlify.app" && got.preGood === "https://goatfantasyleague.com" && Object.values(got).every((v) => v !== "*"),
+    "…a foreign or missing origin gets the site's own origin back (the browser refuses it), on POST and on the OPTIONS preflight, and nothing is \"*\"");
+
+  // Secrets: wrong by one character, shorter, longer, empty, a number: all refused; the right one is not.
+  const bad = ["amenfarmz", "amenfarm", "amenfarms!", "", 0];
+  const res = [];
+  for (const sec of bad) { res.push((await call({ secret: sec, action: "nfl_scoreboard" })).status, (await callLeagueRaw({ secret: sec, action: "nope" })).status); }
+  ok(res.every((c) => c === 401), `sports and league refuse a secret that is one character off, shorter, longer, empty or a number (${res.join(",")})`);
+  const good = [(await call({ secret: "amenfarms", action: "nfl_scoreboard" })).status, (await callLeagueRaw({ secret: "amenfarms", action: "nope" })).status];
+  ok(good[0] === 200 && good[1] !== 401, `…and the right secret passes both (${good.join(",")})`);
+  const srcOf = (f) => fs.readFileSync(path.join(ROOT, "netlify", "functions", f), "utf8");
+  ok(["sports.mjs", "league.mjs"].every((f) => /timingSafeEqual/.test(srcOf(f)) && !/\.secret\s*!==/.test(srcOf(f))),
+    "…and both compare it with crypto.timingSafeEqual, no `!==` on the secret left");
+
+  // ESPN_SEASON: a pin behind the calendar season is ignored (and logged); one ahead of it is kept.
+  const now = new Date(), cal = now.getUTCMonth() < 2 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+  const seasonUsed = async (pin) => {
+    if (pin === undefined) delete process.env.ESPN_SEASON; else process.env.ESPN_SEASON = pin;
+    const logs = []; const orig = console.log; console.log = (...a) => { logs.push(a.join(" ")); };
+    try { await call({ secret: "amenfarms", action: "ff_league" }); } finally { console.log = orig; }
+    return { year: Number((/seasons\/(\d{4})\//.exec(ffUp.lastUrl) || [])[1]), logged: logs.some((l) => /ignoring stale ESPN_SEASON/.test(l)) };
+  };
+  const stale = await seasonUsed(String(cal - 1)), same = await seasonUsed(String(cal)), ahead = await seasonUsed(String(cal + 1)), none = await seasonUsed(undefined), junk = await seasonUsed("next");
+  delete process.env.ESPN_SEASON;
+  ok(stale.year === cal && stale.logged && same.year === cal && !same.logged && ahead.year === cal + 1 && none.year === cal && junk.year === cal,
+    `ESPN_SEASON=${cal - 1} (behind the calendar season ${cal}) is ignored with a log line; ${cal} and ${cal + 1} are kept; unset or junk uses ${cal} (${JSON.stringify({ stale, same, ahead, none, junk })})`);
+
+  // netlify.toml: the engine scripts are immutable ONLY because every page that loads them versions the URL.
+  const toml = fs.readFileSync(path.join(ROOT, "netlify.toml"), "utf8");
+  const blocks = toml.split(/\n(?=\[\[headers\]\])/).filter((b) => b.startsWith("[[headers]]"));
+  const hdr = (forPath) => { const b = blocks.find((x) => new RegExp('for\\s*=\\s*"' + forPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '"').test(x)); return b || ""; };
+  ok(/Cache-Control\s*=\s*"public, max-age=31536000, immutable"/.test(hdr("/assets/league/*.js")) && /Content-Type\s*=\s*"application\/manifest\+json"/.test(hdr("/*.webmanifest")) && /no-store/.test(hdr("/league.html")),
+    "netlify.toml: /assets/league/*.js is immutable for a year, *.webmanifest is application/manifest+json, league.html stays no-store");
+  const pages = fs.readdirSync(ROOT).filter((f) => /\.(html|webmanifest)$/.test(f)).concat(["firebase-messaging-sw.js"].filter((f) => fs.existsSync(path.join(ROOT, f))));
+  const refs = [];
+  for (const f of pages) for (const m of fs.readFileSync(path.join(ROOT, f), "utf8").matchAll(/(?:src|href)\s*=\s*["']([^"']*assets\/league\/[^"']*)["']/g)) refs.push([f, m[1]]);
+  ok(refs.length >= 3 && refs.every(([, u]) => /\.js\?v=\w+$/.test(u) || !/\.js(\?|$)/.test(u)),
+    `every page reference to a script under assets/league/ carries ?v= (${refs.map(([f, u]) => f + ":" + u.split("/").pop()).join(", ")})`);
 }
 
 // ---------------- static server ----------------
@@ -1912,11 +2001,18 @@ async function sectionHomeCards(browser) {
     await sectionFantasy();
     await sectionTimeouts();
     await sectionLeagueTimeouts();
+    await sectionFunctionHardening();
   } catch (e) {
     fail++; failures.push("server sections crashed: " + e.message);
     console.log("\n✗ SERVER SECTION ERROR: " + (e && e.stack || e));
   }
 
+  if (process.argv.includes("--server-only")) {       // the node-only sections (no browser): the function checks
+    up.close(); ffSrv.close();
+    console.log(`\nSPORTS (server only): ${pass}/${pass + fail} checks passed`);
+    if (fail) { console.log("\nFailures:"); for (const f of failures) console.log("  ✗ " + f); }
+    process.exit(fail ? 1 : 0);
+  }
   const srv = await startStatic();
   const browser = await launchBrowser();
   try {

@@ -57,7 +57,11 @@ const ok = (cond, name) => {
 const section = (t) => console.log("\n=== " + t + " ===");
 
 /* ---------------- fixture server ---------------- */
-const FLAGS = { games500: false, pbp500: false };
+// gamesDelay / pbpDelay: ms before the headers (a slow upstream); gamesStall / ftnStall: the headers
+// and the first bytes arrive, then the body never finishes (the case a timer cleared at headers misses).
+const FLAGS = { games500: false, pbp500: false, gamesDelay: 0, pbpDelay: 0, gamesStall: false, ftnStall: false };
+let gamesHits = 0;
+const later = (ms, fn) => (ms ? setTimeout(fn, ms) : fn());
 let pbpBytesSent = 0;
 let pbpFullLength = 0;
 let pbpAborted = false;
@@ -70,18 +74,21 @@ function resetPbpTracking() {
 function startServer() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      // (a delayed pbp request is re-dispatched through this same handler once its delay is up)
       const u = new URL(req.url, "http://x");
       if (u.pathname === "/schedules/games.csv") {
+        gamesHits++;
         if (FLAGS.games500) { res.writeHead(500); res.end("boom"); return; }
         const buf = fs.readFileSync(path.join(FIXDIR, "games.csv"));
-        res.writeHead(200, { "content-type": "text/csv" });
-        res.end(buf);
+        if (FLAGS.gamesStall) { res.writeHead(200, { "content-type": "text/csv" }); res.write(buf.subarray(0, 200)); return; }
+        later(FLAGS.gamesDelay, () => { res.writeHead(200, { "content-type": "text/csv" }); res.end(buf); });
         return;
       }
       if (u.pathname === "/pbp/play_by_play_2026.csv.gz") {
         if (FLAGS.pbp500) { res.writeHead(500); res.end("boom"); return; }
         const buf = fs.readFileSync(path.join(FIXDIR, "pbp26.csv.gz"));
         pbpFullLength = buf.length;
+        if (FLAGS.pbpDelay) { const d = FLAGS.pbpDelay; FLAGS.pbpDelay = 0; setTimeout(() => server.emit("request", req, res), d); return; }
         res.writeHead(200, { "content-type": "application/gzip" });
         let i = 0;
         const CHUNK = 4096;
@@ -100,6 +107,7 @@ function startServer() {
       }
       if (u.pathname === "/ftn_charting/ftn_charting_2026.csv") {
         const buf = fs.readFileSync(path.join(FIXDIR, "ftn_charting_2026.csv"));
+        if (FLAGS.ftnStall) { res.writeHead(200, { "content-type": "text/csv" }); res.write(buf.subarray(0, 300)); return; }
         res.writeHead(200, { "content-type": "text/csv" });
         res.end(buf);
         return;
@@ -118,6 +126,7 @@ async function main() {
   const port = server.address().port;
   process.env.PBP_BASE_URL = `http://127.0.0.1:${port}`;
 
+  process.env.PBP_DEADLINE_MS = "1500";           // the overall budget, short for the stall checks (default 8000)
   const mod = await import(pathToFileURL(FN_PATH).href);
   const handler = mod.default;
 
@@ -274,6 +283,10 @@ async function main() {
     ok(status === 200 && body.ok === false && body.reason === "unknown-game", `unknown-game (${JSON.stringify(body)})`);
   }
   {
+    // RESTAGED 2026-10-04: the parsed games.csv is now kept module-wide for an hour (it used to be
+    // downloaded again for every event id), so by here a warm container would answer this event
+    // from memory and never see the 500. The cold-start case is what this check is about: reset it.
+    mod.__resetSchedule?.();
     FLAGS.games500 = true;
     const { status, body } = await call("?event=401872948");
     FLAGS.games500 = false;
@@ -299,6 +312,62 @@ async function main() {
     ok(headers.get("Netlify-CDN-Cache-Control").includes("s-maxage=600"), "not-yet s-maxage=600");
   }
 
+
+  section("Warm container: games.csv is downloaded once, not once per event id");
+  {
+    mod.__resetSchedule();
+    gamesHits = 0;
+    await call("?event=401872948");
+    const a = gamesHits;
+    await call("?event=401872960");                                    // another known game
+    const unk = [];
+    for (const id of ["999999991", "999999992", "999999993", "999999994"]) unk.push((await call("?event=" + id)).body.reason);
+    ok(a === 1 && gamesHits === 1 && unk.every((x) => x === "unknown-game"),
+      `one download served a known game, a second known game and four made-up ids (${gamesHits} download, ${unk.join(",")})`);
+    // A miss does re-read it once the copy is 10 minutes old (a game nflverse has just added), no more often.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 11 * 60e3;
+    const m1 = await call("?event=999999995"), afterMiss = gamesHits;
+    await call("?event=999999996");
+    Date.now = realNow;
+    ok(afterMiss === 2 && gamesHits === 2 && m1.body.reason === "unknown-game", `…a miss on a copy over 10 minutes old re-reads it once (${afterMiss} downloads), and the next miss does not (${gamesHits})`);
+    Date.now = () => realNow() + 72 * 60e3;   // (the copy refreshed above is stamped +11 min)
+    await call("?event=401872948");
+    Date.now = realNow;
+    ok(gamesHits === 3, `…and a copy over an hour old is re-read even for a known game (${gamesHits} downloads)`);
+  }
+
+  section("One deadline across the whole request; the body read counts");
+  {
+    const raced = async (qs) => {
+      const t0 = Date.now();
+      const r = await Promise.race([call(qs), new Promise((res) => setTimeout(() => res({ hung: true }), 6000))]);
+      return { ...r, ms: Date.now() - t0 };
+    };
+    // games.csv sends its headers and a few bytes, then the body stalls: used to wait for ever.
+    mod.__resetSchedule();
+    FLAGS.gamesStall = true;
+    const g = await raced("?event=401872948");
+    FLAGS.gamesStall = false;
+    ok(!g.hung && g.status === 200 && g.body.ok === false && g.body.reason === "upstream" && g.body.detail === "timeout" && g.ms >= 1400 && g.ms < 2500,
+      `a games.csv whose body stalls after the headers ends at the ${1500} ms deadline as HTTP 200 { ok:false, upstream, timeout } (${g.hung ? "HUNG" : g.ms + " ms, " + JSON.stringify(g.body).slice(0, 80)})`);
+    // Three slow legs in a row: schedule 700 ms, pbp 700 ms, FTN stalled. Each is under any
+    // per-leg limit but together they pass the deadline; the answer still comes inside it.
+    mod.__resetSchedule();
+    FLAGS.gamesDelay = 700; FLAGS.pbpDelay = 700; FLAGS.ftnStall = true;
+    const t = await raced("?event=401872948");
+    FLAGS.gamesDelay = 0; FLAGS.pbpDelay = 0; FLAGS.ftnStall = false;
+    ok(!t.hung && t.status === 200 && t.ms < 2500 && (t.body.ok === true ? t.body.ftn === false && t.body.n === 168 : t.body.reason === "upstream"),
+      `slow schedule + slow pbp + stalled FTN answers inside the one deadline, HTTP 200, the plays kept without FTN when they made it (${t.hung ? "HUNG" : t.ms + " ms, ok=" + t.body.ok + " ftn=" + t.body.ftn + " n=" + t.body.n})`);
+    // The pbp leg alone running out: nothing left of the budget for FTN, and a documented failure.
+    mod.__resetSchedule();
+    FLAGS.gamesDelay = 800; FLAGS.pbpDelay = 900;
+    const u = await raced("?event=401872948");
+    FLAGS.gamesDelay = 0; FLAGS.pbpDelay = 0;
+    ok(!u.hung && u.status === 200 && u.ms < 2500 && (u.body.ok === false ? u.body.reason === "upstream" : u.body.ftn === true), `…and a request that runs out of budget on the pbp leg is { ok:false, upstream } rather than a platform timeout (${u.hung ? "HUNG" : u.ms + " ms, " + JSON.stringify(u.body).slice(0, 60)})`);
+  }
+
+  server.closeAllConnections?.();
   server.close();
 
   console.log(`\npbpdetail: ${pass}/${pass + fail}`);

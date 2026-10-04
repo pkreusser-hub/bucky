@@ -68,6 +68,12 @@ import { StringDecoder } from "node:string_decoder";
 
 const BASE = process.env.PBP_BASE_URL || "https://github.com/nflverse/nflverse-data/releases/download";
 const FETCH_TIMEOUT_MS = Number(process.env.PBP_FETCH_TIMEOUT_MS) || 9000;
+// One overall budget for the whole request (schedule + pbp stream + FTN), under the platform's 10 s
+// kill. Before (2026-10-04 review) each leg had its own 9 s, so a slow upstream could run 27 s and
+// come back as a raw 502 instead of the documented HTTP 200 { ok:false }.
+const DEADLINE_MS = Number(process.env.PBP_DEADLINE_MS) || 8000;
+const SCHEDULE_TTL_MS = 3600e3;       // the parsed games.csv is kept this long in a warm container
+const SCHEDULE_RETRY_MS = 10 * 60e3;  // a miss re-reads it at most this often (a game added since)
 
 // Small mutable module-level stats bag, exported ONLY so the test suite can assert the
 // streaming parser actually stopped early (rows scanned, whether it stopped before the file
@@ -169,11 +175,20 @@ function boolFlag(v) {
   return undefined;
 }
 
-async function timedFetch(url, ms) {
+// Fetch + read the whole body as text under ONE timer: the deadline stays armed until the body is
+// in (it used to be cleared when headers arrived, leaving r.text() with no deadline at all).
+// `deadlineAt` is the request's overall deadline (ms epoch). -> { text } | { err }.
+async function fetchText(url, deadlineAt) {
+  const ms = Math.min(FETCH_TIMEOUT_MS, deadlineAt - Date.now());
+  if (ms <= 0) return { err: "timeout" };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms || FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(url, { signal: ctrl.signal });
+    const r = await fetch(url, { signal: ctrl.signal });
+    if (!r.ok) return { err: "http-" + r.status };
+    return { text: await r.text() };
+  } catch (e) {
+    return { err: e && e.name === "AbortError" ? "timeout" : "unreachable" };
   } finally {
     clearTimeout(timer);
   }
@@ -181,28 +196,39 @@ async function timedFetch(url, ms) {
 
 // ---------------- schedule (games.csv) ----------------
 
-async function findScheduleRow(event) {
-  let r, text;
-  try {
-    r = await timedFetch(`${BASE}/schedules/games.csv`);
-    if (!r.ok) return { err: "http-" + r.status };
-    text = await r.text();
-  } catch (e) {
-    return { err: e && e.name === "AbortError" ? "timeout" : "unreachable" };
-  }
+// The parsed join table (espn id -> { gameId, season }), kept module-wide in a warm container.
+// Before, every distinct event id downloaded and parsed the 2 MB file again (cached 60 s per id at the
+// edge only), so a crawl of made-up ids cost a download each. Now: one download an hour, plus at most
+// one re-read per 10 minutes when an id is missing (a game nflverse has just added).
+let scheduleMemo = null;                       // { at, map }
+export function __resetSchedule() { scheduleMemo = null; }
+async function loadSchedule(deadlineAt) {
+  const got = await fetchText(`${BASE}/schedules/games.csv`, deadlineAt);
+  if (got.err) return { err: got.err };
   const p = new CsvParser();
-  const rows = p.feed(text);
+  const rows = p.feed(got.text);
   const last = p.end();
   if (last) rows.push(last);
   if (!rows.length) return { err: "empty" };
   const idx = indexMap(rows[0]);
+  const map = new Map();
   for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (col(row, idx, "espn") === event) {
-      return { row: { gameId: col(row, idx, "game_id"), season: Number(col(row, idx, "season")) } };
-    }
+    const e = col(rows[i], idx, "espn");
+    if (e) map.set(e, { gameId: col(rows[i], idx, "game_id"), season: Number(col(rows[i], idx, "season")) });
   }
-  return { row: null };
+  scheduleMemo = { at: Date.now(), map };
+  return { map };
+}
+
+async function findScheduleRow(event, deadlineAt) {
+  const age = scheduleMemo ? Date.now() - scheduleMemo.at : Infinity;
+  if (scheduleMemo && age < SCHEDULE_TTL_MS) {
+    const hit = scheduleMemo.map.get(event);
+    if (hit || age < SCHEDULE_RETRY_MS) return { row: hit || null };
+  }
+  const got = await loadSchedule(deadlineAt);
+  if (got.err) return { err: got.err };
+  return { row: got.map.get(event) || null };
 }
 
 // ---------------- play fields from one pbp row ----------------
@@ -264,10 +290,12 @@ function ftnAugment(play, row, idx) {
 
 // ---------------- streamed pbp read ----------------
 
-async function streamPbp(season, gameId) {
+async function streamPbp(season, gameId, deadlineAt) {
   const url = `${BASE}/pbp/play_by_play_${season}.csv.gz`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const ms = Math.min(FETCH_TIMEOUT_MS, deadlineAt - Date.now());
+  if (ms <= 0) return { err: "timeout" };
+  const timer = setTimeout(() => ctrl.abort(), ms);       // stays armed through the whole stream read
   let r;
   try {
     r = await fetch(url, { signal: ctrl.signal });
@@ -356,7 +384,7 @@ async function streamPbp(season, gameId) {
   } catch (e) {
     clearTimeout(timer);
     gunzip.destroy(); nodeReadable.destroy();
-    return { err: "stream-error" };
+    return { err: ctrl.signal.aborted ? "timeout" : "stream-error" };
   }
   clearTimeout(timer);
   // Stop pulling more bytes off the wire — this is what makes "stop reading" real rather than
@@ -375,18 +403,12 @@ async function streamPbp(season, gameId) {
 
 // ---------------- FTN charting ----------------
 
-async function fetchFtn(season, gameId) {
-  let r;
-  try {
-    r = await timedFetch(`${BASE}/ftn_charting/ftn_charting_${season}.csv`);
-  } catch {
-    return null;
-  }
-  if (!r.ok) return null; // FTN not out yet for this season/game — normal, not a failure
-  let text;
-  try { text = await r.text(); } catch { return null; }
+async function fetchFtn(season, gameId, deadlineAt) {
+  // FTN is optional: out of time, not out yet, or failing all mean "no charting", never an error.
+  const got = await fetchText(`${BASE}/ftn_charting/ftn_charting_${season}.csv`, deadlineAt);
+  if (got.err) return null;
   const p = new CsvParser();
-  const rows = p.feed(text);
+  const rows = p.feed(got.text);
   const last = p.end();
   if (last) rows.push(last);
   if (!rows.length) return null;
@@ -430,16 +452,17 @@ export default async (req) => {
   }
   if (!/^\d{6,12}$/.test(event)) return respond({ ok: false, reason: "bad-event" }, 60);
 
-  const sched = await findScheduleRow(event);
+  const deadlineAt = Date.now() + DEADLINE_MS;
+  const sched = await findScheduleRow(event, deadlineAt);
   if (sched.err) return respond({ ok: false, reason: "upstream", detail: sched.err }, 60);
   if (!sched.row) return respond({ ok: false, reason: "unknown-game" }, 60);
   const { gameId, season } = sched.row;
 
-  const pbp = await streamPbp(season, gameId);
+  const pbp = await streamPbp(season, gameId, deadlineAt);
   if (pbp.err) return respond({ ok: false, reason: "upstream", detail: pbp.err }, 60);
   if (!pbp.found) return respond({ ok: false, reason: "not-yet" }, 600);
 
-  const ftn = await fetchFtn(season, gameId);
+  const ftn = await fetchFtn(season, gameId, deadlineAt);
   let ftnCount = 0;
   if (ftn) {
     for (const [nflId, play] of pbp.playsByNflId) {
