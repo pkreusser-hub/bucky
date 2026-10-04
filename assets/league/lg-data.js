@@ -495,12 +495,78 @@
 
   // ---------------- sleeper bootstrap ----------------
   D.slpReady = null;
+  // ---------------- the slim directory cache (2026-10-04, review perf finding 2) ----------------
+  // /players/nfl is 14.7 MB raw / 2.2 MB gzip and was fetched no-store on EVERY launch, saturating a
+  // phone's link for ~14 s right after first paint (the ESPN scoreboard waited to 9.4 s, the
+  // projections to 20+ s, against 7 s with it deferred) and costing a 0.73 s parse long task.
+  // What the app reads out of it is the SLIM meta fetchPlayerDirectory builds (11 fields), so
+  // THAT is what is kept: an array of metas in IndexedDB (localStorage is far too small for it)
+  // with the wall-clock time it was taken. Every access is wrapped; no IndexedDB (private
+  // window, blocked storage, a hung open) simply means the cold path that always worked.
+  const DIR_CACHE_DB = "gffl-feeds", DIR_CACHE_STORE = "kv", DIR_CACHE_KEY = "slpDirectory", DIR_CACHE_VER = 1;
+  function idbOp(mode, fn) {
+    return new Promise((resolve) => {
+      let done = false;
+      const fin = (v) => { if (!done) { done = true; resolve(v); } };
+      // A hung open (Safari private window, a blocked upgrade) must not stall boot.
+      const timer = setTimeout(() => fin(null), 2500);
+      try {
+        const idb = typeof indexedDB !== "undefined" ? indexedDB : null;
+        if (!idb) return fin(null);
+        const rq = idb.open(DIR_CACHE_DB, 1);
+        rq.onupgradeneeded = () => { try { rq.result.createObjectStore(DIR_CACHE_STORE); } catch (e) { /* exists */ } };
+        rq.onerror = rq.onblocked = () => fin(null);
+        rq.onsuccess = () => {
+          try {
+            const db = rq.result;
+            const tx = db.transaction(DIR_CACHE_STORE, mode);
+            const out = fn(tx.objectStore(DIR_CACHE_STORE));
+            tx.oncomplete = () => { try { db.close(); } catch (e) { /* closed */ } fin(out && "result" in out ? out.result : true); };
+            tx.onerror = tx.onabort = () => { try { db.close(); } catch (e) { /* closed */ } fin(null); };
+          } catch (e) { fin(null); }
+        };
+      } catch (e) { fin(null); }
+    }).then((v) => v, () => null);
+  }
+  function loadDirCache() {
+    return idbOp("readonly", (st) => st.get(DIR_CACHE_KEY)).then((rec) => {
+      if (!rec || rec.v !== DIR_CACHE_VER || !Array.isArray(rec.metas) || !rec.metas.length) return null;
+      const at = Number(rec.at);
+      if (!isFinite(at) || at <= 0 || at > Date.now() + 5 * 60000) return null; // unreadable or from the future
+      return rec;
+    });
+  }
+  function saveDirCache(metas, at) {
+    return idbOp("readwrite", (st) => st.put({ v: DIR_CACHE_VER, at, metas }, DIR_CACHE_KEY)).catch(() => null);
+  }
+  D.dirCacheLoad = loadDirCache; // test hooks
+  D.dirCacheSave = saveDirCache;
+  // When the deferred directory work may start: once the FIRST scoreboard has landed (pollOnce
+  // calls D.noteFeedLanded) and the browser is idle, or after a ceiling so a page that never polls
+  // (or a scoreboard that fails) is not left without a directory.
+  const DIR_DEFER_CEIL_MS = 6000;
+  let feedLandedRes = null;
+  const feedLanded = new Promise((r) => { feedLandedRes = r; });
+  D.noteFeedLanded = function () { D.S.feedLandedAt = D.S.feedLandedAt || Date.now(); if (feedLandedRes) feedLandedRes(); };
+  function afterFirstFeed() {
+    return new Promise((resolve) => {
+      let t = null;
+      const go = () => {
+        clearTimeout(t);
+        if (typeof requestIdleCallback === "function") { try { requestIdleCallback(() => resolve(), { timeout: 1500 }); return; } catch (e) { /* fall through */ } }
+        setTimeout(resolve, 0);
+      };
+      feedLanded.then(go);
+      t = setTimeout(go, DIR_DEFER_CEIL_MS);
+    });
+  }
+
   // The player DIRECTORY fetch, split out of initSleeper (S9, 2026-08-11) so it can be re-run
   // later on its own — everything else initSleeper does (the current-week state, the
   // projections) is genuinely a once-per-session bootstrap and stays where it was.
   async function fetchPlayerDirectory() {
     const dump = await fx("sleeper players", `${SLP}/players/nfl`);
-    const byEspn = new Map(), byName = new Map(), byId = new Map();
+    const metas = [];
     for (const pid in dump) {
       const p = dump[pid]; if (!p || typeof p !== "object") continue;
       const rawInj = p.injury_status == null ? "" : String(p.injury_status).trim();
@@ -526,9 +592,21 @@
         depthPos: p.depth_chart_position || "",
       };
       if (meta.pos === "DEF") meta.name = pid + " D/ST";
+      metas.push(meta);
+    }
+    const at = Date.now();
+    applyDirectory(metas, at);
+    saveDirCache(metas, at); // fire-and-forget; the next launch starts from this copy
+  }
+  // The maps the app resolves players through, built from the SLIM metas (the only fields
+  // anything reads — see the field list above). Shared by the network path and the cache path
+  // so the two can never build different directories.
+  function applyDirectory(metas, at) {
+    const byEspn = new Map(), byName = new Map(), byId = new Map();
+    for (const meta of metas) {
       if (meta.espn_id) byEspn.set(meta.espn_id, meta);
       if (meta.team) byName.set(nameKey(meta.name, meta.team), meta);
-      byId.set(pid, meta);
+      byId.set(meta.pid, meta);
     }
     D.S.slpPlayers = byId; D.S.slpByEspn = byEspn; D.S.slpByName = byName;
     // Each completed dump is a generation. checkInjuryChanges holds an omitted
@@ -541,7 +619,7 @@
     // so two phones can hold dumps an hour apart that disagree about one man.
     // checkInjuryChanges lets only a copy NEWER than the one behind the
     // committed value move it — the older phone adopts instead of arguing.
-    D.S.injDirAt = Date.now();
+    D.S.injDirAt = at;
     D.bumpPidGen(); // the directory is one of the two sources pidForKey resolves through
   }
   // Sleeper's own /state/nfl reading — WHICH week and WHICH part of the season its live stats
@@ -601,10 +679,31 @@
   D.initSleeper = function () {
     if (D.slpReady) return D.slpReady;
     D.slpReady = (async () => {
+      // The cached slim directory is read alongside the state call and applied at once, so a
+      // returning launch resolves players, names and injuries with NO 14.7 MB download. Its
+      // age becomes injDirRefreshedAt, so the hourly refresh (maybeRefreshInjuryDirectory,
+      // off the poll tick, after the first scoreboard) is what freshens a stale copy.
+      const cachedP = loadDirCache().catch(() => null);
       await readSleeperState();
-      try { await fetchPlayerDirectory(); D.S.injDirRefreshedAt = Date.now(); }
-      catch (e) { /* health carries it */ }
+      const cached = await cachedP;
+      if (cached && !D.S.slpPlayers) {
+        applyDirectory(cached.metas, cached.at);
+        D.S.injDirRefreshedAt = cached.at; D.S.dirFromCache = true;
+        // The first tick may have landed before this copy did (its refresh then no-op'd on "no
+        // directory yet"); a stale copy must not wait for the next full tick to be freshened.
+        if (Date.now() - cached.at >= INJ_DIR_REFRESH_MS) {
+          afterFirstFeed().then(() => D.maybeRefreshInjuryDirectory()).catch(() => {});
+        }
+      }
+      // Projections go out BEFORE the directory now, not behind it.
       await loadSleeperProjections();
+      if (!D.S.slpPlayers) {
+        // Cold (first launch, or storage cleared): the directory is needed, but not before the
+        // scoreboard and projections have had the link to themselves.
+        await afterFirstFeed();
+        try { await fetchPlayerDirectory(); D.S.injDirRefreshedAt = Date.now(); }
+        catch (e) { /* health carries it */ }
+      }
       // The league week this in-memory state belongs to (2026-09-02, D-S4/S5) — stamped from
       // the bootstrap itself so the very first poll after a rollover is the one that notices.
       D.S.leagueWeekMark = LG.currentWeek();
@@ -673,10 +772,24 @@
   // concern, not a fact about the league calendar, so it must not speed up under the 2025
   // replay's 8x-accelerated clock the way genuinely league-time things correctly do.
   const INJ_DIR_REFRESH_MS = 60 * 60 * 1000; // once an hour
+  //
+  // 2026-10-04 (review perf finding 2 / data finding 3): pollOnce NO LONGER AWAITS this. It used
+  // to sit inline in the tick, so every hourly refresh held that tick's scoreboard behind a 14.7
+  // MB download and parse. It is now kicked off after the scoreboard has landed and runs on its
+  // own; the interval stays an hour, so an injury designation is never staler than it was. A copy
+  // read from the IndexedDB cache carries its own age in injDirRefreshedAt, so a launch from an
+  // hour-old cache refreshes on its first tick and one from a minute-old cache does not.
   D.maybeRefreshInjuryDirectory = async function () {
     if (!D.S.slpPlayers) return; // the one-time boot load hasn't landed yet — nothing to refresh
+    if (D.S.injDirInFlight) return; // a slow download must not stack a second one
     if (Date.now() - (D.S.injDirRefreshedAt || 0) < INJ_DIR_REFRESH_MS) return;
     D.S.injDirRefreshedAt = Date.now();
+    D.S.injDirInFlight = true;
+    try { await refreshInjuryDirectoryNow(); } finally { D.S.injDirInFlight = false; }
+    // A fresh copy changes designations on screen and feeds checkInjuryChanges (off onUpdate).
+    try { if (D.onUpdate) D.onUpdate(); } catch (e) { /* a paint hiccup must not poison the refresh */ }
+  };
+  async function refreshInjuryDirectoryNow() {
     try { await fetchPlayerDirectory(); }
     catch (e) { /* best-effort — the live poll's own health tracking covers real outages; this is a courtesy refresh */ }
     // …and Sleeper's own week/season-type with it (2026-09-02, D-S4/S5). LG.currentWeek() is
@@ -685,7 +798,7 @@
     // league's boundary; this hourly tick is what catches Sleeper's, without a fetch of its own
     // cadence — the state read is a few hundred bytes beside the directory dump it rides with.
     try { await readSleeperState(); } catch (e) { /* same best-effort posture */ }
-  };
+  }
 
   // ---------------- ⭐ ONE ID RESOLVER (2026-08-09, the "everything reads 0" production bug) --
   // A GFFL roster keys its players by ESPN id (that is what the ESPN importer writes, and what
@@ -849,6 +962,12 @@
   // in-flight fetch via `D._weekStatsInFlight` rather than firing duplicate parallel requests.
   // Only a REAL (non-null) result is cached — a genuine outage/empty response is never stuck
   // permanently, so it can still retry on the next call.
+  D.WEEK_STATS_TTL_MS = 6 * 3600000; // wall clock — Sleeper's correction pass is a real-world event
+  function weekStatsRecent(season, seasonType, week) {
+    if (String(season) !== String(LG.SEASON) || seasonType !== "regular") return false;
+    const cw = LG.currentWeek();
+    return cw != null && Number(week) >= cw - 1;
+  }
   D._weekStatsCache = new Map();     // "season|seasonType|week" -> Map
   D._weekStatsInFlight = new Map();  // same key -> in-flight Promise<Map|null>, cleared on settle
   D.weekStats = async function (week, opts) {
@@ -871,21 +990,30 @@
     // the first derivation. Re-deriving costs no network at all, which is what keeps the
     // 2026-08-08 perf fix intact.
     const cached = D._weekStatsCache.get(cacheKey);
-    if (cached) return weekStatsMap(cached);
+    // TTL for the RECENT weeks only (2026-10-04, review data finding 5). "Archived never changes"
+    // holds for a week that is long over; it does not hold for the one that just finished, whose
+    // Sleeper lines are corrected on the Tuesday/Wednesday after. A tab open across Monday night
+    // kept the pre-correction numbers for game logs, averages and finalizeWeek's backfill until
+    // reload. A current-season entry for this week or the one before it is re-fetched once it is
+    // WEEK_STATS_TTL_MS old; older weeks stay cached for the session exactly as before.
+    const stale = cached && weekStatsRecent(season, seasonType, week) && Date.now() - (cached.at || 0) > D.WEEK_STATS_TTL_MS;
+    if (cached && !stale) return weekStatsMap(cached);
     if (D._weekStatsInFlight.has(cacheKey)) return D._weekStatsInFlight.get(cacheKey);
     const p = (async () => {
       let j;
+      // A failed or empty re-fetch of an expired entry keeps serving the old numbers (stale beats null).
+      const keepOld = () => (stale ? weekStatsMap(cached) : null);
       try { j = await fx("sleeper week stats " + week, `${SLP}/stats/nfl/${seasonType}/${season}/${week}`); }
-      catch (e) { return null; }
+      catch (e) { return keepOld(); }
       // An EMPTY payload is NOT "a week in which nobody scored" — it is a week that has not
       // been played (ITEM 30, 2026-08-09). Sleeper answers 200 with {} for a future week, and
       // an empty Map is truthy, so the backfill path took it as real data and would have
       // written a permanent weekly doc of ZEROES for every team. Treated as unavailable, which
       // is what "no-archived-stats" already means everywhere upstream.
-      if (!j || typeof j !== "object" || !Object.keys(j).length) return null;
-      const entry = { raw: j, map: null, gen: -1 };
+      if (!j || typeof j !== "object" || !Object.keys(j).length) return keepOld();
+      const entry = { raw: j, map: null, gen: -1, at: Date.now() };
       const m = weekStatsMap(entry);
-      if (!m) return null;
+      if (!m) return keepOld();
       D._weekStatsCache.set(cacheKey, entry);
       return m;
     })();
@@ -2656,7 +2784,11 @@
     // hours have actually passed — applies uniformly whether the board is showing the live
     // season or the 2025 replay, because "which real NFL players are hurt right now" is a fact
     // about today, not about whichever season's scores this tab happens to be simulating.
-    if (!light) await D.maybeRefreshInjuryDirectory().catch(() => {});
+    // 2026-10-04: kicked off (never awaited) AFTER this tick's scoreboard lands — see kickInjuryDir.
+    const kickInjuryDir = () => {
+      if (light) return;
+      try { Promise.resolve(D.maybeRefreshInjuryDirectory()).catch(() => {}); } catch (e) { /* best-effort */ }
+    };
     // 2025 TEST SEASON: the live-polling chain below always means "the real, current NFL
     // week" — never meaningful for a past-season replay, and actively wrong (real current-
     // season data could otherwise leak onto a 2025 board for any player id that recurs).
@@ -2674,6 +2806,7 @@
       // lastOk never move, so the mode stays "dual"/nominal. That is honest — nothing is failing
       // — rather than painting an outage chip over a perfectly healthy replay.
       await pollSimSlate().catch(() => {});
+      D.noteFeedLanded(); kickInjuryDir();
       await pollSimStats().catch(() => {});
       closeFinishedFeeds();
       for (const row of D.S.players.values()) mergeRow(row);
@@ -2681,12 +2814,26 @@
       return;
     }
     const jobs = [];
-    jobs.push(pollScoreboard().then(() => { D.S.health.espn.lastOk = Date.now(); D.S.health.espn.failN = 0; })
-      .catch(() => { D.S.health.espn.failN++; }));
+    const coldDir = !D.S.slpPlayers; // no directory yet (first launch, nothing cached)
+    const sbJob = pollScoreboard().then(() => {
+      D.S.health.espn.lastOk = Date.now(); D.S.health.espn.failN = 0;
+      // The scoreboard is in: the deferred directory work (cold fetch / hourly refresh) may start.
+      D.noteFeedLanded(); kickInjuryDir();
+    }).catch(() => { D.S.health.espn.failN++; });
+    jobs.push(sbJob);
+    // A first-ever launch has no directory until the deferred download lands, and the Sleeper job
+    // below waits for it. The scoreboard must not wait with it: paint it as soon as it is in.
+    if (coldDir) sbJob.then(() => {
+      if (D.S.slpPlayers) return;
+      for (const row of D.S.players.values()) mergeRow(row);
+      if (D.onUpdate) D.onUpdate();
+    });
     // Sleeper's lastOk deliberately does NOT move on a light tick — full ticks still land every
     // ~16s while live (tighter than the old 15s), well inside every staleness window, and a
     // light tick genuinely learned nothing about Sleeper's health either way.
-    if (!light) jobs.push(pollSleeper().then(() => { D.S.health.slp.lastOk = Date.now(); D.S.health.slp.failN = 0; })
+    // `skipSleeper` (set only by the loop, see D.tickPlan): nothing is in progress and nothing
+    // kicks off soon, so the 570 KB stats payload would read the same all-zero bucket again.
+    if (!light && !(opts && opts.skipSleeper)) jobs.push(pollSleeper().then(() => { D.S.health.slp.lastOk = Date.now(); D.S.health.slp.failN = 0; })
       .catch(() => { D.S.health.slp.failN++; }));
     await Promise.allSettled(jobs);
     if (light) {
@@ -2701,7 +2848,11 @@
     const wanted = new Map();
     for (const ab of D.S.tracked) {
       const g = D.S.games.get(ab);
-      if (g && (g.state === "in" || !D.S.fetchedFinal.has(g.eventId))) wanted.set(g.eventId, g);
+      // NEVER a "pre" game (2026-10-04, perf finding 7): its box is empty, deriveEspnDst is
+      // already refused for it, and the perf run measured 8 summaries a minute (~160 KB) fetched
+      // for games that had not kicked off. The scoreboard (every tick) is what notices a game
+      // flipping to "in"; the NEXT full tick then fetches it, so it is picked up at once.
+      if (g && (g.state === "in" || (g.state === "post" && !D.S.fetchedFinal.has(g.eventId)))) wanted.set(g.eventId, g);
     }
     // ROTATE the ≤8-per-cycle window (finding 13). `wanted` is rebuilt from D.S.tracked (a
     // Set with frozen insertion order) every cycle, so a plain .slice(0,8) fetched the SAME
@@ -2713,7 +2864,7 @@
     // read yet goes to the front of the window. Its feed stays open until that read lands
     // (closeFinishedFeeds), and each one leaves `wanted` for good once it does, so the queue
     // drains in ceil(finals/8) cycles instead of waiting its turn in the rotation. The rest
-    // (live and pre) rotate through whatever slots are left, exactly as before.
+    // (live only, since 2026-10-04 — a pre game is never wanted) rotate through whatever slots are left.
     const finals = [], rest = [];
     for (const [eid, g] of wanted) (g.state === "post" ? finals : rest).push(eid);
     const CAP = 8;
@@ -2751,6 +2902,44 @@
     for (const row of D.S.players.values()) mergeRow(row);
     if (D.onUpdate) D.onUpdate();
   };
+  // ---------------- ⭐ IDLE POLLING (2026-10-04, review data finding 4 / perf finding 7) ----------------
+  // With no game in progress a visible tab still ran a FULL 60 s tick all week: the scoreboard plus
+  // a 570 KB Sleeper stats payload (~0.6 MB/min) that could not have changed. D.tickPlan() says
+  // what the NEXT tick should be:
+  //   "live"   a game is in progress                       -> 8 s cadence, exactly as before
+  //   "normal" a kickoff is within 15 min (or already due), a final box still waits to be read, or
+  //            a game ended within the last 20 min (Sleeper's stat line settles after the whistle)
+  //                                                        -> 60 s full tick, exactly as before
+  //   "idle"   none of the above                           -> up to 5 min, never past 15 min
+  //            before the next kickoff; Sleeper stats are fetched only if a game of the slate is
+  //            FINAL (that is the post-final stat-correction path: Sleeper keeps winning after the
+  //            final and picks up Tuesday's corrections), and skipped when every game is still "pre".
+  // Wall-clock for the settle window (an API-pacing concern), LG.now() for kickoffs, like
+  // D.gameStarted. An explicit D.start(ms) (tests/manual) and a forced-full wake never back off.
+  const IDLE_TICK_MS = 5 * 60000, KICK_LEAD_MS = 15 * 60000, SETTLE_MS = 20 * 60000, KICK_STALE_MS = 3 * 3600000;
+  D.IDLE_TICK_MS = IDLE_TICK_MS; D.KICK_LEAD_MS = KICK_LEAD_MS; D.SETTLE_MS = SETTLE_MS;
+  D.tickPlan = function () {
+    if (anyLive()) { D.S.lastLiveAt = Date.now(); return { mode: "live", delay: 8000, sleeper: true }; }
+    const now = LG.now();
+    let nextKick = Infinity, anyPost = false, finalPending = false;
+    for (const [ab, g] of D.S.games) {
+      if (!g) continue;
+      if (g.state === "pre") {
+        const k = Date.parse(g.kickoff || "");
+        // A "pre" game whose kickoff is hours past is postponed or the feed is wrong; it must
+        // neither pin the loop at 60 s nor read as "due".
+        if (isFinite(k) && k > now - KICK_STALE_MS) nextKick = Math.min(nextKick, k);
+      } else if (g.state === "post") {
+        anyPost = true;
+        if (D.S.tracked.has(ab) && !(D.S.fetchedFinal && D.S.fetchedFinal.has(g.eventId))) finalPending = true;
+      }
+    }
+    const settling = !!D.S.lastLiveAt && Date.now() - D.S.lastLiveAt < SETTLE_MS;
+    if (nextKick - now <= KICK_LEAD_MS || finalPending || settling) return { mode: "normal", delay: 60000, sleeper: true };
+    const delay = Math.max(60000, Math.min(IDLE_TICK_MS, nextKick - KICK_LEAD_MS - now));
+    return { mode: "idle", delay, sleeper: anyPost };
+  };
+
   // ⭐ THE GENERATION TOKEN (2026-09-02, D-S3). D.S.running alone cannot stop a chain that is
   // ALREADY INSIDE its own `await D.pollOnce()` — stop() clears the pending timer and flips the
   // flag, but the in-flight tick resumes afterwards, and the flag has by then been flipped back
@@ -2797,8 +2986,12 @@
       D.S.forceFull = false;
       const n = D.S.tickN || 0; D.S.tickN = n + 1;
       const light = !ms && !forceFull && anyLive() && (n & 1) === 1;
+      // Idle backoff (see D.tickPlan). Tick 0, a forced-full wake and an explicit cadence always
+      // run in full; the plan is read from the games the previous tick left behind.
+      const plan = (!ms && !forceFull && n > 0 && !LG.SIM_2025 && D.S.games.size) ? D.tickPlan() : null;
+      const skipSleeper = !!(plan && plan.mode === "idle" && !plan.sleeper);
       try {
-        await D.pollOnce(light ? { light: true } : undefined).catch(() => {});
+        await D.pollOnce(light ? { light: true } : skipSleeper ? { skipSleeper: true } : undefined).catch(() => {});
       } finally {
         // Only the CURRENT generation owns the busy flag (2026-09-23). stop() already cleared it
         // for the next chain; a retired tick resolving later used to clear it again while the
@@ -2809,7 +3002,9 @@
       // …and again AFTER the await — this is the half that actually closes the doubling.
       if (!D.S.running || gen !== D.S.loopGen) return;
       D.S.timerArms++;
-      const delay = D.S.wakeSoon ? 0 : (anyLive() ? (ms || 8000) : 60000);
+      const delay = D.S.wakeSoon ? 0 : (anyLive() ? (ms || 8000)
+        : (!ms && !LG.SIM_2025 && D.S.games.size ? D.tickPlan().delay : 60000));
+      D.S.lastDelay = delay; // test hook
       D.S.wakeSoon = false;
       D.S.timer = setTimeout(loop, delay);
     };

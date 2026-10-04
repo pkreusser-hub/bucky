@@ -18,6 +18,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 const http = require("http");
 const { pathToFileURL } = require("url");
 const puppeteer = require("puppeteer-core");
@@ -137,6 +138,25 @@ const notify = { calls: [], status: 200, abort: false };
 notify.reset = () => { notify.calls = []; notify.status = 200; notify.abort = false; };
 
 // ---------------- fixtures ----------------
+// FD MEASURE run (GFFL_FEEDS_REAL=<dir of real payloads>): serve real-size Sleeper bodies through a
+// modelled shared link (FIFO at FD_LINK_BPS of wire bytes) and log what crossed it.
+const FD_LINK_BPS = 1.5 * 1024 * 1024; // ~12 Mbit/s phone link
+const fdWire = { log: [], t0: 0, free: 0 };
+const fdReal = (dir, f) => fs.readFileSync(path.join(dir, f));
+function fdKind(u) {
+  if (u.endsWith("/players/nfl")) return { kind: "players", file: "players.json" };
+  if (u.includes("/stats/nfl/")) return { kind: "stats", file: "stats3.json" };
+  if (u.includes("/projections/nfl/")) return { kind: "proj", file: "proj.json" };
+  if (u.includes("/scoreboard") && !u.includes("dates=")) return { kind: "scoreboard", wire: 23126 };
+  if (u.includes("/summary?event=")) return { kind: "summary", wire: 20000 };
+  return null;
+}
+async function fdLink(kind, wire) {
+  const now = Date.now();
+  fdWire.free = Math.max(fdWire.free, now) + (wire / FD_LINK_BPS) * 1000;
+  await sleep(Math.max(0, fdWire.free - now));
+  fdWire.log.push({ kind, wire, t: Date.now() - fdWire.t0 });
+}
 const fixture = {
   phase: 1, sleeperDown: false, espnDown: false, tenorDown: false, farmgptDown: false,
   // Section V knobs (adversarial review 2026-08-08) — every one defaults OFF, so sections
@@ -147,6 +167,9 @@ const fixture = {
   noFgBuckets: false,     // the real league's shape: FG scored ONLY by made-yards (finding 11)
   bigSlate: false,        // >8 concurrent games, so the summary cap actually bites (finding 13)
   pregame: false,         // adds a not-yet-kicked-off game to the slate (finding 14)
+  feedsSlate: null,       // FD (2026-10-04): [{id, home, away, state, date}] REPLACES the whole scoreboard
+  playersDelayMs: 0,      // FD: how long /players/nfl stalls before it answers (a slow phone link)
+  realFeeds: null,        // FD: dir of real Sleeper/ESPN payloads (GFFL_FEEDS_REAL) for the MEASURE run
   pregameState: "pre",
   // Section X (the 2025 season replay) — OFF by default, so section Q's own
   // lg_espn_rosters_season(2025) fixture (1 team, 2 players) is completely untouched. When
@@ -1263,6 +1286,13 @@ function sbFix() {
         { date: "2026-08-07T00:15Z", detail: "Final", hs: "17", as: "14", net: "CBS" }),
     ], season: { type: 2, year: 2026 } };
   }
+  if (fixture.feedsSlate) {
+    return { events: fixture.feedsSlate.map((g) => mk(g.id, g.home, g.away, g.state,
+      { date: g.date, detail: g.state === "post" ? "Final" : g.state === "in" ? "Q2 5:00" : "Sun 12:00 PM",
+        period: g.state === "in" ? 2 : g.state === "post" ? 4 : 0, clock: g.state === "in" ? "5:00" : "0:00",
+        hs: g.state === "pre" ? undefined : "7", as: g.state === "pre" ? undefined : "3", net: "FOX" })),
+      season: { type: 2, year: 2026 } };
+  }
   const events = [
     mk("401900001", "DAL", "PHI", done ? "post" : "in",
       { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00",
@@ -2251,6 +2281,15 @@ async function newTestPage(browser, seed, opts) {
     const json = (obj, status) => req.respond({ status: status || 200, contentType: "application/json", headers: cors, body: JSON.stringify(obj) });
     (async () => {
       try {
+        if (fixture.realFeeds && !u.startsWith(BASE)) {
+          const fk = fdKind(u);
+          if (fk && fk.file) {
+            const body = fdReal(fixture.realFeeds, fk.file);
+            await fdLink(fk.kind, zlib.gzipSync(body).length);
+            return req.respond({ status: 200, contentType: "application/json", headers: cors, body });
+          }
+          if (fk) await fdLink(fk.kind, fk.wire);
+        }
         // S4 (section AN). Must come BEFORE the u.startsWith(BASE) branch below — this path is
         // same-origin, so continuing it would 404 against the static server and every producer
         // would look like it "failed safely" for the wrong reason.
@@ -2411,7 +2450,10 @@ async function newTestPage(browser, seed, opts) {
             return json((t[kind[1]] || []).map(([pid, count]) => ({ player_id: pid, count })));
           }
           if (u.endsWith("/state/nfl")) return json(slpStateNow());
-          if (u.endsWith("/players/nfl")) return json(fixture.prod2025 ? prodSlpDirectory() : slpDirectoryFix());
+          if (u.endsWith("/players/nfl")) {
+            if (fixture.playersDelayMs) await sleep(fixture.playersDelayMs);
+            return json(fixture.prod2025 ? prodSlpDirectory() : slpDirectoryFix());
+          }
           if (u.includes("/stats/nfl/")) {
             const sm = /\/stats\/nfl\/([^/]+)\/(\d+)\/(\d+)/.exec(u);
             slpStatsUrls.push(u); // ITEM 30 — the season-TYPE segment is what section AI asserts
@@ -7521,7 +7563,12 @@ async function openDetails(page, id) {
       const D = window.__GFFL__.D;
       for (let i = 0; i < Math.ceil(n / 8); i++) await D.pollOnce();
       const seen = new Set(Object.keys(D.EP).filter((k) => k.startsWith("espn summary ")).map((k) => k.slice(13)));
-      const want = new Set([...D.S.games.values()].map((g) => g.eventId));
+      // RESTAGED 2026-10-04 (feeds fix): this used to demand a summary for EVERY tracked game,
+      // including the one still "pre". The old rule no longer holds — a game that has not kicked
+      // off is never fetched (its box is empty; the perf run measured 8 wasted summaries a
+      // minute), so "covered" now means every game that is live or final. The pre game staying
+      // out of the set is asserted in FD_FEEDS below.
+      const want = new Set([...D.S.games.values()].filter((g) => g.state !== "pre").map((g) => g.eventId));
       return { seen: seen.size, want: want.size, missing: [...want].filter((e) => !seen.has(e)) };
     }, total);
     ok(covered.missing.length === 0,
@@ -32106,6 +32153,343 @@ async function openDetails(page, id) {
     ok(errors.length === 0, "0 page errors (" + W + "px)");
     await ctx.close();
   }
+  }
+
+  // ======================================================================================
+  // FD · feeds (2026-10-04, review fixes: perf bottlenecks 2 and 7, data findings 3-5).
+  // Every expected number below is hand-computed from the fixture or the constant it names.
+  // ======================================================================================
+  const fdLog = (page) => {
+    const a = [];
+    page.on("request", (r) => {
+      const u = r.url();
+      let m;
+      if (/\/scoreboard(\?|$)/.test(u) && !u.includes("dates=")) a.push("sb");
+      else if ((m = /summary\?event=(\d+)/.exec(u))) a.push("sum:" + m[1]);
+      else if (u.endsWith("/players/nfl")) a.push("players");
+      else if (/\/stats\/nfl\//.test(u)) a.push("stats:" + u.split("/").slice(-3).join("/"));
+      else if (/\/projections\/nfl\//.test(u)) a.push("proj");
+      else if (u.endsWith("/state/nfl")) a.push("state");
+    });
+    return a;
+  };
+  const fdN = (a, pfx) => a.filter((k) => k === pfx || k.startsWith(pfx + ":")).length;
+  const fdTicks = (page, n) => page.waitForFunction((n) => { const D = window.__GFFL__.D; return D.S.tickN >= n && !D.S.tickBusy; }, { timeout: 15000 }, n);
+  const fdAbbrevs = ["DAL", "PHI", "KC", "DEN", "SF", "SEA"];
+
+  // FD1 · a game that has not kicked off is never fetched; one that flips to "in" is, on that tick.
+  if (section("FD1 · feeds — no summary request for a pre game")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    fixture.pregame = true; fixture.pregameState = "pre";
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await stopPolling(page);
+    await page.evaluate((ab) => { const D = window.__GFFL__.D; D.trackTeams(ab); D.S.fetchedFinal = new Set(); }, fdAbbrevs);
+    log.length = 0;
+    // Slate: 401900001 DAL/PHI "in", 401900002 KC/DEN "pre", 401900777 SF/SEA "pre". 3 full ticks.
+    for (let i = 0; i < 3; i++) await poll(page);
+    ok(fdN(log, "sum:401900001") === 3, "the live game is fetched on every full tick: 3 ticks x 1 = 3 (" + fdN(log, "sum:401900001") + ")");
+    ok(fdN(log, "sum:401900002") === 0 && fdN(log, "sum:401900777") === 0,
+      "…and the two games still pre get NO summary request: 0 + 0 (" + fdN(log, "sum:401900002") + " + " + fdN(log, "sum:401900777") + ")");
+    ok(fdN(log, "sum") === 3, "…so 3 ticks cost exactly 3 summary requests, not the 9 they used to (" + fdN(log, "sum") + ")");
+    fixture.pregameState = "in";
+    log.length = 0;
+    await poll(page);
+    ok(fdN(log, "sum:401900777") === 1, "SF/SEA flips to in: its summary is read on that very tick (1) (" + fdN(log, "sum:401900777") + ")");
+    fixture.pregameState = "post";
+    log.length = 0;
+    await poll(page); await poll(page);
+    ok(fdN(log, "sum:401900777") === 1, "…and once it is final its box is read exactly once more, then never again: 2 ticks = 1 (" + fdN(log, "sum:401900777") + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.pregame = false; fixture.pregameState = "pre";
+  }
+
+  // FD2 · D.tickPlan — the idle cadence, hand-computed against a pinned league clock.
+  if (section("FD2 · feeds — idle tick plan (cadence + Sleeper skip)")) {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await stopPolling(page);
+    const plans = await page.evaluate(() => {
+      const { D, LG } = window.__GFFL__;
+      const T0 = Date.UTC(2026, 8, 13, 12, 0, 0);
+      LG.nowOverride = T0;
+      const MIN = 60000;
+      const iso = (m) => new Date(T0 + m * MIN).toISOString();
+      const run = (games, extra) => {
+        D.S.games = new Map(games.map((g, i) => [g.ab || ("T" + i), { eventId: g.id || ("e" + i), state: g.state, kickoff: g.k == null ? "" : iso(g.k) }]));
+        D.S.tracked = new Set(games.filter((g) => g.tr).map((g) => g.ab));
+        D.S.fetchedFinal = new Set(games.filter((g) => g.fin).map((g) => g.id));
+        D.S.lastLiveAt = (extra && extra.lastLive) || 0;
+        const p = D.tickPlan(); return p.mode + "/" + p.delay + "/" + p.sleeper;
+      };
+      const pre = (k) => ({ state: "pre", k });
+      const out = {
+        k10: run([pre(10)]), k15: run([pre(15)]), k16: run([pre(16)]), k17: run([pre(17)]), k30: run([pre(30)]),
+        k10h: run([pre(600)]), two: run([pre(40), pre(18)]),
+        post: run([pre(30), { state: "post", k: -300, ab: "NYG", id: "g1" }]),
+        postTrackedUnread: run([pre(30), { state: "post", k: -300, ab: "KC", id: "g1", tr: true }]),
+        postTrackedRead: run([pre(30), { state: "post", k: -300, ab: "KC", id: "g1", tr: true, fin: true }]),
+        live: run([{ state: "in", k: -60 }, pre(30)]),
+        due: run([pre(-60)]), postponed: run([pre(-240)]), none: run([]),
+      };
+      const now = Date.now();
+      out.settle10 = run([pre(30)], { lastLive: now - 10 * MIN });
+      out.settle25 = run([pre(30)], { lastLive: now - 25 * MIN });
+      LG.nowOverride = null;
+      return out;
+    });
+    // delay = clamp(minutes-to-next-kickoff - 15, 1 min, 5 min); "normal" = 60 s full tick.
+    ok(plans.k10 === "normal/60000/true", "kickoff in 10 min: normal 60 s full tick (" + plans.k10 + ")");
+    ok(plans.k15 === "normal/60000/true", "kickoff in exactly 15 min: still normal (" + plans.k15 + ")");
+    ok(plans.k16 === "idle/60000/false", "kickoff in 16 min: idle, but the next tick lands at kickoff-15 = 1 min, no stats (" + plans.k16 + ")");
+    ok(plans.k17 === "idle/120000/false", "kickoff in 17 min: next tick in 17-15 = 2 min (" + plans.k17 + ")");
+    ok(plans.k30 === "idle/300000/false", "kickoff in 30 min: 30-15 = 15 min, capped at the 5 min idle tick (" + plans.k30 + ")");
+    ok(plans.k10h === "idle/300000/false", "kickoff in 10 hours: 5 min tick (" + plans.k10h + ")");
+    ok(plans.two === "idle/180000/false", "two pre games +40 and +18 min: the nearer one rules, 18-15 = 3 min (" + plans.two + ")");
+    ok(plans.post === "idle/300000/true", "a final game on the slate keeps Sleeper stats in (post-final correction path), at the 5 min cadence (" + plans.post + ")");
+    ok(plans.postTrackedUnread === "normal/60000/true", "a tracked final whose box has not been read yet holds the 60 s cadence (" + plans.postTrackedUnread + ")");
+    ok(plans.postTrackedRead === "idle/300000/true", "…and backs off once that box is read (" + plans.postTrackedRead + ")");
+    ok(plans.live === "live/8000/true", "a game in progress: live, 8 s (" + plans.live + ")");
+    ok(plans.due === "normal/60000/true", "a pre game whose kickoff was 60 min ago (feed lag) reads as due: normal (" + plans.due + ")");
+    ok(plans.postponed === "idle/300000/false", "a pre game 4 h past kickoff (postponed) neither pins the loop nor reads as due (" + plans.postponed + ")");
+    ok(plans.none === "idle/300000/false", "an empty slate: idle (" + plans.none + ")");
+    ok(plans.settle10 === "normal/60000/true", "a game ended 10 min ago: inside the 20 min settle window, normal (" + plans.settle10 + ")");
+    ok(plans.settle25 === "idle/300000/false", "…25 min ago: settled, idle (" + plans.settle25 + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // FD3 · the real loop: idle ticks skip Sleeper stats and back off; foreground resumes.
+  if (section("FD3 · feeds — the loop backs off when idle and resumes on wake")) {
+    fixture.feedsSlate = [{ id: "401900901", home: "KC", away: "DEN", state: "pre", date: KICK_FUTURE }];
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await fdTicks(page, 1);
+    ok(fdN(log, "stats") === 1 && fdN(log, "sb") >= 1, "tick 0 is always a full tick: one Sleeper stats fetch at boot (" + fdN(log, "stats") + ")");
+    const base = { sb: fdN(log, "sb"), stats: fdN(log, "stats") };
+    const delay0 = await page.evaluate(() => window.__GFFL__.D.S.lastDelay);
+    ok(delay0 === 300000, "all games pre and kickoff months away: the next tick is armed 5 min out = 300000 ms (" + delay0 + ")");
+    for (let i = 2; i <= 4; i++) {
+      await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+      await fdTicks(page, i);
+    }
+    ok(fdN(log, "sb") - base.sb === 3, "3 more idle ticks fetch the scoreboard each time: +3 (" + (fdN(log, "sb") - base.sb) + ")");
+    ok(fdN(log, "stats") - base.stats === 0, "…and ZERO Sleeper stats requests (" + (fdN(log, "stats") - base.stats) + ")");
+    ok(fdN(log, "sum") === 0, "…and no ESPN summaries at all (" + fdN(log, "sum") + ")");
+    await page.evaluate(() => { window.__GFFL__.D.S.wakeAt = 0; });
+    const woke = await page.evaluate(() => window.__GFFL__.D.wake());
+    await fdTicks(page, 5);
+    ok(woke === true && fdN(log, "stats") - base.stats === 1, "foreground (wake) runs a FULL tick at once: +1 stats request (" + (fdN(log, "stats") - base.stats) + ")");
+    // A final game on the slate (neither team in this league) keeps stats flowing at the idle cadence.
+    fixture.feedsSlate = [{ id: "401900901", home: "KC", away: "DEN", state: "pre", date: KICK_FUTURE },
+      { id: "401900902", home: "NYG", away: "NE", state: "post", date: "2026-09-13T17:00Z" }];
+    const b2 = fdN(log, "stats");
+    // The plan for a tick is read from the games the PREVIOUS tick left behind, so the first tick
+    // after the slate changes still skips Sleeper (it saw all-pre) and the second one reads it.
+    await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+    await fdTicks(page, 6);
+    ok(fdN(log, "stats") - b2 === 0, "the tick that first SEES a final game still ran on the old all-pre plan: +0 stats (" + (fdN(log, "stats") - b2) + ")");
+    await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+    await fdTicks(page, 7);
+    const d2 = await page.evaluate(() => window.__GFFL__.D.S.lastDelay);
+    ok(fdN(log, "stats") - b2 === 1 && fdN(log, "sum") === 0 && d2 === 300000,
+      "once a game is final, an idle tick still reads Sleeper stats (corrections) and stays at 300000 ms: +1 stats, 0 summaries (" + (fdN(log, "stats") - b2) + ", " + fdN(log, "sum") + ", " + d2 + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.feedsSlate = null;
+  }
+
+  // FD4 · the Sleeper directory: deferred, cached slim in IndexedDB, refreshed off the tick.
+  if (section("FD4 · feeds — players directory: deferred, slim IndexedDB cache, never awaited by the tick")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.playersDelayMs = 0;
+    const nDir = Object.values(slpDirectoryFix()).filter((p) => p && typeof p === "object").length;
+    // ---- cold boot (nothing cached)
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await waitFnOr(page, () => window.__GFFL__.D.S.slpPlayers && window.__GFFL__.D.S.slpPlayers.size > 0, 9000);
+    const iP = log.indexOf("players"), iS = log.indexOf("sb"), iJ = log.indexOf("proj");
+    ok(fdN(log, "players") === 1, "cold boot fetches the directory once (" + fdN(log, "players") + ")");
+    ok(iS >= 0 && iJ >= 0 && iP > iS && iP > iJ, "…and only AFTER the first scoreboard and the projections were requested (order idx sb " + iS + ", proj " + iJ + ", players " + iP + ")");
+    await sleep(400);
+    const rec = await page.evaluate(async () => { const r = await window.__GFFL__.D.dirCacheLoad(); return r ? { n: r.metas.length, at: r.at, keys: Object.keys(r.metas[0]).sort().join(",") } : null; });
+    ok(rec && rec.n === nDir, "the slim copy is in IndexedDB: " + nDir + " entries, one per directory player (" + (rec && rec.n) + ")");
+    ok(rec && rec.keys === "depth,depthPos,espn_id,injury,injuryCarried,name,nflStatus,pid,pos,searchRank,team",
+      "…holding only the 11 fields the app reads, not the raw dump (" + (rec && rec.keys) + ")");
+    ok(rec && Math.abs(Date.now() - rec.at) < 120000, "…stamped with the wall-clock time it was taken");
+    const sizeCold = await page.evaluate(() => window.__GFFL__.D.S.slpPlayers.size);
+
+    // ---- second boot, same browser profile: cache used, nothing downloaded
+    log.length = 0;
+    await page.reload({ waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.slpPlayers, { timeout: 9000 });
+    await fdTicks(page, 1);
+    await sleep(500);
+    const b = await page.evaluate(() => { const D = window.__GFFL__.D; return { size: D.S.slpPlayers.size, fromCache: D.S.dirFromCache === true, gen: D.S.injDirGen, ready: !!D.S.slpByEspn.size }; });
+    ok(fdN(log, "players") === 0, "second boot (copy under an hour old): 0 downloads of /players/nfl (" + fdN(log, "players") + ")");
+    ok(b.fromCache && b.size === sizeCold && b.ready && b.gen === 1, "…the directory came from the cache with identical content: " + sizeCold + " players, generation 1 (" + JSON.stringify(b) + ")");
+
+    // ---- stale copy (2 h old, one man marked Out): used immediately, then refreshed in the background
+    await page.evaluate(async () => {
+      const D = window.__GFFL__.D; const r = await D.dirCacheLoad();
+      const m = r.metas.find((x) => x.pos === "RB"); m.injury = "Out"; m.injuryCarried = true; window.__fdPid = m.pid;
+      await D.dirCacheSave(r.metas, Date.now() - 2 * 3600000);
+    });
+    const pid = await page.evaluate(() => window.__fdPid);
+    log.length = 0;
+    await page.reload({ waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.slpPlayers, { timeout: 9000 });
+    await page.waitForFunction(() => window.__GFFL__.D.S.injDirGen >= 2, { timeout: 9000 });
+    const st = await page.evaluate((pid) => { const D = window.__GFFL__.D; return { inj: D.S.slpPlayers.get(pid).injury, gen: D.S.injDirGen, age: Date.now() - D.S.injDirAt }; }, pid);
+    ok(fdN(log, "players") === 1 && log.indexOf("players") > log.indexOf("sb"),
+      "a 2 h old copy is refreshed once, after the first scoreboard request (players x" + fdN(log, "players") + ", idx " + log.indexOf("players") + " vs sb " + log.indexOf("sb") + ")");
+    ok(st.inj === "" && st.gen === 2 && st.age < 120000, "…and the fresh dump replaced the stale Out: injury \"\", generation 2, copy age < 2 min (" + JSON.stringify(st) + ")");
+
+    // ---- the tick never waits for the refresh
+    await stopPolling(page);
+    fixture.playersDelayMs = 4000;
+    log.length = 0;
+    const tk = await page.evaluate(async () => {
+      const D = window.__GFFL__.D; D.S.injDirRefreshedAt = 0;
+      const t0 = performance.now(); await D.pollOnce(); const ms = performance.now() - t0;
+      const inFlight = D.S.injDirInFlight === true;
+      await D.pollOnce(); // a second tick while the first download is still stalled
+      return { ms: Math.round(ms), inFlight };
+    });
+    ok(tk.ms < 2000 && tk.inFlight, "an hourly-due refresh with a 4 s stall does not hold the tick: pollOnce returned in " + tk.ms + " ms (< 2000) with the download still in flight");
+    ok(fdN(log, "players") === 1, "…and a second tick does not stack a second download (" + fdN(log, "players") + ")");
+    await page.waitForFunction(() => !window.__GFFL__.D.S.injDirInFlight, { timeout: 9000 });
+    fixture.playersDelayMs = 0;
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+
+    // ---- cold boot on a slow link: the scoreboard is on the board long before the directory lands
+    const cold = await newTestPage(browser, fullSeed());
+    fixture.playersDelayMs = 3000;
+    const t0c = Date.now(); // not bootPage: its networkidle0 would wait out the stalled download itself
+    await cold.page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+    await cold.page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.games.size > 0, { timeout: 9000 });
+    const gamesAt = Date.now() - t0c;
+    const dirThen = await cold.page.evaluate(() => !!window.__GFFL__.D.S.slpPlayers);
+    ok(gamesAt < 2500 && dirThen === false,
+      "first launch, directory stalled 3 s: the scoreboard slate is in memory without it (" + gamesAt + " ms after navigation, directory present " + dirThen + ")");
+    await cold.page.waitForFunction(() => window.__GFFL__.D.S.slpPlayers, { timeout: 9000 });
+    fixture.playersDelayMs = 0;
+    await cold.ctx.close();
+
+    // ---- no IndexedDB at all: the cold path still works
+    const p2 = await newTestPage(browser, fullSeed());
+    await p2.page.evaluateOnNewDocument(() => { try { Object.defineProperty(window, "indexedDB", { value: undefined, configurable: true }); } catch (e) {} });
+    const log2 = fdLog(p2.page);
+    await bootPage(p2.page);
+    await waitFnOr(p2.page, () => window.__GFFL__.D.S.slpPlayers && window.__GFFL__.D.S.slpPlayers.size > 0, 9000);
+    ok(fdN(log2, "players") === 1 && (await p2.page.evaluate(() => window.__GFFL__.D.S.slpPlayers.size)) === nDir,
+      "with IndexedDB unavailable the directory still loads from the network (" + nDir + " players)");
+    ok(p2.errors.length === 0, "0 page errors without IndexedDB");
+    await p2.ctx.close();
+  }
+
+  // FD5 · D.weekStats: the just-finished weeks expire, older weeks do not.
+  if (section("FD5 · feeds — weekStats TTL on the recent weeks only")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const log = fdLog(page);
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await stopPolling(page);
+    log.length = 0;
+    const r = await page.evaluate(async () => {
+      const { D, LG } = window.__GFFL__;
+      const H = 3600000, o = { season: String(LG.SEASON), seasonType: "regular" };
+      LG.nowOverride = LG.weekStart(4) + H; // league week 4: weeks 3 and 4 are "recent", 1 and 2 are not
+      const key = (w) => o.season + "|regular|" + w;
+      D._weekStatsCache.clear(); // boot may already have cached a week under the week-1 clock
+      for (const w of [1, 3]) await D.weekStats(w, o);
+      const at = {}; for (const w of [1, 3]) at[w] = D._weekStatsCache.get(key(w)).at;
+      for (const w of [1, 3]) await D.weekStats(w, o); // inside the TTL: no fetch
+      for (const w of [1, 3]) D._weekStatsCache.get(key(w)).at -= 7 * H; // 7 h old, TTL is 6 h
+      const m1 = await D.weekStats(1, o), m3 = await D.weekStats(3, o);
+      const out = { ttl: D.WEEK_STATS_TTL_MS, w1Same: D._weekStatsCache.get(key(1)).at === at[1] - 7 * H, w3Fresh: D._weekStatsCache.get(key(3)).at > at[3],
+        got: !!m1 && !!m3 };
+      // a failed re-fetch of an expired recent week keeps the old numbers (stale beats nothing)
+      D._weekStatsCache.get(key(3)).at -= 7 * H;
+      return out;
+    });
+    fixture.sleeperDown = true;
+    const kept = await page.evaluate(async () => {
+      const { D, LG } = window.__GFFL__;
+      const m = await D.weekStats(3, { season: String(LG.SEASON), seasonType: "regular" });
+      return !!m && m.size > 0;
+    });
+    fixture.sleeperDown = false;
+    ok(r.ttl === 6 * 3600000, "the TTL is 6 h of wall clock (" + r.ttl + ")");
+    ok(fdN(log, "stats:regular/2026/3") === 3, "week 3 (recent): fetched at first use, NOT inside the TTL, then again once 7 h old, then a 3rd time for the failure case = 3 (" + fdN(log, "stats:regular/2026/3") + ")");
+    ok(fdN(log, "stats:regular/2026/1") === 1 && r.w1Same, "week 1 (older than last week): fetched once and kept for the session even when 7 h old = 1 (" + fdN(log, "stats:regular/2026/1") + ")");
+    ok(r.w3Fresh && r.got, "…and the re-fetched recent week got a new timestamp and still resolves a map");
+    ok(kept === true, "a failed re-fetch of an expired recent week still returns the old map, not null");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // FDM · MEASURE run, not a check: GFFL_FEEDS_REAL=<dir> serves real-size Sleeper bodies through a
+  // modelled 1.5 MB/s FIFO link (see fdLink) and prints first-scoreboard time and idle bytes/min.
+  // Prints "MEASURE ..." lines only; it asserts nothing, so it can never turn the suite red.
+  if (process.env.GFFL_FEEDS_REAL && section("FDM · feeds — measurement (needs GFFL_FEEDS_REAL)")) {
+    fixture.realFeeds = process.env.GFFL_FEEDS_REAL;
+    const m = (k, v) => console.log("  MEASURE " + k + " " + v);
+    const first = (kind) => { const e = fdWire.log.find((x) => x.kind === kind); return e ? e.t : -1; };
+    const resetWire = () => { fdWire.log = []; fdWire.free = 0; fdWire.t0 = Date.now(); };
+    // ---- A: first launch (nothing cached), then B: second launch in the same profile
+    fixture.feedsSlate = [{ id: "401900901", home: "KC", away: "DEN", state: "pre", date: KICK_FUTURE },
+      { id: "401900902", home: "DAL", away: "PHI", state: "pre", date: KICK_FUTURE },
+      { id: "401900903", home: "SF", away: "SEA", state: "pre", date: KICK_FUTURE }];
+    const { ctx, page } = await newTestPage(browser, fullSeed());
+    resetWire();
+    await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.games.size > 0 && window.__GFFL__.D.S.slpProj, { timeout: 120000 });
+    await sleep(500);
+    const lastCold = () => fdWire.log.reduce((a, x) => Math.max(a, x.t), 0);
+    m("cold.firstScoreboardMs", first("scoreboard"));
+    m("cold.projectionsMs", first("proj"));
+    await page.waitForFunction(() => window.__GFFL__.D.S.slpPlayers, { timeout: 120000 });
+    await sleep(500);
+    m("cold.playersDoneMs", first("players"));
+    m("cold.wireBytes", fdWire.log.reduce((a, x) => a + x.wire, 0));
+    await sleep(1500);
+    resetWire();
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.D.S.games.size > 0 && window.__GFFL__.D.S.slpProj, { timeout: 120000 });
+    await sleep(500);
+    m("warm.firstScoreboardMs", first("scoreboard"));
+    m("warm.projectionsMs", first("proj"));
+    await page.waitForFunction(() => window.__GFFL__.D.S.tickN >= 1 && !window.__GFFL__.D.S.tickBusy, { timeout: 120000 });
+    await sleep(1500);
+    m("warm.playersRequests", fdWire.log.filter((x) => x.kind === "players").length);
+    m("warm.wireBytes", fdWire.log.reduce((a, x) => a + x.wire, 0));
+    // ---- C: idle, 10 ticks, per-minute cost = bytes / (sum of the delays the loop actually armed)
+    resetWire();
+    let minutes = 0;
+    await page.evaluate(() => { window.__GFFL__.D.S.tracked = new Set(["KC", "DEN", "DAL", "PHI", "SF", "SEA"]); });
+    for (let i = 0; i < 10; i++) {
+      const n0 = await page.evaluate(() => window.__GFFL__.D.S.tickN);
+      await page.evaluate(() => { const D = window.__GFFL__.D; clearTimeout(D.S.timer); D.S.loopFn(); });
+      await page.waitForFunction((n) => { const D = window.__GFFL__.D; return D.S.tickN > n && !D.S.tickBusy; }, { timeout: 120000 }, n0);
+      const d = await page.evaluate(() => window.__GFFL__.D.S.lastDelay);
+      minutes += (d || 60000) / 60000; // old code has no lastDelay: its idle tick is a fixed 60 s
+    }
+    const wire = fdWire.log.reduce((a, x) => a + x.wire, 0);
+    const cnt = (k) => fdWire.log.filter((x) => x.kind === k).length;
+    m("idle.ticks", 10); m("idle.minutesCovered", minutes);
+    m("idle.requests", JSON.stringify({ scoreboard: cnt("scoreboard"), stats: cnt("stats"), summary: cnt("summary") }));
+    m("idle.wireKBperMin", Math.round(wire / 1024 / minutes));
+    m("idle.requestsPerMin", (fdWire.log.length / minutes).toFixed(2));
+    await ctx.close();
+    fixture.realFeeds = null; fixture.feedsSlate = null;
   }
 
   await browser.close();
