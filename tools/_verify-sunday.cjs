@@ -2752,6 +2752,249 @@ async function main() {
       MOCK = null;
     }
 
+    /* ===================== (r) RedZone ===================== */
+    // 2026-10-04, user: 'lets add a "Redzone" card to the GFFL scores page thats always at the top
+    // right, and rather than follow one game it flashes between games similar to the way redzone does,
+    // showing plays as they happen and leaning towards games in the rezone, and instead of single game
+    // stats below its a total feed of all fantasy activity for the league'. Data: the real scoreboard,
+    // polled every ~15 s on 2026-10-04 (rz-sb-20261004.json), and the real core-API plays of two of
+    // those games (rz-core-20261004.json). Every number below is hand-computed at its check.
+    section("RedZone: the card, the director, the league feed");
+    {
+      const rzFix = JSON.parse(fs.readFileSync(path.join(FIX, "rz-sb-20261004.json"), "utf8"));
+      const coreFix = JSON.parse(fs.readFileSync(path.join(FIX, "rz-core-20261004.json"), "utf8"));
+      const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+      const miss = { status: 404, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: "{}" };
+      let snapI = 0;
+      MOCK = (u) => {
+        if (/site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u)) return json(JSON.stringify(rzFix.snaps[snapI].sb));
+        const core = u.match(/sports\.core\.api\.espn\.com.*\/events\/(\d+)\/competitions\/\d+\/plays/);
+        if (core) return coreFix.games[core[1]] ? json(JSON.stringify(coreFix.games[core[1]])) : miss;
+        if (/site\.api\.espn\.com/.test(u)) return miss;   // summaries: not served, the card doesn't read them
+        return null;
+      };
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const probe = (fn, arg) => page.evaluate(fn, arg).catch((e) => ({ err: e.message.split("\n")[0] }));
+      const liveN = rzFix.snaps[0].sb.events.filter((e) => e.status.type.state === "in").length;   // 8 on the recording
+      await page.setViewport({ width: 1440, height: 900 });
+      await page.goto(BASE + "/sunday.html#g401872973", { waitUntil: "domcontentloaded" });
+      let up = true;
+      try { await page.waitForFunction(() => G && S.loaded && document.querySelector("#redzone .rzn-stage, #redzone .rzn-idle"), { timeout: 15000 }); } catch { up = false; }
+      await wait(300);
+      const geo = await probe(() => {
+        const rz = document.getElementById("redzone"), side = document.querySelector(".gv-side"), main = document.querySelector(".gv-main"), h = document.querySelector(".gv-side-h");
+        const r = rz.getBoundingClientRect(), m = main.getBoundingClientRect();
+        return { shown: rz.offsetParent !== null, first: side.firstElementChild === rz, left: Math.round(r.left), mainRight: Math.round(m.right), top: Math.round(r.top), right: Math.round(r.right), vw: innerWidth, hTop: Math.round(h.getBoundingClientRect().top),
+          chs: rz.querySelectorAll(".rzn-ch").length, n: document.getElementById("rzn-n")?.textContent, stage: !!rz.querySelector(".rzn-stage"), cut: document.getElementById("rzn-screen")?.classList.contains("cut"),
+          logo: rz.querySelector(".rzn-logo")?.textContent.replace(/\s+/g, "") };
+      });
+      // The detail column ends where the sidebar begins (+28px gap); the sidebar starts under GFFL's
+      // 46 + 34 = 80px header, and its padding is 14px, so the card's top is 80 + 14 = 94px.
+      ok(up && geo.shown && geo.first && geo.left > geo.mainRight && geo.right <= geo.vw && geo.top === 94 && geo.top < geo.hTop,
+        `desktop: the RedZone card is the first thing in the right-hand sidebar, at the top (top ${geo.top}px = 80 + 14; left ${geo.left} > detail's right ${geo.mainRight}; above the Scores list at ${geo.hTop})`);
+      ok(geo.logo === "RedZone" && geo.chs === liveN && geo.n === `${liveN} live` && geo.stage, `it shows a game, with one channel per live game (${geo.chs} of ${liveN}) and "${geo.n}"`);
+      ok(geo.cut === false, `arriving on the page is not a cut: no wipe on the first paint (${geo.cut})`);
+      // The scoreboard poll is how soon the card hears of a play: 5 s while the card is up and games are live.
+      const pace = await probe(async () => { const got = []; const keep = boardPoller.onSchedule; boardPoller.onSchedule = (ms, ok) => { got.push(ms); keep(ms, ok); }; boardPoller.now(); await new Promise((r) => setTimeout(r, 600)); boardPoller.onSchedule = keep; return got; });
+      ok(Array.isArray(pace) && pace.includes(5000), `with the card up and games live, the scoreboard is polled every 5 s (${JSON.stringify(pace)}; 15 s otherwise)`);
+
+      // ── the director, on the real polls. Each poll is ingested at its own recorded time.
+      const real = await probe((snaps) => {
+        if (typeof rzOnBoard !== "function") return { err: "no rzOnBoard" };
+        RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.cur = null;
+        const out = [];
+        for (const s of snaps) {
+          const evs = s.sb.events.map(normEvent);
+          S.events = evs; S.byId = new Map(evs.map((e) => [e.id, e]));
+          const t = Date.parse(s.at);
+          rzOnBoard(evs, t);
+          const c = RZ.cur, ev = c && S.byId.get(c.gid);
+          out.push({ at: s.at.slice(11, 19), pending: RZ.pending.size, gid: c?.gid, kind: c?.kind, play: c?.play?.id != null ? String(c.play.id) : null, moment: ev ? rzMoment(ev, c) : null });
+        }
+        return out;
+      }, rzFix.snaps);
+      const R = Array.isArray(real) ? real : [];
+      ok(R[0] && R[0].pending === 0 && R[0].gid, `the first poll is only a baseline: nothing is news yet, and the card sits on a live game (${JSON.stringify(R[0])})`);
+      // 17:20:16 — DAL @ HOU goes 7 to 10 while its last play already reads "Official Timeout": the
+      // rise of 3 is the field goal, and the card goes there.
+      ok(R[1] && R[1].gid === "401872967" && R[1].kind === "score" && R[1].moment === "Field goal",
+        `a field goal that lands between two polls (the last play already a timeout) is still a score: the card cuts to DAL @ HOU on "Field goal" (${JSON.stringify(R[1])})`);
+      // 17:21:05 — TEN @ BAL: Pollard's 3-yard touchdown (play 401872973543) as the last play.
+      ok(R[4] && R[4].gid === "401872973" && R[4].kind === "score" && R[4].play === "401872973543" && /^Touchdown/.test(R[4].moment || ""),
+        `a red-zone touchdown takes the card from the field goal 49 s after it (${JSON.stringify(R[4])})`);
+      // 17:21:20 — 15 s on, the TD's 14 s hold has run, but BAL's situation still reads red zone, so
+      // the touchdown holds against the ordinary plays elsewhere.
+      ok(R[5] && R[5].gid === "401872973" && R[5].play === "401872973543", `15 s later the touchdown is still up: the red zone holds it against ordinary plays elsewhere (${JSON.stringify(R[5])})`);
+      // 17:21:36 — the try ("Extra Point Good", odd id -427760) arrives 31 s after the TD, and the
+      // situation no longer reads red zone. The try is never what the card shows; a new play
+      // elsewhere takes the card instead (the TD's hold is over and nothing holds TEN @ BAL now).
+      ok(R.length === 8 && R.every((r) => r.play !== "-427760") && R[6].gid !== "401872973" && R[6].kind === "play",
+        `the extra point never replaces the touchdown on the card; once the drive is over, the next play elsewhere takes it (${JSON.stringify(R[6])})`);
+
+      // ── the director's rules, on hand-built situations (real games from the recording, their
+      // situation set by hand). t0 is arbitrary; every step is t0 + seconds.
+      const rules = await probe((sb) => {
+        if (typeof rzOnBoard !== "function") return { err: "no rzOnBoard" };
+        const base = sb.events.map(normEvent).filter((e) => e.state === "in");
+        const [A, B, C] = base.map((e) => structuredClone(e));
+        const reset = () => { RZ.seen.clear(); RZ.totals.clear(); RZ.pending.clear(); RZ.shown.clear(); RZ.cur = null; };
+        const setEvs = (evs) => { S.events = evs; S.byId = new Map(evs.map((e) => [e.id, e])); };
+        const sit = (ev, o) => { ev.sit = { ...(ev.sit || {}), ...o }; ev.name = "STATUS_IN_PROGRESS"; ev.period = 2; ev.detail = "5:00 - 2nd"; return ev; };
+        let n = 0;
+        const play = (ev, type, extra = {}) => { ev.sit = { ...ev.sit, lastPlay: { id: ev.id + "9" + String(++n).padStart(3, "0"), type: { text: type }, text: type + " play", scoreValue: 0, statYardage: 4, team: { id: ev.home.id }, ...extra } }; return ev; };
+        const t0 = 1e12, s = (x) => t0 + x * 1000;
+        const out = {};
+        const start = (rzA) => { reset(); for (const e of [A, B, C]) { sit(e, { isRedZone: false, down: 1, distance: 10, yardLine: 50, possession: e.home.id }); play(e, "Rush"); } if (rzA) sit(A, { isRedZone: true, yardLine: 85 }); setEvs([A, B, C]); rzOnBoard([A, B, C], s(-60)); rzCut(A.id, null, s(0)); };
+        // T1 · a play elsewhere waits until the one on screen has had 7 s
+        start(false);
+        play(B, "Pass Reception"); rzOnBoard([A, B, C], s(3));
+        out.t1a = RZ.cur.gid === A.id && RZ.pending.has(B.id);
+        rzTick(s(7)); out.t1b = RZ.cur.gid === B.id && !RZ.pending.has(B.id);
+        // T2 · a game in the red zone holds against an ordinary play, not against a score
+        start(true);
+        play(B, "Rush"); rzOnBoard([A, B, C], s(10)); rzTick(s(25));
+        out.t2a = RZ.cur.gid === A.id;
+        B.home.score = (B.home.score || 0) + 7; play(B, "Passing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(26));
+        out.t2b = RZ.cur.gid === B.id && RZ.cur.kind === "score";
+        // T3 · red zone against red zone: the newcomer gets it once the game on screen has had 20 s
+        start(true);
+        sit(B, { isRedZone: true, yardLine: 88 }); play(B, "Rush"); rzOnBoard([A, B, C], s(10));
+        out.t3a = RZ.cur.gid === A.id;
+        rzTick(s(20)); out.t3b = RZ.cur.gid === B.id;
+        // T4 · a score holds the card 14 s, even against another score
+        start(false);
+        A.home.score = (A.home.score || 0) + 3; play(A, "Field Goal Good", { scoreValue: 3 }); rzOnBoard([A, B, C], s(1));
+        out.t4k = RZ.cur.gid === A.id && RZ.cur.kind === "score";
+        C.away.score = (C.away.score || 0) + 7; play(C, "Rushing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(9));
+        out.t4a = RZ.cur.gid === A.id;
+        rzTick(s(15)); out.t4b = RZ.cur.gid === C.id;
+        // T5 · nothing new anywhere for 30 s: on to the next game, and a game in the red zone first
+        start(false);
+        sit(C, { isRedZone: true, yardLine: 90 }); setEvs([A, B, C]);
+        rzTick(s(29)); out.t5a = RZ.cur.gid === A.id;
+        rzTick(s(30)); out.t5b = RZ.cur.gid === C.id;
+        // T6 · ...but a quiet game inside the 20 keeps the card up to 90 s
+        start(true);
+        rzTick(s(31)); out.t6a = RZ.cur.gid === A.id;
+        rzTick(s(90)); out.t6b = RZ.cur.gid !== A.id;
+        // T7 · halftime: the card leaves at once
+        start(false);
+        A.name = "STATUS_HALFTIME"; rzTick(s(2)); out.t7 = RZ.cur.gid !== A.id;
+        // T8 · a touchdown then its extra point, both unseen: the touchdown is what's waiting
+        start(false);
+        B.home.score += 7; play(B, "Passing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(2));
+        play(B, "Extra Point Good", { scoreValue: 1 }); rzOnBoard([A, B, C], s(4));
+        out.t8 = RZ.pending.get(B.id)?.kind === "score";
+        // T8b · the game on screen scores, and its try shows up 31 s later: the touchdown stays up
+        start(false);
+        A.home.score += 7; play(A, "Passing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(1));
+        const tdId = RZ.cur.play.id;
+        A.home.score += 1; play(A, "Extra Point Good", { scoreValue: 1 }); rzOnBoard([A, B, C], s(32));
+        out.t8b = RZ.cur.gid === A.id && RZ.cur.play.id === tdId && RZ.cur.kind === "score";
+        // T9 · timeouts and quarter ends aren't news
+        start(false);
+        play(B, "Timeout"); rzOnBoard([A, B, C], s(9)); play(C, "End Period"); rzOnBoard([A, B, C], s(10));
+        out.t9 = RZ.pending.size === 0 && RZ.cur.gid === A.id;
+        // T10 · what a play is
+        const k = (type, o = {}, d = 0, rz = false) => rzClassify({ ...A, sit: { ...A.sit, isRedZone: rz } }, { id: "1", type: { text: type }, text: "", scoreValue: 0, statYardage: 3, ...o }, d);
+        out.t10 = [k("Official Timeout"), k("Official Timeout", {}, 3), k("Rushing Touchdown"), k("Extra Point Good", { scoreValue: 1 }, 1), k("Interception Return"), k("Pass Reception", { statYardage: 25 }), k("Rush", {}, 0, true), k("Rush")].join(",");
+        reset(); setEvs(sb.events.map(normEvent));
+        return out;
+      }, rzFix.snaps[0].sb);
+      const RU = rules || {};
+      ok(RU.t1a === true && RU.t1b === true, `a play in another game waits until the one on screen has had 7 s, then the card cuts to it (${RU.t1a}, ${RU.t1b})`);
+      ok(RU.t2a === true && RU.t2b === true, `a game in the red zone keeps the card against an ordinary play elsewhere (25 s on: ${RU.t2a}), not against a touchdown (${RU.t2b})`);
+      ok(RU.t3a === true && RU.t3b === true, `red zone against red zone: the other game takes the card once this one has had 20 s (at 10 s ${RU.t3a}, at 20 s ${RU.t3b})`);
+      ok(RU.t4k === true && RU.t4a === true && RU.t4b === true, `a score holds the card 14 s, even against a touchdown elsewhere at 9 s, which follows at 15 s (${RU.t4k}, ${RU.t4a}, ${RU.t4b})`);
+      ok(RU.t5a === true && RU.t5b === true, `with nothing new for 30 s the card moves on, to the game in the red zone (29 s ${RU.t5a}, 30 s ${RU.t5b})`);
+      ok(RU.t6a === true && RU.t6b === true, `a quiet game inside the 20 keeps the card past 30 s (${RU.t6a}) up to 90 s (${RU.t6b})`);
+      ok(RU.t7 === true, `a game that goes to halftime loses the card at once (${RU.t7})`);
+      ok(RU.t8 === true, `a touchdown and its extra point both unseen: the touchdown is what waits (${RU.t8})`);
+      ok(RU.t8b === true, `the touchdown on screen stays up when its try arrives 31 s later (${RU.t8b})`);
+      ok(RU.t9 === true, `timeouts and quarter ends are not news (${RU.t9})`);
+      ok(RU.t10 === "meta,score,score,pat,turnover,big,redzone,play", `play kinds: timeout, timeout +3 points, TD, try, INT, 25-yd catch, red-zone run, run (${RU.t10})`);
+
+      // ── a channel tapped: that game, held 14 s; the cut plays the wipe
+      const tap = await probe(() => {
+        rzRender();
+        const btn = [...document.querySelectorAll("#redzone .rzn-ch")].find((b) => !b.classList.contains("on"));
+        if (!btn) return { err: "no channel" };
+        const id = btn.dataset.rzGame; btn.click();
+        return { id, cur: RZ.cur?.gid, manual: RZ.cur?.manual, holdAll: rzHold(RZ.cur.since + 5000) === Infinity, holdEnds: rzHold(RZ.cur.since + 14000) !== Infinity, cut: document.getElementById("rzn-screen").classList.contains("cut"), on: document.querySelector("#redzone .rzn-ch.on")?.dataset.rzGame, href: document.querySelector("#redzone .rzn-stage")?.getAttribute("href") };
+      });
+      ok(!!tap.id && tap.cur === tap.id && tap.manual === true && tap.on === tap.id && tap.href === "#g" + tap.id,
+        `tapping a channel puts that game on the card and lights it (${JSON.stringify(tap)})`);
+      ok(tap.holdAll === true && tap.holdEnds === true, `…held against everything for 14 s, then not (5 s in ${tap.holdAll}, 14 s in released ${tap.holdEnds})`);
+      ok(tap.cut === true, `…and the cut plays the red wipe (${tap.cut})`);
+
+      // ── the league feed: the real core plays of TEN @ BAL and DAL @ HOU, a hand-made two-team league.
+      // Scoring: 0.1/rush yd, 6/rush TD, 1/rec, 0.1/rec yd, 6/rec TD, 0.04/pass yd, 4/pass TD, 1/XP,
+      // 3/FG under 40 + 0.1/FG yard. Team 1 starts Pollard (3916148), Collins (4258173), Aubrey
+      // (3953687); team 2 starts Henry (3043078), benches Stroud (4432577). Slye (3124084) is nobody's.
+      const feed = await probe(async () => {
+        if (typeof rzRenderFeed !== "function") return { err: "no feed" };
+        const sbEvs = S.events;
+        FF.setRules({ scoring: { rush_yd: 0.1, rush_td: 6, rec: 1, rec_yd: 0.1, rec_td: 6, pass_yd: 0.04, pass_td: 4, xp_made: 1, fg_0_39: 3, fg_made_yd: 0.1 } });
+        const teams = [{ teamId: 1, name: "Battle Kreussers", abbrev: "KREU", colors: { primary: "#c8102e" } }, { teamId: 2, name: "Laws Rule", abbrev: "LAWS", colors: { primary: "#1d6fd8" } }];
+        FF.setTeams(teams);
+        FF.rostersByTeamId = new Map([
+          [1, [{ key: "3916148", name: "Tony Pollard", pos: "RB", team: "TEN", slot: "RB" }, { key: "4258173", name: "Nico Collins", pos: "WR", team: "HOU", slot: "WR" }, { key: "3953687", name: "Brandon Aubrey", pos: "K", team: "DAL", slot: "K" }]],
+          [2, [{ key: "3043078", name: "Derrick Henry", pos: "RB", team: "BAL", slot: "RB" }, { key: "4432577", name: "C.J. Stroud", pos: "QB", team: "HOU", slot: "BENCH" }]],
+        ]);
+        FF.buildOwnerIndex(teams.map((t) => ({ id: t.teamId })), FF.rostersByTeamId);
+        FF.week = ffBoardWeek(); FF.myTeamId = 1; FF.myMatchup = { me: 1, opp: 2 };
+        FFUI.loaded = true; FFUI.err = null; FFUI.core.clear();
+        await ffFetchCore("401872973"); await ffFetchCore("401872967");
+        rzRenderFeed();
+        const rows = rzFeedRows();
+        // A chip's words without the crest's monogram (KREU, LAWS) and BN marker, which sit in .ff-own.
+        const chipText = (c) => { const k = c.cloneNode(true); k.querySelectorAll(".ff-own").forEach((x) => x.remove()); return k.textContent.replace(/\s+/g, " ").trim() + (c.classList.contains("bench") ? " [bench]" : ""); };
+        const dom = [...document.querySelectorAll("#rzn-feed .rzn-row")].map((a) => ({ href: a.getAttribute("href"), chips: [...a.querySelectorAll(".ffp")].map(chipText), time: a.querySelector(".rzn-rm").textContent.replace(/\s+/g, " ").trim() }));
+        const want = { "401872973543": null, "401872967519": null, "401872967250": null, "401872973224": null };
+        rows.forEach((r, i) => { if (r.pid in want) want[r.pid] = i; });
+        // The card on the TD: its chips are the play's own credits.
+        S.events = sbEvs; S.byId = new Map(sbEvs.map((e) => [e.id, e]));
+        const ten = S.byId.get("401872973");
+        RZ.cur = { gid: "401872973", play: { id: "401872973543", type: { text: "Rushing Touchdown" }, text: "T.Pollard right guard for 3 yards, TOUCHDOWN.", team: { id: ten.away.id } }, kind: "score", prio: 100, since: Date.now(), at: Date.now() };
+        rzRender();
+        const stageChips = [...document.querySelectorAll("#redzone .rzn-stage .ffp")].map(chipText);
+        // Stroud (bench) threw on several plays; only the TD to Collins (a starter) is a row.
+        const stroudPlays = [...(FF._playCredits.get("401872967") || new Map()).keys()].filter((pid) => FF.playCredits("401872967", pid).some((c) => c.key === "4432577")).length;
+        const benchOnly = rows.filter((r) => !r.cs.some((c) => c.starter)).length;
+        return { stroudPlays, benchOnly, n: rows.length, count: document.getElementById("rzn-fn")?.textContent, idx: want, times: rows.map((r) => r.t), dom, stageChips, metaN: FFUI.core.get("401872973")?.meta?.size };
+      });
+      const F = feed || {};
+      const rowOf = (pid) => (F.dom || [])[F.idx?.[pid]] || null;
+      const td = rowOf("401872973543"), fg = rowOf("401872967519"), rec = rowOf("401872967250"), hen = rowOf("401872973224");
+      ok(F.metaN === coreFix.games["401872973"].count, `each fetched play keeps when it happened (${F.metaN} of ${coreFix.games["401872973"].count} TEN @ BAL plays)`);
+      ok(td && td.chips.join("|") === "+6.3 T. Pollard" && td.href === "#g401872973",
+        `Pollard's 3-yard TD: 3 × 0.1 + 6 = +6.3 to his owner; Slye's extra point is on nobody's roster and isn't shown (${JSON.stringify(td)})`);
+      ok(fg && fg.chips.join("|") === "+6.9 B. Aubrey", `Aubrey's 39-yard field goal: 3 + 39 × 0.1 = +6.9 (${JSON.stringify(fg)})`);
+      ok(rec && rec.chips.join("|") === "+7.7 N. Collins|+4.3 C. Stroud [bench]",
+        `Stroud to Collins for 7 and a TD: Collins 1 + 0.7 + 6 = +7.7; Stroud 7 × 0.04 + 4 = 4.28, shown +4.3 and muted on the bench (${JSON.stringify(rec)})`);
+      ok(hen && hen.chips.join("|") === "+6.5 D. Henry", `Henry's 5-yard TD: 0.5 + 6 = +6.5 (${JSON.stringify(hen)})`);
+      const I = F.idx || {};
+      ok(I["401872973543"] < I["401872967519"] && I["401872967519"] < I["401872967250"] && I["401872967250"] < I["401872973224"],
+        `newest first across both games: Pollard 17:20:05, Aubrey 17:19:39, Collins 17:09:10, Henry 17:08:28 (rows ${JSON.stringify(I)})`);
+      ok(Array.isArray(F.times) && F.times.length > 4 && F.times.every((t, i) => i === 0 || t <= F.times[i - 1]) && F.count === `${F.n} plays` && F.dom.length === F.n,
+        `every row is a play that scored for a GFFL starter, by wallclock, newest first (${F.n} rows, "${F.count}")`);
+      ok(F.benchOnly === 0 && F.stroudPlays > 1, `a play that only moved a bench player is not on the feed (Stroud, benched, is on ${F.stroudPlays} plays; ${F.benchOnly} rows have no starter)`);
+      ok(Array.isArray(F.stageChips) && F.stageChips.join("|") === "+6.3 T. Pollard", `on the card, the play on screen carries its own fantasy credit (${JSON.stringify(F.stageChips)})`);
+
+      // ── phone and other weeks: no card
+      await page.setViewport({ width: 390, height: 844 });
+      await wait(200);
+      const off = await probe(() => ({ phone: document.getElementById("redzone")?.offsetParent === null, active: rzActive() }));
+      ok(off.phone === true && off.active === false, `on a phone there is no sidebar and no card (hidden ${off.phone}, active ${off.active})`);
+      await page.setViewport({ width: 1440, height: 900 });
+      await wait(200);
+      // (ESPN's own current week on the recording is week 4; any other week will do.)
+      const ow = await probe(() => { S.week = { st: S.cur.st, wk: S.cur.wk + 1 }; rzRender(); const h = document.getElementById("redzone").hidden && document.getElementById("redzone").offsetParent === null; S.week = null; rzRender(); return { h, back: document.getElementById("redzone").offsetParent !== null }; });
+      ok(ow.h === true && ow.back === true, `another week (no live games to follow) hides the card; this week brings it back (${JSON.stringify(ow)})`);
+      await page.setViewport({ width: 800, height: 600 });
+      MOCK = null;
+    }
+
     section("Console");
     ok(consoleErrors.length === 0, `no uncaught page errors${consoleErrors.length ? " (" + consoleErrors.slice(0, 3).join(" | ") + ")" : ""}`);
 

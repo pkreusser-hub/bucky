@@ -179,7 +179,7 @@ async function ffPollBoxes(fill) {
 // live play is often rewritten (a review, an added penalty) after it first appears.
 async function ffFetchCore(id) {
   let st = FFUI.core.get(id);
-  if (!st) { st = { busy: false, t: 0, n: 0, text: new Map() }; FFUI.core.set(id, st); }
+  if (!st) { st = { busy: false, t: 0, n: 0, text: new Map(), meta: new Map() }; FFUI.core.set(id, st); }
   if (st.busy || Date.now() - st.t < 8000) return;
   st.busy = true;
   try {
@@ -203,6 +203,9 @@ async function ffFetchCore(id) {
       const was = st.text.get(pid);
       if (was != null && was !== it.text) FF.forgetPlay(id, pid);
       st.text.set(pid, it.text);
+      // When and where in the game each play happened, for the RedZone card's league feed
+      // (sd-redzone.js), which lists plays from every game by the wallclock they were run at.
+      st.meta.set(pid, { t: Date.parse(it.wallclock) || 0, per: it.period?.number || null, clk: it.clock?.displayValue || '', text: it.text || '' });
     }
     st.n = Math.max(st.n, st.text.size);
     FF.ingestPlays(id, items);
