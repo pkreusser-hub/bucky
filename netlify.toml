@@ -21,6 +21,15 @@
 [functions."leaguecron"]
   schedule = "0 13,14 * * 3"
 
+# GFFL lineup warnings (netlify/functions/lineupwarn.mjs). Every 15 minutes across UTC 11:00-01:59,
+# which is Central 06:00-20:59 in CDT and 05:00-19:59 in CST — wide enough for both DST states
+# (2026-11-01) without hardcoding an offset. The handler itself picks kickoffs 75-105 minutes
+# away from ESPN's scoreboard (a window twice the cadence, so one skipped fire loses nothing) and
+# a Firestore marker makes the second tick inert, so DST only decides which ticks can matter, never
+# when a warning goes out. Most ticks stop after one scoreboard fetch.
+[functions."lineupwarn"]
+  schedule = "*/15 11-23,0,1 * * *"
+
 # Event reminders — fires every 5 minutes. The handler selects events whose start instant falls
 # in [55, 65) minutes from "now" (netlify/functions/eventreminders.mjs). The window is TWICE the
 # cadence on purpose: consecutive runs overlap, so each event is offered to two runs and a single

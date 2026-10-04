@@ -1,0 +1,4577 @@
+{
+ "_about": "Real GFFL data captured read-only 2026-10-04 ~12:13Z (Sunday of week 4): the 8 week-4 roster docs, the p_ fields of injstate_2026 for the rostered keys, and the ESPN week-4 scoreboard slimmed to the fields lineupwarn reads. Used by tools/_verify-lineupwarn.mjs. ESKY (team 2) started Terry McLaurin (OUT); KRUZ (team 11) started Jadarian Price (IR).",
+ "rosters": {
+  "roster_2026_w4_t1": {
+   "fields": {
+    "week": {
+     "integerValue": "4"
+    },
+    "teamId": {
+     "integerValue": "1"
+    },
+    "kind": {
+     "stringValue": "roster"
+    },
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "key": {
+           "stringValue": "4430807"
+          },
+          "team": {
+           "stringValue": "ATL"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Bijan Robinson"
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "PHI"
+          },
+          "key": {
+           "stringValue": "3929630"
+          },
+          "name": {
+           "stringValue": "Saquon Barkley"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4361307"
+          },
+          "slot": {
+           "stringValue": "TE"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "team": {
+           "stringValue": "ARI"
+          },
+          "name": {
+           "stringValue": "Trey McBride"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4569618"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "NYJ"
+          },
+          "name": {
+           "stringValue": "Garrett Wilson"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Davante Adams"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "LAR"
+          },
+          "key": {
+           "stringValue": "16800"
+          },
+          "slot": {
+           "stringValue": "FLEX"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Ollie Gordon"
+          },
+          "key": {
+           "stringValue": "slp_12495"
+          },
+          "team": {
+           "stringValue": "MIA"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "DJ Moore"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "BUF"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "3915416"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Christian Watson"
+          },
+          "team": {
+           "stringValue": "GB"
+          },
+          "key": {
+           "stringValue": "4248528"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4428331"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "KC"
+          },
+          "name": {
+           "stringValue": "Rashee Rice"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "CAR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Jonathon Brooks"
+          },
+          "key": {
+           "stringValue": "4678008"
+          },
+          "slot": {
+           "stringValue": "IR"
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "4429023"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "GB"
+          },
+          "name": {
+           "stringValue": "MarShawn Lloyd"
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "ATL"
+          },
+          "key": {
+           "stringValue": "slp_8154"
+          },
+          "name": {
+           "stringValue": "Brian Robinson"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "IR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "A.J. Brown"
+          },
+          "key": {
+           "stringValue": "4047646"
+          },
+          "team": {
+           "stringValue": "NE"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "IR"
+          },
+          "key": {
+           "stringValue": "4360569"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "MIN"
+          },
+          "name": {
+           "stringValue": "Jordan Mason"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "name": {
+           "stringValue": "Devaughn Vele"
+          },
+          "team": {
+           "stringValue": "NO"
+          },
+          "key": {
+           "stringValue": "slp_11834"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "PIT"
+          },
+          "key": {
+           "stringValue": "dst_PIT"
+          },
+          "name": {
+           "stringValue": "Steelers D/ST"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "DST"
+          },
+          "pos": {
+           "stringValue": "DST"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "slp_7839"
+          },
+          "slot": {
+           "stringValue": "K"
+          },
+          "team": {
+           "stringValue": "CIN"
+          },
+          "pos": {
+           "stringValue": "K"
+          },
+          "name": {
+           "stringValue": "Evan McPherson"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4038815"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "PIT"
+          },
+          "name": {
+           "stringValue": "Rico Dowdle"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "slp_12545"
+          },
+          "team": {
+           "stringValue": "NO"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "name": {
+           "stringValue": "Tyler Shough"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Woody Marks"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "HOU"
+          },
+          "key": {
+           "stringValue": "slp_12474"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "QB"
+          },
+          "slot": {
+           "stringValue": "QB"
+          },
+          "name": {
+           "stringValue": "Sam Darnold"
+          },
+          "key": {
+           "stringValue": "3912547"
+          },
+          "team": {
+           "stringValue": "SEA"
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "roster_2026_w4_t2": {
+   "fields": {
+    "teamId": {
+     "integerValue": "2"
+    },
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "James Cook III"
+          },
+          "team": {
+           "stringValue": "BUF"
+          },
+          "key": {
+           "stringValue": "4379399"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "IR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4429160"
+          },
+          "team": {
+           "stringValue": "MIA"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "De'Von Achane"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4595348"
+          },
+          "team": {
+           "stringValue": "NYG"
+          },
+          "name": {
+           "stringValue": "Malik Nabers"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Zay Flowers"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "BAL"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4429615"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Bucky Irving"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "TB"
+          },
+          "key": {
+           "stringValue": "4596448"
+          },
+          "slot": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "3121422"
+          },
+          "team": {
+           "stringValue": "WSH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Terry McLaurin"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Tyler Warren"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "IND"
+          },
+          "key": {
+           "stringValue": "4431459"
+          },
+          "slot": {
+           "stringValue": "TE"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "NE"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4569173"
+          },
+          "name": {
+           "stringValue": "Rhamondre Stevenson"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Chris Olave"
+          },
+          "team": {
+           "stringValue": "NO"
+          },
+          "key": {
+           "stringValue": "4361370"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "2577417"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "team": {
+           "stringValue": "DAL"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Dak Prescott"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "WSH"
+          },
+          "name": {
+           "stringValue": "Stefon Diggs"
+          },
+          "key": {
+           "stringValue": "2976212"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4697815"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "WSH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Rachaad White"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "SF"
+          },
+          "key": {
+           "stringValue": "4361741"
+          },
+          "name": {
+           "stringValue": "Brock Purdy"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "QB"
+          },
+          "pos": {
+           "stringValue": "QB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Puka Nacua"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "LAR"
+          },
+          "key": {
+           "stringValue": "4426515"
+          },
+          "slot": {
+           "stringValue": "FLEX"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4426502"
+          },
+          "team": {
+           "stringValue": "ATL"
+          },
+          "name": {
+           "stringValue": "Drake London"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Rams D/ST"
+          },
+          "team": {
+           "stringValue": "LAR"
+          },
+          "pos": {
+           "stringValue": "DST"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "DST"
+          },
+          "key": {
+           "stringValue": "dst_LAR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "K"
+          },
+          "slot": {
+           "stringValue": "K"
+          },
+          "name": {
+           "stringValue": "Eddy Pineiro"
+          },
+          "key": {
+           "stringValue": "4034949"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "SF"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "15847"
+          },
+          "team": {
+           "stringValue": "KC"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "name": {
+           "stringValue": "Travis Kelce"
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    "kind": {
+     "stringValue": "roster"
+    },
+    "week": {
+     "integerValue": "4"
+    }
+   }
+  },
+  "roster_2026_w4_t3": {
+   "fields": {
+    "week": {
+     "integerValue": "4"
+    },
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "DET"
+          },
+          "key": {
+           "stringValue": "4374302"
+          },
+          "name": {
+           "stringValue": "Amon-Ra St. Brown"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "4685382"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "LAC"
+          },
+          "name": {
+           "stringValue": "Omarion Hampton"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "key": {
+           "stringValue": "4361579"
+          },
+          "name": {
+           "stringValue": "Javonte Williams"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "DAL"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Ladd McConkey"
+          },
+          "team": {
+           "stringValue": "LAC"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "4612826"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4259545"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "CHI"
+          },
+          "name": {
+           "stringValue": "D'Andre Swift"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "MIN"
+          },
+          "key": {
+           "stringValue": "dst_MIN"
+          },
+          "name": {
+           "stringValue": "MIN D/ST"
+          },
+          "slot": {
+           "stringValue": "DST"
+          },
+          "pos": {
+           "stringValue": "DST"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "George Pickens"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "DAL"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "4426354"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "QB"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "name": {
+           "stringValue": "Bryce Young"
+          },
+          "team": {
+           "stringValue": "CAR"
+          },
+          "key": {
+           "stringValue": "slp_9228"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "4429096"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "LAR"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Blake Corum"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "DK Metcalf"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "PIT"
+          },
+          "key": {
+           "stringValue": "4047650"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Jake Ferguson"
+          },
+          "key": {
+           "stringValue": "4242355"
+          },
+          "team": {
+           "stringValue": "DAL"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4360310"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "team": {
+           "stringValue": "JAX"
+          },
+          "name": {
+           "stringValue": "Trevor Lawrence"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4360248"
+          },
+          "team": {
+           "stringValue": "ATL"
+          },
+          "name": {
+           "stringValue": "Kyle Pitts Sr."
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "BAL"
+          },
+          "name": {
+           "stringValue": "Mark Andrews"
+          },
+          "key": {
+           "stringValue": "3116365"
+          },
+          "slot": {
+           "stringValue": "TE"
+          },
+          "pos": {
+           "stringValue": "TE"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "K"
+          },
+          "key": {
+           "stringValue": "2473037"
+          },
+          "team": {
+           "stringValue": "SEA"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Jason Myers"
+          },
+          "pos": {
+           "stringValue": "K"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Kyren Williams"
+          },
+          "team": {
+           "stringValue": "LAR"
+          },
+          "key": {
+           "stringValue": "4430737"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "15168"
+          },
+          "team": {
+           "stringValue": "CHI"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "name": {
+           "stringValue": "Case Keenum"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "FLEX"
+          },
+          "key": {
+           "stringValue": "2576925"
+          },
+          "team": {
+           "stringValue": "CAR"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "name": {
+           "stringValue": "Darren Waller"
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    "teamId": {
+     "integerValue": "3"
+    },
+    "kind": {
+     "stringValue": "roster"
+    }
+   }
+  },
+  "roster_2026_w4_t4": {
+   "fields": {
+    "kind": {
+     "stringValue": "roster"
+    },
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Derrick Henry"
+          },
+          "key": {
+           "stringValue": "3043078"
+          },
+          "team": {
+           "stringValue": "BAL"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4262921"
+          },
+          "team": {
+           "stringValue": "MIN"
+          },
+          "name": {
+           "stringValue": "Justin Jefferson"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "slp_9756"
+          },
+          "team": {
+           "stringValue": "MIN"
+          },
+          "name": {
+           "stringValue": "Jordan Addison"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "TE"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "name": {
+           "stringValue": "Dalton Schultz"
+          },
+          "key": {
+           "stringValue": "3117256"
+          },
+          "team": {
+           "stringValue": "HOU"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "George Kittle"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "team": {
+           "stringValue": "SF"
+          },
+          "key": {
+           "stringValue": "3040151"
+          },
+          "slot": {
+           "stringValue": "TE"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "David Montgomery"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "HOU"
+          },
+          "key": {
+           "stringValue": "4035538"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Jalen Hurts"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "PHI"
+          },
+          "key": {
+           "stringValue": "4040715"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "3916148"
+          },
+          "team": {
+           "stringValue": "TEN"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Tony Pollard"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Travis Etienne Jr."
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "NO"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "IR"
+          },
+          "key": {
+           "stringValue": "4239996"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Parker Washington"
+          },
+          "key": {
+           "stringValue": "4432620"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "JAX"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Mike Evans"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "SF"
+          },
+          "key": {
+           "stringValue": "16737"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Tre Tucker"
+          },
+          "team": {
+           "stringValue": "LV"
+          },
+          "key": {
+           "stringValue": "slp_10213"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Jacory Croskey-Merritt"
+          },
+          "team": {
+           "stringValue": "WSH"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "key": {
+           "stringValue": "4575131"
+          },
+          "slot": {
+           "stringValue": "FLEX"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Jakobi Meyers"
+          },
+          "team": {
+           "stringValue": "JAX"
+          },
+          "key": {
+           "stringValue": "3916433"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "QB"
+          },
+          "name": {
+           "stringValue": "Jared Goff"
+          },
+          "team": {
+           "stringValue": "DET"
+          },
+          "key": {
+           "stringValue": "3046779"
+          },
+          "slot": {
+           "stringValue": "QB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Khalil Shakir"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "BUF"
+          },
+          "key": {
+           "stringValue": "slp_8134"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "K"
+          },
+          "key": {
+           "stringValue": "slp_11792"
+          },
+          "team": {
+           "stringValue": "MIN"
+          },
+          "pos": {
+           "stringValue": "K"
+          },
+          "name": {
+           "stringValue": "Will Reichard"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "DST"
+          },
+          "slot": {
+           "stringValue": "DST"
+          },
+          "key": {
+           "stringValue": "dst_BAL"
+          },
+          "name": {
+           "stringValue": "BAL D/ST"
+          },
+          "team": {
+           "stringValue": "BAL"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "3886598"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "MIN"
+          },
+          "name": {
+           "stringValue": "Jauan Jennings"
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    "teamId": {
+     "integerValue": "4"
+    },
+    "week": {
+     "integerValue": "4"
+    }
+   }
+  },
+  "roster_2026_w4_t5": {
+   "fields": {
+    "week": {
+     "integerValue": "4"
+    },
+    "kind": {
+     "stringValue": "roster"
+    },
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Jonathan Taylor"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "IND"
+          },
+          "key": {
+           "stringValue": "4242335"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "BUF"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "3918298"
+          },
+          "name": {
+           "stringValue": "Josh Allen"
+          },
+          "slot": {
+           "stringValue": "QB"
+          },
+          "pos": {
+           "stringValue": "QB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4870808"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "ARI"
+          },
+          "name": {
+           "stringValue": "Jeremiyah Love"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Emeka Egbuka"
+          },
+          "team": {
+           "stringValue": "TB"
+          },
+          "key": {
+           "stringValue": "4567750"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "CIN"
+          },
+          "key": {
+           "stringValue": "4239993"
+          },
+          "name": {
+           "stringValue": "Tee Higgins"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Jameson Williams"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "DET"
+          },
+          "key": {
+           "stringValue": "4426388"
+          },
+          "slot": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "TE"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "name": {
+           "stringValue": "Juwan Johnson"
+          },
+          "team": {
+           "stringValue": "NO"
+          },
+          "key": {
+           "stringValue": "3929645"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "MIN"
+          },
+          "key": {
+           "stringValue": "3042519"
+          },
+          "name": {
+           "stringValue": "Aaron Jones Sr."
+          },
+          "slot": {
+           "stringValue": "FLEX"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Sam LaPorta"
+          },
+          "team": {
+           "stringValue": "DET"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "key": {
+           "stringValue": "slp_10859"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "3054850"
+          },
+          "team": {
+           "stringValue": "NO"
+          },
+          "name": {
+           "stringValue": "Alvin Kamara"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "DST"
+          },
+          "name": {
+           "stringValue": "Broncos D/ST"
+          },
+          "team": {
+           "stringValue": "DEN"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "dst_DEN"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4385690"
+          },
+          "team": {
+           "stringValue": "BUF"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "name": {
+           "stringValue": "Dalton Kincaid"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "IND"
+          },
+          "key": {
+           "stringValue": "slp_12185"
+          },
+          "name": {
+           "stringValue": "Spencer Shrader"
+          },
+          "pos": {
+           "stringValue": "K"
+          },
+          "slot": {
+           "stringValue": "K"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Quinshon Judkins"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "CLE"
+          },
+          "key": {
+           "stringValue": "4685702"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Michael Wilson"
+          },
+          "team": {
+           "stringValue": "ARI"
+          },
+          "key": {
+           "stringValue": "4360761"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "3139477"
+          },
+          "team": {
+           "stringValue": "KC"
+          },
+          "name": {
+           "stringValue": "Patrick Mahomes"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "ARI"
+          },
+          "key": {
+           "stringValue": "slp_8132"
+          },
+          "name": {
+           "stringValue": "Tyler Allgeier"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "DST"
+          },
+          "key": {
+           "stringValue": "dst_CHI"
+          },
+          "team": {
+           "stringValue": "CHI"
+          },
+          "pos": {
+           "stringValue": "DST"
+          },
+          "name": {
+           "stringValue": "CHI D/ST"
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    "teamId": {
+     "integerValue": "5"
+    }
+   }
+  },
+  "roster_2026_w4_t9": {
+   "fields": {
+    "week": {
+     "integerValue": "4"
+    },
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Jahmyr Gibbs"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "DET"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "key": {
+           "stringValue": "4429795"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Jaxon Smith-Njigba"
+          },
+          "key": {
+           "stringValue": "4430878"
+          },
+          "team": {
+           "stringValue": "SEA"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "IR"
+          },
+          "key": {
+           "stringValue": "4427366"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "NYJ"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Breece Hall"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "PHI"
+          },
+          "key": {
+           "stringValue": "4241478"
+          },
+          "name": {
+           "stringValue": "DeVonta Smith"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "key": {
+           "stringValue": "4882093"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "JAX"
+          },
+          "name": {
+           "stringValue": "Bhayshul Tuten"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Luther Burden III"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "CHI"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "4685278"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "TE"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "TE"
+          },
+          "name": {
+           "stringValue": "Brock Bowers"
+          },
+          "key": {
+           "stringValue": "4432665"
+          },
+          "team": {
+           "stringValue": "LV"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "QB"
+          },
+          "key": {
+           "stringValue": "3917315"
+          },
+          "team": {
+           "stringValue": "MIN"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "name": {
+           "stringValue": "Kyler Murray"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "slp_13296"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "MIA"
+          },
+          "name": {
+           "stringValue": "Caleb Douglas"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Kyle Monangai"
+          },
+          "team": {
+           "stringValue": "CHI"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4608686"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "TE"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "slp_13330"
+          },
+          "name": {
+           "stringValue": "Kenyon Sadiq"
+          },
+          "team": {
+           "stringValue": "NYJ"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "slp_9500"
+          },
+          "team": {
+           "stringValue": "IND"
+          },
+          "name": {
+           "stringValue": "Josh Downs"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "SEA"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Seahawks D/ST"
+          },
+          "key": {
+           "stringValue": "dst_SEA"
+          },
+          "slot": {
+           "stringValue": "DST"
+          },
+          "pos": {
+           "stringValue": "DST"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "IR"
+          },
+          "key": {
+           "stringValue": "slp_13281"
+          },
+          "name": {
+           "stringValue": "Jordyn Tyson"
+          },
+          "team": {
+           "stringValue": "NO"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "slp_13337"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "KC"
+          },
+          "name": {
+           "stringValue": "Emmett Johnson"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "K"
+          },
+          "pos": {
+           "stringValue": "K"
+          },
+          "name": {
+           "stringValue": "Cam Little"
+          },
+          "key": {
+           "stringValue": "4686361"
+          },
+          "team": {
+           "stringValue": "JAX"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Caleb Williams"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "team": {
+           "stringValue": "CHI"
+          },
+          "key": {
+           "stringValue": "4431611"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Braelon Allen"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "NYJ"
+          },
+          "key": {
+           "stringValue": "slp_11576"
+          },
+          "slot": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "TEN"
+          },
+          "key": {
+           "stringValue": "slp_13279"
+          },
+          "name": {
+           "stringValue": "Carnell Tate"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Zach Charbonnet"
+          },
+          "team": {
+           "stringValue": "SEA"
+          },
+          "key": {
+           "stringValue": "slp_9753"
+          },
+          "slot": {
+           "stringValue": "IR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Isaiah Likely"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "team": {
+           "stringValue": "NYG"
+          },
+          "key": {
+           "stringValue": "slp_8131"
+          },
+          "slot": {
+           "stringValue": "FLEX"
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    "kind": {
+     "stringValue": "roster"
+    },
+    "teamId": {
+     "integerValue": "9"
+    }
+   }
+  },
+  "roster_2026_w4_t11": {
+   "fields": {
+    "kind": {
+     "stringValue": "roster"
+    },
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4362628"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "CIN"
+          },
+          "name": {
+           "stringValue": "Ja'Marr Chase"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "KC"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4567048"
+          },
+          "name": {
+           "stringValue": "Kenneth Walker III"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "pos": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Ashton Jeanty"
+          },
+          "key": {
+           "stringValue": "4890973"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "LV"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Tetairoa McMillan"
+          },
+          "team": {
+           "stringValue": "CAR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "4685472"
+          },
+          "slot": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "3916387"
+          },
+          "team": {
+           "stringValue": "BAL"
+          },
+          "name": {
+           "stringValue": "Lamar Jackson"
+          },
+          "slot": {
+           "stringValue": "QB"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "key": {
+           "stringValue": "4685512"
+          },
+          "team": {
+           "stringValue": "SEA"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "name": {
+           "stringValue": "Jadarian Price"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Rome Odunze"
+          },
+          "team": {
+           "stringValue": "CHI"
+          },
+          "key": {
+           "stringValue": "4431299"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "GB"
+          },
+          "key": {
+           "stringValue": "4572680"
+          },
+          "name": {
+           "stringValue": "Tucker Kraft"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "slot": {
+           "stringValue": "TE"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "J.K. Dobbins"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "DEN"
+          },
+          "key": {
+           "stringValue": "4241985"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "JAX"
+          },
+          "key": {
+           "stringValue": "4432773"
+          },
+          "name": {
+           "stringValue": "Brian Thomas Jr."
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4241416"
+          },
+          "slot": {
+           "stringValue": "FLEX"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "CAR"
+          },
+          "name": {
+           "stringValue": "Chuba Hubbard"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "RJ Harvey"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "DEN"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "4568490"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Jalen Coker"
+          },
+          "key": {
+           "stringValue": "slp_11646"
+          },
+          "team": {
+           "stringValue": "CAR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "3953687"
+          },
+          "slot": {
+           "stringValue": "K"
+          },
+          "pos": {
+           "stringValue": "K"
+          },
+          "team": {
+           "stringValue": "DAL"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Brandon Aubrey"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "LAC"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Quentin Johnston"
+          },
+          "key": {
+           "stringValue": "4429025"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "DST"
+          },
+          "pos": {
+           "stringValue": "DST"
+          },
+          "name": {
+           "stringValue": "Eagles D/ST"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "PHI"
+          },
+          "key": {
+           "stringValue": "dst_PHI"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "3128429"
+          },
+          "team": {
+           "stringValue": "DEN"
+          },
+          "name": {
+           "stringValue": "Courtland Sutton"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "3126486"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "SF"
+          },
+          "name": {
+           "stringValue": "Deebo Samuel Sr."
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    "teamId": {
+     "integerValue": "11"
+    },
+    "week": {
+     "integerValue": "4"
+    }
+   }
+  },
+  "roster_2026_w4_t12": {
+   "fields": {
+    "players": {
+     "arrayValue": {
+      "values": [
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "RB"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Christian McCaffrey"
+          },
+          "team": {
+           "stringValue": "SF"
+          },
+          "key": {
+           "stringValue": "3117251"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4241389"
+          },
+          "team": {
+           "stringValue": "DAL"
+          },
+          "name": {
+           "stringValue": "CeeDee Lamb"
+          },
+          "slot": {
+           "stringValue": "WR"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "4258173"
+          },
+          "team": {
+           "stringValue": "HOU"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "name": {
+           "stringValue": "Nico Collins"
+          },
+          "injury": {
+           "stringValue": ""
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Cam Skattebo"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "NYG"
+          },
+          "key": {
+           "stringValue": "4696981"
+          },
+          "slot": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "WR"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "name": {
+           "stringValue": "Jaylen Waddle"
+          },
+          "key": {
+           "stringValue": "4372016"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "DEN"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "TE"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "5083076"
+          },
+          "team": {
+           "stringValue": "CLE"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "name": {
+           "stringValue": "Harold Fannin Jr."
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "key": {
+           "stringValue": "4432710"
+          },
+          "team": {
+           "stringValue": "NE"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "TreVeyon Henderson"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "DST"
+          },
+          "name": {
+           "stringValue": "TB D/ST"
+          },
+          "key": {
+           "stringValue": "dst_TB"
+          },
+          "team": {
+           "stringValue": "TB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Joe Burrow"
+          },
+          "team": {
+           "stringValue": "CIN"
+          },
+          "pos": {
+           "stringValue": "QB"
+          },
+          "slot": {
+           "stringValue": "QB"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "3915511"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "injury": {
+           "stringValue": ""
+          },
+          "key": {
+           "stringValue": "4569987"
+          },
+          "team": {
+           "stringValue": "PIT"
+          },
+          "name": {
+           "stringValue": "Jaylen Warren"
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "slot": {
+           "stringValue": "FLEX"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "WR"
+          },
+          "key": {
+           "stringValue": "slp_13346"
+          },
+          "pos": {
+           "stringValue": "WR"
+          },
+          "team": {
+           "stringValue": "CLE"
+          },
+          "name": {
+           "stringValue": "Denzel Boston"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Cameron Dicker"
+          },
+          "pos": {
+           "stringValue": "K"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "LAC"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "4362081"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "pos": {
+           "stringValue": "DST"
+          },
+          "slot": {
+           "stringValue": "DST"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "name": {
+           "stringValue": "Texans D/ST"
+          },
+          "key": {
+           "stringValue": "dst_HOU"
+          },
+          "team": {
+           "stringValue": "HOU"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "GB"
+          },
+          "key": {
+           "stringValue": "4701936"
+          },
+          "name": {
+           "stringValue": "Matthew Golden"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "pos": {
+           "stringValue": "WR"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Ka'imi Fairbairn"
+          },
+          "team": {
+           "stringValue": "HOU"
+          },
+          "pos": {
+           "stringValue": "K"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "slot": {
+           "stringValue": "K"
+          },
+          "key": {
+           "stringValue": "2971573"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "key": {
+           "stringValue": "3121023"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "team": {
+           "stringValue": "PHI"
+          },
+          "pos": {
+           "stringValue": "TE"
+          },
+          "name": {
+           "stringValue": "Dallas Goedert"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "name": {
+           "stringValue": "Chase Brown"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "RB"
+          },
+          "team": {
+           "stringValue": "CIN"
+          },
+          "key": {
+           "stringValue": "4362238"
+          },
+          "slot": {
+           "stringValue": "RB"
+          }
+         }
+        }
+       },
+       {
+        "mapValue": {
+         "fields": {
+          "team": {
+           "stringValue": "LAR"
+          },
+          "key": {
+           "stringValue": "12483"
+          },
+          "name": {
+           "stringValue": "Matthew Stafford"
+          },
+          "slot": {
+           "stringValue": "BENCH"
+          },
+          "injury": {
+           "stringValue": ""
+          },
+          "pos": {
+           "stringValue": "QB"
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    "kind": {
+     "stringValue": "roster"
+    },
+    "week": {
+     "integerValue": "4"
+    },
+    "teamId": {
+     "integerValue": "12"
+    }
+   }
+  }
+ },
+ "injstate": {
+  "fields": {
+   "p_4430807": {
+    "stringValue": ""
+   },
+   "p_3929630": {
+    "stringValue": ""
+   },
+   "p_4361307": {
+    "stringValue": ""
+   },
+   "p_4569618": {
+    "stringValue": ""
+   },
+   "p_16800": {
+    "stringValue": ""
+   },
+   "p_slp_12495": {
+    "stringValue": ""
+   },
+   "p_3915416": {
+    "stringValue": ""
+   },
+   "p_4248528": {
+    "stringValue": ""
+   },
+   "p_4428331": {
+    "stringValue": ""
+   },
+   "p_4678008": {
+    "stringValue": "IR"
+   },
+   "p_4429023": {
+    "stringValue": ""
+   },
+   "p_slp_8154": {
+    "stringValue": ""
+   },
+   "p_4047646": {
+    "stringValue": "IR"
+   },
+   "p_4360569": {
+    "stringValue": "IR"
+   },
+   "p_slp_11834": {
+    "stringValue": ""
+   },
+   "p_dst_PIT": {
+    "stringValue": ""
+   },
+   "p_slp_7839": {
+    "stringValue": ""
+   },
+   "p_4038815": {
+    "stringValue": "OUT"
+   },
+   "p_slp_12545": {
+    "stringValue": ""
+   },
+   "p_slp_12474": {
+    "stringValue": ""
+   },
+   "p_3912547": {
+    "stringValue": ""
+   },
+   "p_4379399": {
+    "stringValue": ""
+   },
+   "p_4429160": {
+    "stringValue": "IR"
+   },
+   "p_4595348": {
+    "stringValue": ""
+   },
+   "p_4429615": {
+    "stringValue": "Q"
+   },
+   "p_4596448": {
+    "stringValue": ""
+   },
+   "p_3121422": {
+    "stringValue": "OUT"
+   },
+   "p_4431459": {
+    "stringValue": ""
+   },
+   "p_4569173": {
+    "stringValue": ""
+   },
+   "p_4361370": {
+    "stringValue": ""
+   },
+   "p_2577417": {
+    "stringValue": ""
+   },
+   "p_2976212": {
+    "stringValue": ""
+   },
+   "p_4697815": {
+    "stringValue": "OUT"
+   },
+   "p_4361741": {
+    "stringValue": ""
+   },
+   "p_4426515": {
+    "stringValue": ""
+   },
+   "p_4426502": {
+    "stringValue": ""
+   },
+   "p_dst_LAR": {
+    "stringValue": ""
+   },
+   "p_4034949": {
+    "stringValue": ""
+   },
+   "p_15847": {
+    "stringValue": ""
+   },
+   "p_4374302": {
+    "stringValue": ""
+   },
+   "p_4685382": {
+    "stringValue": ""
+   },
+   "p_4361579": {
+    "stringValue": ""
+   },
+   "p_4612826": {
+    "stringValue": "Q"
+   },
+   "p_4259545": {
+    "stringValue": ""
+   },
+   "p_dst_MIN": {
+    "stringValue": ""
+   },
+   "p_4426354": {
+    "stringValue": ""
+   },
+   "p_slp_9228": {
+    "stringValue": ""
+   },
+   "p_4429096": {
+    "stringValue": ""
+   },
+   "p_4047650": {
+    "stringValue": ""
+   },
+   "p_4242355": {
+    "stringValue": ""
+   },
+   "p_4360310": {
+    "stringValue": ""
+   },
+   "p_4360248": {
+    "stringValue": ""
+   },
+   "p_3116365": {
+    "stringValue": ""
+   },
+   "p_2473037": {
+    "stringValue": ""
+   },
+   "p_4430737": {
+    "stringValue": ""
+   },
+   "p_15168": {
+    "stringValue": ""
+   },
+   "p_2576925": {
+    "stringValue": ""
+   },
+   "p_3043078": {
+    "stringValue": ""
+   },
+   "p_4262921": {
+    "stringValue": "OUT"
+   },
+   "p_slp_9756": {
+    "stringValue": ""
+   },
+   "p_3117256": {
+    "stringValue": ""
+   },
+   "p_3040151": {
+    "stringValue": ""
+   },
+   "p_4035538": {
+    "stringValue": ""
+   },
+   "p_4040715": {
+    "stringValue": ""
+   },
+   "p_3916148": {
+    "stringValue": ""
+   },
+   "p_4239996": {
+    "stringValue": "IR"
+   },
+   "p_4432620": {
+    "stringValue": ""
+   },
+   "p_16737": {
+    "stringValue": "Q"
+   },
+   "p_slp_10213": {
+    "stringValue": ""
+   },
+   "p_4575131": {
+    "stringValue": ""
+   },
+   "p_3916433": {
+    "stringValue": ""
+   },
+   "p_3046779": {
+    "stringValue": ""
+   },
+   "p_slp_8134": {
+    "stringValue": ""
+   },
+   "p_slp_11792": {
+    "stringValue": ""
+   },
+   "p_dst_BAL": {
+    "stringValue": ""
+   },
+   "p_3886598": {
+    "stringValue": ""
+   },
+   "p_4242335": {
+    "stringValue": ""
+   },
+   "p_3918298": {
+    "stringValue": ""
+   },
+   "p_4870808": {
+    "stringValue": ""
+   },
+   "p_4567750": {
+    "stringValue": ""
+   },
+   "p_4239993": {
+    "stringValue": ""
+   },
+   "p_4426388": {
+    "stringValue": ""
+   },
+   "p_3929645": {
+    "stringValue": ""
+   },
+   "p_3042519": {
+    "stringValue": ""
+   },
+   "p_slp_10859": {
+    "stringValue": ""
+   },
+   "p_3054850": {
+    "stringValue": ""
+   },
+   "p_dst_DEN": {
+    "stringValue": ""
+   },
+   "p_4385690": {
+    "stringValue": ""
+   },
+   "p_slp_12185": {
+    "stringValue": ""
+   },
+   "p_4685702": {
+    "stringValue": ""
+   },
+   "p_4360761": {
+    "stringValue": ""
+   },
+   "p_3139477": {
+    "stringValue": ""
+   },
+   "p_slp_8132": {
+    "stringValue": ""
+   },
+   "p_dst_CHI": {
+    "stringValue": ""
+   },
+   "p_4429795": {
+    "stringValue": ""
+   },
+   "p_4430878": {
+    "stringValue": ""
+   },
+   "p_4427366": {
+    "stringValue": "OUT"
+   },
+   "p_4241478": {
+    "stringValue": "OUT"
+   },
+   "p_4882093": {
+    "stringValue": ""
+   },
+   "p_4685278": {
+    "stringValue": ""
+   },
+   "p_4432665": {
+    "stringValue": ""
+   },
+   "p_3917315": {
+    "stringValue": ""
+   },
+   "p_slp_13296": {
+    "stringValue": "OUT"
+   },
+   "p_4608686": {
+    "stringValue": ""
+   },
+   "p_slp_13330": {
+    "stringValue": "Q"
+   },
+   "p_slp_9500": {
+    "stringValue": ""
+   },
+   "p_dst_SEA": {
+    "stringValue": ""
+   },
+   "p_slp_13281": {
+    "stringValue": "IR"
+   },
+   "p_slp_13337": {
+    "stringValue": ""
+   },
+   "p_4686361": {
+    "stringValue": ""
+   },
+   "p_4431611": {
+    "stringValue": "OUT"
+   },
+   "p_slp_11576": {
+    "stringValue": ""
+   },
+   "p_slp_13279": {
+    "stringValue": ""
+   },
+   "p_slp_9753": {
+    "stringValue": "PUP"
+   },
+   "p_slp_8131": {
+    "stringValue": ""
+   },
+   "p_4362628": {
+    "stringValue": ""
+   },
+   "p_4567048": {
+    "stringValue": ""
+   },
+   "p_4890973": {
+    "stringValue": ""
+   },
+   "p_4685472": {
+    "stringValue": ""
+   },
+   "p_3916387": {
+    "stringValue": ""
+   },
+   "p_4685512": {
+    "stringValue": "IR"
+   },
+   "p_4431299": {
+    "stringValue": ""
+   },
+   "p_4572680": {
+    "stringValue": ""
+   },
+   "p_4241985": {
+    "stringValue": ""
+   },
+   "p_4432773": {
+    "stringValue": ""
+   },
+   "p_4241416": {
+    "stringValue": ""
+   },
+   "p_4568490": {
+    "stringValue": ""
+   },
+   "p_slp_11646": {
+    "stringValue": "Q"
+   },
+   "p_3953687": {
+    "stringValue": ""
+   },
+   "p_4429025": {
+    "stringValue": ""
+   },
+   "p_dst_PHI": {
+    "stringValue": ""
+   },
+   "p_3128429": {
+    "stringValue": ""
+   },
+   "p_3126486": {
+    "stringValue": ""
+   },
+   "p_3117251": {
+    "stringValue": ""
+   },
+   "p_4241389": {
+    "stringValue": ""
+   },
+   "p_4258173": {
+    "stringValue": ""
+   },
+   "p_4696981": {
+    "stringValue": ""
+   },
+   "p_4372016": {
+    "stringValue": ""
+   },
+   "p_5083076": {
+    "stringValue": ""
+   },
+   "p_4432710": {
+    "stringValue": ""
+   },
+   "p_dst_TB": {
+    "stringValue": ""
+   },
+   "p_3915511": {
+    "stringValue": ""
+   },
+   "p_4569987": {
+    "stringValue": ""
+   },
+   "p_slp_13346": {
+    "stringValue": ""
+   },
+   "p_4362081": {
+    "stringValue": ""
+   },
+   "p_dst_HOU": {
+    "stringValue": ""
+   },
+   "p_4701936": {
+    "stringValue": ""
+   },
+   "p_2971573": {
+    "stringValue": ""
+   },
+   "p_3121023": {
+    "stringValue": "OUT"
+   },
+   "p_4362238": {
+    "stringValue": ""
+   },
+   "p_12483": {
+    "stringValue": ""
+   },
+   "kind": {
+    "stringValue": "injstate"
+   }
+  }
+ },
+ "scoreboard": {
+  "season": {
+   "type": 2,
+   "year": 2026
+  },
+  "week": {
+   "number": 4
+  },
+  "events": [
+   {
+    "id": "401872965",
+    "date": "2026-10-04T13:30Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "WSH"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "IND"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872971",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "BUF"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "NE"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872972",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "CHI"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "NYJ"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872969",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "CIN"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "JAX"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872966",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "NYG"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "ARI"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872970",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "PHI"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "LAR"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872968",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "TB"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "GB"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872973",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "BAL"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "TEN"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872967",
+    "date": "2026-10-04T17:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "HOU"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "DAL"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872974",
+    "date": "2026-10-04T20:05Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "MIN"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "MIA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872976",
+    "date": "2026-10-04T20:25Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "LV"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "KC"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872975",
+    "date": "2026-10-04T20:25Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "SF"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "DEN"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872977",
+    "date": "2026-10-04T20:25Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "SEA"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "LAC"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872978",
+    "date": "2026-10-05T00:20Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "CAR"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "DET"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872964",
+    "date": "2026-10-02T00:15Z",
+    "status": {
+     "type": {
+      "name": "STATUS_FINAL",
+      "state": "post"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "CLE"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "PIT"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401872979",
+    "date": "2026-10-06T00:15Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED",
+      "state": "pre"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "team": {
+         "abbreviation": "NO"
+        }
+       },
+       {
+        "homeAway": "away",
+        "team": {
+         "abbreviation": "ATL"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

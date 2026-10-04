@@ -41,6 +41,13 @@ const FCM_SEND_URL = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messa
 // Per upstream call (2026-09-23). A plain fetch had no bound, so one hung FCM or Firestore call
 // could run into the platform's own kill and drop every device still queued behind it.
 const FETCH_TIMEOUT_MS = Number(process.env.NOTIFY_FETCH_TIMEOUT_MS) || 4000;
+// FCM sends run this many at a time (2026-10-04 review). Sequential sends at 4 s per hang made
+// a dozen devices with three hangs a 12 s run against the platform's ~10 s kill; eight at a
+// time bounds the worst case at ceil(devices / 8) rounds of FETCH_TIMEOUT_MS.
+const SEND_CONCURRENCY = 8;
+// League push log (2026-10-04): a capped doc of {t, kind, team}, so per-team push volume can be
+// counted (nothing recorded it before). Best-effort — a failed append never touches the send.
+const PUSHLOG_CAP = 300;
 
 const DEFAULT_URL = "https://amenfarms.netlify.app";
 // The origin a BARE-RELATIVE deep link is resolved against. Every index.html call site passes
@@ -229,9 +236,57 @@ async function getDeviceTokens(accessToken, familyKey, sel) {
     // doc.name looks like: projects/.../documents/pushTokens_fam123/<docId>
     const parts = doc.name.split("/");
     const docId = parts[parts.length - 1];
-    results.push({ docId, token });
+    results.push({ docId, token, team });
   }
   return results;
+}
+
+// Runs fn over items with at most `limit` in flight; never rejects (fn's own throw is that
+// item's problem). Items START in list order.
+async function forEachBounded(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try { await fn(item); } catch { /* next item */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+// Appends league push entries to pushlog_<familyKey>/<year>.entries, newest last, capped. One
+// masked PATCH (updateMask.fieldPaths=entries) guarded by the doc's updateTime, or exists=false
+// for the first write; a lost race re-reads and retries. Entry values are typed the way
+// Firestore requires (integerValue as a decimal STRING).
+async function appendPushLog(accessToken, familyKey, entries, nowMs) {
+  if (!entries.length) return false;
+  const url = `${FIRESTORE_BASE}/pushlog_${familyKey}/${new Date(nowMs).getUTCFullYear()}`;
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const wrap = (e) => ({ mapValue: { fields: {
+    t: { integerValue: String(Math.round(e.t)) },
+    kind: { stringValue: String(e.kind) },
+    team: { integerValue: String(Math.round(e.team)) },
+  } } });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = await fetch(url, { headers: auth, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    let cur = [], pre;
+    if (r.status === 404) pre = "currentDocument.exists=false";
+    else if (r.ok) {
+      const j = await r.json();
+      cur = (j.fields && j.fields.entries && j.fields.entries.arrayValue && j.fields.entries.arrayValue.values) || [];
+      pre = "currentDocument.updateTime=" + encodeURIComponent(j.updateTime);
+    } else return false;
+    const values = cur.concat(entries.map(wrap)).slice(-PUSHLOG_CAP);
+    const w = await fetch(`${url}?updateMask.fieldPaths=entries&${pre}`, {
+      method: "PATCH",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: { entries: { arrayValue: { values } } } }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (w.ok) return true;
+    if (w.status !== 409 && w.status !== 400) return false; // lost race = 409/400, anything else is not retryable
+  }
+  return false;
 }
 
 async function deleteTokenDoc(accessToken, familyKey, docId) {
@@ -243,7 +298,7 @@ async function deleteTokenDoc(accessToken, familyKey, docId) {
   });
 }
 
-async function sendFcmMessage(accessToken, token, title, body, url) {
+async function sendFcmMessage(accessToken, token, title, body, url, tag) {
   // DATA-ONLY message: if we sent a `notification` payload, the browser's FCM layer
   // would auto-display it AND our service worker would display it — two tray entries
   // per event, which made launcher icon badges climb forever. Data-only means the
@@ -252,7 +307,9 @@ async function sendFcmMessage(accessToken, token, title, body, url) {
   const message = {
     message: {
       token,
-      data: { title: String(title), body: String(body), url: resolveUrl(url) },
+      // `tag` rides only on league sends that name a kind (see the handler); the service worker
+      // falls back to the farm app's shared tag when it is absent.
+      data: { title: String(title), body: String(body), url: resolveUrl(url), ...(tag ? { tag } : {}) },
       webpush: {
         headers: { Urgency: "high" },
       },
@@ -343,19 +400,41 @@ export default async (req) => {
     let sent = 0;
     let pruned = 0;
 
+    // One send per physical TOKEN. Two docs can share one (a re-enroll after the docId scheme
+    // changed), and each used to get its own push. A dead token prunes every doc that held it.
+    const byToken = new Map();
+    for (const t of tokens) {
+      if (!byToken.has(t.token)) byToken.set(t.token, { token: t.token, docIds: [], team: t.team });
+      byToken.get(t.token).docIds.push(t.docId);
+    }
+    // League sends that name a kind get a per-kind tray tag, so a chat line cannot replace an
+    // unread trade offer. Family sends (no kind) carry none and keep the shared farm tag.
+    const tag = sel.gfflAll || sel.gfflTeam != null
+      ? (sel.kind && /^[a-z]{1,16}$/.test(sel.kind) ? "gffl-" + sel.kind : null)
+      : null;
+    const logEntries = [];
+
     // One device's hung or failed send is that device's problem, never the rest of the list's
     // (2026-09-23 — leaguecron.mjs got the same guard): every upstream call has a timeout, and
     // a throw here skips just that token.
-    for (const { docId, token } of tokens) {
-      try {
-        const result = await sendFcmMessage(accessToken, token, title, body || "", url);
-        if (result.ok) {
-          sent += 1;
-        } else if (isUnregistered(result)) {
-          await deleteTokenDoc(accessToken, familyKey, docId);
-          pruned += 1;
+    await forEachBounded([...byToken.values()], SEND_CONCURRENCY, async ({ token, docIds, team }) => {
+      const result = await sendFcmMessage(accessToken, token, title, body || "", url, tag);
+      if (result.ok) {
+        sent += 1;
+        if (tag && team != null && !Number.isNaN(team)) logEntries.push({ t: Date.now(), kind: sel.kind, team });
+      } else if (isUnregistered(result)) {
+        for (const docId of docIds) {
+          try { await deleteTokenDoc(accessToken, familyKey, docId); pruned += 1; } catch { /* next */ }
         }
-      } catch (e) { /* next token */ }
+      }
+    });
+
+    if (logEntries.length) {
+      // Best-effort and time-boxed: the log is bookkeeping, the response is what the caller needs.
+      await Promise.race([
+        appendPushLog(accessToken, familyKey, logEntries, Date.now()).catch(() => false),
+        new Promise((r) => setTimeout(r, 2000)),
+      ]);
     }
 
     return new Response(JSON.stringify({ sent, pruned }), { status: 200, headers });

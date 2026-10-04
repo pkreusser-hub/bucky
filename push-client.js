@@ -41,14 +41,27 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
     );
   }
 
-  function status() {
+  // The saved enrollment, or null. Every reader goes through here: status() runs while the
+  // league's Alerts card renders, so a corrupt buckyPushState (a half-written value, another
+  // script's key collision) must read as "not enrolled", never throw out of a render.
+  function readSaved() {
     var raw = null;
     try {
       raw = localStorage.getItem(STATE_KEY);
     } catch (e) {
       /* localStorage unavailable (private mode, etc.) */
     }
-    var saved = raw ? JSON.parse(raw) : null;
+    if (!raw) return { raw: raw, saved: null };
+    try {
+      var v = JSON.parse(raw);
+      return { raw: raw, saved: v && typeof v === "object" && !Array.isArray(v) ? v : null };
+    } catch (e) {
+      return { raw: raw, saved: null };
+    }
+  }
+
+  function status() {
+    var saved = readSaved().saved;
     return {
       supported: isSupported(),
       permission: (typeof Notification !== "undefined" && Notification.permission) || "unsupported",
@@ -158,12 +171,14 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
 
     var firebaseConfig = firebaseConfigOverride || DEFAULT_FIREBASE_CONFIG;
 
-    var reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
-
+    // Permission FIRST, before any other await: iOS only honours requestPermission() inside the
+    // user gesture, and a service-worker registration that takes a moment would spend it.
     var permission = await Notification.requestPermission();
     if (permission !== "granted") {
       throw new Error("Notification permission was not granted (" + permission + ").");
     }
+
+    var reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
 
     var mods = await loadFirebaseModules(firebaseConfig);
     if (!_cache.messaging) {
@@ -200,15 +215,24 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
   }
 
   async function disable() {
-    var raw = null;
-    try {
-      raw = localStorage.getItem(STATE_KEY);
-    } catch (e) {
-      /* ignore */
-    }
-    if (!raw) return false;
+    var rs = readSaved();
+    if (!rs.raw) return false;
+    var saved = rs.saved || {}; // a corrupt value still gets its token deleted and its key cleared
 
-    var saved = JSON.parse(raw);
+    // A fresh page load has none of the Firebase modules yet (only enable/updateExtra load
+    // them), and skipping the deletes then left the phone subscribed and its token doc — with
+    // its gfflTeam — in Firestore while the UI said "off". Load them here.
+    var mods = null;
+    try {
+      // Bounded: offline, the SDK imports can hang, and "Turn off" must still clear this phone.
+      mods = await Promise.race([
+        loadFirebaseModules(DEFAULT_FIREBASE_CONFIG),
+        new Promise(function (_, reject) { setTimeout(function () { reject(new Error("timeout")); }, 8000); }),
+      ]);
+      if (!_cache.messaging) _cache.messaging = mods.messagingMod.getMessaging(_cache.app);
+    } catch (e) {
+      console.warn("BuckyPush.disable: could not load Firebase (continuing)", e);
+    }
 
     try {
       if (_cache.messaging && _cache.messagingMod) {
@@ -243,14 +267,8 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
   // undefined values are skipped. No-op-throws if this device was never
   // enrolled — the league card only calls this from the ON state.
   async function updateExtra(extra) {
-    var raw = null;
-    try {
-      raw = localStorage.getItem(STATE_KEY);
-    } catch (e) {
-      /* ignore */
-    }
-    if (!raw) throw new Error("No push enrollment on this device.");
-    var saved = JSON.parse(raw);
+    var saved = readSaved().saved;
+    if (!saved) throw new Error("No push enrollment on this device.");
     if (!saved.familyKey || !saved.docId) throw new Error("No push enrollment on this device.");
 
     var mods = await loadFirebaseModules(DEFAULT_FIREBASE_CONFIG);

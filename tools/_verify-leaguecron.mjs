@@ -27,6 +27,7 @@ import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { createStore, handleDoc, runQuery, getDocFields, decode } from "./_fakefs.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -73,12 +74,27 @@ function serveGoogle() {
    fsState.settingsStatus/settingsBody/settingsHang, default 404 = "no settings doc",
    which every PRE-EXISTING section below relies on reading as "defaults, so send").
    Configurable per test via resetFirestore(rows).                                    */
+//
+// 2026-10-04 (push review): the fake now also holds documents (tools/_fakefs.mjs, which refuses
+// what real Firestore refuses: unmasked PATCH, JS-number integerValue, exists=false over an
+// existing doc -> 409, ...). That is where leaguecron's sent-marker and push log land. The
+// week's claims doc is served by fsState.claimsMode — "pending" (the default: one unprocessed
+// claim, which is what every pre-existing section needs in order to still send), "processed",
+// "none" (404), "empty" (a doc with no claims), "error" (500).
 const fsState = { rows: [], deleted: [], queryCalls: 0, deleteCalls: 0,
-  settingsStatus: 404, settingsBody: null, settingsRaw: null, settingsCalls: 0, settingsHang: false };
+  settingsStatus: 404, settingsBody: null, settingsRaw: null, settingsCalls: 0, settingsHang: false,
+  store: createStore(), claimsMode: "pending", claimWeeks: [], patchFail: 0 };
 function resetFirestore(rows) {
   fsState.rows = rows; fsState.deleted = []; fsState.queryCalls = 0; fsState.deleteCalls = 0;
   fsState.settingsStatus = 404; fsState.settingsBody = null; fsState.settingsRaw = null;
   fsState.settingsCalls = 0; fsState.settingsHang = false;
+  fsState.store = createStore(); fsState.claimsMode = "pending"; fsState.claimWeeks = []; fsState.patchFail = 0;
+}
+function claimsDoc(mode) {
+  const claim = { mapValue: { fields: { id: { stringValue: "claim_1" }, teamId: { integerValue: "3" }, bid: { integerValue: "5" } } } };
+  if (mode === "empty") return { fields: { kind: { stringValue: "claims" }, claims: { arrayValue: {} }, processed: { booleanValue: true } } };
+  return { fields: { kind: { stringValue: "claims" }, claims: { arrayValue: { values: [claim] } },
+    processed: { booleanValue: mode === "processed" } } };
 }
 // The Firestore REST shape leaguecron.mjs's waiverScheduleCustomized() decodes:
 // fields.rules.mapValue.fields.waivers.mapValue.fields.{processDow,processHour}.integerValue —
@@ -103,17 +119,43 @@ function serveFirestore() {
           res.setHeader("content-type", "application/json");
           return res.end(fsState.settingsRaw != null ? fsState.settingsRaw : JSON.stringify(fsState.settingsBody || {}));
         }
+        const cm = /\/gffl_[^/]+\/claims_(\d{4})_w(\d+)$/.exec(urlPath);
+        if (req.method === "GET" && cm) {
+          fsState.claimWeeks.push(Number(cm[2]));
+          res.setHeader("content-type", "application/json");
+          if (fsState.claimsMode === "none") { res.statusCode = 404; return res.end(JSON.stringify({ error: { status: "NOT_FOUND" } })); }
+          if (fsState.claimsMode === "error") { res.statusCode = 500; return res.end(JSON.stringify({ error: { status: "INTERNAL" } })); }
+          return res.end(JSON.stringify({ name: "x", ...claimsDoc(fsState.claimsMode) }));
+        }
+        const base = "projects/amen-farms-app/databases/(default)/documents";
         if (req.method === "POST" && urlPath.endsWith(":runQuery")) {
           fsState.queryCalls++;
           res.setHeader("content-type", "application/json");
-          return res.end(JSON.stringify(fsState.rows));
+          let q = null; try { q = JSON.parse(raw).structuredQuery; } catch {}
+          const coll = q && q.from && q.from[0] && q.from[0].collectionId;
+          if (coll && /^pushTokens_/.test(coll)) return res.end(JSON.stringify(fsState.rows));
+          const r = runQuery(fsState.store, base, q);
+          res.statusCode = r.status; return res.end(JSON.stringify(r.body));
         }
-        if (req.method === "DELETE") {
+        if (req.method === "DELETE" && /\/pushTokens_[^/]+\/[^/]+$/.test(urlPath)) {
           fsState.deleteCalls++;
           const docId = urlPath.split("/").pop();
           fsState.deleted.push(docId);
           res.setHeader("content-type", "application/json");
           return res.end("{}");
+        }
+        // Everything else (leaguecron_sent_*, pushlog_*): the document store.
+        const dm = /\/documents\/(.+)$/.exec(urlPath);
+        if (dm) {
+          if (req.method === "PATCH" && fsState.patchFail > 0) {
+            fsState.patchFail--; res.statusCode = 503; res.setHeader("content-type", "application/json");
+            return res.end(JSON.stringify({ error: { status: "UNAVAILABLE" } }));
+          }
+          let bodyObj = null; try { bodyObj = raw ? JSON.parse(raw) : null; } catch {}
+          const qs = new URL(req.url, "http://x").searchParams;
+          const r = handleDoc(fsState.store, base, req.method, dm[1], qs, bodyObj);
+          res.statusCode = r.status; res.setHeader("content-type", "application/json");
+          return res.end(JSON.stringify(r.body));
         }
         res.statusCode = 404;
         res.end("{}");
@@ -128,10 +170,11 @@ function serveFirestore() {
    per-call timeout test). Default (unset) is a 200 success. Every call is logged
    verbatim on fcmState.calls (the full parsed request body) so a test can assert on
    exactly what was sent, per token.                                                  */
-const fcmState = { calls: [], behavior: new Map() };
+const fcmState = { calls: [], behavior: new Map(), inflight: 0, maxInflight: 0, delay: 0 };
 function resetFcm(behaviorEntries) {
   fcmState.calls = [];
   fcmState.behavior = new Map(behaviorEntries || []);
+  fcmState.inflight = 0; fcmState.maxInflight = 0; fcmState.delay = 0;
 }
 function serveFcm() {
   return new Promise((resolve) => {
@@ -143,9 +186,14 @@ function serveFcm() {
         fcmState.calls.push(body);
         const behave = fcmState.behavior.get(token) || { status: 200, body: { name: "projects/x/messages/1" } };
         if (behave.hang) return; // never respond — the caller's own AbortSignal.timeout must fire
-        res.statusCode = behave.status;
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify(behave.body));
+        // fcmState.delay: every healthy send takes this long (section M's concurrency probe).
+        fcmState.inflight++; fcmState.maxInflight = Math.max(fcmState.maxInflight, fcmState.inflight);
+        setTimeout(() => {
+          fcmState.inflight--;
+          res.statusCode = behave.status;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify(behave.body));
+        }, fcmState.delay);
       });
     });
     srv.listen(FCM_PORT, "127.0.0.1", () => resolve(srv));
@@ -334,8 +382,15 @@ async function main() {
 
   const bodyForA = fcmState.calls.find((c) => c.message.token === "TOK_A");
   ok(bodyForA.message.data.title === "GFFL waivers", "the send body's title is exact");
-  ok(bodyForA.message.data.body === "Waiver claims have processed — open the app for your results.",
-    "the send body's body text is exact");
+  // RESTAGED 2026-10-04 (push review, finding 4). This used to pin "Waiver claims have processed
+  // — open the app for your results." — a promise nobody had kept: processing is LAZY (the first
+  // league phone opened after the deadline runs the engine), so at 08:00 the week is usually not
+  // processed yet. The wording now follows the week's claims doc; this fixture's default claims
+  // doc is unprocessed, so the exact text is the "ready to run" one. Sections J pins both.
+  ok(bodyForA.message.data.body === "Waivers are ready to run — open GFFL.",
+    "the send body's body text is exact (unprocessed week -> \"ready to run\")");
+  ok(bodyForA.message.data.tag === "gffl-waivers",
+    "the send carries a per-kind tray tag so a chat push cannot replace an unread waiver alert");
   ok(bodyForA.message.data.url === "https://goatfantasyleague.com/league.html#moves",
     "the send body's deep link is exact — matches LG.pushLink('#moves') in lg-core.js");
   ok(bodyForA.message.webpush && bodyForA.message.webpush.headers && bodyForA.message.webpush.headers.Urgency === "high",
@@ -539,6 +594,148 @@ async function main() {
   ok(h2Tokens.includes("TOK_H_OK1") && h2Tokens.includes("TOK_H_HANG") && h2Tokens.includes("TOK_H_OK2"),
     "…all three were genuinely attempted — the hang did not stop the loop from reaching the others");
   ok(h2Elapsed < 3000, `…the whole run finished in ${h2Elapsed}ms — one hung send did not burn the platform's time budget`);
+
+  /* ========= I. idempotency: a duplicated fire, or a hand GET, cannot push twice ========= */
+  section("I. sent-marker leaguecron_sent_<fam>/<Central date>, created with exists=false before any send");
+  const WED2 = SEP9_1300 + MS_WEEK; // Wed 2026-09-16 08:00 CDT = league week 2
+  const dI1 = tokenDoc({ token: "TOK_I1", gfflTeam: { type: "int", v: 1 } });
+  const dI2 = tokenDoc({ token: "TOK_I2", gfflTeam: { type: "double", v: 5 } });
+  resetFirestore([dI1.row, dI2.row]); resetFcm();
+  const i1 = await callAt(WED2);
+  ok(i1.body.sent === 2 && fcmState.calls.length === 2, `I1: the first fire sends to both devices (${JSON.stringify(i1.body)})`);
+  const mk = getDocFields(fsState.store, "leaguecron_sent_" + FAM, "2026-09-16");
+  ok(!!mk && decode(mk.week) === 2 && decode(mk.at) === WED2,
+    "I1: the marker for the Central date 2026-09-16 exists with week 2 and the fire instant (hand-computed: Sep 8 + 7 days = week 2's Tuesday)");
+  ok(fsState.store.writes.some((w) => w.coll === "leaguecron_sent_" + FAM && w.exists === "false" && w.mask.join() === "at,week"),
+    "I1: the marker was written as a MASKED PATCH with currentDocument.exists=false");
+  const i2 = await callAt(WED2 + 60 * 1000); // a retried/duplicated platform fire, a minute later
+  ok(i2.body.skipped === true && i2.body.reason === "already-sent" && i2.body.sent === 0,
+    `I2: the second fire the same Central day is inert (${JSON.stringify(i2.body)})`);
+  ok(fcmState.calls.length === 2, "I2: …and sent nothing further (still 2 FCM calls in total)");
+  const i3 = await callAt(WED2 + MS_WEEK);
+  ok(i3.body.skipped === false && i3.body.sent === 2, "I3: next Wednesday's fire is a different date key and sends normally");
+  ok(!!getDocFields(fsState.store, "leaguecron_sent_" + FAM, "2026-09-23"), "I3: …with its own marker");
+
+  // The marker write itself failing (503) is not proof nobody sent: fail CLOSED.
+  resetFirestore([dI1.row]); resetFcm(); fsState.patchFail = 1;
+  const i4 = await callAt(WED2);
+  ok(i4.status === 500 && i4.body.reason === "marker-write-failed" && fcmState.calls.length === 0,
+    `I4: a 503 on the marker write sends nothing and says so (${i4.status} ${JSON.stringify(i4.body)})`);
+
+  // An empty audience does not burn the day's marker.
+  resetFirestore([]); resetFcm();
+  await callAt(WED2);
+  ok(getDocFields(fsState.store, "leaguecron_sent_" + FAM, "2026-09-16") === null, "I5: no devices -> no marker written");
+
+  // Central date key across the DST fall-back: Wed 2026-11-04 14:00Z is 08:00 CST, the date is Nov 4.
+  const NOV4_1400 = Date.UTC(2026, 10, 4, 14, 0, 0);
+  resetFirestore([dI1.row]); resetFcm();
+  const i6 = await callAt(NOV4_1400);
+  ok(i6.body.sent === 1 && !!getDocFields(fsState.store, "leaguecron_sent_" + FAM, "2026-11-04"),
+    "I6: after the 2026-11-01 fall-back the 14:00Z fire sends and keys its marker 2026-11-04");
+  ok(i6.body.week === 9, `I6: …for league week 9 (Sep 8 + 8*7 = Tue Nov 3) — got ${i6.body.week}`);
+
+  /* ======= J. wording follows the week's claims doc; a week with no claims is silent ======= */
+  section("J. processed flag decides the wording; no claims -> no push");
+  resetFirestore([dI1.row]); resetFcm(); fsState.claimsMode = "processed";
+  const j1 = await callAt(WED2);
+  ok(fcmState.calls[0].message.data.body === "Waivers ran — open GFFL to see your claims." && j1.body.processed === true,
+    "J1: processed:true -> \"Waivers ran — open GFFL to see your claims.\"");
+  ok(fsState.claimWeeks.length === 1 && fsState.claimWeeks[0] === 2, `J1: it read claims_2026_w2 (week 2) — read weeks ${JSON.stringify(fsState.claimWeeks)}`);
+  resetFirestore([dI1.row]); resetFcm(); fsState.claimsMode = "pending";
+  await callAt(WED2);
+  ok(fcmState.calls[0].message.data.body === "Waivers are ready to run — open GFFL.", "J2: processed:false -> \"Waivers are ready to run — open GFFL.\"");
+  for (const [mode, reason] of [["none", "no-claims"], ["empty", "no-claims"], ["error", "claims-read-failed"]]) {
+    resetFirestore([dI1.row]); resetFcm(); fsState.claimsMode = mode;
+    const r = await callAt(WED2);
+    ok(r.body.skipped === true && r.body.reason === reason && fcmState.calls.length === 0 && r.body.sent === 0,
+      `J3: claims doc "${mode}" -> skipped (${reason}), nothing sent`);
+    ok(getDocFields(fsState.store, "leaguecron_sent_" + FAM, "2026-09-16") === null, `J3: …and no marker burned ("${mode}")`);
+  }
+  // The week number across the season, hand-computed from Tuesday 2026-09-08: Wed Dec 9 is
+  // Sep 8 + 92 days -> floor(92/7)+1 = 14.
+  resetFirestore([dI1.row]); resetFcm();
+  const j4 = await callAt(DEC9_1400);
+  ok(j4.body.week === 14 && fsState.claimWeeks[0] === 14, `J4: Wed 2026-12-09 reads week 14 (got ${j4.body.week})`);
+  // FORCE skips the claims gate (a hand run on an arbitrary date has no meaningful week).
+  resetFirestore([dI1.row]); resetFcm(); fsState.claimsMode = "none";
+  const j5 = await callAt(Date.UTC(2026, 0, 1, 12, 0, 0), { force: true });
+  ok(j5.body.skipped === false && j5.body.sent === 1 && fsState.claimWeeks.length === 0, "J5: LEAGUECRON_FORCE=1 bypasses the claims gate and does not read it");
+  delete process.env.LEAGUECRON_FORCE;
+
+  /* ============ K. the season end derives from rules.seasonWeeks, not a constant ============ */
+  section("K. LAST waiver Wednesday = week (seasonWeeks + 3)");
+  const seasonSettings = (sw) => ({ fields: { kind: { stringValue: "settings" },
+    rules: { mapValue: { fields: sw === undefined ? {} : { seasonWeeks: sw } } } } });
+  const withSW = (sw) => { fsState.settingsStatus = 200; fsState.settingsBody = seasonSettings(sw); };
+  // seasonWeeks 12 -> last scoring week 15 -> its Wednesday = Sep 8 + 14*7 + 1 = +99 days = Wed 2026-12-16.
+  const DEC16_1400 = Date.UTC(2026, 11, 16, 14, 0, 0), DEC23_1400 = Date.UTC(2026, 11, 23, 14, 0, 0);
+  ok(centralWeekday(DEC16_1400) === "Wed" && centralHH(DEC16_1400) === "08", "sanity: 2026-12-16 14:00Z is Wednesday 08:00 CST");
+  resetFirestore([dI1.row]); resetFcm(); withSW({ integerValue: "12" });
+  const k1 = await callAt(DEC16_1400);
+  ok(k1.body.skipped === false && k1.body.sent === 1, "K1: seasonWeeks 12 -> week 15's own Wednesday (2026-12-16) still sends (boundary inclusive)");
+  resetFirestore([dI1.row]); resetFcm(); withSW({ integerValue: "12" });
+  const k2 = await callAt(DEC23_1400);
+  ok(k2.body.skipped === true && k2.body.reason === "after-last-waiver-week", "K2: …and 2026-12-23 no-ops — the old hardcoded 12-30 would have sent");
+  // seasonWeeks 15 -> last = week 18 -> Sep 8 + 17*7 + 1 = +120 days = Wed 2027-01-06 (past the old 12-30 constant).
+  const JAN6_1400 = Date.UTC(2027, 0, 6, 14, 0, 0);
+  resetFirestore([dI1.row]); resetFcm(); withSW({ integerValue: "15" });
+  const k3 = await callAt(JAN6_1400);
+  ok(k3.body.skipped === false, "K3: seasonWeeks 15 -> the last Wednesday is 2027-01-06, which the old constant would have cut off");
+  // Garbage seasonWeeks falls back to 14 (Dec 30 sends, Jan 6 no-ops).
+  resetFirestore([dI1.row]); resetFcm(); withSW({ stringValue: "lots" });
+  const k4 = await callAt(JAN6_1400);
+  ok(k4.body.reason === "after-last-waiver-week", "K4: an unparseable seasonWeeks falls back to the default 14");
+  resetFirestore([dI1.row]); resetFcm(); withSW(undefined);
+  const k5 = await callAt(LAST_WED_1400);
+  ok(k5.body.skipped === false, "K5: a settings doc with no seasonWeeks keeps the 12-30 boundary");
+
+  /* ======================= L. the push log: capped, masked, per team ======================= */
+  section("L. pushlog_<fam>/<year>.entries — one entry per delivered push");
+  const dL1 = tokenDoc({ token: "TOK_L1", gfflTeam: { type: "int", v: 1 } });
+  const dL2 = tokenDoc({ token: "TOK_L2", gfflTeam: { type: "double", v: 5 } });
+  const dL3 = tokenDoc({ token: "TOK_L3", gfflTeam: { type: "int", v: 7 } });
+  resetFirestore([dL1.row, dL2.row, dL3.row]);
+  resetFcm([["TOK_L3", { status: 500, body: { error: { status: "INTERNAL" } } }]]);
+  const l1 = await callAt(WED2);
+  const plog = () => (decode(getDocFields(fsState.store, "pushlog_" + FAM, "2026") ? getDocFields(fsState.store, "pushlog_" + FAM, "2026").entries : null) || []);
+  const e1 = plog();
+  ok(e1.length === 2 && l1.body.sent === 2, `L1: 2 delivered -> 2 log entries; the failed send is not logged (${e1.length})`);
+  ok(e1.every((e) => e.kind === "waivers" && Number.isInteger(e.t) && e.t > 1.7e12), "L1: each entry is {t: int ms, kind: \"waivers\", team}");
+  ok(JSON.stringify(e1.map((e) => e.team).sort()) === "[1,5]", `L1: teams are the integers 1 and 5 (a doubleValue 5 reads back as 5) — ${JSON.stringify(e1.map((e) => e.team))}`);
+  ok(fsState.store.writes.filter((w) => w.coll === "pushlog_" + FAM).every((w) => w.mask.join() === "entries"),
+    "L1: the log is only ever written with updateMask.fieldPaths=entries");
+  // second day appends
+  await callAt(WED2 + MS_WEEK);
+  ok(plog().length === 4, `L2: the next Wednesday appends (4 entries, not a replacement) — ${plog().length}`);
+  // cap: prefill 299 entries; two new sends -> 301 -> trimmed to the newest 300
+  resetFirestore([dL1.row, dL2.row]); resetFcm();
+  const old = Array.from({ length: 299 }, (_, i) => ({ mapValue: { fields: { t: { integerValue: String(1000 + i) }, kind: { stringValue: "old" }, team: { integerValue: "3" } } } }));
+  const { putDoc } = await import("./_fakefs.mjs");
+  putDoc(fsState.store, "pushlog_" + FAM, "2026", { entries: { arrayValue: { values: old } } });
+  await callAt(WED2);
+  const e3 = plog();
+  ok(e3.length === 300 && e3[0].t === 1001 && e3[299].kind === "waivers" && e3[298].kind === "waivers",
+    `L3: cap 300 -> the oldest entry (t=1000) dropped, the two new ones last (len ${e3.length}, first t=${e3[0].t})`);
+  // a log failure never costs the push
+  resetFirestore([dL1.row]); resetFcm(); fsState.patchFail = 0;
+  const realPatch = fsState.patchFail;
+  fsState.store.docs.set("pushlog_" + FAM + "/2026", { fields: { entries: { stringValue: "corrupt" } }, createTime: "x", updateTime: "u" });
+  const l4 = await callAt(WED2);
+  ok(l4.body.sent === 1 && l4.status === 200, "L4: a corrupt/unwritable log doc does not change the response or the send");
+
+  /* ============== M. FCM sends run in parallel (bounded), not one after another ============== */
+  section("M. bounded-parallel sends");
+  const many = Array.from({ length: 16 }, (_, i) => tokenDoc({ token: "TOK_M" + i, gfflTeam: { type: "int", v: 1 + (i % 8) } }));
+  resetFirestore(many.map((d) => d.row)); resetFcm(); fcmState.delay = 150;
+  const m0 = Date.now();
+  const m1 = await callAt(WED2);
+  const mMs = Date.now() - m0;
+  // Sequential would be 16 * 150 = 2400 ms; 8-wide is 2 rounds = ~300 ms.
+  ok(m1.body.sent === 16, `M1: all 16 delivered (${m1.body.sent})`);
+  ok(fcmState.maxInflight > 1 && fcmState.maxInflight <= 8, `M1: concurrency was real and bounded at 8 (max in flight ${fcmState.maxInflight})`);
+  ok(mMs < 1500, `M1: 16 sends x 150 ms finished in ${mMs} ms, not the ~2400 ms a sequential loop takes`);
+  ok(plog().length === 16, "M1: and every one of the 16 reached the push log");
 
   /* ================================== teardown ======================================= */
   for (const s of servers) s.close();

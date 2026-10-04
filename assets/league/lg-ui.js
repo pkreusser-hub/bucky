@@ -454,6 +454,8 @@
     LG.ensureAdjustedProj().then((doc) => {
       if (doc) UI.quietRepaint(); // the flash-free path — never the full renderers
     }).catch(() => {});
+    // Heal a rotated push token — see refreshPushRegistration (once per session, silent).
+    refreshPushRegistration();
   };
   // Routes to whichever view the URL hash asks for (or the league home) — split out of
   // UI.boot() so it's the one place both the normal boot path and any future fast/cached
@@ -8573,7 +8575,12 @@
     { kind: "trade", label: "Trades" },
     { kind: "waivers", label: "Waivers" },
     { kind: "recap", label: "Week recaps" },
+    // RoboGoat previews (2026-10-04) ride their own kind rather than "recap": a phone that muted
+    // the week-final scoreboard push should not silently lose the Thursday preview, or the reverse.
+    { kind: "preview", label: "RoboGoat previews" },
     { kind: "injury", label: "Injuries" },
+    // Sent by netlify/functions/lineupwarn.mjs ~90 minutes before a starter's kickoff. Default on.
+    { kind: "lineup", label: "Lineup warnings" },
     { kind: "mention", label: "Chat mentions" },
     { kind: "chat", label: "League chat" },
     { kind: "smack", label: "Matchup smack talk" },
@@ -8648,6 +8655,30 @@
       try { if (typeof Notification !== "undefined" && Notification.permission === "denied") setPushOptedOut(true); } catch (e) { /* ignore */ }
     }
   }
+  // THE TOKEN REFRESH (2026-10-04, push review). index.html re-runs BuckyPush.enable on every
+  // visit so a rotated FCM token heals; the league only enrolled at login and on the toggle, so
+  // an iOS token rotated by an OS update or a long idle left a dead doc and a phone that silently
+  // stopped getting league pushes until its owner re-toggled. Once per page session, when the
+  // browser already GRANTED permission (so this can never prompt), the device carries a gfflTeam
+  // enrollment and it has not opted out: run the same enable() the login ran, with the same
+  // extra, so the token doc is re-written with whatever token the browser now holds. Silent on
+  // every failure, and unawaited by the caller — the booting league never waits on FCM. This
+  // origin's own token: goatfantasyleague.com and amenfarms.netlify.app are separate origins
+  // with separate localStorage, service workers and tokens, and each heals itself the same way.
+  let pushRefreshed = false;
+  async function refreshPushRegistration() {
+    if (pushRefreshed) return;
+    try {
+      const e = pushEnv();
+      if (!e.has || !e.supported || e.onTeam == null) return;
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      if (pushOptedOut()) return;
+      pushRefreshed = true;
+      const T = LG.teamById ? LG.teamById(e.onTeam) : null;
+      await window.BuckyPush.enable(LG.who() || (e.st && e.st.user) || (T && T.name) || "League", LG.famKey, null, leaguePushExtra(e.onTeam));
+    } catch (err) { /* a heal that fails is retried at the next page load */ }
+  }
+  UI._refreshPush = refreshPushRegistration; // test hook
   const BELL_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="alertbell">' +
     '<path fill="currentColor" d="M12 22a2.05 2.05 0 0 0 2.05-2.05h-4.1A2.05 2.05 0 0 0 12 22zm6.2-6.2v-5.3a6.25 6.25 0 0 0-4.7-6.05V3.7a1.5 1.5 0 0 0-3 0v.75a6.25 6.25 0 0 0-4.7 6.05v5.3L4 17.5v.85h16v-.85z"/></svg>';
   function alertsCardHtml(T, isOwner) {
@@ -8690,7 +8721,7 @@
     }
     return `<div class="card alertcard" id="alertCard">${head}
       <p class="small">Get league alerts on this phone.</p>
-      <p class="mut small">Trades, waivers, recaps, injuries, mentions, league chat and matchup smack talk. League moves stays off until you turn it on.</p>
+      <p class="mut small">Trades, waivers, recaps, previews, injuries, lineup warnings, mentions, league chat and matchup smack talk. League moves stays off until you turn it on.</p>
       <div class="alertrow"><button id="alertOn" class="primary">Turn on league alerts</button></div></div>`;
   }
   function wireAlertsCard(T) {
