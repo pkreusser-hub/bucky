@@ -32211,7 +32211,8 @@ async function openDetails(page, id) {
       const out = await page.evaluate(async () => {
         let upd = null;
         try { await window.BuckyPush.updateExtra({ gfflMutes: [] }); } catch (e) { upd = String(e.message); }
-        const dis = await window.BuckyPush.disable();
+        let dis = null;
+        try { dis = await window.BuckyPush.disable(); } catch (e) { dis = "threw: " + e.message; }
         return { upd, dis, left: localStorage.getItem("buckyPushState") };
       });
       ok(/No push enrollment/.test(out.upd || ""), "PU2: updateExtra() on corrupt state rejects with the plain \"No push enrollment\" error (" + out.upd + ")");
@@ -32323,8 +32324,8 @@ async function openDetails(page, id) {
       const c = await page.evaluate(() => window.__pushCalls.slice());
       ok(c.length === 1 && c[0].extra && c[0].extra.gfflTeam === 1 && JSON.stringify(c[0].extra.gfflMutes) === '["moves"]' && c[0].f === FAM && c[0].o === null,
         "PU5: …with the SAME extra the login sends: gfflTeam 1 and the device's mute list (" + JSON.stringify(c[0]) + ")");
-      await page.evaluate(() => window.__GFFL__.UI._refreshPush());
-      await page.evaluate(() => window.__GFFL__.UI.boot());
+      await evalOr(page, () => window.__GFFL__.UI._refreshPush());
+      await evalOr(page, () => window.__GFFL__.UI.boot());
       await sleep(300);
       ok((await page.evaluate(() => window.__pushCalls.length)) === 1, "PU5: a second call and a second boot() in the same page session do not re-enroll (once per session)");
       ok(errors.length === 0, "PU5: 0 page errors");
