@@ -20,6 +20,8 @@
                                other tabs on each summary update.
    (ffRenderMatchupsPage went with the Matchups page, 2026-09-27.)
    ffAfterRender()           — after renderBoard() and after each game-view render.
+   rzOnBoard(events) / rzMount() / rzActive() — the RedZone card (sd-redzone.js): every board load,
+                               each new game view's sidebar, and the board poll's 5 s live rate.
    Each call site guards with `typeof fn === 'function'`, so the page works with sd-fantasy.js
    absent or 404ing. */
 
@@ -694,6 +696,7 @@ async function loadBoard() {
     S.events = evs;
     S.byId = new Map(evs.map((e) => [e.id, e]));
     if (typeof ffOnBoard === 'function') ffOnBoard(evs);
+    if (typeof rzOnBoard === 'function') rzOnBoard(evs);
     S.error = null;
     S.updated = Date.now();
     if (!S.loaded) { S.firstLoadAt = Date.now(); setTimeout(() => { if (!S.linesReady) renderBoard(); }, 4100); }
@@ -712,7 +715,9 @@ async function loadBoard() {
 }
 const boardPoller = makePoller(loadBoard, () => {
   const live = S.events.some((e) => e.state === 'in');
-  if (live) return 15000;
+  // With the RedZone card on screen (desktop, this week), every 5 s: it cuts to a game when a
+  // new play shows up here, so this poll is how soon it can (sd-redzone.js).
+  if (live) return typeof rzActive === 'function' && rzActive() ? 5000 : 15000;
   const soon = S.events.some((e) => e.state === 'pre' && e.date - Date.now() < 20 * 60000);
   return soon ? 30000 : 120000;
 });
@@ -1237,10 +1242,11 @@ function openGameView(id) {
       <nav class="tabs" id="tabs" role="tablist" aria-label="Game details"></nav>
       <div class="tab-body" id="tab-body" role="tabpanel" tabindex="-1"></div>
     </div></div>
-    <aside class="gv-side" aria-label="Other games"><div class="side-live" id="side-live" hidden role="button" tabindex="0" aria-label="Open the play animation"><div class="sl-h"><span class="sl-tag" id="sl-tag">Live</span><span id="sl-meta"></span></div><div class="sl-stage"><canvas id="sl-cv"></canvas><div class="ra-banner sl-banner" id="sl-banner"></div></div><div class="sl-tx" id="sl-tx"></div></div><div class="gv-side-h">Scores <span id="gv-side-f"></span></div><div class="gv-side-list" id="gv-side-list"></div></aside></div>`;
+    <aside class="gv-side" aria-label="Other games"><section class="rzn" id="redzone" hidden aria-label="RedZone"></section><div class="side-live" id="side-live" hidden role="button" tabindex="0" aria-label="Open the play animation"><div class="sl-h"><span class="sl-tag" id="sl-tag">Live</span><span id="sl-meta"></span></div><div class="sl-stage"><canvas id="sl-cv"></canvas><div class="ra-banner sl-banner" id="sl-banner"></div></div><div class="sl-tx" id="sl-tx"></div></div><div class="gv-side-h">Scores <span id="gv-side-f"></span></div><div class="gv-side-list" id="gv-side-list"></div></aside></div>`;
   renderSide();
   renderStrip();
   renderWeekLabel();
+  if (typeof rzMount === 'function') rzMount();
   if (sideScroll) $('.gv-side').scrollTop = sideScroll;
   const top = $('#g-top');
   const io = new IntersectionObserver(([e]) => top.classList.toggle('scrolled', !e.isIntersecting), { root: v, threshold: 0, rootMargin: '-60px 0px 0px 0px' });

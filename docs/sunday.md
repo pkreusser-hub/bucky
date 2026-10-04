@@ -13,6 +13,7 @@ built on 2026-09-26, with the GFFL league layered on top. It reads the league; i
 | `assets/sunday/sd-reenact.js` | the 8-bit play re-enactment, parsing NFL play text |
 | `assets/sunday/sd-fantasy.js` | fantasy engine: league load, scoring, per-play credit, projections. No markup |
 | `assets/sunday/sd-ffui.js` | fantasy UI: implements the `ff*` hooks, box-score polling, swing toasts |
+| `assets/sunday/sd-redzone.js` | the RedZone card at the top of the desktop sidebar: the cut-between-games director and the league fantasy feed |
 | `assets/sunday/sd.css`, `sd-ff.css` | app styles (GFFL navy tokens), fantasy styles |
 
 ## Data
@@ -1376,3 +1377,80 @@ The 2026-10-04 GFFL review changed two Sunday files. The full entries are in
 **VERIFY:** `_verify-halftime.mjs` **77/77**, `_verify-sunday-ff.cjs` **56/56**,
 `_verify-sunday.cjs` **338/338**. This container has no `chrome` channel, so the last one ran
 from a scratch copy with the launcher pointed at `/opt/pw-browsers/chromium`.
+
+---
+
+## RedZone: a card that cuts between games, and the league's fantasy feed (2026-10-04)
+
+User: 'lets add a "Redzone" card to the GFFL scores page thats always at the top right, and rather
+than follow one game it flashes between games similar to the way redzone does, showing plays as they
+happen and leaning towards games in the rezone, and instead of single game stats below its a total
+feed of all fantasy activity for the league'.
+
+`assets/sunday/sd-redzone.js`, mounted as `#redzone`, the first thing in the game view's sidebar
+(`.gv-side`), so it sits top right under GFFL's header (top 94px = 80 + the sidebar's 14px padding).
+Desktop only (the sidebar exists at 1080px and up) and only for ESPN's current week; another week
+hides it. On a phone there is no card and none of its fetching runs.
+
+**The screen.** One live game at a time: both teams and the score, the clock, the mini field (red-zone
+hatching, ball, line to gain), a moment tag (Touchdown · TEN, Field goal, Interception, Red zone, Big
+play), the play's text, and its GFFL credits ("+6.3 T. Pollard" with the owner's crest) once the core
+feed has the play; before that, the crests of rostered players the scoreboard names on it. Tapping it
+opens that game in the big view. Under it, one channel per live game (red dot: in the red zone; gold
+dot: something happened there that isn't on screen yet); tapping one puts it on and holds it 14 s.
+A cut plays a red wipe; the first paint on arrival doesn't.
+
+**The director** (`rzOnBoard`, `rzTick`). Each scoreboard poll compares every live game's last play
+with the one seen before; the first sight of a game is only a baseline. A new play is ranked: score
+100, turnover 80, red-zone snap 60, a 20-yard play 50, a GFFL starter on it 35, anything else 15, the
+try 10; timeouts and quarter ends are not news. Rules, in seconds:
+- a play stays at least 7 before anything else may cut in;
+- a score holds 14 against everything; a game inside the 20 holds against anything below a
+  red-zone snap, and against another red-zone snap until it has had 20;
+- with nothing new anywhere for 30, the card moves to the best other game (red zone first, then
+  `excitement()`, less the more recently it was on); a quiet game inside the 20 may hold 90;
+- a game at halftime or final gives way at once (a score still finishes its hold).
+
+Two rules came from recording today's live feed (polled every ~15 s from 17:16Z):
+- **A score can land between polls with the last play already moved on.** DAL @ HOU went 7 to 10 while
+  the scoreboard's last play read "Official Timeout"; the field goal was never the last play on any
+  poll. A rise of 2+ points in the game's total is a score whatever the last play says, and the moment
+  tag is read off the points (3 = Field goal).
+- **The try follows the touchdown as its own play** ("Extra Point Good" under an odd id, -427760, 31 s
+  after TEN @ BAL's TD). It never replaces a touchdown on screen, and an unseen TD in another game isn't
+  displaced by its unseen try.
+
+While the card is up and games are live, the scoreboard is polled every 5 s instead of 15 (it is how
+soon the card hears of a play; the scoreboard runs 8 to 30 s ahead of the summary).
+
+**The league feed.** Every play that scored for a GFFL starter, in every game this week, newest first by
+the play's own wallclock, with its credits as chips; bench players on the same play ride along muted.
+A play that only moved bench players is left out (on the first live afternoon they were a third of the
+rows). Credits are the core-API engine's (`FF.playCredits`), which used to be fetched for the open game
+only; `rzFeedTick` now runs `ffFetchCore` every 15 s for each started game with a GFFL starter in it
+(those games' box scores are already ingested by `ffPollBoxes`, which the D/ST credits need). After its
+first pull a game costs one or two 25-play pages; a final is read once more after it ends, then never.
+A full game's play list is about 890KB raw, 44KB gzipped. `ffFetchCore` now also keeps each play's
+wallclock, quarter and clock (`st.meta`). The feed repaints on `FF.onChange`, not on the 1 s tick, keyed
+(`patchList`) so a new play lands on top without reloading the crests below it; it shows up to 150 rows
+and scrolls inside the card (340px).
+
+Files: `assets/sunday/sd-redzone.js` (new), `sd-app.js` (the `#redzone` slot, `rzMount` with each game
+view, `rzOnBoard` after each board load, the 5 s poll), `sd-ffui.js` (`st.meta`), `sd.css` (`.rzn*`),
+`sunday.html` (the script; cache-bust ?v=20261004b), `tools/_verify-sunday.cjs`, two new fixtures:
+`tools/fixtures/sunday/rz-sb-20261004.json` (eight consecutive real scoreboard polls, 17:20:01Z to
+17:21:51Z, trimmed to what `normEvent` reads) and `rz-core-20261004.json` (the real core plays of TEN @
+BAL and DAL @ HOU up to 17:21:51Z).
+
+VERIFY: sunday 371/372 (new section "RedZone: the card, the director, the league feed", 34 checks:
+place and size on desktop, channels, no wipe on arrival, the 5 s poll; the director on the eight real
+polls (baseline, the field goal behind a timeout, the red-zone TD, the TD held 15 s on by the red zone,
+the try never shown); eleven hand-built rules; a tapped channel and its 14 s hold and wipe; the feed's
+hand-computed credits on the real plays (Pollard +6.3, Aubrey +6.9, Collins +7.7 with Stroud +4.3 muted
+on the bench, Henry +6.5), newest first across both games, no bench-only rows; the card's own chip;
+phone and other weeks. The one failure is the webfont ink check that fails the same way on HEAD in this
+container). RESTAGED: none. sunday-ff 56/56. Bite: HEAD's app files with the new suite score 337/372,
+failing all 34 new checks and the same webfont check, every pre-existing check still passing. This
+container has no `chrome` channel, so the suite ran from a scratch copy launched on
+`/opt/pw-browsers/chromium`.
+
