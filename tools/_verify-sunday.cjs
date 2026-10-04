@@ -2600,6 +2600,154 @@ async function main() {
           `…on the try just after one, its touchdown plays first (${s7?.pat} → ${s7?.onPat}); a touchdown the review took away, or any other play, is settled (${JSON.stringify(s7)})`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
+      // 2026-10-03, ported from Saturday's review of the ESPN feed (a recording of live games polled as
+      // the page polls them, and every play of a Saturday's games through the parser): the summary runs
+      // 8 to 30 s behind the scoreboard; a play seen on the scoreboard dropped out of the list when the
+      // scoreboard moved on before the summary had it; play ids are not strictly increasing; the try is
+      // reported at once as an "Extra Point Good" under an odd id; and between plays the situation can
+      // carry the team with the ball but a yard line of 0, which put the huddle on the goal line.
+      section("The ESPN feed: plays kept until the summary has them, ids out of order, the huddle's spot");
+      {
+        const RFIX = path.join(__dirname, "fixtures", "sunday");
+        const rSum = fs.readFileSync(path.join(RFIX, "sum-401872963-review.json"), "utf8");
+        const rEv = JSON.parse(fs.readFileSync(path.join(RFIX, "sb-401872963-review.json"), "utf8"));
+        const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+        let oddId = false, sumHits = 0;
+        const evNow = () => { const e = structuredClone(rEv); if (oddId) e.competitions[0].situation.lastPlay.id = "-89197925"; return JSON.stringify(e); };
+        MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872963/.test(u) ? json(evNow())
+          : /site\.api\.espn\.com.*\/summary\?event=401872963/.test(u) ? (sumHits++, json(rSum))
+          : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify({ ...sbFixture, events: [...sbFixture.events, JSON.parse(evNow())] }))
+          : /\/\.netlify\/functions\//.test(u) ? json('{"ok":false,"reason":"none"}') : null;
+        await page.setViewport({ width: 390, height: 844 });
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+        await page.goto(BASE + "/sunday.html?feed=1#g401872963", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction(() => G?.sum && G.ev?.state === "in" && G.id === "401872963" && SIDE?.sc, { timeout: 15000 }); } catch {}
+        // (a) The summary is asked twice as often while the scoreboard's last play is not a real play.
+        // The next request is already booked 10 s after the load; from there every 5 s: three in the 22 s
+        // watched (at about 10, 15 and 20 s), where every 10 s gives two (10 and 20 s).
+        await wait(1500);
+        oddId = true; await wait(2500);                              // (a poll, so the page has seen the odd id)
+        sumHits = 0; await wait(22000);
+        const odd = sumHits;
+        ok(odd >= 3, `with the scoreboard's last play under an odd id (-89197925) the summary is asked every 5 s: ${odd} requests in 22 s (every 10 s would be 2)`);
+        oddId = false;
+        await probe(() => { G.evPoller.stop(); G.sumPoller.stop(); sideStop(); });
+        // (b) Ids out of order, and the parser's two misreads.
+        const f1 = await probe(() => {
+          const ev = "401872963", sum = (...rows) => ({ byId: new Map(rows) });
+          return {
+            afterTimeout: quickIsNewer(ev + "1102", sum([ev + "1100", { kind: "run" }], [ev + "1104", { kind: "meta" }]), ev),
+            afterRealPlay: quickIsNewer(ev + "1102", sum([ev + "1100", { kind: "run" }], [ev + "1104", { kind: "meta" }], [ev + "1106", { kind: "pass" }]), ev),
+            ahead: quickIsNewer(ev + "1108", sum([ev + "1100", { kind: "run" }]), ev),
+            odd: quickIsNewer("-89197925", sum([ev + "1100", { kind: "run" }]), ev),
+            known: quickIsNewer(ev + "1100", sum([ev + "1100", { kind: "run" }]), ev),
+            kinds: [
+              playKind({ type: { text: "Sack" }, text: "(Shotgun) B.Pribula pass incomplete short right to T.Coleman. PENALTY on UVA-B.Pribula, Intentional Grounding, 10 yards" }),
+              playKind({ type: { text: "Sack" }, text: "(Shotgun) J.Love sacked at GB 21 for -6 yards (K.Elliss)." }),
+              playKind({ type: { text: "Fumble Recovery (Own)" }, text: "J.Love sacked at GB 14 for -13 yards (K.Jackson). FUMBLES (K.Jackson), and recovers at GB 14." }),
+            ],
+            nullTD: raParse({ id: "x1", kind: "pass", typeText: "Pass Reception", text: "J.Love pass deep right to C.Watson for 40 yards, TOUCHDOWN NULLIFIED by Penalty. PENALTY on GB-Z.Tom, Offensive Holding, 10 yards, enforced at GB 30 - No Play.", offId: G.ev.home.id }, G.ev).td,
+            realTD: raParse({ id: "x2", kind: "pass", typeText: "Passing Touchdown", scoring: true, text: "J.Love pass deep right to C.Watson for 40 yards, TOUCHDOWN.", offId: G.ev.home.id }, G.ev).td,
+            tacklers: raParse({ id: "x3", kind: "run", typeText: "Rush", text: "K.Johnson up the middle to GB 9 for 5 yards (4) (D.Walker).", offId: G.ev.home.id }, G.ev).tacklers.map((w) => w.last),
+            fumbled: raParse({ id: "x4", kind: "run", typeText: "Fumble Recovery (Opponent)", text: "B.Brown rush middle for 3 yards to the PHI 40 fumbled by B.Brown at PHI 40 recovered by PHI X.Atkins", offId: G.ev.home.id }, G.ev).hasFumble,
+          };
+        });
+        ok(f1?.afterTimeout === true && f1.afterRealPlay === false && f1.ahead === true && f1.odd === false && f1.known === false,
+          `a play under a lower id than the timeout logged just before it is still new; not once the summary has a real play above it, nor an odd id, nor one it has (${JSON.stringify({ afterTimeout: f1?.afterTimeout, afterRealPlay: f1?.afterRealPlay, ahead: f1?.ahead, odd: f1?.odd, known: f1?.known })})`);
+        ok(JSON.stringify(f1?.kinds) === '["incomplete","sack","sack"]', `an incompletion ESPN types "Sack" (intentional grounding) is an incompletion; a sack is a sack; a strip-sack typed "Fumble Recovery" is a sack (${JSON.stringify(f1?.kinds)})`);
+        ok(!f1?.nullTD && f1?.realTD === true, `"TOUCHDOWN NULLIFIED by Penalty … No Play" is not a touchdown; a touchdown still is (${f1?.nullTD} / ${f1?.realTD})`);
+        ok(JSON.stringify(f1?.tacklers) === '["Walker"]', `a bare number in parentheses is not a tackler: "(4) (D.Walker)" names ${JSON.stringify(f1?.tacklers)}`);
+        ok(f1?.fumbled === true, `"fumbled by" is a fumble, as "FUMBLES" is (${f1?.fumbled})`);
+        // (c) A touchdown on the scoreboard a poll before the summary has it; then the scoreboard moves
+        // on to the try's odd entry. The touchdown stays in the list and its try follows it, under the id
+        // the summary's own try will carry. (CHI's 7-0 touchdown, 401872963315, cut out of the summary.)
+        const f2 = await probe(() => {
+          const full = G.sum, raw = full.raw.drives.previous.flatMap((d) => d.plays), TD = raw.find((p) => p.id === "401872963315");
+          const bare = TD.text.replace(/\s*C\.Santos extra point[\s\S]*$/, "");
+          const cut = full.flat.findIndex((f) => f.p.id === TD.id), before = full.flat[cut - 1].p;
+          const pre = { ...full, flat: full.flat.slice(0, cut), byId: new Map(full.flat.slice(0, cut).map((f) => [f.p.id, f.p])) };
+          const lp = (o) => ({ team: TD.start.team, start: TD.start, end: TD.end, statYardage: TD.statYardage, ...o });
+          const tail = () => raPlays().slice(-3).map((p) => `${p.id}${p.pat ? ":" + p.typeText : ""}`);
+          const keepEv = G.ev, keepSum = G.sum, out = {};
+          G.quicks = []; G.sum = pre;
+          G.ev = { ...keepEv, sit: { ...keepEv.sit, lastPlay: lp({ id: TD.id, type: TD.type, text: bare, scoreValue: 6 }) } };
+          out.s1 = tail();
+          G.ev = { ...keepEv, sit: { ...keepEv.sit, lastPlay: lp({ id: "-89197925", type: { id: "61", text: "Extra Point Good" }, text: "C.Santos extra point is GOOD", scoreValue: 1, start: TD.end }) } };
+          out.s2 = tail();
+          const pat = raPlays().at(-1);
+          out.pat = { kind: pat.kind, sH: pat.sH, home: pat.offId === G.ev.home.id, text: pat.text };
+          G.sum = keepSum;                                            // the summary catches up, the kick in the touchdown's text
+          { const l3 = raPlays(), i3 = l3.findIndex((p) => p.id === TD.id); out.s3 = l3.slice(i3, i3 + 2).map((p) => `${p.id}${p.pat ? ":" + p.typeText : ""}`); out.tries = l3.filter((p) => String(p.id) === TD.id + "-pat").length; out.tds = l3.filter((p) => p.id === TD.id).length; }
+          out.left = G.quicks.length;
+          out.before = before.id;
+          // The down and distance of a play seen on the scoreboard, from the poll before it.
+          G.preSnap = { id: TD.id, down: 3, dist: 2, dd: "3rd & 2", yl: TD.start.yardLine, poss: TD.start.team.id };
+          G.sum = pre;
+          G.ev = { ...keepEv, sit: { ...keepEv.sit, lastPlay: lp({ id: TD.id, type: TD.type, text: bare, scoreValue: 6, start: { yardLine: TD.start.yardLine, team: TD.start.team } }) } };
+          const q = quickPlay(G.ev);
+          out.q = { sDD: q.sDD, down: q.down, dist: q.dist };
+          G.ev = keepEv; G.sum = keepSum; G.quicks = []; G.preSnap = null;
+          return out;
+        });
+        ok(f2?.s1?.[2] === "401872963315" && f2.s1[1] === f2.before, `the touchdown is in the list from the scoreboard, the summary still a play behind (${JSON.stringify(f2?.s1 || f2)})`);
+        ok(f2?.s2?.[1] === "401872963315" && f2.s2[2] === "401872963315-pat:Extra Point Good",
+          `when the scoreboard moves on to the try's odd entry the touchdown stays, and its try follows it (${JSON.stringify(f2?.s2)})`);
+        ok(f2?.pat?.kind === "fg" && f2.pat.sH === 85 && f2.pat.home === true && /Santos/.test(f2.pat.text), `…a kick by the home team from the 15, the kicker read from the entry (${JSON.stringify(f2?.pat)})`);
+        ok(JSON.stringify(f2?.s3) === '["401872963315","401872963315-pat:Extra Point Good"]' && f2.left === 0 && f2.tds === 1 && f2.tries === 1,
+          `once the summary has the touchdown: one touchdown (${f2?.tds}), one try (${f2?.tries}), the same ids, nothing left waiting (${JSON.stringify(f2?.s3)}, ${f2?.left} waiting)`);
+        ok(f2?.q?.sDD === "3rd & 2" && f2.q.down === 3 && f2.q.dist === 2, `a play from the scoreboard carries the down and distance of the poll before it (${JSON.stringify(f2?.q)})`);
+        // (d) The huddle's spot. A finished run at the PHI 40s, then the feed says CHI ball at yard line
+        // 0: the huddle forms where the play left the ball, not on the goal line; when the feed gives the
+        // 30 it moves there (a spot within a yard and a half of the huddle's is left alone). Yards from
+        // the offense's own goal line; CHI is home, so z = the yard line.
+        const f3 = await probe(() => {
+          const l = raPlays(), p = l.find((x) => x.kind === "run" && x.offId === G.ev.home.id && x.eH > 20 && x.eH < 80 && !x.scoring && !x.penYards && !x.turnover);
+          const prev = raBuild(p, G.ev, raQBs());
+          const tgt = sideTarget();
+          Object.assign(SIDE, { sc: prev, t: prev.T, running: false, idle: 0, cv: tgt.cv, banner: tgt.banner, gRef: G, gameId: G.id, playId: l[l.length - 1].id, lastPlay: p, rp: null, arrive: false, reviewed: String(l[l.length - 1].id), timeoutId: null });
+          prev.gameId = G.id;
+          const keepEv = G.ev, sit = (yl) => ({ possession: G.ev.home.id, yardLine: yl, down: 2, distance: 5, downDistanceText: yl ? "2nd & 5 at CHI 30" : "", lastPlay: keepEv.sit.lastPlay });
+          const ball = raBall(prev, prev.T).z;
+          G.ev = { ...keepEv, sit: sit(0) };
+          sideHuddle(); sideStop();
+          const bad = { huddle: !!SIDE.sc.huddle, z0: SIDE.sc.z0 };
+          G.ev = { ...keepEv, sit: sit(30) };
+          sideUpdate(); sideStop();
+          const moved = { huddle: !!SIDE.sc.huddle, z0: SIDE.sc.z0 };
+          const t0 = SIDE.sc;
+          sideUpdate(); sideStop();
+          const steady = SIDE.sc === t0;
+          G.ev = keepEv;
+          return { ball: +ball.toFixed(1), eH: p.eH, bad, moved, steady };
+        });
+        ok(f3?.bad?.huddle && Math.abs(f3.bad.z0 - f3.ball) <= 0.6 && f3.bad.z0 > 20,
+          `with the feed's yard line at 0 the huddle forms where the play left the ball (z ${f3?.bad?.z0}, the ball at ${f3?.ball}; the goal line would be 0)`);
+        ok(f3?.moved?.huddle && f3.moved.z0 === 30 && f3.steady === true, `…and moves to the 30 when the feed gives it, once (z ${f3?.moved?.z0}; a second update leaves it: ${f3?.steady})`);
+        // (e) The official jogs a long penalty off. A run with 55 penalty yards to walk: at 3.2 yd/s that
+        // is 17.2 s; now clamp(55 / 4.5, 3.2, 8) = 8 yd/s, 6.9 s.
+        const f4 = await probe(() => {
+          const l = raPlays(), home = G.ev.home.id;
+          const p0 = l.find((x) => x.kind === "run" && !x.scoring && !x.penYards && x.yards > 0 && x.yards < 8 && (x.offId === home ? x.sH + x.yards + 55 < 98 : x.sH - x.yards - 55 > 2));
+          if (!p0) return null;
+          const dir = p0.offId === home ? 1 : -1;
+          const sc = raBuild({ ...p0, id: "pen1", penYards: 55, eH: p0.sH + dir * (p0.yards + 55) }, G.ev, raQBs());
+          const ref = sc.actors.find((a) => a.side === "r"), k = ref.k;
+          return { walk: +(k[4][0] - k[3][0]).toFixed(2), yards: +Math.abs(k[4][2] - k[3][2]).toFixed(1) };
+        });
+        ok(f4 && Math.abs(f4.yards - 55) < 0.6 && Math.abs(f4.walk - f4.yards / 8) < 0.05, `a 55-yard penalty is walked off in ${f4?.walk} s (${f4?.yards} yd at 8 yd/s; it was 17.2 s at 3.2)`);
+        // (f) The page's 15 s cap on a held score becomes 30 s while the stage is animating that very play.
+        const f5 = await probe(() => {
+          if (typeof sideGateBusy !== "function") return null;
+          Object.assign(SIDE, { gatePlay: "g1", running: true, last: performance.now() });
+          const a = sideGateBusy("g1"), b = sideGateBusy("g2");
+          SIDE.running = false;
+          const c = sideGateBusy("g1");
+          SIDE.gatePlay = null;
+          return [a, b, c];
+        });
+        ok(JSON.stringify(f5) === "[true,false,false]", `the stage says when it is animating the play the page is waiting on (that play, another play, not running: ${JSON.stringify(f5)})`);
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+      }
       await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }
