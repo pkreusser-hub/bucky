@@ -1355,3 +1355,24 @@ here. sunday-ff 53/53. Bite: HEAD's sd-app.js and sd-reenact.js score 324/338, f
 new checks and the same timing check; the two that pass there are the touchdown in the list while it
 is the scoreboard's last play, and one touchdown with one try once the summary has it, which held
 before. The 30 s cap itself is not timed by a check; `sideGateBusy`'s truth table is.
+
+---
+
+## Halftime hop is signed; Sunday reads team thumbnails (2026-10-04)
+
+The 2026-10-04 GFFL review changed two Sunday files. The full entries are in
+[docs/gffl.md](gffl.md): "function hardening" and "boot and idle weight".
+
+- `halftime.mjs` → `halftime-background.mjs` no longer carries the family password, which ships
+  in page source. The hop is an HMAC over `mode|event|tries|at` keyed by `ANTHROPIC_API_KEY`, and it
+  expires 20 minutes after the claim. Before calling the model, the background job re-checks that
+  ESPN shows a real halftime or final and that its claim is still the pending one. It writes
+  with an `updateTime` precondition. Demo and postgame scripts only run for finals under 14 days
+  old. The halftime suite's clock is pinned to 2026-09-26 so its 2026-09-25 fixtures stay
+  inside that window.
+- `sd-fantasy.js` paints GFFL crests from `logoThumb` (a ~96px webp on the team doc) when one
+  is there, and falls back to `logoData`. Full logos moved to `teamlogo_N` docs.
+
+**VERIFY:** `_verify-halftime.mjs` **77/77**, `_verify-sunday-ff.cjs` **56/56**,
+`_verify-sunday.cjs` **338/338**. This container has no `chrome` channel, so the last one ran
+from a scratch copy with the launcher pointed at `/opt/pw-browsers/chromium`.

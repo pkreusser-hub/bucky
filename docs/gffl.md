@@ -10389,3 +10389,695 @@ it better. also when you refer to the app projections, since the app is GFFL, I 
 2026-10-03). Bite: the new suite run in a worktree of `origin/main` (the old captions, the earlier
 Week 4 column) gave **116 pass / 3 fail**. The three failures were exactly the new checks, and every
 pre-existing check passed.
+
+---
+
+## GFFL — the 2026-10-04 review batch (index)
+
+User: "do a comprehensive review of GFFL now that we have a few weeks of real data and
+performance, we are looking for bugs, performance issues, load times, any ways to improve the
+app/site, and suggested features", then "lets do them all".
+
+Seven read-only reviewers looked at the engine, the data layer, the UI (live site, 375/390/1280),
+the functions, load time (a modelled iPhone with real replayed payloads), an audit of the real
+2026 data, and RoboGoat/push. The audit re-scored weeks 1–3 starter by starter from ESPN box
+scores with the app's own code. Standings, W/L, FAAB, waiver tie-breaks, awards and playoff odds
+all reproduced. The one real defect was D/ST: 12 team-weeks were 1–4 points short, and no result
+flipped. Eight fix agents then worked in their own worktrees, and the integrator merged them. The
+entries below are one per area, then the integration entry.
+
+Decisions this batch makes that reverse or extend earlier ones (each is named in its own entry):
+- **Ties and tiebreaks.** Standings, seeding, waiver order and the odds sim rank on win% (a tie is
+  half a win), then `rules.tiebreak` (default head-to-head among the tied teams, then PF). This
+  replaces wins-then-PF. On the real weeks 1–3 records nothing moves: no tied pair has met yet.
+- **League-home card names** show the team abbreviation when the full name is measured wider than
+  its box. This partly reverses 2026-09-11's "league-home cards paint the full name". The full name
+  is still painted wherever it fits.
+- **`/assets/league/*.js` is cached `immutable` for a year.** Every edit to an lg-*.js file now
+  needs a version bump in **four** places (gffl-version.txt, the gffl-v meta, the three `?v=` in
+  league.html), then `node tools/_gffl_asset_versions.mjs --record`. Section AVG fails until both
+  are done.
+- **Team logos** live in `teamlogo_N` docs. Team docs carry a ~96px `logoThumb`.
+- **RoboGoat previews** are their own push kind (`preview`), not `recap`.
+- **D/ST fumble recoveries include special teams** on the Sleeper side (`def_st_fum_rec`). All 7
+  real ESPN-vs-Sleeper fumble mismatches in weeks 1–3 were exactly that.
+
+---
+
+## GFFL - D/ST merge reconcile, kicker fgm_yds guard, probe P5 rewrite (2026-10-04)
+
+**What changed.** Real-data audit of weeks 1-3: D/ST starters were 1-4 pts short in 12 team-weeks. `deriveEspnDst` can never
+carry `dst_fum_forced` or `dst_blk` (its own comment says so), and its `dst_fum_rec` (opponent `fumblesLost`) ran +1 over
+Sleeper's `fum_rec` in 7/96 real team-games (one sack too). `mergeRow` picks the fresher `last`, so the incomplete ESPN D/ST
+line often won and finalize (`fzPts` reads `row.pts`) wrote it into the write-once weekly doc.
+- `lg-data.js` `dstReconcile` + `mergeRow`: for a `dst_` row with stats on BOTH sides (dual mode only; degraded pins untouched),
+  `dst_fum_forced` / `dst_blk` = max(ESPN, Sleeper) always; `dst_fum_rec` / `dst_sack` = Sleeper's once the game is `post`.
+  Live, fum_rec/sack stay on the fresher side exactly as before. PA, int, tds, safety stay with the picked side. ESPN-only keeps
+  the derived line as fallback. `row.espn` is never mutated (applySide diffs against it); the points' side is exposed as
+  `row.picked`, and `statSummary` (lg-ui.js) reads `row.picked || row[row.src]` so the stat line still matches the points.
+  Conflict is now judged on the reconciled ESPN side, so it no longer fires on the missing ff/blk. Non-D/ST rows: untouched.
+- `normSlp` kicker guard: `fgm>0` with no `fgm_yds` rebuilds yards from `fgm_yds_over_30` (+30 per 30+ make, short makes at 25),
+  else bucket midpoints, else 33/FG; non-enumerable `fgApprox` flag; one `console.warn` per page. Sleeper carries `fgm_yds` on every
+  real row today (this league prices kickers per yard only, so a dropped key would zero every FG silently).
+- `tools/_gffl_live_probe.mjs` P5 rewritten: current / last completed REGULAR week (via /state/nfl), every kicker row with fgm>0
+  must carry `fgm_yds`, plus per-kicker ESPN-vs-Sleeper made-FG comparison. The old probe name-matched one preseason player
+  (ESPN numbers the Hall-of-Fame game week 1, Sleeper week 0) and false-FAILed. `findFinalGameWithKicker` is now unused.
+- `tools/_gffl_dst_recheck.mjs`: READ-ONLY (GET only) per-team stored -> corrected table for given weeks.
+
+**Decisions reversed:** none. mergeRow's 2026-08-23 "empty side is absent" rule and the live fresher-wins rule are kept; this adds
+a field-level overlay for D/ST only.
+
+**Sleeper special-teams recoveries (follow-up, same day).** Sleeper books them under `def_st_fum_rec`, not `fum_rec`. All 7 real w1-3
+team-games where ESPN `fumblesLost` != Sleeper `fum_rec` (NYJ w1, CHI w1, CAR/NYG/ARI/NO/PIT w3) are exactly that key, and the league's
+ESPN-derived D/ST pays them. `normSlp` now maps `dst_fum_rec = fum_rec + def_st_fum_rec`, so the sources agree on fum_rec in all 96
+team-games and the final-state Sleeper-wins rule only matters for ff/blk. (`def_st_ff` exists too; not mapped, no evidence it pays.)
+Corrected totals: w3 NYG 2 -> 3, w3 PIT 3 -> 4 (the old gaps had cancelled each other); w3 top score becomes 176.5.
+
+**RESTAGED:** the RVS1 NYJ w1 final check (3 -> 4) with its reason at the check. **VERIFY:** RVS1 24/24 (node-only, real w1 PHI/PIT/NYJ fixtures, hand-computed); with BB, UC5, AT, TJ, F, A, UD10,
+UC2, UC3, TC, G, C: 466 pass, 0 fail. Bite: lg-data.js + lg-ui.js at origin/main -> 11 RVS1 checks fail, BB/BA/UC5 all pass.
+Probe: `node tools/_gffl_live_probe.mjs --quiet` P5 PASS.
+Files: assets/league/lg-data.js, assets/league/lg-ui.js, tools/_verify-gffl.cjs, tools/fixtures/gffl_dst_w1_2026.json, tools/_gffl_live_probe.mjs, tools/_gffl_dst_recheck.mjs.
+
+---
+
+## GFFL — feeds: directory off the critical path, idle polling, weekStats TTL (2026-10-04)
+
+From the 2026-10-04 review (perf bottlenecks 2 and 7, data findings 3-5). All in
+`assets/league/lg-data.js`.
+
+**The player directory no longer gates anything.** `/players/nfl` is 14.7 MB raw / 2.2 MB
+gzip, was fetched no-store on every launch and hourly, and sat in front of the ESPN scoreboard
+and the projections on a phone's link (projections 20+ s against 7 s with it deferred).
+- `initSleeper` now reads state, applies the cached directory if there is one, fetches the
+  projections, and only then (cold launch only) fetches the directory, after the first
+  scoreboard has landed (`D.noteFeedLanded`) and the browser is idle, with a 6 s ceiling.
+- **Slim cache:** `fetchPlayerDirectory` builds the 11-field metas (the only thing the app ever
+  kept) and `saveDirCache` stores them in IndexedDB (db `gffl-feeds`, key `slpDirectory`, with the
+  wall-clock `at`). Real directory: 12,229 entries, 2.2 MB as JSON (0.23 MB gzip) against 14.7 MB.
+  `applyDirectory` builds the maps for both the network and cache paths. Every IndexedDB access is
+  try/caught and has a 2.5 s ceiling; no IndexedDB means the cold path.
+- **How old is too old:** the cache age becomes `injDirRefreshedAt` and `injDirAt`, so the
+  existing hourly rule decides. A copy under an hour old is used as is; an older one is used
+  immediately and refreshed after the first scoreboard. Injury freshness is therefore never worse
+  than the recorded S9 decision (at most an hour behind) and `checkInjuryChanges`' "only a newer
+  copy moves a committed value" rule still holds because `injDirAt` is the copy's real age.
+- **`pollOnce` does not await `maybeRefreshInjuryDirectory`** (data finding 3). It is kicked off
+  after the scoreboard lands, never awaited, with an in-flight guard so a slow download cannot
+  stack, and calls `onUpdate` when it lands. A cold first launch paints the scoreboard without
+  waiting for the directory. Reverses S9's "rides the same tick, awaited" placement only; the
+  hourly interval is unchanged.
+
+**Idle polling.** `D.tickPlan()` decides each tick: live (8 s, unchanged); normal (60 s, full)
+when a kickoff is within 15 min or overdue, a tracked final's box is unread, or a game ended
+under 20 min ago; otherwise idle: next tick at `clamp(next kickoff - 15 min, 1 min, 5 min)`.
+An idle tick skips the Sleeper stats fetch when every game is still pre; if any game is final it
+still reads them (post-final stat corrections keep landing, now every 5 min). Tick 0, a forced
+wake (foreground) and an explicit `D.start(ms)` never back off. The plan is read from the games
+the previous tick left behind, so the tick that first sees a flip runs on the old plan; the
+15 min lead makes that harmless.
+- **Never a summary for a "pre" game.** `wanted` is live games plus unread finals. The scoreboard
+  (every tick) notices a flip to "in" and that same full tick fetches it. The ≤8 rotating cursor
+  and finals-first logic are unchanged.
+
+**`D.weekStats` TTL (data finding 5).** Cache entries carry `at`. A current-season regular week
+that is the current week or the one before is re-fetched once 6 h old (`D.WEEK_STATS_TTL_MS`);
+older weeks stay cached for the session. A failed or empty re-fetch keeps serving the old map.
+
+**Measured** (scratch: real Sleeper payloads served through a modelled 1.5 MB/s FIFO link,
+`GFFL_FEEDS_REAL=<dir> --only FDM`, which prints MEASURE lines and asserts nothing; 3 tracked
+pre games, 10 idle ticks):
+| | before | after |
+|---|---|---|
+| projections landed, cold launch | 4270 ms | 437 ms |
+| projections landed, second launch | 3579 ms | 664 ms |
+| /players/nfl on the second launch | 1 (2.28 MB gzip) | 0 |
+| idle requests per minute | 5.00 (scoreboard, stats, 3 summaries per 60 s) | 0.20 |
+| idle wire per minute | 151 KB | 5 KB |
+First scoreboard was already first in the queue here (420 vs 351 ms); the real-phone gain is
+the projections and stats no longer queueing behind the 2.2 MB body.
+
+**RESTAGED:** section V9 "every tracked game is refreshed within a couple of cycles" asked for a
+summary of every game including the one still "pre". That rule no longer holds (pre games are
+never fetched), so it now compares against the live and final games, with the reason written at
+the check.
+
+**VERIFY:** new sections FD1-FD5 (+ FDM measurement): 53 checks. Neighbouring sections
+(TG,W2,W,UA,BF,AZ,UD1,BD,AC,X,TS,I,AT,AI,AG,UC2,TV,TF,TD,M,BC,AS,AQ,V,UC1,AR,AH,AK,Z) 1845/1845.
+Bite: with `lg-data.js` at `origin/main`, FD1 2 fail, FD3 6 fail, FD5 4 fail, FD2 and FD4 crash on
+the missing `D.tickPlan` / `D.dirCacheLoad` (FD4's order check fails first); V 69/69 and
+AR,UC1,UC2,TF,AC 227/227 still pass.
+
+Files: `assets/league/lg-data.js`, `tools/_verify-gffl.cjs`.
+
+---
+
+## GFFL — THE ENGINE REVIEW FIXES: replay-safe waivers, ties in the rankings, exact clinch, a server clock (2026-10-04)
+
+Thirteen findings from the lg-core.js review (`review/engine/report.md`, plus realdata findings 3 and 5).
+Files: `assets/league/lg-core.js`, `assets/league/lg-ui.js` (standings sort + footer, Rules line, odds
+wiring, one reason label), `tools/_verify-core.cjs` (NEW, node-only), `tools/_verify-gffl.cjs` (section
+ENG1 + three restaged checks).
+
+**1. HIGH — a waiver run is replay-safe.** `processWaiversRun` resolved the claims from the rosters and
+then applied the roster deltas. The deltas were idempotent, the *resolution* was not: after a partial
+roster failure the winner already held `addKey`, so the re-run resolved his claim `player-taken` — roster
+moved, FAAB never charged, no tx row, owner told he lost (repro: 2 teams, one injected roster throw).
+The resolution is now written to the week's claims doc as `plan` ({claims, results, txs, spend, ops})
+under a CAS (`LG.db.update`; a processed doc or an existing plan aborts, first plan wins) BEFORE any roster
+moves, and every run — the first, a re-run, another device — applies the stored plan
+(`applyWaiverPlan`: roster deltas -> commit CAS -> tx rows -> FAAB deltas, exactly the old tail). A re-run
+therefore replays the first resolution: winner still wins, charged once, one tx. While a plan is stored
+`addClaim` / `cancelClaim` answer `already-processed` (a claim filed then could never be in the plan).
+Every existing guarantee is kept: single-flight latch, fresh reads, the pre-write `processed` guard, the
+commit CAS in front of the money, per-item failure recording, the ordering (tx rows before purses).
+A `plan` field now sits on `claims_<season>_w<n>` and stays after the commit; nothing reads it but the run.
+
+**2. Ties count, with a documented tiebreak.** Seeding, waiver priority and the playoff-odds sim sorted on
+`w` then `pf`; ties were tallied and never used (1-1 outranked 1-0-1). One function now ranks everything:
+`LG.rankTeams(ids, st, opts)` — win% = (w + 0.5·t) / games, then `rules.tiebreak` in order, then team id.
+**Default `rules.tiebreak = ["h2h", "pf"]`**: head-to-head record among the tied teams, then points for.
+Head-to-head is applied only when EVERY pair in the tied group has met (a team that has not played the
+others cannot be ranked by it) and restarts from the top when a group shrinks (the usual mini-league
+rule); otherwise it falls through to PF. `loadStandings` rows now carry `h2h: {oppId: [w,l,t]}`.
+Consumers: standings table (lg-ui `renderLeague`, rosters view, locker place), `buildBracket` seeds,
+`waiverPriorityOrder` (the same list reversed; a full tie still puts the lower id first), `playoffOdds`.
+A one-line footer under the standings table (`.standrule`) prints the applied order, and the Rules view's
+schedule line repeats it (`LG.tiebreakText`). `loadRules` merges the new field in, so the live league
+(whose doc lacks it) gets the default with no data change.
+Weekly awards: an exact tie for Top Score (and Bench Blunder) is a CO-AWARD — the award keeps its single
+`teamId` (first tied team by id, so every existing reader is unchanged) and gains `tied: [otherIds]` only
+when there is a tie. Chosen over a bare tiebreaker because week 2 of 2026 (LR and SLN, both 151.82) showed
+that picking one by id order is arbitrary and the family can read two names. Equality is on the stored
+2 dp value. Bust of the Week names one player and is left as first-found. `LG._fzAwards` is exposed for the
+node suite. NOT done: nothing renders `tied` yet (the awards live in the weekly doc / RoboGoat facts).
+
+**3. `canFillLineup` ignores IR.** An IR man cannot start; counting him let a trade strip the only
+startable TE. **4. `||` zero traps:** `deadlineWeek`, `reviewHours`, `vetoVotes` (floored at 1) are `??`;
+audited the rest of lg-core — the other `|| 0` / `|| 99` sites are on counts where 0 and the fallback
+agree. **5. `loadRules` deep-merges** the stored settings over `DEFAULT_RULES` (`LG.mergeRules`).
+`DEFAULT_RULES.scoring` was deliberately NOT changed to the live values (rec 0.5, bonuses 3/4): the
+2026-08-22 entry records it as the generic new-league template, proves a HEAD-sourced snapshot does not
+reconcile, and dozens of hand-computed fixtures pin it. **6. Bids:** `LG.validBid` (whole dollars >= 0);
+`addClaim` refuses others with `bad-bid` (label added in lg-ui); the run coerces a bad bid already on disk
+to $0 (`LG.cleanBid`) so the sort and `faab - bid` can never go NaN. **7. `LG.fmtPts`** rounds half up on
+the 1-dp display in integer math (12.35 -> 12.4, 8.25 -> 8.3, 0.35 -> 0.4; -0.04 no longer "-0.0").
+**9. Cache arrays are no longer sorted in place** (`loadTx`, `loadTrades`, `loadChat`, `loadHist` copy).
+
+**8/11/12. Playoff odds.** The cache key now names the actual remaining schedule (`v` pairs), the
+results (W, T, PF, games, head-to-head), the tiebreak order and any live probabilities. With
+`PO_EXACT_MAX = 14` or fewer games left every outcome is ENUMERATED (a fast path by win% alone; only a tie at
+the cutoff pays for the full tiebreak, with PF treated as unknowable): a team is 100 only if it is in in
+all outcomes, 0 only if out in all of them. A cheap bounds pass (each team's own best/worst case) also
+certifies clinch/elimination above 14 games. **A sampled result can no longer say 0 or 100** — it is
+clamped to 1..99 (a true 0.1% team printed 0 in ~37% of seeds). Consequence, stated plainly: with more
+than 14 games left a mathematically dead team the bounds cannot prove shows a small percent, not 0.
+`playoffOdds({ live: { week, games: [{home, away, pHome}] } })` uses the in-progress week's own win
+probability for those games (lg-core stays pure); lg-ui's `liveOddsInput()` builds it from `D.winProb`
+(flipped to the home side) only for the current, unfinalized week once a starter has played. A live p of
+exactly 0/1 is a decided game.
+
+**10. Activity ledger bounded.** `LG.loadAct` reads a 28-day window (cap 1500 rows) through the new
+`LG.db.listSince(kind, ms)` — a Firestore `runQuery` range on the document NAME (`act_<ms>_…`), which
+needs no composite index; a backend without it, or a refused query, falls back to the whole list filtered
+by `t`. The only reader is the commissioner Activity page; its date span is printed, so a short window is
+visible. `{days: 0}` reads everything. **The range query was NOT exercised against production Firestore
+from this container** by the engine agent (a read was refused). The integrator then ran the exact query read-only against
+production on 2026-10-04: HTTP 200, 1003 act rows in the 28-day window — no index needed.
+
+**13. Server clock.** `LG.now()` (locks, deadlines) read the device clock; one Mac ran ~5 min slow.
+Firestore already returns server time: a write's `updateTime` and a query's `readTime`. `noteServerTime`
+keeps the lowest-round-trip sample (renewed every 5 min) as `LG.clockOffset`; `LG.now()` = `Date.now() +
+offset`. Offsets beyond +/-15 min are ignored (a mocked clock, not skew), zero on a local backend, and the
+replay clock / `nowOverride` are untouched. Persisted stamps stay `Date.now()` (see AF).
+
+**RESTAGED (reasons written at the checks):** BG7b's list recorder also hooks `listSince` (same ledger,
+new door); UB3's "board" — with 4 games left the odds are enumerated and the sampled "four undecided" was
+never true (T6 and T8 are eliminated, T3/T5 hold the one open spot, 73/27); TK's late-season lock fixture
+moves from week 10 (16 games, sampled) to week 11 (12 games, exact).
+
+**VERIFY:** `node tools/_verify-core.cjs` **88/88** (new, node-only); `_verify-gffl.cjs` ENG1 **7/7** and 31 neighbouring
+sections **1898/1898**. Bite: with lg-core/lg-ui at origin/main the node suite fails WV4/WV6/WV7/WV10 and crashes on
+`LG.validBid`; ENG1 fails 5 plus the restaged UB3 board; every other TK/UB3/BG check passes. Files: `assets/league/lg-core.js`, `assets/league/lg-ui.js`,
+`tools/_verify-core.cjs`, `tools/_verify-gffl.cjs`.
+
+---
+
+## GFFL — Push: Turn off really turns off, tokens heal, lineup warnings, push log (2026-10-04)
+
+From the 2026-10-04 review (periph 1-5 and 7, functions 3-6 and 9, realdata "Notifications" and the
+starters-who-are-Out finding). Nine changes, one theme: a league push should reach the right phone,
+once, saying something true.
+
+**push-client.js (shared with the family app; index.html behaviour unchanged)**
+- `disable()` loaded nothing. On a fresh page the FCM token and the Firestore token doc (with its
+  `gfflTeam`) were only deleted if `enable()`/`updateExtra()` had already cached the SDK in that page,
+  so the league's "Turn off" cleared localStorage and left the phone subscribed. It now loads the
+  modules and messaging instance first (bounded to 8 s, so offline "Turn off" still clears the phone).
+- Every `JSON.parse` of `buckyPushState` goes through `readSaved()`. A corrupt value (also `null`,
+  a number, a string, an array) reads as "not enrolled"; it used to throw out of `status()`, which
+  the Alerts card calls while rendering. `disable()` on a corrupt value still deletes the token and
+  clears the key.
+- `enable()` asks for Notification permission BEFORE awaiting `serviceWorker.register()`: iOS only
+  honours the prompt inside the user gesture.
+
+**firebase-messaging-sw.js** — `tag` comes from the push data (`d.tag || "bucky-workorders"`, so the
+farm app, which sends none, is untouched). `notificationclick` tries a window whose origin+path match
+the target first, then falls back to the first window as before.
+
+**lg-ui.js** — `refreshPushRegistration()`, once per page session at the end of `UI.boot()`: when
+`Notification.permission` is `"granted"`, the device carries a `gfflTeam` enrollment and has not
+opted out, it re-runs `BuckyPush.enable` with the same `leaguePushExtra` the login sends, so a
+rotated iOS token heals. It can never prompt. goatfantasyleague.com and amenfarms.netlify.app are
+separate origins with separate tokens; each heals itself on its own load. Two alert rows added to
+`ALERT_KIND_ROWS`, both default ON: **Lineup warnings** (`lineup`) and **RoboGoat previews**
+(`preview`). `LG.PUSH_KINDS` lists both.
+
+**Decision: RoboGoat previews get their own kind, not "recap".** `announce.mjs` sent `kind: "recap"`
+for previews, and "Week recaps" is the app's own week-final scoreboard push (`LG.pushWeekRecap`), so
+muting one silently muted the other under a label that said neither. A recap issue still sends
+`recap`; a preview sends `preview`, with its own row.
+
+**notify.mjs** — one push per physical token (two docs sharing a token used to get two pushes; a dead
+shared token prunes every doc that held it). Sends run 8 at a time instead of one after another
+(a dozen devices with three 4 s hangs was a 12 s run against a 10 s platform kill). A league send
+that names a `kind` carries `tag: "gffl-<kind>"` so a chat line cannot replace an unread trade offer;
+sends with no kind carry none. League sends with a kind append `{t, kind, team}` per delivered device
+to the push log.
+
+**leaguecron.mjs**
+- Sent-marker `leaguecron_sent_<fam>/<Central date>` created (masked PATCH,
+  `currentDocument.exists=false`) before the first send. A second fire the same Central day gets 409
+  and sends nothing. Fails closed: any other marker error sends nothing and answers 500. Only claimed
+  when there is a device to send to.
+- The wording follows the week's `claims_<season>_w<N>` doc (week resolved from Tuesday 05:00 Central
+  through Intl): `processed` true says "Waivers ran — open GFFL to see your claims."; otherwise
+  "Waivers are ready to run — open GFFL." A week with no claims doc, or an empty one, sends nothing
+  (`no-claims`); a failed claims read sends nothing (`claims-read-failed`). `LEAGUECRON_FORCE=1` skips
+  the claims gate. This reverses the old fixed text "Waiver claims have processed", which promised a
+  result nobody had computed: processing is lazy, the first league phone opened after the deadline
+  runs it.
+- The season end derives from `rules.seasonWeeks` + 3 playoff weeks (the bracket's own
+  `seasonWeeks+1..+3`; `rules.playoffs.startWeek` is declared but nothing reads it). Same single
+  settings GET as the waiver-schedule guard. The old constant 2026-12-30T08:00-06:00 is what the
+  default 14 produces. A hard cap at week 18 (lg-core's clamp) is checked without any read.
+
+**NEW lineupwarn.mjs** (+ `[functions."lineupwarn"]` in netlify.toml, `*/15 11-23,0,1 * * *`).
+~90 minutes before a kickoff (window 75-105 minutes, twice the cadence) it finds each team's STARTERS
+(slot not BENCH/IR) in that game whose injstate designation is OUT / IR / D / PUP / SUS / NFI (Q, NA,
+COV are not warned), or whose NFL team is on a bye (inferred only from a slate of 8+ events), and pushes
+only that team's devices that have not muted `lineup`: "Terry McLaurin is Out and in your lineup.
+Kickoff 8:30 AM." Data: ESPN scoreboard for the week, the week's roster docs (query kind==roster AND
+week==N, both equalities, week as integerValue), `injstate_<season>`. No Sleeper dump. One push per
+player per week: marker `lineupwarn_sent_<fam>/<season>_w<N>_t<team>_<key>` (exists=false; released if
+the push reached nobody, so the next tick retries). Kickoff instants are ESPN's UTC, formatted only in
+America/Chicago; the cron's UTC hours cover Central 05:00-20:59 in both DST states. Not covered: ESPN
+"inactive" lists (published ~90 minutes out, not on the scoreboard; an inactive player is nearly always
+already Out), and eliminated teams in the playoff weeks.
+
+**Push log** — `pushlog_<fam>/<year>.entries`, last 300 `{t, kind, team}`, written by notify.mjs
+(league sends with a kind), leaguecron (`waivers`) and lineupwarn (`lineup`). Read-modify-write with an
+`updateTime` precondition (or `exists=false` for the first write), masked `updateMask.fieldPaths=entries`,
+retried 3 times, time-boxed so a slow log never delays the response. A separate collection, not a doc in
+`gffl_<fam>`, so the app's whole-collection reads do not pick it up. Count a team's volume with the
+entries filtered on `team`.
+
+**RESTAGED:** section TN's "the ON card lists every kind, seven default on" (8 rows) became ten rows,
+nine default on, with the two new labels asserted. Reason written at the check: two kinds were added,
+both default ON; the rule it protects (everything on except League moves) is unchanged.
+`_verify-leaguecron.mjs` C's exact body text now reads "Waivers are ready to run — open GFFL." (reason
+at the check; its fixture's default claims doc is unprocessed). Every other pre-existing check is
+untouched.
+
+**New fixture** `tools/_fakefs.mjs`: an in-memory Firestore REST stand-in that refuses what the real
+service refuses (unmasked PATCH, JS-number integerValue, `exists=false` over a doc -> 409, stale
+`updateTime` -> 400, unquoted field paths, a typed query value of the wrong type matching nothing).
+`tools/fixtures/lineupwarn-w4.json` is the real week-4 data (rosters, injstate, ESPN scoreboard).
+
+**VERIFY:** `node tools/_verify-leaguecron.mjs` **112/112** (was 72); `node tools/_verify-lineupwarn.mjs`
+**56/56** (new); `node tools/_verify-gffl.cjs --only PU,TN,BE,AN,UF` **217** with TN/BE/AN/UF (PU is new, 48 checks; 488 with AM,AO,BF too).
+Bite, `origin/main` versions of push-client.js, the service worker, notify.mjs, leaguecron.mjs, lg-ui.js,
+lg-core.js, announce.mjs, netlify.toml: leaguecron 86/112 (the 26 failures are exactly the new and
+restaged checks, every other check passes); gffl `--only PU,TN,BE,AN,UF` 200 pass / 27 fail, the 27 all
+in PU and the two restaged TN rows, BE/AN/UF and the rest of TN green; lineupwarn's logic is new, so the
+bite there is the schedule check failing without the toml block, plus the fixture's own refusals (a
+`doubleValue` week filter and a numeric `integerValue` each fail the suite).
+
+**Production steps:** none are required to deploy (functions and toml ship with the push). After deploy,
+`lineupwarn` starts firing on its own; leaguecron and notify write `pushlog_fam2jan2g/2026` on their
+first league send. Phones need no action: the token refresh runs on their next league open.
+
+Files: push-client.js, firebase-messaging-sw.js, assets/league/lg-ui.js, assets/league/lg-core.js
+(PUSH_KINDS only), netlify/functions/notify.mjs, netlify/functions/leaguecron.mjs,
+netlify/functions/lineupwarn.mjs, netlify.toml, tools/robogoat/announce.mjs, tools/_fakefs.mjs,
+tools/fixtures/lineupwarn-w4.json, tools/_verify-leaguecron.mjs, tools/_verify-lineupwarn.mjs,
+tools/_verify-gffl.cjs (section PU, restaged TN).
+
+---
+
+## GFFL — function hardening: the halftime hop, body deadlines, pbpdetail memo, CORS, immutable engine assets (2026-10-04)
+
+From the server-side review (findings 1, 2, 7, 8, 9; perf bottleneck 5; periph finding 6).
+
+- **`halftime-background` can no longer be driven by anyone.** Its only gate was `BUCKY_NOTIFY_SECRET`, which is the family password
+  shipped in the page JS, so a POST naming any event id bought an Opus call and overwrote a stored script. Now the halftime ->
+  background hop carries `sig`, an HMAC-SHA256 over `mode|event|tries|at` keyed by `ANTHROPIC_API_KEY` (server-only, and both
+  functions already need it: no new env var). The family password is no longer in the hop at all. The signature is good for 20 minutes
+  after the claim's `at`. The job then re-checks what the public GET path checks (`eligible()`, shared with `ensureScript`: ESPN says
+  halftime, or a recent final for post/demo), re-reads the doc and proceeds only if it is still the pending claim with the same `at`
+  and `tries`, and writes with `currentDocument.updateTime` from that read, so a slow old try cannot overwrite a newer one (both
+  still bill; only the newer one lands). Without `ANTHROPIC_API_KEY` no job can be signed: the claim stays pending and goes stale.
+- **Demo / postgame only for a recent final**: `eligible()` refuses a final whose ESPN date is over 14 days old (`not-recent`). Sunday's
+  demo link and postgame desk are used on the week's games; 14 days covers a Thursday-to-next-Thursday test. Once-per-game guard unchanged.
+- **Body-read deadlines.** `timedFetch` in league.mjs and sports.mjs cleared its timer when headers arrived, leaving `r.json()` /
+  `r.text()` (nflOwnership ~8.8 MB) unbounded. The timer now stays armed until the caller has read the body (the response's
+  `json/text/arrayBuffer` clear it); an aborted body read reports `timeout` (sports had folded it into `bad-json`). pbpdetail has one
+  overall deadline (`PBP_DEADLINE_MS`, 8 s) shared by the schedule, the pbp stream and FTN, and answers `{ok:false, reason:"upstream",
+  detail:"timeout"}` at HTTP 200 instead of a platform 502; FTN is optional and is simply skipped when the budget is gone.
+- **pbpdetail memo.** The parsed games.csv (espn id -> game id + season) is kept module-wide for 1 hour; a miss re-reads it at most
+  every 10 minutes (a game nflverse just added). Made-up event ids no longer download 2 MB each.
+- **Secrets compared in constant time** (`crypto.timingSafeEqual` on equal-length buffers) in league.mjs and sports.mjs and the
+  halftime signature. notify.mjs / leaguecron.mjs belong to the push work; books, movies, farmgpt, activity, calendar, health, news
+  and stocks still use `!==` (not GFFL; left alone).
+- **league.mjs CORS** `*` -> the sports.mjs/notify.mjs allowlist (both hostnames + localhost/127.0.0.1 for the suites), `Vary: Origin`.
+- **`ESPN_SEASON`** (sports.mjs): a pin BEHIND the calendar season is ignored with a log line. A forgotten override is always behind,
+  so this stops it sticking into next year; a pin ahead is a deliberate early pin and is kept (it becomes the stale case once the
+  calendar catches up). league.mjs never read the override.
+- **netlify.toml** (new `[[headers]]` blocks at the end): `/assets/league/*.js` -> `public, max-age=31536000, immutable`; `/*.webmanifest`
+  -> `application/manifest+json`. Checked first: the only page that loads `assets/league/*.js` is league.html, all three with
+  `?v=`; ffdraft.html and sunday.html do not load them. league.html stays no-store. **Consequence: an edit to an lg-*.js file without
+  bumping its `?v=` now sticks on phones that already have it.** The suite asserts every page reference carries `?v=`.
+- Reverses nothing recorded. The earlier "BUCKY_NOTIFY_SECRET (this function -> its background twin)" line in halftime.mjs's header
+  (sunday.md, 2026-09-28) is superseded by the signed hop.
+
+RESTAGED (halftime suite): the hop check (`secret === "fam-secret"` -> a signature computed in the test, and no family password in the
+body); "the job does nothing without the server's secret" -> a bad signature; "with no Anthropic key the try fails cleanly (`no-key`)"
+-> no key means no job can be signed, claim stays pending (the `no-key` branch of writeScript is now a second line of defence);
+the 31-second timing check ages the claim in the store and re-signs for it (a body with only `at` edited is a forgery). The suite
+clock is pinned to 2026-09-26 (the fixtures' game is 2026-09-25) so the 14-day window cannot rot the suite. pbpdetail: "upstream on
+games.csv 500" resets the memo first (a warm container no longer sees the 500).
+
+**VERIFY:** halftime 77/77 (was 65: 12 new), pbpdetail 67/67 (was 61: 6 new), sports `--server-only` 123/123 (was 111: 12 new; new
+section "FN ·", plus a `--server-only` flag to skip the browser sections), gffl `--only A` 26/26, leaguecron 72/72, notify-url 43/43.
+Bite (the four app files + netlify.toml put back to origin/main): halftime 70/77, pbpdetail 62/67, sports 115/123; the failures are the
+new and restaged checks, every other check passes. Mutations of the new halftime.mjs, one at a time, each fail a named check: no
+eligibility re-check, no claim check, no updateTime precondition, no expiry, no recency window.
+
+Files: netlify/functions/{halftime,pbpdetail,league,sports}.mjs, netlify.toml, tools/_verify-{halftime.mjs,pbpdetail.mjs,sports.cjs}.
+
+---
+
+## GFFL — boot and idle weight: thumbs instead of logos, a version file, self-hosted fonts, refreshes that ask first, a chat poll with manners (2026-10-04)
+
+Measured on a modelled iPhone (4x CPU, 1.6 Mbps, 150 ms RTT; the live league's own responses
+replayed through a fake Firestore): league content painted at **7.8 s**, a League view whose HTML was
+**1.45 MB**, ~**212 KB a minute** of Firestore traffic from an idle tab, ~42 MB/hour all in. The cause
+was one thing: every `team_<id>` doc carried its full logo (`logoData`, a 512 px JPEG or 288 px PNG
+as base64, 13-115 KB, 7 teams = 465 KB), so every team-list read downloaded all of them, they were
+mirrored to localStorage on each read, and every `<img>` in the app inlined the whole string.
+
+### What changed
+
+- **Logos split in two.** `team_<id>.logoThumb` is a ~96 px picture (1.5-5.5 KB, webp where the
+  browser can encode it, JPEG for an opaque logo or PNG for a cut-out where it can't — iOS Safari
+  hands back PNG from `toDataURL("image/webp")`, so the mime is checked) and `team_<id>.logoCut` says
+  whether the original had a transparent background (the thumb's mime can no longer say so the way
+  the stored `data:image/png` used to). The FULL picture lives in its own doc `teamlogo_<id>
+  {kind:"teamlogo", teamId, logoData, t}`, read one at a time by the locker only (`LG.loadTeamLogo`),
+  which paints from the thumb at once and swaps the full picture in. `teamSrc(t)` is now
+  `logoThumb || logoData || logo`; `crestHtml`/the locker take their cut-out look from `logoCut` and
+  fall back to the old src-mime rule when a team has no flag. The upload path (`makeLogoThumb`,
+  canvas, at upload time, from the picture it just resized) writes through `LG.saveTeamLogo`: the
+  teamlogo doc first, then the team doc's thumb + flag + `logoData: null` in the SAME write as the
+  extracted colours.
+- **Why a second DOC and not a Firestore projection (`select.fields`) on the team query.** A
+  projection silently drops any field it forgets — a team field added next year would vanish from the
+  app, the exact failure CLAUDE.md warns about for field paths. `sd-fantasy.js` is the live example:
+  its team query is a hand-written projection, and it named `logoData` explicitly (so it downloaded
+  the 465 KB too, and needed `logoThumb` added or it would have fallen back to stale ESPN art the day
+  the migration ran). With the logo in its own doc the boot team list stays an UNPROJECTED query and
+  cannot forget anything; section BTP asserts that, with a field nobody has heard of yet.
+- **Until the migration runs nothing breaks and nothing gets lighter.** A team doc that still has only
+  inline `logoData` shows it everywhere (crests, header avatar, locker, colour re-read). The one-off
+  production step is `tools/_gffl_logo_thumbs.mjs` (below); run it AFTER this deploys, so every open
+  copy is already new code.
+- **`ffdraft.html` and `assets/sunday/sd-fantasy.js`** read team docs too. Both now prefer
+  `logoThumb`; Sunday's projection lists `logoThumb` and keeps `logoData` (absent after migration, so
+  it costs nothing then). `tools/robogoat` baked its 192 px team logos once from `logoData`; a future
+  re-bake must read `teamlogo_<id>`.
+- **The 15 s cache refresh and the 60 s auto-check re-downloaded everything.** `lg-core.js` now
+  remembers, per doc id, the `updateTime` of the copy it holds (`docUT`) and how big the read was.
+  Big things are asked about before they are fetched: `rest.listIfChanged` (a list whose last full
+  read was >= 30 KB — hist, roster, tx, team — is refreshed with ONE query projected to `kind`, which
+  returns names + updateTimes at ~200 bytes a doc; only docs that moved are GET); `rest.getIfChanged`
+  (a >= 4 KB doc is checked with a masked GET); `rest.getFreshProbe` (the `LG.db.getFresh` race guards,
+  which must see the real current state: the SERVER is asked for the updateTime, and if it equals the
+  stamp of the last full read, that read's raw body — kept as text, decoded afresh each time so a
+  caller's scribbling can't reach the next read — IS the current document; LG.db's cache is never
+  trusted for a fresh read, an optimistic write that later failed could still be sitting in it). The
+  projection here learns versions and nothing else; no document is ever built from it. `changed` is
+  known outright, so a megabyte is no longer stringified twice to find out. Any backend without these
+  (the local one, the test fakes) takes the old path unchanged.
+- **Cold start.** `<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>`; and
+  `initCloud`'s reachability probe now seeds the cache with the settings doc it read, so
+  `LG.loadRules` is answered from it instead of making the same round trip again serially (a 404 is
+  still never cached, so a league with no settings doc reads twice; the live one has one).
+- **Fonts self-hosted.** `assets/fonts/`: the Google "latin" woff2 files, byte-identical to what
+  `fonts.googleapis.com` served — `BarlowCondensed-500/600/700.woff2` and ONE variable
+  `Inter-var.woff2` (400-700; that is how Google serves Inter). `@font-face` is inline in
+  `league.html` with `font-display:swap` and the Google `unicode-range`, two faces are
+  `<link rel=preload>`ed, and netlify.toml serves `/assets/fonts/*` immutable for a year (a replaced
+  font needs a new FILE NAME). Weight 800, used in five places, resolves to the 700 face exactly as it
+  did when only 500/600/700 were declared. The render-blocking Google CSS and its two preconnects are
+  gone, so FCP is no longer the font CSS. The suite blocked Google Fonts and measured the
+  system-installed Inter/Barlow; it now loads these same files from its own static server (the
+  server's MIME map gained `.woff2` and `.txt`), so it measures the real faces, and BTP asserts
+  `document.fonts` reports them loaded. Widths did not move (AM, TG and the rest passed untouched).
+- **iOS standalone version check.** `/gffl-version.txt` is a one-token file (`20261001a`),
+  `no-store`, and both the head snippet in `league.html` and `UI.checkAppFresh` fetch it instead of the
+  58 KB `league.html` (`readAppV` is gone). Netlify serves static files and nothing generates it: **it
+  is maintained BY HAND next to the `gffl-v` meta and the three `?v=` strings, and a bump now has FOUR
+  places to change.** Section BTP fails if any of the four differ. A home-screen launch used to make
+  two of these checks (the head's, and the forced one the opening `pageshow` triggers); the head stamps
+  `window.__gfflVerAt` and the forced twin skips itself inside 5 s, so it is one ~10-byte request.
+- **Chat poll** (`startChatPoll`/`refreshChatList`). It ran every 8 s, on a hidden page and a
+  backgrounded tab, with a full uncached read of the whole chat collection and a full `innerHTML`
+  rebuild (26 doc reads per tick — about 11k an hour per open tab against Firestore's free 50k a day).
+  Now: `UI.onBackground` pauses the timer but keeps the *want* (`UI._chatWant`), `UI.onForeground`
+  catches up once and re-arms it if that list is still on the page, leaving the view clears both, and a
+  tick that fires on a hidden page reads nothing. Most ticks are one cheap question — "is there a chat
+  doc whose ID sorts after the newest I have seen?" (`LG.db.listIdRange`, a runQuery on `__name__`,
+  which is indexed automatically; `kind=="chat" AND t>x` would have needed a composite index nobody can
+  create from here; chat ids are `chat_<13-digit ms>_<rand>`) — and stop if the answer is empty. A
+  reaction EDITS an old message and a delete removes one, and neither is a newer id, so every 4th tick
+  (32 s) is the full read. **Trade, stated plainly: another phone's reaction or delete can take up to
+  32 s to show; a new message still shows within 8 s; your own sends/reactions/deletes repaint at
+  once.** `refreshChatList` no longer rebuilds when nothing changed: a signature of the last 80
+  messages (id, text length, reactions), the viewer (team, commissioner), team names/thumbs and the
+  player-name index decides, so a poll no longer wipes an open reaction palette or re-decodes every
+  image.
+- **Activity "open" ledger: NOT changed, and why.** The review read "every load writes an `act_<ts>`
+  doc" and suspected `gffl_actopen_t` did not throttle. It does: `LG.logOpen` writes at most one open
+  per DEVICE per 30 minutes (`LG.ACT_OPEN_MS`, section BG3), and the key is read and written correctly.
+  What the perf harness saw was a fresh browser profile with no localStorage, which logs once per
+  load by construction. The live ledger's 255 docs a week (about 70% opens) is a few phones opening the
+  app a few times a day, ~26 writes a day. Widening the window would change what the dashboard's
+  "opens" card means (BG3 records 30 minutes as the decision), for a saving of nothing measurable.
+  Readers (`actCounts`, `activity.html`) are untouched.
+
+### The migration (production, NOT run by this change)
+
+`node tools/_gffl_logo_thumbs.mjs` is a DRY RUN: it reads production, prints per team the old size
+and the thumb size and the exact masked PATCH it would send, and writes nothing. `--write`: backs up
+every team doc to `./gffl_backup_logos_<ts>/` first (CLAUDE.md bite #9); per team it PATCHes
+`teamlogo_<id>` with the full picture verbatim and reads it back byte for byte; only then PATCHes
+`team_<id>` with `updateMask.fieldPaths = logoThumb, logoCut, logoData` and a body of just the first
+two (a masked field absent from the body is DELETED, so `logoData` goes; nothing else on the doc is in
+the mask), with a `currentDocument.updateTime` precondition so a FAAB write landing mid-run is never
+overwritten (one re-read + retry); then re-reads the team doc and compares it key-sorted against the
+doc as it was a moment before plus the two new fields. It is idempotent (a migrated team is skipped)
+and `--only 1,3` restricts it. Thumbs are made in headless Chromium (canvas -> webp; sharp is not a
+dependency): `NODE_PATH=<a node_modules with puppeteer-core> NODE_USE_ENV_PROXY=1 node
+tools/_gffl_logo_thumbs.mjs`. Dry run against production, 2026-10-04: 7 teams, **464.8 KB -> 25.6 KB**
+(94.5%): team_1 57.8 -> 3.6 KB, 11 52.0 -> 3.4, 12 108.8 -> 4.8 (cut-out), 2 46.0 -> 2.8, 3 16.6 -> 1.5,
+5 68.8 -> 4.1, 9 114.8 -> 5.4 (cut-out); team_4 has only the legacy ESPN URL and is skipped. To undo
+a team: PATCH its backup `logoData` back with `updateMask.fieldPaths=logoData`.
+
+### Numbers (replay harness, mobile model, same live responses, before = `origin/main`)
+
+| | before | after |
+|---|---|---|
+| league content painted | 7.76 s | 5.75 s |
+| first contentful paint | 1.48 s (= Google font CSS) | 1.23 s |
+| bytes on the wire to content | 944 KB | 623 KB |
+| team-list query on the wire | 358 KB | 18.9 KB |
+| Firestore bytes/min, idle tab | 212 KB | 22 KB |
+| `#main` HTML: League / Rosters / Chat | 1.45 MB / 1.00 MB / 818 KB | 103 KB / 100 KB / 69 KB |
+| requests to Google for fonts | 4 | 0 |
+| version check per launch / foreground | 58 KB x 2 | ~10 B x 1 |
+
+The harness (`h.cjs`, scratch) serves the real files, a fake Firestore built from the recorded live
+answers (real `updateTime`s, projections that drop what they don't name) and the recorded ESPN/Sleeper
+bodies, through a modelled network with a 3-RTT handshake per origin (preconnect hints start theirs
+when the HTML lands). The "after" database is the migrated shape (the same thumbs the script makes).
+The remaining ~5 s is not mine: Sleeper's 2.2 MB players dump hogs the link and the three sync
+scripts parse before the first Firestore request. The "after" figures above include none of the
+migration's effect on production until it runs.
+
+### RESTAGED checks (each names the rule it moved)
+
+- **AM4** (`ex`, `picked`, the re-upload wait) and **AM4b** (the transparent upload): "the picture is
+  stored as a data: URL on the team doc" was a statement about WHERE, and WHERE is what moved. They now
+  read the full picture from `teamlogo_<id>` and wait on `logoThumb`; AM4b additionally asserts the
+  team doc's thumb size, `logoCut` true for a transparent upload and false again after an opaque one,
+  and no inline `logoData`. The 160KB budget, the PNG-vs-JPEG rule and the alpha-corner checks are
+  unchanged, on the doc that holds the picture now.
+- The cross-tab propagation check (`savedLogo`, ~line 5163): the string every small crest must render
+  is now the team's `logoThumb`, not its `logoData`.
+- **TG6**: the freshness check mocks `/gffl-version.txt` (plain text) instead of `/league.html`
+  (a meta in an HTML body). Behaviour under test (stale reloads, current doesn't, a focused composer
+  is never yanked) is unchanged.
+- The suite's REST fixture (`restRespond`) now honours `select.fields`, `mask.fieldPaths` and a
+  `__name__` range, and records `R.served` (what each answer contained). A fixture that returned every
+  field regardless would be kinder than Firestore and could never catch a field a projection forgot.
+
+### Not done
+
+- **Sleeper `/players/nfl` deferral** (perf report fix 2, 2.2 MB and a 0.73 s long task) — the data
+  agent's `lg-data.js`. **ESPN summary polling while a game is `pre`** — same owner. **Immutable
+  `?v=` assets** (fix 5) — only the new font files got it; `/assets/league/*` revalidation per launch
+  is unchanged. The three sync `<script>`s still block the first Firestore request.
+- **Roster-doc fan-out.** `fzRosterOf`/`fzStarters` still issue one fresh read per team per poll tick
+  (30-70 requests a minute). They are now ~250-byte probes when nothing changed, but they are still
+  requests. A single `kind=="roster"` probe per tick would be one request; that is an engine change.
+- 96 px thumbs on a 56 px crest at 3x are 1.7x — slightly soft at the largest slot. The brief said
+  ~96; 128 would be ~1.8x the bytes (still ~6-9 KB each) if anyone minds.
+
+**VERIFY:** `node tools/_verify-gffl.cjs --only BTP,AM,TG` **210/210** (BTP is 78 checks); with the
+three further runs: `AB,AM,TG,BG,AK` **381**, `K,AE,AF,AT,UD2,U` (the chat sections) **452**, and
+`AR,AS,UA,B2,F2,P,UH6,V,W,X,Z,AB,AK` **647**, all 0 failing (the fake-cloud and REST sections are
+the ones that exercise `LG.db`'s refresh paths). The full battery is the integrator's. `node tools/_verify-sunday-ff.cjs` **56/56** (3 new: the projection names
+`logoThumb`; a thumb beats an inline `logoData`). **Bite:** BTP and the restaged checks run with the
+app files (`lg-core.js`, `lg-ui.js`, `league.html`, `sd-fantasy.js`, `ffdraft.html`, `netlify.toml`)
+put back to `origin/main`: **BTP 44 pass / 34 fail** (the 34 are the new behaviours — fonts, version
+file, thumbs, no teamlogo read, one settings GET, projected probes, the chat poll; the 44 that pass are
+facts true of the fixture either way, e.g. that a migrated-shape fixture carries no full logo), and the
+restaged checks fail exactly where they were restaged (AM4's three "where is the picture" checks, then
+AM's next wait on `logoThumb`; TG6's three). Every other check in AM, TG, BG and AB (219) passed
+unchanged on the old code.
+
+Files: `assets/league/lg-core.js` (`docUT`/`docRaw`, `rest.get/getIfChanged/getFreshProbe/listIfChanged/
+listIdRange`, `local.listIdRange`, `LG.db.get/getFresh/list/listIdRange`, `initCloud`, `LG.loadTeamLogo`,
+`LG.saveTeamLogo`, `LG.loadAllChat`/`chatLastId`, `ID_KIND`), `assets/league/lg-ui.js` (`teamSrc`,
+`teamIsCut`, `crestHtml`, `makeLogoThumb`, upload handler, `lockerBigLogo`, colour re-read, chat poll
++ `refreshChatList`, `onBackground`/`onForeground`, `checkAppFresh`), `league.html`, `gffl-version.txt`,
+`assets/fonts/*.woff2`, `netlify.toml`, `assets/sunday/sd-fantasy.js`, `ffdraft.html`,
+`tools/_gffl_logo_thumbs.mjs`, `tools/_verify-gffl.cjs` (section BTP, restaged AM4/AM4b/TG6/propagation,
+the fixture), `tools/_verify-sunday-ff.cjs`.
+
+---
+
+## GFFL — UI review: tap targets, short names, waiver run line, out-starter swap-in, trade fits (2026-10-04)
+
+The UI review of the live app at 375/390/1280 found small tap targets, clipped names on the League cards and a
+handful of missing cues. What changed and why:
+
+- **Tap targets (CSS, league.html end of `<style>`).** 44px minimum on the matchup week arrows and pairing chips, lineup
+  Swap and Drop, Rosters jump chips, Moves filter chips and the chat Photo button. Where the look must stay small the
+  hit area grows through an invisible `::before`: the locker pencil (`inset:-8px`) and the chat Reply/Delete/react pills
+  (`inset:-12px -3px`; -11 measured exactly 10px at the border edge, so 12). Drop stays the quiet glyph but is now 44x44;
+  the phone `.lrow` gap went 10 -> 8px to pay for it so AD8's 140px name floor still holds at 375 (141px measured).
+- **Score-card names (`fitCardNames`, `nameFitAttrs`).** A `.muteamname` whose Range width exceeds its content box shows
+  `teamTag` (abbreviation) with the full name in `title`; resets to the full name first, so it is idempotent. Runs after the
+  League render, on `fonts.ready` and on resize.
+- **Rosters "you" marker.** The red outline on your own jump chip read as "selected". It now has the normal outline plus a
+  6px accent dot and `title="Your team"`.
+- **Waiver run line (`waiverRunLine`, `#mvRunLine`).** "Ran Wed Sep 30, 8:00 AM CT · Next: Wed Oct 7, 8:00 AM CT", with
+  ` · in 17h 0m` once the next run is under 24 h. Instants come from `LG.waiverDeadline` (week and week+1); this formats them
+  in America/Chicago. No next run after week 18. It is a `<div>`, not a `<p>`: I (waivers) asserts the card carries no prose
+  paragraph and this is a line, not prose. Search placeholder is now "Search players…".
+- **Early win-% card (`matchupWinGraphHtml`, 7th arg).** With no starter played or playing on either side AND a series that
+  has not moved (under two recorded minutes, or every recorded minute and the live tip within 0.005), the card says
+  "No games yet" and the projected totals instead of a flat stroke under a "58%". Anything played/playing, or a pre-kickoff
+  series that has moved, draws the sparkline as before.
+- **Out starter swap-in (`starterIssue`, `bestSwapIn`, `swapInStripHtml`, `.swapin` handler in `wireLockerLineup`).** A starter
+  who is Out/IR/PUP/NFI/SUS/COV/NA/DNR (via `injLabel(LG.injuryOf)`, so Q/D/P stay playable) or whose team has no game on this
+  week's board (a bye; only when the board is this league week's and non-empty, never a D/ST) gets the red `.inj` flag under
+  the row plus "Swap in <best bench player>": highest `D.projFor` among bench players that fit the slot, have no issue of
+  their own and whose game has not started. The tap calls the existing `swap()` (same write, same ledger entry), re-checking
+  both locks. A starter whose own game has started gets the flag and no button. "Inactive" game-day lists are not in any feed
+  this app reads, so they are not flagged.
+- **Trade fits on Rosters (`tradeFits`, `tradeFitsHtml`).** From `LG.powerRosBoard` rooms: your worst room among
+  QB/RB/WR/TE/K/DST by rank (tie: furthest behind the league's best, room / best), against teams that rank better there and
+  carry more rostered (non-IR) players at that position than the league starts (FLEX ignored). Up to three, best room first,
+  each with "Start a trade" which sets `UI._tradeCp` and opens Moves at `#mvTradeCard`. Reads existing numbers only. Needs the
+  season averages, so `renderRosters` asks `refreshPowerData` and repaints when they land (`refreshPowerData` now repaints the
+  Rosters view too).
+
+**Reverses / restages**
+- 2026-09-13 "a one-tick card still draws a line" (TF): an all-pre one-tick card now says "No games yet" instead of a
+  one-point line. The 09-13 rule it served (never a bar with nothing beside it) still holds. RESTAGED at the check.
+- Matchup week cycler "stays narrow" (TN/UD): <=36px -> <=44px, because the arrows are now 44 tall. RESTAGED at the check.
+
+**VERIFY:** `node tools/_verify-gffl.cjs --only UI1` 90/90 (3 viewports). Related sections (C D E I K L R Y AE AG AI AO AQ AT BA
+RGL RS TB TF TH TI TL TN TO TQ TS TZ UD1 UD2 UG UH4 UH5 MTC UI1) 1576/1576. Bite (league.html + lg-ui.js at origin/main,
+suite kept, `--only UI1,TF,TL,AG,MTC`): 267 pass / 68 fail — 67 UI1 checks and the restaged TF check fail, every other
+pre-existing check passes. App files restored.
+
+Files: `league.html`, `assets/league/lg-ui.js`, `tools/_verify-gffl.cjs`, this file.
+
+---
+
+## GFFL — RoboGoat weekly automation, tie handling, meta tags (2026-10-04)
+
+From the periph review (findings 8 and 10, and "Ideas to cut the weekly effort"). The weekly hand
+work was: pick `--since` by hand, diff Saturday lineups by hand, hunt for the jokes, retype the
+schedule/Injury Desk/series/Thursday tallies, type `picksRecord` and the pick results, type the
+ranking order and trust it. Each of those is now computed, and where a hand-written value can
+disagree with the data the build fails.
+
+- **`tools/robogoat/week.mjs`** (new): the weekly entry point. Derives `--since` from the newest
+  `robogoat/issues.json` entry, runs `facts.mjs`, snapshots a preview's lineups to the work folder
+  (key-sorted, so CLAUDE.md bite 9's key-order noise never shows) and on a re-run prints the diff by
+  team, player and slot. The README now tells both routines to use it, so the routines learn it from
+  the README without a prompt change.
+- **`tools/robogoat/analysis.mjs`** (new): the rules as pure functions, so the suite can test each
+  against a hand-computed fixture.
+- **Leads** (`kit/leads.md`, `facts.leads`): starters Out or projected 0.0; a starter who kicks off
+  after higher-projected bench players (ESPN's scoreboard supplies kickoffs); teams with no lineup
+  change since the week opened (roster doc `updateTime`, now carried as `_updateTime` by
+  `lib.mjs`); a player moved three or more times; each team's transactions. Leads are facts to
+  check, not claims.
+- **Drafts** (`kit/drafts.md`): The Rest of the Weekend, Injury Desk skeleton, series lines,
+  Thursday tallies (preview); series, "Week N+1" lines and a GFFL-power ranking draft (recap).
+- **Picks**: `facts.mjs` computes each pick's result from the weekly scores and fills blank
+  `season.json` results. This reverses "RoboGoat's own keys (picks, rankings) are never touched":
+  blank `result`s only; a typed result is kept and a disagreement prints as WARNING. It also stores
+  each week's pairings (`weeks.N.games`; weeks 1 to 3 backfilled, additive, no page changes).
+  `picksWeek`/`picksRecord`/`picks` come out in the skeleton. **`build.mjs` throws** when
+  `picksWeek`, `picksRecord`, `picks`, a stored result, the power-ranking order or a power-ranking
+  owner/record disagrees with the scores, `season.json` or `issue.json`.
+- **`facts.mjs` rules**: standings rank on w + 0.5 t, then `settings.rules.tiebreak` when present,
+  else **`["h2h","pf"]`** (chosen because the app is moving to head-to-head first; until the
+  field exists the old kit order, wins then PF, is gone). A tied game is nobody's win in the
+  win-probability summary (it was read as a home win; an exact 0.5 reading is no longer a flip) and
+  on the board (`WON`). `--since` now defaults to the start of the newest issue's day (capped at 14
+  days, 7 with no issues); `--since 3d` also works. Known scorer FAIL lines live in
+  `known-anomalies.json` (Week 2's Nacua case, count 1); a second case is `NEW ANOMALY`.
+- **Meta**: `build.mjs` adds `og:url` and `og:site_name` to issue pages; `archive.mjs` adds `og:url`,
+  `og:site_name`, `twitter:card` to the archive. The two published pages and the archive were
+  rebuilt: two additive `<meta>` lines each, nothing else changed.
+
+**RESTAGED:** none. 119 pre-existing checks untouched.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **174/174** (119 + 55 new: standings, win probability,
+since, anomalies, meta, lineup diff, leads, drafts, series, `week.mjs` end to end on fixtures, picks,
+rankings, README, build failures on a copy of the real issues). Bite: `tools/robogoat` and `robogoat`
+put back to `origin/main` (new files moved aside): **122 pass / 52 fail**; the 119 pre-existing pass,
+the 52 failures are new checks, and 3 new checks pass on the old code because they are negative or
+round-trip checks (a lead that must not appear; the real issues built from a temp copy, before and after the mutations).
+
+Files: tools/robogoat/{analysis,week}.mjs, known-anomalies.json, facts.mjs, build.mjs, archive.mjs,
+lib.mjs, README.md; robogoat/2026/season.json (pairings), the two issue pages and the archive (meta);
+tools/_verify-robogoat.cjs.
+
+---
