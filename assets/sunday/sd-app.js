@@ -404,11 +404,12 @@ function playKind(p) {
   if (/kickoff/.test(t)) return 'kickoff';
   if (/punt/.test(t)) return 'punt';
   if (/field goal|extra point|two-point|2pt|pat/.test(t)) return 'fg';
-  if (/sack/.test(t)) return 'sack';
+  if (/sack/.test(t)) return /pass incomplete/.test(x) && !/sacked/.test(x) ? 'incomplete' : 'sack';   // (intentional grounding is typed "Sack")
   if (/penalty/.test(t)) return 'penalty';
   if (/incomplet/.test(t)) return 'incomplete';
   if (/pass|interception|reception/.test(t)) return 'pass';
   if (/rush|run/.test(t)) return 'run';
+  if (/\bsacked\b/.test(x)) return 'sack';                 // ("Fumble Recovery (Own)": a sack with the ball out)
   if (/pass/.test(x)) return /incomplete/.test(x) ? 'incomplete' : 'pass';
   if (/punt/.test(x)) return 'punt';
   if (/kickoff/.test(x)) return 'kickoff';
@@ -485,9 +486,12 @@ function quickIsNewer(id, sum, evId) {
   if (sum.byId.has(s)) return false;
   if (!sum.byId.size) return true;
   if (!/^\d+$/.test(s) || !s.startsWith(ev)) return false;
-  let max = 0n;
-  for (const k of sum.byId.keys()) if (/^\d+$/.test(k) && k.startsWith(ev) && BigInt(k) > max) max = BigInt(k);
-  return BigInt(s) > max;
+  // (2026-10-03: ids are not strictly increasing. A play can arrive under a lower id than the timeout
+  // logged just before it, and it then waited for the summary, 8 to 30 s behind. It is new unless the
+  // summary already has a real play above it.)
+  const n = BigInt(s);
+  for (const [k, p] of sum.byId) if (/^\d+$/.test(k) && k.startsWith(ev) && BigInt(k) > n && (p.kind !== 'meta' || BigInt(k) - n > 12n)) return false;
+  return true;
 }
 function quickPlay(ev) {
   const lp = ev?.sit?.lastPlay;
@@ -497,6 +501,9 @@ function quickPlay(ev) {
     start: { yardLine: lp.start.yardLine, team: lp.start.team }, end: { yardLine: lp.end.yardLine, team: lp.end.team },
     period: { number: ev.period }, clock: { displayValue: ev.clock }, awayScore: ev.away.score, homeScore: ev.home.score,
   };
+  // (The scoreboard's last play has no down and distance; the situation one poll earlier was its snap.)
+  const ps = G?.preSnap;
+  if (ps && ps.id === lp.id && ps.yl === lp.start.yardLine && ps.poss === (lp.start.team?.id || lp.team?.id)) Object.assign(raw.start, { down: ps.down, distance: ps.dist, shortDownDistanceText: ps.dd });
   const p = normPlay(raw, ev.home.id, lp.team?.id, ev.home.abbr);
   p.provisional = true;
   return p;
@@ -1248,7 +1255,11 @@ function openGameView(id) {
   // Every 2 s in a live game (2026-09-28; it was 5): ESPN caches this per-game feed for 1 s, and the
   // 8-bit view animates from its latest play, so the page sees a new play 1.5 s sooner on average.
   G.evPoller = makePoller(loadGameEvent, () => (G?.ev?.state === 'in' ? 2000 : G?.ev?.state === 'pre' ? 60000 : null));
-  G.sumPoller = makePoller(loadSummary, () => (G?.ev?.state === 'in' ? 10000 : G?.ev?.state === 'pre' ? 120000 : null));
+  // (2026-10-03: the summary runs 8 to 30 s behind the scoreboard. While the scoreboard's last play is
+  // not a real play, a stale extra point under an odd id, or plays are waiting on the summary, ask
+  // twice as often.)
+  const behind = () => { const id = String(G?.ev?.sit?.lastPlay?.id || ''); return (!!id && !(/^\d+$/.test(id) && id.startsWith(String(G.id)))) || (G?.quicks?.length || 0) > 1; };
+  G.sumPoller = makePoller(loadSummary, () => (G?.ev?.state === 'in' ? (behind() ? 5000 : 10000) : G?.ev?.state === 'pre' ? 120000 : null));
   G.evPoller.start();
   G.sumPoller.start();
   requestWake();
@@ -1320,7 +1331,9 @@ function gateCheck() {
   }
   // Never hold long: 15 s, down from 45 (2026-09-28, user: "I keep having to refresh to see latest
   // play"). A score held behind a slow animation reads as a page that stopped updating.
-  if (G.gate && Date.now() - G.gate.at > 15000) gateOpen();
+  // (30 s, not 15, while the stage is animating that very play: a 90-yard touchdown out of the huddle
+  // takes about 16 s to reach its banner, and the score used to flip before it. 2026-10-03.)
+  if (G.gate && Date.now() - G.gate.at > (typeof sideGateBusy === 'function' && sideGateBusy(G.gate.id) ? 30000 : 15000)) gateOpen();
 }
 function tecmoOnScreen() {
   const cv = typeof sideTarget === 'function' ? sideTarget().cv : null;
@@ -1355,6 +1368,10 @@ async function loadGameEvent() {
   if (!G || G.id !== id) return;
   const ev = normEvent(d);
   const old = G.ev;
+  {                                                           // the down and spot before the snap of a play that just arrived
+    const nq = ev.sit?.lastPlay?.id, os = old?.sit;
+    if (nq && nq !== os?.lastPlay?.id && os?.possession && os.down > 0) G.preSnap = { id: nq, down: os.down, dist: os.distance, dd: os.shortDownDistanceText || '', yl: os.yardLine, poss: os.possession };
+  }
   G.ev = ev;
   S.byId.set(id, ev);
   const idx = S.events.findIndex((e) => e.id === id);

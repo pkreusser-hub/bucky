@@ -77,7 +77,7 @@ function raParse(p, ev) {
   for (const g of t.matchAll(/\(([^()]*)\)/g)) {
     // A formation tag is not a tackler list: "(No Huddle, Shotgun) J.Love pass …" used to name two
     // tacklers called "No Huddle" and "Shotgun".
-    if (/H:|LS:|Original|clock|shotgun|huddle|pistol|formation|wildcat|under center/i.test(g[1])) continue;
+    if (/H:|LS:|Original|clock|shotgun|huddle|pistol|formation|wildcat|under center/i.test(g[1]) || /^[\s\d:]*$/.test(g[1])) continue;   // (nor is a bare number)
     for (const it of g[1].split(/[;,]/)) { const m = /^\s*(?:#(\d{1,2})\s*)?(.+?)\s*$/.exec(it); const w = m && who(m[1], m[2]); if (w) tacklers.push(w); }
     break;
   }
@@ -88,7 +88,7 @@ function raParse(p, ev) {
     || /PENALTY ([A-Z&]{2,5})\s+(.+?)(?:\s\(|\s\d+ yards?|\sdeclined|\.|,|$)/i.exec(t);
   const recBy = /(?:recovered|RECOVERED) by (?:[A-Z&]{2,5}-)?([A-Z&]{2,5})\b/.exec(t) || /RECOVERED by ([A-Z&]{2,5})-/.exec(t);
   const tt = p.typeText || '';
-  const hasFumble = /\bFUMBLES?\b/i.test(t);
+  const hasFumble = /\bfumble[sd]?\b/i.test(t);
   return {
     text: t, gun, form,
     depth: dm[1] || '', dir: dm[2] === 'up the middle' ? 'middle' : dm[2] || '', gap: dm[3] || '',
@@ -146,7 +146,7 @@ function raParse(p, ev) {
     // yards to NO 20, out of bounds") is the ball, not a runner, so it doesn't count here.
     oob: /\bob\b/i.test(t) || (/out of bounds/i.test(t) && !/\b(?:punts|kicks|kickoff)\b/i.test(t)),
     pushedOb: /\bpushed (?:ob|out of bounds)\b/i.test(t),
-    td: /TOUCHDOWN/.test(t) || (p.scoring && /touchdown/i.test(tt)),
+    td: (/TOUCHDOWN/.test(t) && !/nullified|no play/i.test(t)) || (p.scoring && /touchdown/i.test(tt)),   // (not one a penalty took back)
     safety: /SAFETY/.test(t) || /safety/i.test(tt),
     noPlay: /no play/i.test(t),
     declined: /declined/i.test(t),
@@ -247,7 +247,7 @@ function raBuild(p, ev, qbs, opts = {}) {
   // often omits the name ("...for -9 yards (D.Deablo). FUMBLES (D.Deablo)...") when it's the same
   // player just mentioned, and a missed name must never silently drop the fumble animation.
   const zFum = I.hasFumble ? Z(I.fumH ?? I.recH ?? p.eH ?? p.sH) : null;
-  const lostFum = zFum != null && (!I.recTeam || I.recTeam.id !== p.offId);
+  const lostFum = zFum != null && (I.recTeam ? I.recTeam.id !== p.offId : /\(own\)/i.test(p.typeText || '') ? false : /opponent/i.test(p.typeText || '') ? true : true);
   if (zFum != null) I.td = I.td && !lostFum;
 
   const sc = { actors: [], ball: [], events: [], z0, x0, offHome, ltg: p.dist && p.down && z0 + p.dist < 100 ? z0 + p.dist : null, col, offT, defT, tS: !opts.from ? 1.1 : opts.from.timeout || opts.from.halftime || ['kickoff', 'punt', 'fg'].includes(p.kind) ? 6 : opts.from.huddle ? 4 : 4.5, homeCol: offHome ? col.o : col.d };
@@ -627,7 +627,7 @@ function raBuild(p, ev, qbs, opts = {}) {
     sc.actors.push(r);
     const tIn = t0 + Math.max(0.6, Math.hypot(x0r - rx, 2) / 7);
     const tPick = tIn + 0.35;
-    const tSpot = tPick + Math.max(0.6, Math.abs(zB - zA) / 3.2);          // walks it off
+    const tSpot = tPick + Math.max(0.6, Math.abs(zB - zA) / clamp(Math.abs(zB - zA) / 4.5, 3.2, 8));   // walks it off; jogs a long one (4.5 s at most up to 36 yd)
     const tOff = tSpot + 0.45 + Math.abs(sx - rx) / 8.5;
     r.k.push([tIn, rx, zA, 2], [tPick, rx, zA, 0], [tSpot, rx, zB, 0], [tSpot + 0.45, rx, zB, 0], [tOff, sx, zB + R(-2, 2), 0]);
     sc.ball.push({ t0: tPick, t1: tSpot, a: r });
@@ -3363,8 +3363,30 @@ function raPlays() {
       if (pat) list.push(pat);
     }
   });
-  const q = G?.ev ? quickPlay(G.ev) : null;
-  if (q && q.kind !== 'meta' && quickIsNewer(q.id, G.sum, G.ev.id)) { q.text = G.ev.sit?.lastPlay?.text || q.text; q.typeText = G.ev.sit?.lastPlay?.type?.text || ''; q.sDD = ''; list.push(q); }
+  // 2026-10-03, from a recording of live feeds. (a) A play seen on the scoreboard stays in the list
+  // until the summary has it: the scoreboard moves on to the next play (or to a stale extra point) up
+  // to 30 s before the summary catches up, and the play used to drop out of the list, so the stage went
+  // back to the play before it. (b) The try after a touchdown: the scoreboard reports it at once as an
+  // "Extra Point Good" under an odd id, while the touchdown's own text can gain the kick much later.
+  if (G?.ev) {
+    const keep = (G.quicks || []).filter((x) => quickIsNewer(x.id, G.sum, G.ev.id));
+    const q = quickPlay(G.ev);
+    if (q && q.kind !== 'meta' && quickIsNewer(q.id, G.sum, G.ev.id)) {
+      q.text = G.ev.sit?.lastPlay?.text || q.text; q.typeText = G.ev.sit?.lastPlay?.type?.text || '';
+      const i = keep.findIndex((x) => String(x.id) === String(q.id));
+      if (i >= 0) keep[i] = q; else keep.push(q);
+    }
+    G.quicks = keep;
+    list.push(...keep);
+    const xp = G.ev.sit?.lastPlay, last = list[list.length - 1];
+    if (xp && last && !last.pat && raIsTD(last) && /extra point|two[- ]point|conversion|\bpat\b/i.test(xp.type?.text || '') && !G.sum?.byId.has(String(xp.id))) {
+      const ty = xp.type.text, good = /good|success/i.test(ty) && !/no good|miss|fail|block/i.test(ty), two = /two|conversion/i.test(ty);
+      const who = (/\(\s*([A-Z][^()]*?)\s+(?:KICK|PASS|RUN|RUSH)\b/i.exec(xp.text || '')?.[1] || /([A-Z]\.[A-Z][\w'’-]+)\s+extra point/.exec(xp.text || '')?.[1] || 'Kicker').replace(/\.\s+/g, '.');
+      const text = two ? `${who} ${/pass/i.test(xp.text + ty) ? 'pass' : 'rush'} attempt ${good ? 'good' : 'failed'}` : `${who} extra point is ${good ? 'GOOD' : 'NO GOOD'}`;
+      const pat = raPatFrom({ ...last, text: `${String(last.text).replace(RA_TRY_RE, '')} ${text}` }, list[list.length - 2]);
+      if (pat) list.push(pat);
+    }
+  }
   return list;
 }
 // What really happened on each play of a finished game: nflverse play-by-play (air yards, yards after
@@ -3647,6 +3669,12 @@ function sideUpdate() {
   const pastResult = SIDE.running && SIDE.gatePlay == null && SIDE.resultAt != null && SIDE.t >= SIDE.resultAt + 1.2 && SIDE.sc?.tdAt == null;
   if (String(latest.id) !== String(SIDE.playId)) { if (!SIDE.running || pastResult || ((SIDE.sc?.timeout || SIDE.sc?.halftime || SIDE.sc?.huddle) && !SIDE.sc?.clear)) { if (SIDE.sc?.tdAt == null || !SIDE.idle) sidePlay(latest); } }
   else if (!SIDE.running && !SIDE.idle && !SIDE.sc?.huddle) sideHuddle();
+  // A huddle formed before the feed had the next spot (or with a wrong one) moves once it does.
+  else if (SIDE.sc?.huddle && sideSitOk(G.ev.sit)) {
+    const s = G.ev.sit, sc = SIDE.sc, offHome = s.possession === G.ev.home.id;
+    if (sc.offHome !== offHome || Math.abs(sc.z0 - (offHome ? s.yardLine : 100 - s.yardLine)) > 1.5) sideHuddle(true);
+    else if (s.downDistanceText) sideText('tx', `Huddle · next: ${s.downDistanceText}`);
+  }
 }
 // Arriving at a live game. 2026-09-28, user: "Often when refreshing the screen or going from one game
 // back to the live game it will replay the previous play. It shouldn't replay anything it shoukd always
@@ -3682,6 +3710,7 @@ function raArriveTD(latest) {
 }
 // The page back in front after a while away: pick up the game as it is (sd-app.js calls this).
 function sideArrive() { SIDE.arrive = true; }
+function sideGateBusy(id) { return SIDE.gatePlay != null && String(SIDE.gatePlay) === String(id) && SIDE.running && performance.now() - SIDE.last < 1000; }
 /* ── Replay reviews ──
    2026-09-28, user (PHI @ CHI): "chicago just ran a play and it was called a touchdown, but it was being
    reviewed so it looks like GFFL didnt want to show it. It should show the interim result of the play,
@@ -3824,11 +3853,15 @@ function sideResultAt(sc) {
   return Math.min(firstBanner ?? Infinity, sc.tEnd ?? sc.T - 1.5);
 }
 // After a play (not a score, not a kick): both teams jog into their huddles at the next spot.
-function sideHuddle() {
+// The feed's situation is usable: between plays ESPN sometimes sends the team with the ball but a
+// yard line of 0 and no down text for a few polls (2026-10-03: a huddle formed on the goal line
+// after a sack at midfield, and stayed there).
+const sideSitOk = (s) => !!(s?.possession && s.yardLine > 0 && s.yardLine < 100 && s.down > 0);
+function sideHuddle(again) {
   const ev = G?.ev, prev = SIDE.sc;
   let s = ev?.sit;
-  if (!prev || prev.huddle || prev.timeout || prev.tdAt != null || !ev || ev.state !== 'in' || isHalftime(ev)) return;
-  if (!s?.possession || s.yardLine == null || !(s.down > 0)) {
+  if (!prev || (prev.huddle && !again) || prev.timeout || prev.tdAt != null || !ev || ev.state !== 'in' || isHalftime(ev)) return;
+  if (!sideSitOk(s)) {
     const lp = SIDE.lastPlay, pb = raBall(prev, prev.T), bz = prev.spotZ ?? pb.z;     // (a touchback's ball lies in the end zone; the snap is at spotZ)
     const H = prev.offHome ? bz : 100 - bz;
     if (!lp || !(H > 1 && H < 99)) return;
@@ -3936,7 +3969,7 @@ function sideResume() {
       const id = SIDE.gatePlay;
       SIDE.gatePlay = null;
       if (SIDE.pendingTx) { sideText('tx', playHTML(SIDE.pendingTx), true); SIDE.pendingTx = null; }
-      if (typeof gameGateRelease === 'function') gameGateRelease(id);
+      try { if (typeof gameGateRelease === 'function') gameGateRelease(id); } catch (err) { console.error(err); }   // (a page render that throws must not stop the stage)
     }
     if (SIDE.running && SIDE.t >= SIDE.sc.T) { SIDE.running = false; SIDE.onEnd?.(); }
     SIDE.raf = requestAnimationFrame(tick);                         // keep drawing: the players idle, the sidelines move

@@ -1300,3 +1300,58 @@ holds (an old saved key is ignored) and now covers a filter that no longer exist
 Bite: HEAD's sd-app.js, sd-features.js and sd.css score 318/323, failing exactly the 4 new checks
 (game header 2 buttons / 4 star paths, team page 1 pill, `mine` present in both filter lists, `S.favs`
 object) plus the webfont check; restoring the edits returns 322/323.
+
+## 2026-10-04 — the ESPN feed fixes from Saturday
+
+User: "port today's feed fixes back to GFFL". On 2026-10-03 Saturday (the college app this page was
+ported from) had its ESPN handling reviewed against a recording of live games, polled as the page
+polls them, and against every play of a Saturday's games run through the parser. What it found is
+true of the feed, not of college football, so the fixes are brought here. Measured there: the
+summary (the full play-by-play) runs 8 to 30 s behind the per-game scoreboard feed, median about 18 s.
+
+In `sd-reenact.js`:
+- **A play seen on the scoreboard stays in the list until the summary has it** (`G.quicks`, in
+  `raPlays`). The scoreboard moves on to the next play, or to a stale extra point, before the summary
+  catches up; the play used to drop out of the list, and the stage could go back to the one before it.
+- **The try is staged from the scoreboard's own entry.** ESPN reports it at once as an "Extra Point
+  Good" under an odd id (`-89197925`); `raPlays` synthesises the try from it, under the id the
+  summary's own try will carry (`<touchdown id>-pat`), so nothing plays twice when the text catches up.
+- **The huddle's spot** (`sideSitOk`, `sideHuddle(again)`). Between plays the situation can carry the
+  team with the ball but a yard line of 0 (or 100) for a few polls. The huddle formed on the goal line
+  and never moved. A yard line of 0 or 100 is now ignored (the huddle forms where the play left the
+  ball), and a huddle more than a yard and a half from the feed's spot moves to it.
+- **Parser:** a bare number in parentheses is not a tackler ("(4) (D.Walker)"); "TOUCHDOWN NULLIFIED
+  by Penalty" is not a touchdown; "fumbled by" is a fumble as "FUMBLES" is, and ESPN's play type
+  ("Fumble Recovery (Own)" / "(Opponent)") says who has the ball when the text's team can't be read.
+- **The official jogs a long penalty off**: `clamp(yards / 4.5, 3.2, 8)` yd/s, so at most 4.5 s up to
+  36 yards (55 yards: 6.9 s, was 17.2).
+- **`sideGateBusy(id)`**, and a page render that throws inside the gate's release no longer stops the
+  stage's animation loop.
+
+In `sd-app.js`:
+- **`quickIsNewer`**: play ids are not strictly increasing. A play can arrive under a lower id than
+  the timeout logged just before it; it then waited for the summary. It is new unless the summary
+  already has a real play above it (or a meta play more than 12 ids above).
+- **`playKind`**: an incompletion ESPN types "Sack" (intentional grounding) is an incompletion; a
+  strip-sack typed "Fumble Recovery" is a sack.
+- **Down and distance on a scoreboard play** (`G.preSnap`): the situation one poll earlier was its
+  snap, so the score bug's down box and the first-down line are there before the summary is.
+- **The summary is asked every 5 s** (10 otherwise) while the scoreboard's last play is under an odd
+  id or more than one play is waiting on the summary.
+- **The gate's 15 s cap is 30 s while the stage is animating that very play**: a long touchdown out
+  of the huddle takes about 16 s to reach its banner, and the score used to flip first.
+
+Not brought over, because they are college wording or features, not feed fixes: spots written with a
+team's nickname ("Mizzou50"), the college two-point wording, the takeaway celebration, the idling
+defense, and the "why nothing is happening" notice.
+
+Cache-bust ?v=20261004a.
+
+VERIFY: sunday 337/338 (new section "The ESPN feed: plays kept until the summary has them, ids out of
+order, the huddle's spot", 15 checks). The one failure, "2× and 3× run the play's clock two and three
+times as fast as 1×", fails the same way on HEAD on this machine (the 1× run measures 0.4 to 0.7 scene
+seconds a second in a loaded headless Chrome); the webfont ink check that fails in the container passes
+here. sunday-ff 53/53. Bite: HEAD's sd-app.js and sd-reenact.js score 324/338, failing 13 of the 15
+new checks and the same timing check; the two that pass there are the touchdown in the list while it
+is the scoreboard's last play, and one touchdown with one try once the summary has it, which held
+before. The 30 s cap itself is not timed by a check; `sideGateBusy`'s truth table is.
