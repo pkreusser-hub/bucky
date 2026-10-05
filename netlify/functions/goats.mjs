@@ -40,6 +40,7 @@ function toGoat(fields) {
     dam: f("dam") || "",
     registered: !!f("registered"),
     forSale: !!f("forSale"),
+    sold: !!f("sold"),
     price: f("price") || 0,
     saleNote: f("saleNote") || "",
     about: f("about") || "",              // the goat's "about me" bio
@@ -60,6 +61,7 @@ function mergeByName(goats) {
     for (const fld of ["breed", "sex", "dob", "sire", "dam", "photo", "about"]) if (!m[fld] && g[fld]) m[fld] = g[fld];
     if ((g.photos || []).length > (m.photos || []).length) m.photos = g.photos;  // keep the richest gallery
     if (g.registered) m.registered = true;
+    if (g.sold) m.sold = true;
     if (g.forSale) {
       m.forSale = true;
       if (g.price) m.price = g.price;
@@ -96,6 +98,7 @@ export default async (req) => {
     // click-through matters); herd goats expose just their cover thumbnail.
     for (const g of goats) {
       g.photos = g.photos.slice(0, 6);
+      if (g.sold) g.forSale = false;   // a sold goat is never listed as for sale
       if (!g.forSale) g.photos = g.photo ? [g.photo] : [];
     }
 

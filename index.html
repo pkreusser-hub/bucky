@@ -503,6 +503,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .goat-tile-photo.placeholder { display: flex; align-items: center; justify-content: center; font-size: 56px; }
   .goat-tile-name { font-weight: 700; font-size: 15px; color: var(--ink); text-align: center; }
   .goat-tile-sale { font-weight: 800; font-size: 12px; color: #2e7d32; text-align: center; }
+  .goat-tile-sale.sold { color: var(--muted); }
   #goatDetailBody .care-row:last-child { border-bottom: 0; }
 
   /* Family tree */
@@ -1676,6 +1677,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     <div class="seg" id="saleSeg">
       <button data-sale="no" class="sel">No</button>
       <button data-sale="yes">Yes</button>
+      <button data-sale="sold">Sold</button>
     </div>
     <div id="saleFields" style="display:none;">
       <label for="goatPrice">Price ($)</label>
@@ -5220,7 +5222,10 @@ function buildGoatTile(g){
   }
   const nm = document.createElement("div"); nm.className = "goat-tile-name"; nm.textContent = g.name;
   tile.appendChild(nm);
-  if (g.forSale){
+  if (g.sold){
+    const tag = document.createElement("div"); tag.className = "goat-tile-sale sold"; tag.textContent = "Sold";
+    tile.appendChild(tag);
+  } else if (g.forSale){
     const tag = document.createElement("div"); tag.className = "goat-tile-sale";
     tag.textContent = "🏷️ For sale" + (g.price ? " · $" + Number(g.price).toLocaleString() : "");
     tile.appendChild(tag);
@@ -5277,7 +5282,12 @@ function buildGoatDetail(g){
   if (g.freshenings !== undefined && g.freshenings !== null && g.freshenings !== "") l3bits.push(`Freshenings: ${g.freshenings}`);
   l3.textContent = l3bits.join(" · ");
   info.append(l1, l2, l3);
-  if (g.forSale){
+  if (g.sold){
+    const sold = document.createElement("div");
+    sold.style.cssText = "margin-top:4px;font-weight:800;color:var(--muted);";
+    sold.textContent = "Sold";
+    info.append(sold);
+  } else if (g.forSale){
     const sale = document.createElement("div");
     sale.style.cssText = "margin-top:4px;font-weight:800;color:#2e7d32;";
     sale.textContent = "🏷️ For sale" + (g.price ? " · $" + Number(g.price).toLocaleString() : "");
@@ -5445,7 +5455,7 @@ function openGoatSheet(g){
   document.getElementById("goatRegnum").value = (g && g.regnum) ? g.regnum : "";
   document.getElementById("goatHorns").value = (g && g.horns) ? g.horns : "";
   document.getElementById("goatFreshenings").value = (g && g.freshenings !== undefined && g.freshenings !== null) ? g.freshenings : "";
-  sheetSale = (g && g.forSale) ? "yes" : "no";
+  sheetSale = (g && g.sold) ? "sold" : (g && g.forSale) ? "yes" : "no";
   document.querySelectorAll("#saleSeg button").forEach(b=> b.classList.toggle("sel", b.dataset.sale === sheetSale));
   document.getElementById("goatPrice").value = (g && g.price !== undefined && g.price !== null && g.price !== 0) ? g.price : "";
   document.getElementById("goatSaleNote").value = (g && g.saleNote) ? g.saleNote : "";
@@ -5476,15 +5486,16 @@ async function saveGoat(){
   const about = document.getElementById("goatAbout").value.trim();
   const registered = sheetReg === "yes";
   const forSale = sheetSale === "yes";
+  const sold = sheetSale === "sold";
   const price = forSale ? (parseInt(document.getElementById("goatPrice").value, 10) || 0) : 0;
   const saleNote = forSale ? document.getElementById("goatSaleNote").value.trim() : "";
   if (editingGoatId){
     const g = chores.find(x=>x.id===editingGoatId);
-    Object.assign(g, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, price, saleNote });
-    await backend.update(editingGoatId, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, price, saleNote });
+    Object.assign(g, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, sold, price, saleNote });
+    await backend.update(editingGoatId, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, sold, price, saleNote });
   } else {
     const order = Date.now();
-    await backend.add({ name, frequency:"goathooves", type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, price, saleNote, order, care:{}, lastPeriod:"", lastBy:"", lastAt:0 });
+    await backend.add({ name, frequency:"goathooves", type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, sold, price, saleNote, order, care:{}, lastPeriod:"", lastBy:"", lastAt:0 });
   }
   currentTab = "goathooves";
   syncTabsUI();
