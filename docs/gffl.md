@@ -11122,3 +11122,34 @@ ui, engine, boot.
 1. `node tools/_gffl_logo_thumbs.mjs --write` (thumbnails and the `teamlogo_N` move; dry-run
    first).
 2. The weeks 1–3 D/ST correction (the next entry).
+
+---
+
+## RoboGoat Week 4 recap; a preview keeps its own picks open; the week that would not finalize (2026-10-06)
+
+The Tuesday routine fired at 6:54 a.m. and found no `weekly_2026_w4`. Weeks 1 to 3 had each been
+written at about 10:12 p.m. Monday, by whichever phone had GFFL open when the last game ended. This
+week no phone recorded a reading between 9:28 and 11:08 p.m. Monday, and by then Sleeper's state had
+moved to week 5. `finalizeWeek`'s week gate refused, which is what it is for (see the 2026-08 entry
+on the engine week). Perry tapped "Finalize week 4 from archived stats" at 7:02 a.m. That path skips
+Bust of the Week, and the recap says so. `facts.mjs` refuses a recap without the weekly doc, on
+purpose. The shadow recompute (`_gffl_shadow_score.mjs --no-live`) gave every winner while waiting.
+It matched GFFL's totals to the hundredth for seven teams; John's was 1.00 lower.
+
+**Each phone that opened GFFL after the engine moved on recorded one flipped reading.** In
+`wpgraph_2026_w4`, `m_12_2` and `m_1_5` each got `p` → `1 - p` for exactly one reading at 11:08 p.m.,
+12:24 a.m. and 1:19 a.m., then went back. Those were the first readings of three fresh sessions. The
+recap charts Joe versus Calvin, which ended Sunday and is untouched. The cause is not looked into
+yet. It is reported to Perry as its own fix.
+
+**A preview keeps its own week's picks open.** The recap run's `facts.mjs --season-file` grades
+`picks.4`, and `build.mjs` then drew the live Week 4 preview's "this week" open rings as a graded
+"3-1". That changed a published page. It is the same drift the 2026-09-30 "written once" rule stops
+for recaps. The preview's own week now renders as published (results ignored) in `seasonPanel`. The
+comment above it already promised "still open".
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **216/216** with the Week 4 recap. The new check: the
+preview's Week 4 row is four open rings and "this week" while `picks.4` is graded. It requires the
+grading first, so it cannot pass vacuously. Bite: current pages and suite, `build.mjs` from `main` →
+**213 pass / 3 fail**. The new check and the two that first caught it fail (the preview's
+byte-identical rebuild, and the build-from-copy check); every other check passes.
