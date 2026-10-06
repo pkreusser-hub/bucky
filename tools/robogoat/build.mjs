@@ -254,9 +254,12 @@ export function buildIssue(dir) {
     const hiPlayer = playerHi.map((h) =>
       `<li><span class="hv">${f1(h.pts)}</span><span>${esc(h.name)} <small>${tm(h.team).owner}, Week ${h.week}</small></span></li>`).join("");
     let pw = 0, pl = 0;
-    // A preview also lists its own week's picks, still open (rings with no result yet).
+    // A preview also lists its own week's picks, still open (rings with no result yet), as it was
+    // published. facts.mjs grades those picks in season.json once the week is played; the preview
+    // must not change when that happens, any more than an older recap changes when a new week lands.
     const picks = Object.keys(S.picks || {}).map(Number).sort((a, b) => a - b).filter((w) => w <= through || (!RECAP && w === W)).map((w) => {
-      const list = S.picks[String(w)];
+      const asPublished = !RECAP && w === W;
+      const list = S.picks[String(w)].map((p) => (asPublished ? { ...p, result: "" } : p));
       const wn = list.filter((p) => p.result === "W").length, ln = list.filter((p) => p.result === "L").length;
       pw += wn; pl += ln;
       const marks = list.map((p) => `<i class="pk ${p.result === "W" ? "hit" : p.result === "L" ? "miss" : "open"}" title="${attr(tm(p.team).owner)}"></i>`).join("");

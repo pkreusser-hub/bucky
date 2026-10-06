@@ -595,6 +595,16 @@ async function kitChecks() {
   // The copy sits outside the repo, so its relative links to logos/ differ; put the repo's back before comparing.
   const same = (rel) => build(rel).split(path.relative(path.join(tree, "robogoat/2026", rel), path.join(ROOT, "robogoat")).split(path.sep).join("/")).join("../..") === pg(`robogoat/2026/${rel}/index.html`);
   check("build: the real week 3 and week 4 preview build from a copy with picks and rankings agreeing", same("week-3") && same("week-4-preview"));
+  // A preview's own week's picks are graded in season.json once the week is played (facts.mjs fills
+  // the results on the recap run). The preview must still show them open, as published: the Week 4
+  // recap run (2026-10-06) graded picks.4 and turned the live preview's "this week" into "3-1".
+  // Not vacuous: it requires picks.4 to be graded before it looks at the page.
+  {
+    const graded = (JSON.parse(fs.readFileSync(path.join(tree, "robogoat/2026/season.json"), "utf8")).picks["4"] || []).every((p) => p.result === "W" || p.result === "L");
+    const row = (build("week-4-preview").match(/<li[^>]*><b>Week 4<\/b><span class="pks">(.*?)<\/span><span class="nw">([^<]*)<\/span>/) || []);
+    check("build: a preview keeps its own week's picks open after season.json grades them (the page as published)",
+      graded && /^(<i class="pk open"[^>]*><\/i>){4}$/.test(row[1] || "") && row[2] === "this week", `graded=${graded} nw=${row[2]}`);
+  }
   const i4 = path.join(d4, "issue.json"), j4 = JSON.parse(fs.readFileSync(i4, "utf8"));
   fs.writeFileSync(i4, JSON.stringify({ ...j4, picksRecord: "6-2" }));
   check("build: week 4's picksRecord edited to 6-2 fails the build, naming the real record", /^ERR .*picksRecord is "6-2".*score 7-1/s.test(build("week-4-preview")), build("week-4-preview").slice(0, 200));
