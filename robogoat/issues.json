@@ -3,6 +3,17 @@
   {
    "season": 2026,
    "week": 4,
+   "type": "recap",
+   "path": "2026/week-4/",
+   "published": "2026-10-06",
+   "headline": "Joe's Quarterback Completes 14 Passes to Calvin",
+   "description": "Calvin comes back from 15 percent on Joe's quarterback, Sandy beats son #2, Perry's two Robinsons score five touchdowns and two count, and Isaac writes in.",
+   "subject": "RoboGoat: Joe's quarterback completes 14 passes to Calvin (Week 4 recap)",
+   "share": "2026/week-4/share.png"
+  },
+  {
+   "season": 2026,
+   "week": 4,
    "type": "preview",
    "path": "2026/week-4-preview/",
    "published": "2026-10-03",
