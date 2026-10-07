@@ -2467,3 +2467,31 @@ fallback and the three reads already out, the robot check, `skipGoodreads`,
 `retry`, the grouped count, the new miss line, the Goodreads pick card, the
 batch of five, the page's skip after a block, and Dad's seed row upgraded
 with its ISBN sent.
+
+## Stocks fallback and the credit probe move to Haiku 5.5; news stays on Haiku 4.5 (2026-10-07)
+
+Part of the change recorded in docs/farmgpt.md under the same date, where the measurements are.
+Only the model plumbing moved in these three files.
+
+- **`stocks.mjs`, the Anthropic fallback note.** `ANALYSIS_MODEL` is `claude-haiku-5-5`, sent with
+  `thinking: {type: "disabled"}`, and `ANALYSIS_MAX_TOKENS` goes 380 → 600. Haiku 5.5 thinks by
+  default and the thinking counts toward `max_tokens`, so on a small cap the note is what gets cut.
+  It also counts about a third more tokens for the same text: four notes measured 336 to 364
+  output tokens where Haiku 4.5 wrote 257 to 302, which left 4% of the old cap. The prompt is
+  untouched and the four notes kept every rule in it. Rollback: put `claude-haiku-4-5` back in the
+  constant; it accepts the same thinking field. Suite: `node tools/_verify-stocks-server.mjs`
+  **143/143**. The fake now cuts the note off behind a thinking block if Haiku 5.5 is asked
+  without thinking disabled.
+- **`health.mjs`, `probe_anthropic_credit`.** Asks `claude-haiku-5-5` for one token with thinking
+  disabled and reads the status, as before. One real call: 200, 8 tokens in, 1 out. Suite:
+  `node tools/_verify-health.cjs` **210/210**.
+- **`news.mjs` is unchanged and stays on Haiku 4.5.** With thinking off, Haiku 5.5 fits the
+  worst-case batch (786-796 tokens against the 1,800 cap, 4.3-4.5s) but on a thin excerpt it adds
+  a sentence about the excerpt: "The excerpt does not give further details about the length of the
+  closure." 9 of 9 thin cards in three runs, against 0 of 12 on Haiku 4.5, and most real feeds ship
+  a thin excerpt. One added prompt line did not fix it and one card then invented a consequence.
+  With thinking on, one worst-case batch in three ran out of tokens mid-JSON. Moving it needs a
+  change to the summariser's rules and a re-measure, not a model id.
+- Not changed: the `XAI_API_KEY` hint in `health.mjs` still says Story Time "quietly uses Claude
+  Haiku instead" without the key. Since 2026-10-07 the narrator is Haiku 5.5 with Sonnet 5 as its
+  backup, and grok-4.5 is the second backup; the hint is copy and was left for its owner.

@@ -84,7 +84,13 @@ console.log("— kidstory: model, budget, guardrail stack —");
   const r = await call({ mode: "kidstory", messages: kidMsgs });
   const a = lastAnt();
   ok(r.status === 200 && r.text.includes("Bo the goat"), "kidstory streams a scene");
-  ok(a.model === "claude-haiku-4-5", "runs on Haiku (fast + cheap for 4 sentences)");
+  // RESTAGED 2026-10-07: Haiku 4.5 → Haiku 5.5, with thinking still disabled (next check but one).
+  // Tested first, because the same model with thinking disabled stepped out of the story as the
+  // big-kid narrator. Here it did not: 30 pages from the ten real starter seeds, three taps deep,
+  // came back 30/30 in the right shape, 0 out of the story, 0 cut off, at most 142 output tokens
+  // against the 500 cap, and a median 0.9s a page against Haiku 4.5's 1.3s. A tapped picture book
+  // with no free text is not the job the narrator failed at.
+  ok(a.model === "claude-haiku-5-5", "runs on Haiku 5.5 (fast + cheap for 4 sentences)");
   ok(a.max_tokens === 500, "small token budget keeps scenes short (" + a.max_tokens + ")");
   ok(a.thinking && a.thinking.type === "disabled", "thinking off (snappy for a waiting child)");
   ok(/first grade|just learning to read/i.test(a.system), "reading-level instructions present");
@@ -233,7 +239,11 @@ console.log("— the other modes are untouched —");
   // degradation to observe at all — this suite sees the shipped narrator. The budget is still
   // 1600 from the truncation fix, and what this check is really for is "little-kid mode did not
   // disturb big-kid mode", which is exactly as true as it was.
-  ok(r.status === 200 && a.model === "claude-sonnet-5" && a.max_tokens === 1600, "big-kid story unchanged (Sonnet 5, 1600 tok)");
+  // RESTAGED 2026-10-07: the big-kid narrator is Haiku 5.5 on a one-week trial, and its cap is its
+  // own (4000: thinking counts toward it). What this check is for has not changed: little-kid mode
+  // did not disturb big-kid mode.
+  ok(r.status === 200 && a.model === "claude-haiku-5-5" && a.max_tokens === 4000, "big-kid story is on its own narrator and cap (Haiku 5.5, 4000 tok)");
+  ok(a.thinking === undefined, "…and, unlike the little-kid storyteller, is NOT sent thinking disabled");
   ok(a.system.includes("CONTENT RULES") && !a.system.includes("LITTLE-KID SAFETY"), "…and does NOT get the little-kid rules");
   const longOk = await call({ mode: "story", messages: [{ role: "user", content: "y".repeat(3000) }] });
   // Big-kid story turns now also carry the appended STORY_RULES_REMINDER (2026-07-31), so
@@ -243,6 +253,19 @@ console.log("— the other modes are untouched —");
 {
   const r = await call({ mode: "research", messages: [{ role: "user", content: "help with fractions" }] });
   ok(r.status === 200 && lastAnt().model === "claude-sonnet-5" && lastAnt().system.includes("TUTOR"), "research unchanged");
+}
+
+console.log("— kidstory: the rollback knob (2026-10-07) —");
+{
+  // KIDSTORY_MODEL is read once, when the function loads, so the rollback is checked on a fresh
+  // instance of the module. Haiku 4.5 must get exactly the request it always got.
+  process.env.KIDSTORY_MODEL = "claude-haiku-4-5";
+  const h2 = (await import(modUrl + "?kidrollback=1")).default;
+  delete process.env.KIDSTORY_MODEL;
+  const r = await call({ mode: "kidstory", messages: kidMsgs }, h2);
+  const a = lastAnt();
+  ok(r.status === 200 && a.model === "claude-haiku-4-5" && a.max_tokens === 500 && a.thinking && a.thinking.type === "disabled" && !("output_config" in a),
+    "KIDSTORY_MODEL=claude-haiku-4-5 puts the little-kid storyteller back on Haiku 4.5, same request as before");
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed`);

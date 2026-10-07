@@ -309,8 +309,16 @@ const XAI_MAX_OUTPUT_TOKENS = 420;
 const XAI_TIMEOUT_MS = Number(process.env.STOCKS_XAI_TIMEOUT_MS) || 8000;
 const ANTHROPIC_TIMEOUT_MS = 20000;
 
-const ANALYSIS_MODEL = "claude-haiku-4-5";   // the Anthropic FALLBACK path only
-const ANALYSIS_MAX_TOKENS = 380;
+// 2026-10-07: Haiku 4.5 → Haiku 5.5, thinking disabled. Haiku 5.5 thinks by default and the
+// thinking counts toward max_tokens, which on a 380-token cap would leave the note itself cut
+// short. "claude-haiku-4-5" here is the rollback; it accepts the same thinking field.
+const ANALYSIS_MODEL = "claude-haiku-5-5";   // the Anthropic FALLBACK path only
+const ANALYSIS_THINKING = { type: "disabled" };
+// 380 → 600, MEASURED 2026-10-07 on four symbols through the real API: Haiku 5.5 wrote 336, 355,
+// 359 and 364 output tokens for the same notes Haiku 4.5 wrote in 257 to 302 (it counts about a
+// third more tokens for the same text). 364 against a 380 cap is 4% of room; a note that runs a
+// sentence longer would stop mid-sentence on the card. Output bills only for what is produced.
+const ANALYSIS_MAX_TOKENS = 600;
 
 // THE PRIMARY PATH (xAI, web-search-grounded). Focused on RECENT MOVEMENT — what happened and
 // why, not what the company generally does (the reader already knows that; the old, purely
@@ -624,6 +632,7 @@ async function callAnthropic(input, apiKey) {
       body: JSON.stringify({
         model: ANALYSIS_MODEL,
         max_tokens: ANALYSIS_MAX_TOKENS,
+        thinking: ANALYSIS_THINKING,
         system: ANALYSIS_SYSTEM_FALLBACK,
         messages: [{ role: "user", content: buildAnalyzePrompt(input) }],
       }),

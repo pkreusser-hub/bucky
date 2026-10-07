@@ -4655,6 +4655,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   const RATES = {
     // slug (modelSlug() in farmgpt.mjs: lowercase, non-alphanumerics stripped) → $/MTok
     claudehaiku45:  { in: 1,  out: 5 },                    // Haiku 4.5
+    // Haiku 5.5, the story narrator, keeper and small jobs since 2026-10-07. Checked that day
+    // against Anthropic's pricing page: $0.10 in / $0.50 out for prompts up to 100,000 tokens
+    // (every prompt this app sends; above that it is $0.50 / $2.50), cache read $0.01, and a
+    // 5-minute cache write $0.125, which is the 1.25x convention. Thinking tokens are billed as
+    // output and arrive inside the output count, so they need no line of their own.
+    claudehaiku55:  { in: 0.10, out: 0.50, cached: 0.01 }, // Haiku 5.5
     // Sonnet 5 was $3/$15. 2026-08-22, checked against Anthropic's pricing page: the introductory
     // rate was made permanent and the Sep 1 increase cancelled — $2/$10, cached input $0.20 flat
     // (not the 0.1x convention). Every Sonnet bucket (research, audit, calories, recaps) had been
@@ -4789,15 +4795,28 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     const seedOk = sum(monthDays, "f_ok");
     const seedTotal = seedOk + sum(monthDays, "f_fallback") + sum(monthDays, "f_timeout") + sum(monthDays, "f_httperr");
     const storyFallbacks = sum(monthDays, "s_fb");
-    // WHICH backup answered. The narrator's chain is three deep since 2026-08-22
-    // (Sonnet 5 → grok-4.5 → Haiku 4.5), so a bare count no longer names the model that wrote the
-    // scene — and "12 scenes were quietly Haiku" is a different piece of news from "12 were grok".
+    // WHICH backup answered. The narrator's chain is three deep since 2026-08-22, so a bare count
+    // no longer names the model that wrote the scene — and "12 scenes were quietly Sonnet" is a
+    // different piece of news from "12 were grok". Since 2026-10-07 the chain is
+    // Haiku 5.5 → Sonnet 5 → grok-4.5. "haiku" is the 2026-08-22 chain's last hop (Haiku 4.5):
+    // gone from the chain, still labelled, because rows it wrote are still in the month.
     // Hops are only named when one has actually fired; the line reads as it always did otherwise.
-    const FB_HOP_LABELS = { grok: "grok-4.5", haiku: "Haiku 4.5" };
+    const FB_HOP_LABELS = { sonnet: "Sonnet 5", grok: "grok-4.5", haiku55: "Haiku 5.5", haiku: "Haiku 4.5" };
     const fbHops = Object.keys(FB_HOP_LABELS)
       .map((k) => [FB_HOP_LABELS[k], sum(monthDays, "s_fb_" + k)])
       .filter(([, n]) => n > 0);
-    if (seedTotal || storyFallbacks) {
+    // TWO MORE THINGS A READER NEVER REPORTS (2026-10-07). A scene cut off at its length cap just
+    // stops mid-sentence, and a scene re-run because the narrator stepped out of the story looks
+    // like any other scene. Both are counted server-side per narrator; named here only when one
+    // has happened, same rule as the hops above.
+    const NARRATOR_LABELS = { haiku55: "Haiku 5.5", sonnet: "Sonnet 5", grok: "grok-4.5", haiku: "Haiku 4.5", gemini: "Gemini", other: "another model" };
+    const byNarrator = (prefix) => Object.keys(NARRATOR_LABELS)
+      .map((k) => [NARRATOR_LABELS[k], sum(monthDays, prefix + k)])
+      .filter(([, n]) => n > 0);
+    const named = (pairs) => pairs.length ? " (" + pairs.map(([label, n]) => n + " on " + label).join(", ") + ")" : "";
+    const storyTruncs = sum(monthDays, "s_trunc");
+    const storyOos = sum(monthDays, "s_oos");
+    if (seedTotal || storyFallbacks || storyTruncs || storyOos) {
       const note = document.createElement("div");
       note.id = "usageSeedHealth";
       note.style.cssText = "margin:-6px 0 14px;text-align:center;font-size:.82rem;opacity:.75";
@@ -4806,6 +4825,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       if (storyFallbacks) {
         const which = fbHops.length ? ` (${fbHops.map(([label, n]) => `${n} on ${label}`).join(", ")})` : "";
         bits.push(`${storyFallbacks} scene${storyFallbacks === 1 ? "" : "s"} fell back to the backup narrator${which}`);
+      }
+      if (storyTruncs) {
+        bits.push(storyTruncs + " scene" + (storyTruncs === 1 ? "" : "s") + " cut off at the length cap" + named(byNarrator("s_trunc_")));
+      }
+      if (storyOos) {
+        bits.push(storyOos + " scene" + (storyOos === 1 ? "" : "s") + " re-run after the narrator stepped out of the story" + named(byNarrator("s_oos_")));
       }
       note.textContent = bits.join(" · ");
       body.appendChild(note);
@@ -4842,7 +4867,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       (ALWAYS_SHOW.includes(b.p) || !minor ? shown : folded).push(t);
     }
     const MODEL_LABEL = {
-      claudehaiku45: "Haiku 4.5", claudesonnet5: "Sonnet 5", claudeopus5: "Opus 5",
+      claudehaiku55: "Haiku 5.5", claudehaiku45: "Haiku 4.5", claudesonnet5: "Sonnet 5", claudeopus5: "Opus 5",
       claudefable5: "Fable 5", grok45: "Grok 4.5", gemini25flash: "Gemini 2.5 Flash",
     };
     const modelNote = (t) => t.b.perImage ? "Gemini · ~$" + IMG_EACH.toFixed(3) + " each"
@@ -4936,7 +4961,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
     const note = document.createElement("div");
     note.id = "usageNote";
-    note.textContent = "Estimated at list pricing, per model: Grok 4.5 $2/$6 · Haiku 4.5 $" + S_IN + "/$" + S_OUT +
+    note.textContent = "Estimated at list pricing, per model: Grok 4.5 $2/$6 · Haiku 5.5 $0.10/$0.50 · Haiku 4.5 $" + S_IN + "/$" + S_OUT +
       " · Sonnet 5 $" + R_IN + "/$" + R_OUT + " · Opus 5 $" + O_IN + "/$" + O_OUT + " · Fable 5 $" + F_IN + "/$" + F_OUT +
       " per MTok (in/out); cached tokens 💰 re-read at 10% of the input rate. Quiet features are folded " +
       "into 🧩 Other. Exact billing is at console.anthropic.com and console.x.ai.";

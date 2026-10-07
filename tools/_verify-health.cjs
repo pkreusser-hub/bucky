@@ -215,6 +215,7 @@ function servePaid() {
         }
         if (u.pathname === "/anthropic/v1/messages") {
           paidState.messagesHits++;
+          try { paidState.lastMessagesBody = JSON.parse(raw); } catch { paidState.lastMessagesBody = null; }
           if (paidState.anthropicMessagesMode === "key-bad") {
             return json({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, 401);
           }
@@ -1114,6 +1115,16 @@ async function sectionUiLayout(browser) {
     let credit = await call({ secret: SECRET, action: "probe_anthropic_credit" });
     ok(credit.body.ok === true && credit.body.status === "ok", "a healthy account reports status:\"ok\"");
     ok(paidState.messagesHits === beforeSummaries + 1, "the credit probe DID call /v1/messages exactly once");
+    // NEW 2026-10-07: the probe moved from Haiku 4.5 to Haiku 5.5 with every other Haiku seat. It
+    // asks for ONE token and only reads the status. Haiku 5.5 thinks by default and thinking counts
+    // toward max_tokens, so the probe says so explicitly rather than leaving it to the default.
+    // Checked once against the real API that day: 200, 8 tokens in, 1 out.
+    {
+      const pb = paidState.lastMessagesBody || {};
+      ok(pb.model === "claude-haiku-5-5", "the credit probe asks Haiku 5.5, the cheapest model the account uses");
+      ok(pb.max_tokens === 1 && !!pb.thinking && pb.thinking.type === "disabled",
+        "…for one token, with thinking disabled (it would otherwise spend the token budget thinking)");
+    }
 
     paidState.anthropicMessagesMode = "key-bad";
     credit = await call({ secret: SECRET, action: "probe_anthropic_credit" });

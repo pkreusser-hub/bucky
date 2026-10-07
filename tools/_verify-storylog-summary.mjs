@@ -191,6 +191,18 @@ const antSrv = http.createServer(async (req, res) => {
     }
     const text = summaryBehavior === "badjson" ? "Sorry, I can't format that as JSON right now!" : JSON.stringify(summaryVerdict);
     res.writeHead(200, { "content-type": "application/json" });
+    // WHAT HAIKU 5.5 REALLY DOES WHEN THINKING IS LEFT ON (2026-10-07). It thinks by default, the
+    // thinking is counted against max_tokens, and the reply carries a thinking block ahead of the
+    // text. Measured that day on the news summariser, which has the same shape of job: one batch
+    // in three ran out of tokens mid-JSON. So a request for this model that does not disable
+    // thinking gets what the real one risks: a thinking block, then the report cut off.
+    if (j.model === "claude-haiku-5-5" && !(j.thinking && j.thinking.type === "disabled")) {
+      return res.end(JSON.stringify({
+        content: [{ type: "thinking", thinking: "", signature: "CAQStQoKEAgSGAI4AUIIdGhpbmtpbmc" }, { type: "text", text: text.slice(0, 24) }],
+        stop_reason: "max_tokens",
+        usage: { input_tokens: 500, output_tokens: j.max_tokens, output_tokens_details: { thinking_tokens: j.max_tokens - 8 } },
+      }));
+    }
     return res.end(JSON.stringify({
       content: [{ type: "text", text }],
       usage: { input_tokens: 500, output_tokens: 120, cache_creation_input_tokens: 4, cache_read_input_tokens: 9 },
@@ -277,8 +289,25 @@ console.log("— grouping + prompt content (pick vs write-in) + verdict round-tr
 
   ok(summaryReqs.length === 1, "exactly one summarizer call for one pending group");
   const sreq = summaryReqs[0];
-  ok(sreq.model === "claude-haiku-4-5", "summarizer runs on Haiku (STORY_MODEL)");
-  ok(sreq.max_tokens === 600, "summarizer max_tokens 600");
+  // RESTAGED 2026-10-07: Haiku 4.5 → Haiku 5.5. Measured that day on five (date, reader) groups
+  // built from real scenes: both models flagged the captivity day and the servitude day and left
+  // the ordinary capture alone, and Haiku 5.5 took 2.0-3.6s a report against 2.9-7.2s.
+  ok(sreq.model === "claude-haiku-5-5", "summarizer runs on Haiku 5.5 (STORYLOG_MODEL)");
+  // RESTAGED 2026-10-07: 600 → 1500. A flagged day's report ran 587 and 592 tokens on Haiku 5.5 and
+  // 484 and 581 on Haiku 4.5, so 600 was one long flag note away from cutting a report off mid-JSON.
+  ok(sreq.max_tokens === 1500, "summarizer max_tokens 1500 (a flagged report measured 592)");
+  // NEW 2026-10-07. Haiku 5.5 thinks unless told not to, and the thinking spends the same cap.
+  // The fake cuts the report off if thinking is left on, so the next line is not decoration.
+  ok(!!sreq.thinking && sreq.thinking.type === "disabled", "…with thinking disabled, so the cap is spent on the report");
+  // NEW 2026-10-07. The report is where a parent reads what the steers are for, so it is told to
+  // flag the same three things: a captive hurt or kept in a painful position, a controlled
+  // character degraded, and a scene that opens with the storyteller talking from outside the story.
+  // It is also told what NOT to flag, because a villain's spell is ordinary adventure.
+  ok(/kept in a painful\s+position/.test(sreq.system) && /made to call someone "Master"/.test(sreq.system)
+     && /talking to the reader from outside the story/.test(sreq.system),
+    "the summarizer is told to flag captive harm, servitude, and an out-of-story opening");
+  ok(/A villain's spell or hypnosis that the\s+heroes resist and break is ordinary adventure and is NOT flag-worthy/.test(sreq.system),
+    "…and told that a spell the heroes break is NOT flag-worthy");
   ok(/NEVER a\s+reason to flag/.test(sreq.system) && sreq.system.includes("lightsaber"), "flag rules: franchises/crossovers + fantasy combat are never flag-worthy");
   ok(sreq.system.includes("REPEATEDLY pushing") && sreq.system.includes("GRAPHIC"), "flag rules: graphic content or escalating-violence pattern IS flag-worthy");
   // Dad's romance line (2026-09-24): crushes and kissing are fine, nothing more. The summarizer must

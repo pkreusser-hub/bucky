@@ -155,6 +155,15 @@ const anthropicUpstream = http.createServer((req, res) => {
     if (anthMode === "empty") {
       return res.end(JSON.stringify({ content: [{ type: "text", text: "   " }], usage: {} }));
     }
+    // WHAT HAIKU 5.5 REALLY DOES WHEN THINKING IS LEFT ON (2026-10-07): it thinks by default, the
+    // thinking counts toward max_tokens, and the reply carries a thinking block before the text.
+    // On a cap this small the note itself is what gets cut. A request for this model that does
+    // not disable thinking therefore gets a thinking block and a note cut off after a few words.
+    if (body && body.model === "claude-haiku-5-5" && !(body.thinking && body.thinking.type === "disabled")) {
+      return res.end(JSON.stringify({
+        content: [{ type: "thinking", thinking: "", signature: "CAQStQoKEAgSGAI4AUIIdGhpbmtpbmc" }, { type: "text", text: FAKE_ANALYSIS_TEXT.slice(0, 18) }],
+        stop_reason: "max_tokens", usage: { input_tokens: 120, output_tokens: body.max_tokens, output_tokens_details: { thinking_tokens: body.max_tokens - 6 } } }));
+    }
     // Leading/trailing whitespace on purpose — analyze must trim it and nothing else.
     res.end(JSON.stringify({ content: [{ type: "text", text: "\n  " + FAKE_ANALYSIS_TEXT + "  \n" }], usage: { input_tokens: 120, output_tokens: 90 } }));
   });
@@ -581,8 +590,16 @@ console.log("— analyze: missing XAI_API_KEY -> straight to the Anthropic fallb
   ok(r.status === 200 && r.json.ok === true, "no XAI_API_KEY at all -> the request still succeeds");
   ok(xaiCalls === 0, "xAI is never even attempted when its key is missing (not attempted-then-failed)");
   ok(anthCalls === 1, "…and the EXISTING Anthropic path is used instead, exactly once");
-  ok(anthLastBody && anthLastBody.model === "claude-haiku-4-5", "the fallback is written by Haiku");
-  ok(anthLastBody && anthLastBody.max_tokens === 380, "…at the original, unchanged max_tokens budget (380)");
+  // RESTAGED 2026-10-07: Haiku 4.5 → Haiku 5.5 (the user asked for every Haiku 4.5 seat to move).
+  // Read on four symbols through the real API: the notes keep every rule in the prompt.
+  ok(anthLastBody && anthLastBody.model === "claude-haiku-5-5", "the fallback is written by Haiku 5.5");
+  // RESTAGED 2026-10-07: "the original, unchanged budget (380)" no longer fits the model. Haiku 5.5
+  // counts about a third more tokens for the same text: it wrote 336, 355, 359 and 364 output
+  // tokens for the notes Haiku 4.5 wrote in 257 to 302. 364 of 380 is 4% of room.
+  ok(anthLastBody && anthLastBody.max_tokens === 600, "…at a 600-token budget (the same notes measured up to 364 tokens on this model)");
+  // NEW 2026-10-07. The fake cuts the note off if thinking is left on, as the real model can.
+  ok(anthLastBody && anthLastBody.thinking && anthLastBody.thinking.type === "disabled", "…with thinking disabled, so the budget is spent on the note");
+  ok(r.json.text === FAKE_ANALYSIS_TEXT, "…and the whole note arrives, not one cut short by thinking");
   const fbSys = anthLastBody.system || "";
   ok(/never recommend/i.test(fbSys) && /price target/i.test(fbSys) && /personalized financial advice/i.test(fbSys),
     "the fallback prompt keeps the full original safety language");

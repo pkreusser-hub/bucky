@@ -760,7 +760,10 @@ async function handleProbeCredit() {
   const r = await timedFetch(`${base}/v1/messages`, {
     method: "POST",
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: "claude-haiku-4-5", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }),
+    // Haiku 5.5 since 2026-10-07 (it is the cheapest model the account uses). Thinking is switched
+    // off because this model thinks by default and thinking counts toward max_tokens: the probe
+    // asks for ONE token and only reads the status code.
+    body: JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 1, thinking: { type: "disabled" }, messages: [{ role: "user", content: "hi" }] }),
   }, d.signal);
   d.done();
 

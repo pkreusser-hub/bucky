@@ -268,7 +268,8 @@ console.log("— story/research regression: guardrails + cap untouched —");
   // RESTAGED 2026-08-22: the story narrator moved to Sonnet 5. The property under test is that
   // DUNGEON mode did not disturb story mode, and it still does not — only the name of the model
   // story mode is supposed to be on has changed.
-  ok(r.status === 200 && a.model === "claude-sonnet-5", "story still on its own narrator (Sonnet 5)");
+  // RESTAGED again 2026-10-07: the narrator is Haiku 5.5 on a one-week trial. Same property.
+  ok(r.status === 200 && a.model === "claude-haiku-5-5", "story still on its own narrator (Haiku 5.5)");
   ok(a.system.includes("CONTENT RULES") && a.system.includes("swear words"), "story still gets FAMILY_RULES");
   const logWrites = commits.slice(before).flatMap((c) => c.writes || []).filter((w) => w.update && w.update.name.includes("farmgpt_story_log"));
   ok(logWrites.length === 1, "story scene still logged to the story log");
