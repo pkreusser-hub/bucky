@@ -154,7 +154,12 @@ const APPS = {
   news: { tab:"news",     path:"/news", ready: () => document.querySelectorAll(".newscard").length >= 3, title:"Bucky News",     denied:"News isn't turned on for this account. Ask a parent to enable it." },
   shop: { tab:"shopping", path:"/shop", ready: () => document.querySelectorAll(".store-head").length === 6 && document.body.textContent.includes("Zebra Milk"), title:"Bucky Shopping", denied:"Shopping isn't turned on for this account. Ask a parent to enable it." },
 };
-async function ready(page, id){ await page.waitForFunction(APPS[id].ready, { timeout: 20000 }); await sleep(250); }
+// A failed wait is a failed check, not a crash, so a broken app still produces a full report.
+async function ready(page, id){
+  const hit = await page.waitForFunction(APPS[id].ready, { timeout: 20000 }).then(() => true, () => false);
+  ok(hit, `[${id}] the app's content rendered`);
+  await sleep(250);
+}
 
 function chrome(page){
   return page.evaluate(() => {
