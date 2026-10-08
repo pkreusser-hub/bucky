@@ -2581,3 +2581,22 @@ goatfantasyleague.com rules are untouched). The suite's local server reads those
 
 Suite: `node tools/_verify-standalone.cjs` (**363/363** at first green; see the commit for the
 final count).
+
+### App mode: four side effects removed on review (2026-10-08)
+
+The first pass hid the chrome and locked the tab but left four things running that only make
+sense in full Bucky. Each is now gated on `APP` and asserted against a normal-Bucky control in
+section I of `tools/_verify-standalone.cjs`:
+
+- `clearTrayNotifications()` returns early. Served from Bucky's own address, Bucky News shares
+  Bucky's service worker, so opening it to read the news wiped Bucky's unread alerts and badge.
+- The boot-time Dad PIN prompt is skipped. Nothing on screen needs unlocking; editing
+  publications still asks on demand.
+- Boot records one `app_<tab>` activity hit. `goTo()` is what normally records a section visit
+  and app mode never calls it, so Bucky News was being counted as a bare "opened the app".
+- Shopping gets an `<h1>` (`heading` in the registry). Inside Bucky the nav names the page; with
+  the nav gone its first line was a faint "3 to buy". News has its own heading and takes none.
+
+Still running in app mode, on purpose: the allowance mint (any signed-in client may mint it; the
+doc id is deterministic), the identity migration, and the work-order notification diff (items
+land in the bell silently and show next time Bucky itself is opened).

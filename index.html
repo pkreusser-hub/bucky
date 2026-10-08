@@ -2459,11 +2459,22 @@ const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? locatio
 const STANDALONE_APPS = {
   news: { tab: "news",     area: "news", name: "Bucky News",     short: "News",     manifest: "/news.webmanifest", icon: "/icons/news-apple-touch.png", theme: "#3f5c46",
           denied: "News isn't turned on for this account. Ask a parent to enable it." },
+  // heading: Shopping's first line inside Bucky is a faint "3 to buy" — the nav told you where
+  // you were. With the nav gone the page needs to say what it is. News already opens with its
+  // own "Today's news" heading, so it carries none.
   shop: { tab: "shopping", area: "shop", name: "Bucky Shopping", short: "Shopping", manifest: "/shop.webmanifest", icon: "/icons/shop-apple-touch.png", theme: "#3f5c46",
+          heading: "Shopping",
           denied: "Shopping isn't turned on for this account. Ask a parent to enable it." },
 };
 const APP_ID = (() => { const id = document.documentElement.getAttribute("data-app") || ""; return Object.prototype.hasOwnProperty.call(STANDALONE_APPS, id) ? id : ""; })();
 const APP = APP_ID ? STANDALONE_APPS[APP_ID] : null;   // null = normal Bucky
+if (APP && APP.heading){
+  const h = document.createElement("h1");
+  h.id = "appHeading"; h.textContent = APP.heading;
+  h.style.cssText = "font-family:Fraunces,Georgia,serif;font-size:24px;font-weight:700;margin:4px 2px 10px;color:var(--ink);";
+  const mainEl = document.querySelector("main");
+  if (mainEl) mainEl.prepend(h);
+}
 
 let currentTab = APP ? APP.tab : initialHashTab;
 
@@ -3069,6 +3080,10 @@ async function toggleDesktopAlerts(){
 // Opening the app means you've seen the news: sweep BUCKY's notifications out of the
 // system tray so the launcher's icon badge resets instead of climbing forever.
 async function clearTrayNotifications(){
+  // Not in app mode: served from Bucky's own address, Bucky News shares Bucky's service worker,
+  // so opening it to read the news would wipe Bucky's unread alerts and badge. Only opening
+  // Bucky itself means "I've seen them".
+  if (APP) return;
   try {
     if (!("serviceWorker" in navigator)) return;
     const reg = (await navigator.serviceWorker.getRegistration("firebase-messaging-sw.js"))
@@ -13755,9 +13770,15 @@ async function afterBackendReady(){
   // migrateIdentity() call, for the same reason).
   if (dataReady){ buildBottomNav(); syncTabsUI(); }
   await syncDadPin();
-  if (can("bankAdminUI") && !dadUnlocked()){
+  // App mode skips the boot-time PIN prompt: there are no Dad tools on screen to unlock, and a
+  // PIN box is a strange greeting from a news reader. Editing publications still asks on demand.
+  if (!APP && can("bankAdminUI") && !dadUnlocked()){
     await gateDad();
   }
+  // goTo() is what records a section visit, and app mode never calls it (it boots already on its
+  // tab). Without this the Activity page would count Bucky News as a bare "opened the app" and
+  // never as News — the very thing that page exists to show.
+  if (APP){ try { if (window.BuckyActivity) window.BuckyActivity.hit("app_" + APP.tab); } catch {} }
   render();   // reflect migration + any unlock in the UI
 }
 

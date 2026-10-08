@@ -529,11 +529,18 @@ async function sectionDenied(browser){
     await sleep(1200);
     const d = await page.evaluate(() => {
       const el = document.getElementById("appDenied"); const r = el ? el.getBoundingClientRect() : null;
+      const h = document.getElementById("appHeading");
       return { text: el ? el.textContent : null, n: document.querySelectorAll("#appDenied").length, w: r && r.width, top: r && r.top,
+        headBottom: (h && h.offsetParent !== null) ? h.getBoundingClientRect().bottom : 0,
         tab: window.__NAV__.tab(), content: !!document.querySelector(".newswrap, .store-head, .newscard"), hist: history.length };
     });
     ok(d.text === A.denied, `[${id}] the card says: "${d.text}"`);
-    ok(d.n === 1 && d.w > 200 && d.top >= 0 && d.top < 40, `[${id}] it is one card, on screen, at the top (${d.n}, ${d.w}px wide, top ${d.top})`);
+    // RESTAGED: this asserted the card's top was within 40px of the viewport top. Shopping now
+    // carries an app heading (section I), so its card correctly sits under that heading. The
+    // rule that matters is unchanged — nothing but the page's own heading is above the card —
+    // so the gap is measured from the heading's bottom (0 when the app has no heading).
+    const gap = d.top - d.headBottom;
+    ok(d.n === 1 && d.w > 200 && gap >= 0 && gap < 40, `[${id}] it is one card, on screen, directly under the page top or its heading (${d.n}, ${d.w}px wide, ${Math.round(gap)}px below)`);
     ok(d.tab === A.tab, `[${id}] it did not bounce Home (tab "${d.tab}")`);
     ok(!d.content, `[${id}] none of the tab's content is shown`);
     await sleep(1500);
@@ -600,6 +607,67 @@ async function sectionToasts(browser){
 }
 
 /* ================================ I. icons plate ================================ */
+/* I. Four things the first pass left running in app mode, found on review:
+      - opening Bucky News cleared BUCKY's notification tray and badge (shared service worker)
+      - a Dad profile got the boot-time PIN prompt as its greeting
+      - the visit was logged as a bare "app" open, never as News / Shopping
+      - Shopping had no title once the nav that named it was gone
+   Each is asserted against a NORMAL-Bucky control so the check cannot pass vacuously. */
+async function sectionReviewFixes(browser){
+  section("I. Tray, PIN prompt, activity hit and page heading in app mode");
+  const instrument = (page) => page.evaluateOnNewDocument(() => {
+    window.__PROMPT_N__ = 0; window.prompt = () => { window.__PROMPT_N__++; return null; };
+    window.__CLOSED__ = 0; window.__BADGE__ = 0; window.__HITS__ = [];
+    try {
+      navigator.serviceWorker.getRegistration = () => Promise.resolve({
+        getNotifications: () => Promise.resolve([{ close(){ window.__CLOSED__++; } }]) });
+    } catch (e) {}
+    try { navigator.clearAppBadge = () => { window.__BADGE__++; return Promise.resolve(); }; } catch (e) {}
+    // activity.js assigns window.BuckyActivity once; wrap hit() the moment it lands.
+    Object.defineProperty(window, "BuckyActivity", { configurable: true, get(){ return undefined; },
+      set(v){
+        const orig = v.hit;
+        v.hit = function(f){ window.__HITS__.push(String(f)); return orig.apply(this, arguments); };
+        Object.defineProperty(window, "BuckyActivity", { value: v, writable: true, configurable: true });
+      } });
+  });
+  const probe = async (url, user) => {
+    const { page, errors } = await newPage(browser, { user });
+    await instrument(page);
+    await open(page, url, { rows: SHOP_ROWS });
+    await sleep(900);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));   // "came back to the page"
+    await sleep(300);
+    const r = await page.evaluate(() => ({
+      prompts: window.__PROMPT_N__, closed: window.__CLOSED__, badge: window.__BADGE__, hits: window.__HITS__.slice(),
+      heading: (() => { const h = document.getElementById("appHeading"); return h && h.offsetParent !== null ? h.textContent : null; })(),
+      headingTop: (() => { const h = document.getElementById("appHeading"); return h ? Math.round(h.getBoundingClientRect().top) : null; })(),
+    }));
+    return Object.assign(r, { errors });
+  };
+
+  // Control: normal Bucky, Dad on a device that has not entered the PIN this session.
+  const ctl = await probe("/index.html", "Dad");
+  ok(ctl.prompts >= 1, `[control] normal Bucky DOES prompt a Dad profile for the PIN at boot (${ctl.prompts})`);
+  ok(ctl.closed >= 1 && ctl.badge >= 1, `[control] normal Bucky DOES sweep the tray and badge (${ctl.closed} closed, ${ctl.badge} badge clears)`);
+  ok(ctl.heading === null, "[control] normal Bucky has no app heading");
+
+  for (const [id, A] of Object.entries(APPS)){
+    const r = await probe(A.path, "Dad");
+    ok(r.prompts === 0, `[${id}] no PIN prompt at boot in app mode (${r.prompts})`);
+    ok(r.closed === 0 && r.badge === 0, `[${id}] Bucky's tray and badge are left alone (${r.closed} closed, ${r.badge} badge clears)`);
+    ok(r.hits.includes("app_" + A.tab), `[${id}] the visit is recorded as "app_${A.tab}" for the Activity page (hits: ${r.hits.join(",") || "none"})`);
+    ok(r.hits.filter((h) => h === "app_" + A.tab).length === 1, `[${id}] ...exactly once per load, not once per render`);
+    ok(r.errors.length === 0, `[${id}] no page errors` + (r.errors[0] ? " — " + r.errors[0] : ""));
+    if (id === "shop"){
+      ok(r.heading === "Shopping", `[shop] the page says what it is: a visible "Shopping" heading (${r.heading})`);
+      ok(r.headingTop !== null && r.headingTop >= 0 && r.headingTop < 60, `[shop] ...at the top of the page (${r.headingTop}px)`);
+    } else {
+      ok(r.heading === null, "[news] no extra heading — News already opens with its own \"Today's news\"");
+    }
+  }
+}
+
 async function shotIcons(browser){
   if (!SHOTS) return;
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -627,6 +695,7 @@ async function shotIcons(browser){
     await sectionGates(browser);
     await sectionDenied(browser);
     await sectionToasts(browser);
+    await sectionReviewFixes(browser);
     await shotIcons(browser);
   } finally {
     for (const c of contexts) { try { await c.close(); } catch {} }
