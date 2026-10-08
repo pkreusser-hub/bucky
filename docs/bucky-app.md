@@ -2495,3 +2495,89 @@ Only the model plumbing moved in these three files.
 - Not changed: the `XAI_API_KEY` hint in `health.mjs` still says Story Time "quietly uses Claude
   Haiku instead" without the key. Since 2026-10-07 the narrator is Haiku 5.5 with Sonnet 5 as its
   backup, and grok-4.5 is the second backup; the hint is copy and was left for its owner.
+
+## Standalone apps: Bucky News and Bucky Shopping are index.html in app mode (2026-10-08)
+
+Request: "a standalone app for some of the bucky tabs, for example a Bucky News app that is just
+the news feature, no bottom or top bar, super simple. Same concept for the Shopping."
+
+**What app mode is.** The same `index.html`, locked to one tab, with the chrome removed. It is on
+when the address is `/news` or `/shop` (either with or without a trailing slash) or carries
+`?app=news` / `?app=shop`. An id that is not in the table is ignored and the page is normal Bucky.
+Two pieces, one table each, kept in sync by a suite check:
+
+- **Head script (step 1).** Runs before first paint. Sets `html[data-app]`, `document.title`, the
+  manifest link, the apple-touch icon and the theme colour. Its only job is that the header and
+  bottom nav never flash.
+- **`STANDALONE_APPS` (step 2, main script).** `{tab, area, name, short, manifest, icon, theme,
+  denied}` per app. `area` is the NAV_GROUPS id whose `navGroupPermitted()` decides who may open
+  it (news: `seesNews`, shop: `seesShop`), so there is no new capability and the profile page's
+  "Permitted" checkboxes already control it. A third app is one entry in each table, a manifest,
+  icons, a `netlify.toml` rewrite and a `tools/standalone-sites/<id>` folder.
+
+**Why a mode and not new pages.** News is about 650 lines and Shopping about 110, and both lean on
+that page's password gate, identity gate, `can()`, the chores/settings backends and the toast. A
+copy drifts, and the 200-check News suite would stop covering the copy. As a mode, every existing
+suite keeps covering the code the apps run.
+
+**Chrome.** `html[data-app]` + the original selector hides `header`, `#bnav`, `#sidenav`, `#tabs`,
+`#subnav`, the FAB, the crumb and the notification panel, and gives back the body padding they
+reserved (bottom-nav clearance, the 230px left-rail offset). Content starts at the top safe area
+and is capped at 760px and centred. Specificity is the point: the rail rules set `body` padding and
+`#sidenav` display inside a `min-width:1024px` query. The suite asserts geometry, not the
+attribute, and note that `#bnav`, `#sidenav` and the FAB are `position:fixed`, so their
+`offsetParent` is `null` even on screen: "gone" means display none, a 0x0 box and `offsetParent`
+null together. It also clears the page's own inline `display:none` on the FAB and looks again, so a
+missing CSS rule cannot hide behind the JS that already hides it on these tabs.
+
+**The lock.** `goTo()` returns early for any other tab (no history entry, no activity hit).
+`render()` sets `currentTab = APP.tab` after the existing bounces, so the direct assignments in
+`goToWorkOrders`, `goToFarmBank`, the work-order save and the rest are corrected by the render that
+follows them. Popstate goes through `goTo`. There is no hash listener (the hash is read once at
+load), so `#farmbank` is ignored by the initial tab choice. There is no Home: where Bucky would
+bounce Home the app stays put. The manifests carry no `shortcuts`, and nothing in `index.html`
+reads a `?tab=` parameter. A profile that is not permitted sees one card ("News isn't turned on for
+this account. Ask a parent to enable it.") rather than a bounce; with nobody signed in yet, the
+identity gate is on top and the tab renders underneath it.
+
+**No push in app mode, and why.** App mode never calls `Notification.requestPermission`
+(including the call at the end of the identity gate), never calls `BuckyPush.enable`
+(`refreshPushRegistration`, `requestNotifPermissionOnce`, `toggleDesktopAlerts` all return early),
+and `liveNotify` is a no-op (no toast, no desktop notification). Bucky already holds a push token
+for each person. A second registration for the same person, from the same origin or a proxy site,
+is a second device to FCM: every alert would buzz twice. A phone that wants alerts gets them from
+Bucky. `showToast(text, onClick, opts)` now shows in app mode only when `opts.tab` is the app's own
+tab; nothing in News or Shopping toasts today. Items still reach the bell inbox through
+`checkNotifications`, which runs in app mode, so nothing is lost; it is only quiet.
+
+**Not changed, still running in app mode** (data loading was left alone on purpose): the whole
+`checkNotifications()` diff for work orders and prints, `ensureKidSeeds()` and
+`ensureDailyAllowance()` on every `render()` (once every daily chore is done it mints the kids' $2 allowance and sends the "Money added" push, whoever is
+signed in; the doc id is deterministic, so Bucky and the app cannot double it), `migrateIdentity()` / `backfillChorePid()`, the lobby-invite listener, the activity
+beacon (counted as "app", not as News or Shopping), `clearTrayNotifications()` at unlock and on
+each return to the page (clears Bucky's tray and badge when the apps share an origin with it), and
+`gateDad()`: a Dad profile on a device that has not unlocked is asked for the PIN on launch.
+
+**Home screen on Android: a proxy site per app.** Chrome on Android will not install a second app
+whose scope an installed app already covers, and five of the family's six devices are Android. Bucky
+is installed with scope `/`, so `/news` offers "Open in Bucky". The fix is a separate web address
+per app. `tools/standalone-sites/{news,shop}/_redirects` is a complete Netlify site (drag the folder
+in): `/` goes to `/news`, everything else is proxied to amenfarms.netlify.app with a forced 200. It
+costs no extra repo deploys and never changes when Bucky does. Through the proxy the browser sees
+one origin, so CORS does not come into it. `news.mjs` was read for an Origin check: it only sets CORS
+response headers (`ALLOWED_ORIGINS` feeds `Access-Control-Allow-Origin` and nothing rejects a
+request); its only gate is the family password in the body. Every other function reads the same way.
+Shopping talks to Firestore directly. Not verified: whether the Firebase web key has HTTP-referrer
+restrictions in Google Cloud. goatfantasyleague.com already works from a second origin, which
+suggests it does not. iPhone and desktop can install `/news` straight from the main address.
+
+**Files.** `news.webmanifest`, `shop.webmanifest` (`id` and `start_url` `/news` or `/shop`, scope
+`/`, standalone, `#f4f1e8` / `#3f5c46`); `icons/{news,shop}-{192,512,maskable-512,apple-touch}.png`
+drawn by `tools/make-standalone-icons.cjs` from the NAV_PATHS glyphs, centred by measured bounding
+box; the apple-touch icon is full-bleed because iOS paints transparent pixels black; `netlify.toml`
+rewrites for `/news`, `/news/`, `/shop`, `/shop/` (plain 200, not forced; the forced
+goatfantasyleague.com rules are untouched). The suite's local server reads those rewrites from
+`netlify.toml`, so the path form is exercised through the real config.
+
+Suite: `node tools/_verify-standalone.cjs` (**363/363** at first green; see the commit for the
+final count).

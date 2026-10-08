@@ -90,6 +90,33 @@
   status = 200
   force = true
 
+# ---- Standalone apps (2026-10-08): /news and /shop are index.html in app mode ----
+# Same page, same functions: the head script in index.html reads the path (or ?app=news|shop),
+# sets html[data-app] and swaps the manifest, title and icon. See docs/bucky-app.md. These are
+# plain 200 rewrites (no force): no file or folder called news or shop exists at the root, and
+# the exact-root league rules above are untouched. Both slash forms are listed so neither
+# depends on how Netlify normalises a trailing slash. A real file ever named "news" or "shop"
+# would shadow these; tools/_verify-standalone.cjs checks that none does.
+[[redirects]]
+  from = "/news"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/news/"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/shop"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/shop/"
+  to = "/index.html"
+  status = 200
+
 # iOS standalone often restores a frozen document and, when it does re-request
 # HTML, WebKit will reuse last week's league.html if the browser is allowed to
 # cache it. Script tags are already cache-busted (?v=); the document must not

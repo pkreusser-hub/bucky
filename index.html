@@ -15,6 +15,35 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" />
 <link rel="apple-touch-icon" href="/bucky.png" />
 <link rel="manifest" href="/manifest.webmanifest" />
+<script>
+/* STANDALONE APP MODE, step 1 of 2 (2026-10-08): runs before first paint so the chrome never
+   flashes. The page is "Bucky News" or "Bucky Shopping" when the address is /news or /shop, or
+   carries ?app=news / ?app=shop. An id that is not in this table is ignored (normal Bucky).
+   KEEP IN SYNC with STANDALONE_APPS in the main script (step 2): same ids, same name, manifest
+   and icon. tools/_verify-standalone.cjs fails if the two tables disagree. */
+(function(){
+  var APPS = {
+    news: { name: "Bucky News",     manifest: "/news.webmanifest", icon: "/icons/news-apple-touch.png", theme: "#3f5c46" },
+    shop: { name: "Bucky Shopping", manifest: "/shop.webmanifest", icon: "/icons/shop-apple-touch.png", theme: "#3f5c46" }
+  };
+  window.__APPS_HEAD__ = APPS;
+  var id = "";
+  try {
+    var q = new URLSearchParams(location.search).get("app");
+    var p = location.pathname.replace(/^\/+|\/+$/g, "");
+    if (q && Object.prototype.hasOwnProperty.call(APPS, q)) id = q;
+    else if (p && Object.prototype.hasOwnProperty.call(APPS, p)) id = p;
+  } catch (e) {}
+  if (!id) return;
+  var a = APPS[id];
+  document.documentElement.setAttribute("data-app", id);
+  document.title = a.name;
+  var set = function(sel, attr, val){ var el = document.querySelector(sel); if (el) el.setAttribute(attr, val); };
+  set('link[rel="manifest"]', "href", a.manifest);
+  set('link[rel="apple-touch-icon"]', "href", a.icon);
+  set('meta[name="theme-color"]', "content", a.theme);
+})();
+</script>
 <script src="/push-client.js" defer></script>
 <script src="/assets/dadjokes.js"></script>
 <script>
@@ -1531,6 +1560,28 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .sn-brand .sn-name { font-family: Fraunces, Georgia, serif; }
   .sn-item .sn-ico { filter: none; display: flex; align-items: center; justify-content: center; }
   .sn-item.active { background: rgba(255,253,248,.14); }
+
+  /* ===== Standalone app mode (2026-10-08): html[data-app] is set by the head script when the
+     address is /news, /shop or ?app=<id>. Same page, no chrome: no header, bottom nav, side
+     rail, sub-nav, add button or bell, and none of the space they reserved. Every selector is
+     html[data-app] + the original one so it outranks the rule it overrides at every width
+     (the >=1024px rail block sets body padding-left and #sidenav/#bnav display inside a media
+     query). Geometry, not the attribute, is what the suite asserts (CLAUDE.md gotcha 2). ===== */
+  html[data-app] header, html[data-app] #bnav, html[data-app] #sidenav, html[data-app] #tabs,
+  html[data-app] #subnav, html[data-app] #subnav.on, html[data-app] .fab, html[data-app] #addFab,
+  html[data-app] .crumb, html[data-app] .stripes, html[data-app] #notifOverlay { display: none; }
+  html[data-app] body {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: 0;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+  }
+  html[data-app] main { max-width: 760px; margin: 0 auto; padding: 14px 16px 8px; }
+  html[data-app] #toastWrap { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+  /* Shown instead of the tab when the signed-in profile is not permitted to see it. */
+  .appdenied {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow);
+    padding: 22px 18px; text-align: center; font-size: 15px; font-weight: 600; line-height: 1.45; color: var(--ink);
+  }
 </style>
 </head>
 <body>
@@ -2392,7 +2443,29 @@ const SECTIONS = [
 // FarmGPT/Games pages can land you directly on any section here.
 const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "finance", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "sports", "gffl", "farmgpt", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
-let currentTab = initialHashTab;
+
+/* STANDALONE APP MODE, step 2 of 2 (2026-10-08). The head script (step 1, top of this file) has
+   already decided from the address whether this load is a single-feature app and, if so, set
+   <html data-app="<id>">, the title, the manifest, the touch icon and the theme colour. This
+   table is what the rest of the script reads. KEEP IN SYNC with `APPS` in that head script (ids,
+   name, manifest, icon); tools/_verify-standalone.cjs fails if they disagree.
+   Adding a third app is one entry here, one entry there, a manifest, icons, a netlify.toml
+   rewrite and a tools/standalone-sites/<id> folder; nothing else in this file changes.
+     tab    the in-app tab it is locked to (a SECTIONS key)
+     area   the NAV_GROUPS id whose navGroupPermitted() decides who may open it (NAV_GROUP_CAP:
+            news -> seesNews, shop -> seesShop); the same gate the bottom nav and render() use
+   In app mode currentTab is the app's tab and nothing can move it: goTo(), render(), history
+   Back/Forward and the hash all end up here. There is no Home, so "bounce Home" means "stay". */
+const STANDALONE_APPS = {
+  news: { tab: "news",     area: "news", name: "Bucky News",     short: "News",     manifest: "/news.webmanifest", icon: "/icons/news-apple-touch.png", theme: "#3f5c46",
+          denied: "News isn't turned on for this account. Ask a parent to enable it." },
+  shop: { tab: "shopping", area: "shop", name: "Bucky Shopping", short: "Shopping", manifest: "/shop.webmanifest", icon: "/icons/shop-apple-touch.png", theme: "#3f5c46",
+          denied: "Shopping isn't turned on for this account. Ask a parent to enable it." },
+};
+const APP_ID = (() => { const id = document.documentElement.getAttribute("data-app") || ""; return Object.prototype.hasOwnProperty.call(STANDALONE_APPS, id) ? id : ""; })();
+const APP = APP_ID ? STANDALONE_APPS[APP_ID] : null;   // null = normal Bucky
+
+let currentTab = APP ? APP.tab : initialHashTab;
 
 // P2 navigation model: the 9 sections are regrouped into 5 bottom-bar AREAS. Each
 // area maps to one or more section keys (`members`); the first-shown section is
@@ -2926,7 +2999,10 @@ function closeNotifPanel(){
 }
 
 // ---- Live toast ----
-function showToast(text, onClick){
+// `opts.tab` names the tab that raised the toast. In app mode only the app's own tab may toast:
+// work-order, bank and calendar toasts belong to features this app does not show.
+function showToast(text, onClick, opts){
+  if (APP && !(opts && opts.tab === APP.tab)) return;
   const wrap = document.getElementById("toastWrap");
   // Cap the stack at 2 — a burst of notifications otherwise buries the greeting/hero.
   // The bell keeps the full list; toasts are just a heads-up.
@@ -2945,6 +3021,7 @@ function notifDestination(n){
   return goToWorkOrders;   // assigned, closed, progress, payout_pending, payout_notyet
 }
 function liveNotify(n){
+  if (APP) return;   // app mode: the item still lands in the bell inbox (checkNotifications), but nothing buzzes or toasts
   showToast(n.text, notifDestination(n));
   if (desktopAlertsEnabled() && typeof Notification !== "undefined" && document.hidden){
     try { new Notification("Bucky", { body: n.text }); } catch {}
@@ -2965,6 +3042,7 @@ function updateNotifToggleUI(){
   btn.setAttribute("aria-checked", on ? "true" : "false");
 }
 async function toggleDesktopAlerts(){
+  if (APP) return;   // app mode never asks for permission or registers a token (a second token for one person buzzes twice)
   if (desktopAlertsEnabled()){
     localStorage.setItem("buckyNotifDesktop", "0");
     if (window.BuckyPush) BuckyPush.disable().catch(()=>{});
@@ -3006,6 +3084,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) clea
 // Re-register for push on every visit while alerts are on: heals devices whose first
 // registration failed (e.g. toggled on before setup finished) and follows FCM token rotation.
 function refreshPushRegistration(){
+  if (APP) return;   // app mode registers nothing: Bucky already holds this person's token, and a second one doubles every alert
   if (!desktopAlertsEnabled()) return;
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   if (!window.BuckyPush || !familyKey || !myName()) return;
@@ -3063,6 +3142,14 @@ function render(){
     const gid = groupForTab(currentTab).id;
     if (gid !== "home" && !navGroupPermitted(gid)) currentTab = "dashboard";
   }
+  // App mode (2026-10-08): the tab is fixed, whatever just assigned currentTab (goToWorkOrders and
+  // its siblings assign it directly), and the bounces above never send it Home. A profile that may
+  // not open this area gets one plain card instead. With nobody signed in yet the identity gate is
+  // on top, so the tab renders underneath it as usual.
+  if (APP){
+    currentTab = APP.tab;
+    if (me() && !navGroupPermitted(APP.area)) return renderAppDenied();
+  }
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   // the month view's no-page-scroll mode must never leak onto other tabs
   document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
@@ -3092,6 +3179,18 @@ function render(){
   if (currentTab === "shopping") return renderShopping();
   if (currentTab === "game") return renderGame();
   renderChores();
+}
+
+// App mode only: shown in place of the tab when the signed-in profile is not permitted to see it.
+function renderAppDenied(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+  const list = document.getElementById("list"); list.innerHTML = "";
+  const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const card = document.createElement("div"); card.className = "appdenied"; card.id = "appDenied";
+  card.textContent = APP.denied;
+  wrap.appendChild(card); list.appendChild(wrap);
 }
 
 // Play area: FarmGPT up top, then the whole arcade inline (tiles mirror games.html's
@@ -3174,6 +3273,9 @@ function jokeOfDay(){
 // button walks back through the in-app screens instead of jumping straight out to the last
 // external page (FarmGPT/Games). push=false is used by the popstate handler.
 function goTo(tab, push = true){
+  // App mode is locked to its one tab: every caller (nav, sub-nav, notification taps, popstate,
+  // dashboard cards) is refused here, with no history entry and no activity hit for the other tab.
+  if (APP && tab !== APP.tab) return;
   const changed = tab !== currentTab;
   currentTab = tab;
   // Section-level activity: index.html is ONE page, so without this every visit to News,
@@ -10780,6 +10882,13 @@ window.__NAV__ = {
   hidden: (gid, who)=>isNavHidden(gid, who),
   visible: (gid)=>navGroupVisible(gid),
 };
+// Standalone app mode hooks (tools/_verify-standalone.cjs): which app this load is, both copies
+// of the registry (head script + main script), and the toast/notify entry points to drive.
+window.__STANDALONE__ = {
+  id: APP_ID, apps: STANDALONE_APPS, head: window.__APPS_HEAD__ || null,
+  toast: (t, cb, o) => showToast(t, cb, o), live: (n) => liveNotify(n),
+  goToWorkOrders, goToFarmBank, goToCalendar, goToPrint3D,
+};
 // Chore-rota hooks (the daily chores follow the animal-care schedule — see choreOnDuty).
 window.__CHORES__ = {
   careLoaded: ()=>careLoaded,
@@ -13129,6 +13238,7 @@ async function finishIdentityGate(){
 // so it needs to be deterministically single-fire regardless of how it gets invoked.
 let notifPermissionRequestedThisLoad = false;
 async function requestNotifPermissionOnce(){
+  if (APP) return;   // app mode: no permission prompt and no token (see refreshPushRegistration)
   if (notifPermissionRequestedThisLoad) return;
   notifPermissionRequestedThisLoad = true;
   if (typeof Notification === "undefined") return;
