@@ -90,13 +90,14 @@
   status = 200
   force = true
 
-# ---- Standalone apps (2026-10-08): /news and /shop are index.html in app mode ----
-# Same page, same functions: the head script in index.html reads the path (or ?app=news|shop),
+# ---- Standalone apps (2026-10-08, widened 2026-10-09): /news /shop /workorders /calendar /finance are index.html in app mode ----
+# Same page, same functions: the head script in index.html reads the path (or ?app=<id>),
 # sets html[data-app] and swaps the manifest, title and icon. See docs/bucky-app.md. These are
-# plain 200 rewrites (no force): no file or folder called news or shop exists at the root, and
-# the exact-root league rules above are untouched. Both slash forms are listed so neither
-# depends on how Netlify normalises a trailing slash. A real file ever named "news" or "shop"
-# would shadow these; tools/_verify-standalone.cjs checks that none does.
+# plain 200 rewrites (no force): no file or folder called news, shop, workorders, calendar or
+# finance exists at the root, and the exact-root league rules above are untouched. Both slash forms
+# are listed so neither depends on how Netlify normalises a trailing slash. A real file ever named
+# like one of them (calendar.html is fine, an extensionless calendar is not) would shadow these;
+# tools/_verify-standalone.cjs checks that none does.
 [[redirects]]
   from = "/news"
   to = "/index.html"
@@ -114,6 +115,36 @@
 
 [[redirects]]
   from = "/shop/"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/workorders"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/workorders/"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/calendar"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/calendar/"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/finance"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/finance/"
   to = "/index.html"
   status = 200
 

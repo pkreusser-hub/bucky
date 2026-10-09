@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * Draws the home-screen icons for the standalone apps (Bucky News, Bucky Shopping).
+ * Draws the home-screen icons for the standalone apps (News, Shopping, Work Orders, Calendar, Finance).
  *
  *   NODE_PATH=<path to tools/node_modules> node tools/make-standalone-icons.cjs [outDir]
  *
@@ -20,12 +20,21 @@ const fs = require("fs");
 const path = require("path");
 const puppeteer = require("puppeteer-core");
 
-const OUT = path.resolve(process.argv[2] || path.join(__dirname, "..", "icons"));
+// --only=id,id draws just those apps, so adding an app does not rewrite the PNGs of the others.
+const ARGS = process.argv.slice(2);
+const onlyArg = ARGS.find((a) => a.startsWith("--only="));
+const ONLY = onlyArg ? onlyArg.slice(7).split(",").filter(Boolean) : null;
+const outArg = ARGS.find((a) => !a.startsWith("--"));
+const OUT = path.resolve(outArg || path.join(__dirname, "..", "icons"));
 const GREEN = "#3f5c46", CREAM = "#f4f1e8";
 // Same paths as NAV_PATHS in index.html (24x24 grid, stroke 2).
 const GLYPHS = {
   news: "M5 5 H19 V19 H5 Z M8 9 H16 M8 12 H16 M8 15 H13",
   shop: "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
+  workorders: "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
+  calendar: "M4 6 H20 V20 H4 Z M4 10 H20 M8 4 V8 M16 4 V8",
+  // Finance's trend line runs past the 24 grid (x 1 to 23); the bounding-box centring handles it.
+  finance: "M23 6 L13.5 15.5 L8.5 10.5 L1 18 M17 6 L23 6 L23 12",
 };
 // variant: radius = tile corner radius as a fraction of the side; glyph = longest glyph side as a
 // fraction of the side. Maskable keeps the glyph well inside the 80% safe zone: a 0.44 box has a
@@ -52,7 +61,7 @@ function svgFor(id, v){
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await puppeteer.launch({ channel: "chrome", headless: "new", args: ["--no-sandbox"] });
   const report = [];
-  for (const id of Object.keys(GLYPHS)){
+  for (const id of Object.keys(GLYPHS).filter((k) => !ONLY || ONLY.includes(k))){
     for (const v of VARIANTS){
       const page = await browser.newPage();
       await page.setViewport({ width: v.size, height: v.size, deviceScaleFactor: 1 });

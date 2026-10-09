@@ -17,14 +17,19 @@
 <link rel="manifest" href="/manifest.webmanifest" />
 <script>
 /* STANDALONE APP MODE, step 1 of 2 (2026-10-08): runs before first paint so the chrome never
-   flashes. The page is "Bucky News" or "Bucky Shopping" when the address is /news or /shop, or
-   carries ?app=news / ?app=shop. An id that is not in this table is ignored (normal Bucky).
-   KEEP IN SYNC with STANDALONE_APPS in the main script (step 2): same ids, same name, manifest
-   and icon. tools/_verify-standalone.cjs fails if the two tables disagree. */
+   flashes. The page is "Bucky News", "Bucky Shopping", "Bucky Work Orders", "Bucky Calendar" or
+   "Bucky Finance" when the address is /news /shop /workorders /calendar /finance, or carries
+   ?app=<id>. An id that is not in this table is ignored (normal Bucky).
+   KEEP IN SYNC with STANDALONE_APPS in the main script (step 2): same ids, same name, manifest,
+   icon and fab flag. tools/_verify-standalone.cjs fails if the two tables disagree. fab:true
+   sets html[data-fab], which is what keeps the + button on screen (CSS below). */
 (function(){
   var APPS = {
     news: { name: "Bucky News",     manifest: "/news.webmanifest", icon: "/icons/news-apple-touch.png", theme: "#3f5c46" },
-    shop: { name: "Bucky Shopping", manifest: "/shop.webmanifest", icon: "/icons/shop-apple-touch.png", theme: "#3f5c46" }
+    shop: { name: "Bucky Shopping", manifest: "/shop.webmanifest", icon: "/icons/shop-apple-touch.png", theme: "#3f5c46" },
+    workorders: { name: "Bucky Work Orders", manifest: "/workorders.webmanifest", icon: "/icons/workorders-apple-touch.png", theme: "#3f5c46", fab: true },
+    calendar:   { name: "Bucky Calendar",    manifest: "/calendar.webmanifest",   icon: "/icons/calendar-apple-touch.png",   theme: "#3f5c46", fab: true },
+    finance:    { name: "Bucky Finance",     manifest: "/finance.webmanifest",    icon: "/icons/finance-apple-touch.png",    theme: "#3f5c46" }
   };
   window.__APPS_HEAD__ = APPS;
   var id = "";
@@ -37,6 +42,7 @@
   if (!id) return;
   var a = APPS[id];
   document.documentElement.setAttribute("data-app", id);
+  if (a.fab) document.documentElement.setAttribute("data-fab", "1");   // this app keeps the + button (CSS reads it)
   document.title = a.name;
   var set = function(sel, attr, val){ var el = document.querySelector(sel); if (el) el.setAttribute(attr, val); };
   set('link[rel="manifest"]', "href", a.manifest);
@@ -1568,8 +1574,27 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
      (the >=1024px rail block sets body padding-left and #sidenav/#bnav display inside a media
      query). Geometry, not the attribute, is what the suite asserts (CLAUDE.md gotcha 2). ===== */
   html[data-app] header, html[data-app] #bnav, html[data-app] #sidenav, html[data-app] #tabs,
-  html[data-app] #subnav, html[data-app] #subnav.on, html[data-app] .fab, html[data-app] #addFab,
+  html[data-app] #subnav, html[data-app] #subnav.on, html[data-app]:not([data-fab]) .fab,
+  html[data-app]:not([data-fab]) #addFab,
   html[data-app] .crumb, html[data-app] .stripes, html[data-app] #notifOverlay { display: none; }
+  /* 2026-10-09: Work Orders and Calendar have no other way to add an item, so their + button
+     stays (html[data-fab], set by the head script from the registry's fab flag). Its normal
+     offset assumes the bottom nav (82px up) and a 32px desktop inset; with no nav under it, sit
+     20px above the bottom safe area, and on a wide window sit in the margin beside the 760px
+     column instead of the far side of the screen. The page's own render() still hides it per tab. */
+  html[data-app][data-fab] .fab {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    /* Wide window: park it in the margin beside the 760px column (58px button + 16px gap), so it
+       never sits on the content. Narrow window (under 908px): 18px from the edge, over the column. */
+    right: max(18px, calc((100vw - 760px) / 2 - 74px));
+  }
+  /* Last card / last agenda row must scroll clear of the + button: 58px button + 20px offset
+     + 14px air, instead of the 28px that is enough with no button. */
+  html[data-app][data-fab] body { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 100px); }
+  /* Month view is pinned (the document must not scroll): no clearance here, the agenda card
+     is sized to stop above the button instead (clampMonthAgenda). Beats the rule above and the
+     body.cal-fixed one. */
+  html[data-app] body.cal-fixed, html[data-app][data-fab] body.cal-fixed { padding-bottom: 0; }
   html[data-app] body {
     padding-top: env(safe-area-inset-top, 0px);
     padding-left: 0;
@@ -2449,11 +2474,16 @@ const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? locatio
    <html data-app="<id>">, the title, the manifest, the touch icon and the theme colour. This
    table is what the rest of the script reads. KEEP IN SYNC with `APPS` in that head script (ids,
    name, manifest, icon); tools/_verify-standalone.cjs fails if they disagree.
-   Adding a third app is one entry here, one entry there, a manifest, icons, a netlify.toml
+   Adding another app is one entry here, one entry there, a manifest, icons, a netlify.toml
    rewrite and a tools/standalone-sites/<id> folder; nothing else in this file changes.
      tab    the in-app tab it is locked to (a SECTIONS key)
      area   the NAV_GROUPS id whose navGroupPermitted() decides who may open it (NAV_GROUP_CAP:
-            news -> seesNews, shop -> seesShop); the same gate the bottom nav and render() use
+            news -> seesNews, shop -> seesShop, wo -> seesJobs, plan -> seesPlan); the same gate
+            the bottom nav and render() use
+     cap    optional: a capability that must ALSO hold, for an area shared with something this
+            person may use (finance: the "bank" area is open to a kid for Farm Bank)
+     fab    optional: keep the + button (also in the head script's table)
+     needsMe optional: draw nothing until a profile is picked (Finance implies it through cap)
    In app mode currentTab is the app's tab and nothing can move it: goTo(), render(), history
    Back/Forward and the hash all end up here. There is no Home, so "bounce Home" means "stay". */
 const STANDALONE_APPS = {
@@ -2465,6 +2495,20 @@ const STANDALONE_APPS = {
   shop: { tab: "shopping", area: "shop", name: "Bucky Shopping", short: "Shopping", manifest: "/shop.webmanifest", icon: "/icons/shop-apple-touch.png", theme: "#3f5c46",
           heading: "Shopping",
           denied: "Shopping isn't turned on for this account. Ask a parent to enable it." },
+  // fab:true keeps the + button (Work Orders and Calendar have no other way to add an item;
+  // the FAB's onclick already routes by tab). heading: Work Orders opens on a bare "N open"
+  // line, so it says what it is; Calendar draws its own title, Finance its own "Finance" h3.
+  workorders: { tab: "workorders", area: "wo", name: "Bucky Work Orders", short: "Work Orders", manifest: "/workorders.webmanifest", icon: "/icons/workorders-apple-touch.png", theme: "#3f5c46",
+          fab: true, heading: "Work Orders", needsMe: true,
+          denied: "Work Orders aren't turned on for this account. Ask a parent to enable it." },
+  calendar: { tab: "calendar", area: "plan", name: "Bucky Calendar", short: "Calendar", manifest: "/calendar.webmanifest", icon: "/icons/calendar-apple-touch.png", theme: "#3f5c46",
+          fab: true,
+          denied: "The calendar isn't turned on for this account. Ask a parent to enable it." },
+  // cap: Finance shares the "bank" area with the kids' Farm Bank, and navGroupPermitted("bank")
+  // is true for a kid (kidBank). The area check alone would let a kid into Bucky Finance, so
+  // this app also requires the tab's own capability (seesFinance, false for the kid role).
+  finance: { tab: "finance", area: "bank", cap: "seesFinance", name: "Bucky Finance", short: "Finance", manifest: "/finance.webmanifest", icon: "/icons/finance-apple-touch.png", theme: "#3f5c46",
+          denied: "Finance isn't turned on for this account. Ask a parent to enable it." },
 };
 const APP_ID = (() => { const id = document.documentElement.getAttribute("data-app") || ""; return Object.prototype.hasOwnProperty.call(STANDALONE_APPS, id) ? id : ""; })();
 const APP = APP_ID ? STANDALONE_APPS[APP_ID] : null;   // null = normal Bucky
@@ -3163,7 +3207,13 @@ function render(){
   // on top, so the tab renders underneath it as usual.
   if (APP){
     currentTab = APP.tab;
-    if (me() && !navGroupPermitted(APP.area)) return renderAppDenied();
+    if (me() && (!navGroupPermitted(APP.area) || (APP.cap && !can(APP.cap)))) return renderAppDenied();
+    // Finance (cap) and Work Orders (needsMe) draw nothing until they know who is asking. Finance
+    // fires network requests on render, and a kid who is about to pick their name on the identity
+    // gate must not cause one. Work Orders opens only the signed-in person's own group and
+    // remembers the choice made on its first render, so a render with nobody signed in would leave
+    // that person's group closed for good. The gate is on top; picking a name renders again.
+    if ((APP.cap || APP.needsMe) && !me()) return renderAppBlank();
   }
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   // the month view's no-page-scroll mode must never leak onto other tabs
@@ -3197,11 +3247,17 @@ function render(){
 }
 
 // App mode only: shown in place of the tab when the signed-in profile is not permitted to see it.
-function renderAppDenied(){
+function renderAppBlank(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
   document.getElementById("progress").style.display = "none";
-  const list = document.getElementById("list"); list.innerHTML = "";
+  document.getElementById("addFab").style.display = "none";
+  document.body.classList.remove("cal-fixed");
+  document.getElementById("list").innerHTML = "";
+}
+function renderAppDenied(){
+  renderAppBlank();
+  const list = document.getElementById("list");
   const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const card = document.createElement("div"); card.className = "appdenied"; card.id = "appDenied";
   card.textContent = APP.denied;
@@ -5910,6 +5966,16 @@ function buildWoCard(w){
       links.append(linkBtn("Not yet", () => notYetPayout(w), true), linkBtn("Edit", () => openWorkOrderSheet(w), true));
       det.appendChild(links);
     } else {
+      // App mode skips the boot-time Dad PIN prompt (nothing else on screen needs it), so a
+      // Dad profile that has not unlocked this device would see a read-only card here with no
+      // way forward. Offer the PIN on demand instead; gateDad() sets the unlock, render() then
+      // shows the Confirm button above.
+      if (APP && can("approvePayouts")){
+        const unlock = document.createElement("button"); unlock.className = "payout-confirm-btn"; unlock.id = "woPinBtn";
+        unlock.textContent = `Enter Dad PIN to confirm $${w.value}`;
+        unlock.onclick = async () => { if (await gateDad()) render(); };
+        det.appendChild(unlock);
+      }
       const links = document.createElement("div"); links.className = "wo-linkrow";
       links.append(linkBtn("Edit", () => openWorkOrderSheet(w), true));
       det.appendChild(links);
@@ -5965,7 +6031,8 @@ function woGroupHeader(label, key, openCount, alert){
 }
 async function claimWorkOrder(w){
   const me = myName();
-  if (!me){ await confirmDialog("Set your name first — tap the 👤 button at the top.", "OK"); return; }
+  // App mode has no 👤 button; the "Who's this?" screen is what sets a name there.
+  if (!me){ await confirmDialog(APP ? "Pick who you are first, then try again." : "Set your name first — tap the 👤 button at the top.", "OK"); return; }
   const patch = woAssigneePatch([me]);
   Object.assign(w, patch); render();
   await backend.update(w.id, patch);
@@ -6130,8 +6197,9 @@ async function saveWorkOrder(){
   const newlyAdded = fields.assignees.filter(n => !oldAssignees.includes(n));
   for (const n of newlyAdded) notifyAssignee(n, fields);
   currentTab = "workorders"; syncTabsUI(); closeWorkOrderSheet(); render();
-  if (wasEditing) showToast("Work order updated ✅");
-  else showToast("Work order created ✅" + (fields.assignees.length ? ` — ${woAssigneeText(fields)} will be notified` : ""));
+  // opts.tab: in app mode only the app's own tab may toast, and this is the Work Orders tab's own feedback.
+  if (wasEditing) showToast("Work order updated ✅", null, { tab: "workorders" });
+  else showToast("Work order created ✅" + (fields.assignees.length ? ` — ${woAssigneeText(fields)} will be notified` : ""), null, { tab: "workorders" });
 }
 async function deleteWorkOrder(){
   if (!editingWoId) return;
@@ -6928,6 +6996,8 @@ let calEndTouched = false;     // user set the end time themselves (else it foll
 // write going forward) OR a legacy display name (what an un-migrated event still carries, and
 // all this app ever wrote before 2026-08-30). notifyEntryMatches (below) is what tolerates both.
 let calSheetInitialNotify = [];
+// showToast opts for the calendar's own feedback: in app mode only the app's own tab may toast.
+const CAL_TOAST = { tab: "calendar" };
 let calCacheTs = 0;                            // when bucky_cal_cache was last written (Home-widget staleness check)
 try { const c = JSON.parse(localStorage.getItem("bucky_cal_cache")); if (Array.isArray(c)) calEvents = c; } catch {}
 try { const t = Number(localStorage.getItem("bucky_cal_cache_ts")); if (t > 0) calCacheTs = t; } catch {}
@@ -7197,7 +7267,9 @@ function calStickyOffset(){
 // ResizeObserver on the header re-syncs every layer whenever its size moves.
 function syncStickyTops(){
   const hdr = document.querySelector("header");
-  const headerH = hdr ? hdr.offsetHeight : 84;
+  // App mode has no header, so nothing sticky has anything to sit below except the top safe
+  // area (the body's padding-top). Pinning to 0 would slide the controls under the status bar.
+  const headerH = APP ? (parseFloat(getComputedStyle(document.body).paddingTop) || 0) : (hdr ? hdr.offsetHeight : 84);
   document.documentElement.style.setProperty("--subnav-top", headerH + "px");
   const sn = document.getElementById("subnav");
   calStickyBase = headerH + ((sn && sn.classList.contains("on")) ? sn.offsetHeight : 0);
@@ -7220,7 +7292,13 @@ function clampMonthAgenda(){
   if (!card) return;
   const bn = document.getElementById("bnav");
   const bh = bn ? bn.getBoundingClientRect().height : 78;
-  const h = window.innerHeight - card.getBoundingClientRect().top - bh - 10;
+  // App mode keeps the + button floating over the bottom-right corner: stop the card above it,
+  // so the last visible agenda row's text is never underneath.
+  const fab = document.getElementById("addFab");
+  const cardR = card.getBoundingClientRect(), fabR = (APP && fab && fab.offsetWidth > 0) ? fab.getBoundingClientRect() : null;
+  // Only when the button is actually over the card (a wide window parks it in the margin beside the column).
+  const fabTop = (fabR && fabR.left < cardR.right && fabR.right > cardR.left) ? fabR.top - 10 : window.innerHeight;
+  const h = Math.min(window.innerHeight, fabTop) - cardR.top - bh - 10;
   card.style.maxHeight = Math.max(150, h) + "px";
   const extra = document.documentElement.scrollHeight - window.innerHeight;
   if (extra > 0) card.style.maxHeight = Math.max(150, h - extra) + "px";
@@ -7806,7 +7884,7 @@ async function saveCalEvent(){
     // clock time, like Google's own "all events" edit; all-day stays on its own dates).
     let master = calSheetMaster;
     if (!master){ try { master = await loadCalMaster(); } catch {} }
-    if (!master){ showToast("⚠️ Couldn't load the series — try again."); return; }
+    if (!master){ showToast("⚠️ Couldn't load the series — try again.", null, CAL_TOAST); return; }
     const mDate = master.allDay ? master.start : String(master.start).slice(0, 10);
     if (calSheetAllDay){
       payload = { title, notes, allDay: true, startDate: mDate };
@@ -7849,29 +7927,29 @@ async function saveCalEvent(){
   const newlyTicked = checkedRows.filter(r => !notifyEntryMatches(r, calSheetInitialNotify)).map(r => r.name);
   const repeatInfo = (payload.repeat && payload.repeat.freq && payload.repeat.freq !== "NONE") ? payload.repeat : null;
   closeCalSheet();
-  showToast(editing ? "Saving change…" : "Adding event…");
+  showToast(editing ? "Saving change…" : "Adding event…", null, CAL_TOAST);
   try {
     const r = await calPost(editing ? "update" : "create", { event: payload });
-    if (r.error) showToast(calErrText(r.error, r.detail));
+    if (r.error) showToast(calErrText(r.error, r.detail), null, CAL_TOAST);
     else {
-      showToast(editing ? "Event updated ✅" : "Event added ✅");
+      showToast(editing ? "Event updated ✅" : "Event added ✅", null, CAL_TOAST);
       // The event is already saved — from here on, notifying people is best-effort and must
       // never be able to make the save itself look like it failed.
       if (r.event) notifyCalEvent(r.event, newlyTicked, editing, repeatInfo);
     }
   } catch (e){
-    showToast("⚠️ Couldn't save — check your connection" + (e && e.status ? ` (HTTP ${e.status})` : ""));
+    showToast("⚠️ Couldn't save — check your connection" + (e && e.status ? ` (HTTP ${e.status})` : ""), null, CAL_TOAST);
   }
   ensureCalData(true);
 }
 async function doCalDelete(id){
   closeCalSheet();
-  showToast("Deleting…");
+  showToast("Deleting…", null, CAL_TOAST);
   try {
     const r = await calPost("delete", { event: { id } });
-    if (r.error) showToast(calErrText(r.error, r.detail));
-    else showToast("Event deleted");
-  } catch (e){ showToast("⚠️ Couldn't delete — check your connection"); }
+    if (r.error) showToast(calErrText(r.error, r.detail), null, CAL_TOAST);
+    else showToast("Event deleted", null, CAL_TOAST);
+  } catch (e){ showToast("⚠️ Couldn't delete — check your connection", null, CAL_TOAST); }
   ensureCalData(true);
 }
 async function deleteCalEvent(){
@@ -8127,7 +8205,7 @@ function notifyCalEvent(ev, names, isUpdate, repeatInfo){
     // and nothing on screen ever said so. Now it says so.
     if (failed.length){
       const why = lastEmailError && lastEmailError.detail ? ` (${lastEmailError.detail})` : "";
-      showToast(`✉️ Couldn't email ${failed.join(", ")}${why}`);
+      showToast(`✉️ Couldn't email ${failed.join(", ")}${why}`, null, CAL_TOAST);
     }
   })();
   recordCalNotified(ev.id, targets);

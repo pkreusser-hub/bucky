@@ -1,0 +1,16 @@
+{
+  "name": "Bucky Work Orders",
+  "short_name": "Work Orders",
+  "description": "The family's jobs and payouts",
+  "id": "/workorders",
+  "start_url": "/workorders",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f1e8",
+  "theme_color": "#3f5c46",
+  "icons": [
+    { "src": "/icons/workorders-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/workorders-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/workorders-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
