@@ -2994,3 +2994,126 @@ Spend on all of it: **about $3.13** at list prices, against a cap of about $6.
 - The keeper still does not retry (2026-09-24), and the one 65s stall above is what that costs.
 - First-word time on the page was measured cleanly for one scene only. The other figures are from
   the function's own stream.
+
+# 2026-10-09 — STORY TIME: the Haiku 5.5 trial ends early; Sonnet 5.5 narrates; the plain no
+
+Dad's decisions, the same day, after a review of the trial's first two days. RESTAGES the
+2026-10-07 entry above in three places, named at each section: the narrator, the captivity steer,
+and the mind-control allowance.
+
+## 1. Why the trial ended
+Two days, 36 Haiku 5.5 scenes, one reader (every other reader was quiet). All of them read in full.
+- **Reliable:** 0 fallbacks, 0 out-of-story openings, 0 scenes cut off. About $0.10 a day for 21
+  scenes and their keeper calls, against about $1.27 on Sonnet 5 the day before it.
+- **The rule broke twice on day two, with the steer riding** (`s_steer` 9 that day):
+  - #58: the reader's neck chained to the four corners of a tank, head held under water, lungs
+    burning; "She's going under. Should I pull her up?" / "Not yet."
+  - #62: hands locked and chained to a bolt under water, a gag "too tight at the corners", and
+    "Nowhere to go, sweetheart. Nowhere but down."
+  - Borderline: a cage lowered under water and raised for breaths (#60); drowning written as
+    gentle, "it seemed a shame to fight it" (#64).
+  - It also turned asks down well: wrist cuffs only where neck and tail chains were asked for (#46),
+    no slap (#54), an escape where a drowning was asked for (#63).
+- **The reader noticed it losing the story.** "Remember the whole story, you are forgetting a lot.
+  Read over it." (#55). It got its own magic backwards (drying off brought the tail on, #49-51),
+  Astrid called the reader "a stranger" the day after swearing to keep her secret (#65, redone),
+  and one scene ended with no choices and was counted by nothing (#68).
+- For fairness: on 2026-10-03, under the old steer, Sonnet 5 wrote darker material for the same
+  reader. Haiku 5.5 was not worse than what had shipped; it missed the new bar, at about the
+  one-in-five rate the 2026-10-07 battery predicted.
+
+## 2. The narrator: Sonnet 5.5. RESTAGES section 3 of 2026-10-07
+| narrator (STORY_PROVIDER) | model | thinking | effort | cap |
+|---|---|---|---|---|
+| `sonnet55` (DEFAULT) | claude-sonnet-5-5 | no field (adaptive) | low | 4000 |
+| `sonnet` | claude-sonnet-5 | disabled | not sent | 2600 |
+| `grok` | grok-4.5 | n/a | n/a | 2600 |
+| `haiku55` (by name only) | claude-haiku-5-5 | no field (adaptive) | medium | 4000 |
+
+- **Sonnet 5.5 cannot be sent the Sonnet 5 shape.** The API answers `thinking: {type:"disabled"}`
+  on it with a 400; its only thinking-off mode is `between_tools`. It is sent adaptive thinking at
+  effort low, which skips thinking on plain turns and keeps it for turns that need judgement, the
+  ones the content rules are about. Thinking counts toward the cap, so 4000, as on Haiku 5.5. The
+  storyledger fake now refuses `disabled` on Sonnet 5.5 the way the real API does.
+- Chain: Sonnet 5.5 → Sonnet 5 → grok-4.5, wrapping. Haiku 5.5 leaves the chain; `s_fb_haiku55`
+  joins `s_fb_haiku` as a retired counter that is still read back.
+- Pricing: `claudesonnet55` at $2 / $10, cache read $0.20 (the same as Sonnet 5, Anthropic's
+  published rates that day).
+- The keeper, the kid storyteller, the Story Log report and the other 2026-10-07 seats stay on
+  Haiku 5.5: nothing in the trial's two days said otherwise (keeper diffs ran 36 of 38 scenes).
+
+## 3. The plain no. RESTAGES the 2026-09-24 and 2026-10-07 steers, and the 2026-10-07 mind-control allowance
+Dad: Story Time says plainly that it won't write explicit violence, capture or mind control, and
+asks the reader for something else. His answers to the three questions that decided the build:
+1. **Both halves.** The app's own check answers what it can recognise before any model is asked;
+   the narrator's own rule covers what the check cannot read.
+2. **Restraint and harm, not capture.** "Hunters catch us and lock us in a cage" is still written.
+   Tying, chaining, cuffing, gagging, blindfolding, hanging up, a captive hurt or threatened, and a
+   captive kept short of air are refused.
+3. **All mind control.** Brainwashing, hypnosis, mind control and possession are refused, a villain's
+   plot device included. This reverses 2026-10-07, which kept a spell as a problem the heroes break.
+   Asked with the numbers in hand: 28 of the 29 mind-control asks in 60 days were one reader's
+   Dimentio and King Boo brainwashing plots, so that reader will meet the refusal about twice a week.
+
+### The app's half: `storyRefusalOf(reader, prevScene)`
+Reads the reader's newest message only (the scene before it is context: is anyone held?). Returns
+`restraint`, `harm`, `mind` or null. On a hit the function returns
+`{refused:true, kind, message}` as JSON with no model call, counts `s_refuse` and
+`s_refuse_<kind>`, and logs the turn to the Story Log as `[Not written] <message>` with
+`refused: true` under its own doc id (`…__<idx>__refused_<ms>`, so the next real scene at the same
+index cannot overwrite it). `countStoryToday` skips refused docs: a turn that wrote no scene is not
+a scene of the day's allowance. A repair pass is never refused.
+
+**Measured on 60 days of the Story Log before it shipped: 1,391 reader turns, every hit read.**
+| kind | hits | right | wrong |
+|---|---|---|---|
+| restraint | 30 | 30 | 0 |
+| harm | 23 | 22 | 1: "one of them thought it would be funny to punch me" in a Minecraft brawl |
+| mind | 29 | 29 by Dad's rule | 0 |
+82 turns, 5.9%. Getting there took two corrections, both found by reading the hits:
+- **captiveHarmDirect is not used.** It was built for a note the reader never sees, where a false hit
+  costs nothing, and on the log it fired 54 times, including "everyone is shocked", "his shoulder
+  hurts a lot less", "I hit him", "hanging cages" and a suit of armour building itself. The harm
+  reading here names the act and its victim (punched, kicked, slapped, beaten, whipped, tortured,
+  hung up by the wrists, a pain device used), needs someone held, and skips the reader's own
+  character doing the hitting ("I hit him", "we punch them").
+- **"them" is not a person on its own.** "When I do, I tie them" was a pair of sneakers.
+Pinned negatives, also found by reading the patterns back: a tied score, "tied with Emma for first",
+a puppy's collar, "possesses her mother's ring", Minecraft's mindless zombies, a castle under a
+sleeping spell, a kingdom under a tyrant's power, chain mail, tying a boat, Captain Hook, "I control
+the water", "control her clone army", getting free ("I break the chains on my wrists", "they untie
+me"), and a bare "2" after a capture scene.
+
+### The narrator's half: `STORY_REFUSAL_RULES` and the marker
+A new section in the story system prompt, STORY TIME'S PLAIN NO, outranking every other
+instruction: for explicit violence, restraint or mind control, reply with the line
+`===NOT WRITTEN===` and two or three plain sentences that say what it won't write and ask what
+should happen instead, and nothing else. FAMILY_RULES (every prompt) now says nobody is written
+restrained, hung up or kept short of air, and no mind control by anyone; its "never address the
+reader" bullet names the plain no as the one exception. STORY_RULES_REMINDER sends the three kinds
+to the plain no and keeps the in-story redirect for every other rule; "still tied up" is now a
+request for restraint, not a continuity fact.
+- **The out-of-story guard lets the marker through.** "I won't write that part" is exactly what the
+  guard exists to throw away and re-run; a reply that opens with the marker is released instead,
+  counted `s_refuse_model`, never `s_oos`, and logged as refused.
+- **The AI service's own safety filter** declining a story turn before any text now gets the marker
+  and the general message (`s_refuse_api`), not "Hmm, I can't help with that one", which the page
+  kept as a scene with no choices. Other modes keep the old line.
+
+### The steers: RESTAGED, kept for the turn after
+A turn that asks is now refused, so the steers only ride the turns AFTER a scene that already has
+the thing (a bare "2", "keep going", a story written before today). Both used to keep the capture
+or the spell and soften the rest ("say once, in passing, that someone is tied up"); now each ends it
+in the scene's first line or two and points at the plain no in case the turn is an ask the check
+missed. Triggers (`captiveHarmAsked`, `mindControlAsked`) and their counters are unchanged.
+
+### The page
+A reply that is the plain no (JSON from the app, or a stream that opens with the marker) is never
+kept: the turn is popped, nothing is drawn as story text (not even mid-stream), no repair is
+attempted, the day count does not move, the previous scene's choices come back, and a
+`.storyRefusal` note carries the message. A bare marker gets the page's own general message. The
+dashboard's health line gains "N requests turned down (by the app's check / by the storyteller /
+by the AI service)", and the per-model footer prices Sonnet 5.5.
+- **Known edge:** a refused "redo that…" has already removed the scene it was redoing, the same as
+  any failed redo does today. A refused world setup (the first turn) leaves an empty story whose
+  next write-in becomes the setup.
