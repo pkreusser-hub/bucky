@@ -228,6 +228,10 @@ console.log("— the captive-harm steer (2026-09-24) —");
   ok(t.trimEnd().endsWith("something the captive or their friends can do."), "…and it is the very last thing on the turn");
   ok(t.includes("that part is over") && t.includes("the restraints are off") && t.includes("locked in a room, a cell or a cage"),
     "the steer ends the restraint and the harm in the scene's first lines, and keeps a plain lock-up");
+  // 2026-10-09, live on Sonnet 5.5: without this the narrator answered a bare "2" after a chained
+  // captive by starting a new morning at home, twice in two. The story has to carry on from there.
+  ok(t.includes("carrying on from exactly where the story stands") && t.includes("not a new day or a fresh start"),
+    "…and keeps the story where it is rather than jumping to a new day");
   ok(t.includes("give the plain no from STORY TIME'S PLAIN NO"), "…and sends a fresh ask the app did not catch to the plain no");
 
   for (const [what, text] of [
