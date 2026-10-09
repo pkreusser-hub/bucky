@@ -242,7 +242,8 @@ console.log("— the other modes are untouched —");
   // RESTAGED 2026-10-07: the big-kid narrator is Haiku 5.5 on a one-week trial, and its cap is its
   // own (4000: thinking counts toward it). What this check is for has not changed: little-kid mode
   // did not disturb big-kid mode.
-  ok(r.status === 200 && a.model === "claude-haiku-5-5" && a.max_tokens === 4000, "big-kid story is on its own narrator and cap (Haiku 5.5, 4000 tok)");
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the model is claude-sonnet-5-5, the cap is still 4000, and thinking is adaptive (none sent).
+  ok(r.status === 200 && a.model === "claude-sonnet-5-5" && a.max_tokens === 4000, "big-kid story is on its own narrator and cap (Sonnet 5.5, 4000 tok)");
   ok(a.thinking === undefined, "…and, unlike the little-kid storyteller, is NOT sent thinking disabled");
   ok(a.system.includes("CONTENT RULES") && !a.system.includes("LITTLE-KID SAFETY"), "…and does NOT get the little-kid rules");
   const longOk = await call({ mode: "story", messages: [{ role: "user", content: "y".repeat(3000) }] });

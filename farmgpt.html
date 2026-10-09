@@ -399,6 +399,12 @@
     font-style: italic; color: #8a7a4d; font-size: 13.5px; margin: 0 0 14px; padding-left: 10px;
     border-left: 3px solid var(--paper-line);
   }
+  /* The plain no (2026-10-09): Story Time turning a request down. Not a scene, so not in the
+     book's serif; a quiet card the reader reads and answers. */
+  #storyScroll .storyRefusal {
+    font-size: 15px; line-height: 1.5; color: #4a3b12; background: #fff7df;
+    border: 1px solid #e6cf8a; border-radius: 12px; padding: 12px 14px; margin: 0 0 14px;
+  }
   #storyScroll .theEnd {
     text-align: center; font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: #8a6d1a;
     margin: 18px 0 4px;
@@ -1158,6 +1164,23 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   const RECAP_MARK = "===RECAP===";
   const CHAPTER_MARK = "===CHAPTER===";          // opens a titled chapter (may switch POV)
   const CHAPTER_END_MARK = "===CHAPTER END===";  // closes a chapter (replaces the choices)
+  // The storyteller's plain no (2026-10-09; STORY_REFUSAL_MARK in farmgpt.mjs). A reply that opens
+  // with it is a note to the reader, never a scene: it is not kept in the story.
+  const REFUSAL_MARK = "===NOT WRITTEN===";
+  // ONE message for every refusal (Dad, 2026-10-09): the reader is told it is outside the content
+  // rules and asked for another idea, never what exactly was not allowed. The storyteller's own
+  // sentence after the marker is for Dad's Story Log (the server keeps it) and is not shown here.
+  // Same words as STORY_REFUSAL_MESSAGE in farmgpt.mjs.
+  const REFUSAL_MESSAGE = "Story Time can't write that part because of its content rules. Try a different idea: pick one of the choices or type what should happen next.";
+  const refusalText = (raw) => {
+    const x = String(raw || "").replace(/^\s+/, "");
+    return x.startsWith(REFUSAL_MARK) ? REFUSAL_MESSAGE : null;
+  };
+  // True while a streaming reply could still turn out to be the plain no, so nothing of it is drawn.
+  const mayBeRefusal = (raw) => {
+    const x = String(raw || "").replace(/^\s+/, "");
+    return x.startsWith(REFUSAL_MARK) || (x.length < REFUSAL_MARK.length && REFUSAL_MARK.startsWith(x));
+  };
   const ILLUST_KEY = "farmgpt_illust";
   // Chapter length is a WINDOW, not a hard cut (a typical young-adult chapter runs ~1500-3000 words):
   //  · past SOFT words → the storyteller MAY end the chapter at the next natural beat (its choice)
@@ -2478,6 +2501,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (ct.includes("application/json")) {
       let data = null;
       try { data = await resp.json(); } catch { /* fall through to the generic error below */ }
+      // The plain no from the app's own check: no model was asked, nothing to stream.
+      if (data && data.refused) {
+        const err = new Error(data.message || REFUSAL_MESSAGE);
+        err.refused = true;
+        throw err;
+      }
       if (data && data.capped) {
         const err = new Error(data.message || "You've read a lot today — come back tomorrow!");
         err.capped = true;
@@ -3337,6 +3366,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       // world-creation screen uses it as its handoff cue.
       let firstTokenSent = false;
       let full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
+        if (mayBeRefusal(sofar)) return;
         const vis = visibleDuringStream(sofar);
         renderStoryText(el, vis);
         if (!firstTokenSent && vis.trim() && typeof opts.onFirstToken === "function") {
@@ -3350,6 +3380,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
            // here so the server's cap stays a backstop. Legacy stories send nothing.
            ...(hasLedger(story) ? { ledger: ledgerForSend(story.ledger) } : {}),
            ...logOpts });
+      // The storyteller's own plain no: handled exactly like the app's, in the catch below.
+      const refused = refusalText(full);
+      if (refused !== null) { const err = new Error(refused); err.refused = true; throw err; }
       full = await repairIfTruncated(full, el);
       const p = parseChapter(full);
       renderStoryText(el, p.text);
@@ -3391,6 +3424,21 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       if (divider) divider.remove();
       story.messages.pop();                        // roll back the user turn so it can be retried
       busy = false;
+      if (err && err.refused) {
+        // THE PLAIN NO. The turn is gone from the story (popped above), the previous scene's
+        // choices come back, and the note asks for something else. Not a toast: a toast vanishes,
+        // and this is the storyteller answering the reader.
+        const note = document.createElement("div");
+        note.className = "storyRefusal";
+        note.setAttribute("role", "status");
+        note.textContent = err.message;
+        $("storyScroll").appendChild(note);
+        const last = story.messages[story.messages.length - 1];
+        const prev = last && last.role === "assistant" ? parseChapter(last.content) : { choices: [], ended: false, chapterEnd: false };
+        setStoryControls({ choices: prev.choices, ended: prev.ended, chapterEnd: prev.chapterEnd, busyNow: false });
+        scrollStory();
+        return;
+      }
       if (err && err.capped) {
         // The server is the source of truth — sync the local counter so future taps short-circuit
         // instantly instead of round-tripping again, then paint the gentle notice.
@@ -4668,6 +4716,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // WHICH model did the work, and the bucket fallbacks below still carry the old numbers for
     // rows written before per-model logging.
     claudesonnet5:  { in: 2,  out: 10, cached: 0.20 },     // Sonnet 5
+    // Sonnet 5.5, the story narrator since 2026-10-09. Same prices as Sonnet 5 (Anthropic's
+    // published rates that day): $2 in / $10 out, cache read $0.20, 5-minute cache write $2.50,
+    // which is the 1.25x convention. Thinking is billed as output, inside the output count.
+    claudesonnet55: { in: 2,  out: 10, cached: 0.20 },     // Sonnet 5.5
     claudeopus5:    { in: 5,  out: 25 },                   // Opus 5
     claudefable5:   { in: 10, out: 50 },                    // Fable 5 — the ledger seeder
     // The grok family. XAI_MODEL can be switched to any of these without a code change, so each
@@ -4801,7 +4853,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // Haiku 5.5 → Sonnet 5 → grok-4.5. "haiku" is the 2026-08-22 chain's last hop (Haiku 4.5):
     // gone from the chain, still labelled, because rows it wrote are still in the month.
     // Hops are only named when one has actually fired; the line reads as it always did otherwise.
-    const FB_HOP_LABELS = { sonnet: "Sonnet 5", grok: "grok-4.5", haiku55: "Haiku 5.5", haiku: "Haiku 4.5" };
+    // Since 2026-10-09 the chain is Sonnet 5.5 → Sonnet 5 → grok-4.5; Haiku 5.5 left it after its
+    // trial and is labelled for the same reason Haiku 4.5 still is.
+    const FB_HOP_LABELS = { sonnet55: "Sonnet 5.5", sonnet: "Sonnet 5", grok: "grok-4.5", haiku55: "Haiku 5.5", haiku: "Haiku 4.5" };
     const fbHops = Object.keys(FB_HOP_LABELS)
       .map((k) => [FB_HOP_LABELS[k], sum(monthDays, "s_fb_" + k)])
       .filter(([, n]) => n > 0);
@@ -4809,14 +4863,21 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // stops mid-sentence, and a scene re-run because the narrator stepped out of the story looks
     // like any other scene. Both are counted server-side per narrator; named here only when one
     // has happened, same rule as the hops above.
-    const NARRATOR_LABELS = { haiku55: "Haiku 5.5", sonnet: "Sonnet 5", grok: "grok-4.5", haiku: "Haiku 4.5", gemini: "Gemini", other: "another model" };
+    const NARRATOR_LABELS = { sonnet55: "Sonnet 5.5", haiku55: "Haiku 5.5", sonnet: "Sonnet 5", grok: "grok-4.5", haiku: "Haiku 4.5", gemini: "Gemini", other: "another model" };
     const byNarrator = (prefix) => Object.keys(NARRATOR_LABELS)
       .map((k) => [NARRATOR_LABELS[k], sum(monthDays, prefix + k)])
       .filter(([, n]) => n > 0);
     const named = (pairs) => pairs.length ? " (" + pairs.map(([label, n]) => n + " on " + label).join(", ") + ")" : "";
     const storyTruncs = sum(monthDays, "s_trunc");
     const storyOos = sum(monthDays, "s_oos");
-    if (seedTotal || storyFallbacks || storyTruncs || storyOos) {
+    // TURNED DOWN (2026-10-09). A request for restraint, a captive hurt or kept short of air,
+    // explicit violence or mind control gets a plain "I won't write that" and no scene. Counted
+    // by who said no: the app's own check before any model was asked (s_refuse), the storyteller
+    // itself (s_refuse_model), or the AI service's safety filter (s_refuse_api). The requests
+    // themselves are in the Story Log.
+    const refusedApp = sum(monthDays, "s_refuse"), refusedModel = sum(monthDays, "s_refuse_model"), refusedApi = sum(monthDays, "s_refuse_api");
+    const refusedAll = refusedApp + refusedModel + refusedApi;
+    if (seedTotal || storyFallbacks || storyTruncs || storyOos || refusedAll) {
       const note = document.createElement("div");
       note.id = "usageSeedHealth";
       note.style.cssText = "margin:-6px 0 14px;text-align:center;font-size:.82rem;opacity:.75";
@@ -4831,6 +4892,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       }
       if (storyOos) {
         bits.push(storyOos + " scene" + (storyOos === 1 ? "" : "s") + " re-run after the narrator stepped out of the story" + named(byNarrator("s_oos_")));
+      }
+      if (refusedAll) {
+        const who = [[refusedApp, "by the app's check"], [refusedModel, "by the storyteller"], [refusedApi, "by the AI service"]]
+          .filter(([n]) => n > 0).map(([n, label]) => n + " " + label).join(", ");
+        bits.push(refusedAll + " request" + (refusedAll === 1 ? "" : "s") + " turned down (" + who + ")");
       }
       note.textContent = bits.join(" · ");
       body.appendChild(note);
@@ -4867,7 +4933,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       (ALWAYS_SHOW.includes(b.p) || !minor ? shown : folded).push(t);
     }
     const MODEL_LABEL = {
-      claudehaiku55: "Haiku 5.5", claudehaiku45: "Haiku 4.5", claudesonnet5: "Sonnet 5", claudeopus5: "Opus 5",
+      claudehaiku55: "Haiku 5.5", claudehaiku45: "Haiku 4.5", claudesonnet5: "Sonnet 5", claudesonnet55: "Sonnet 5.5", claudeopus5: "Opus 5",
       claudefable5: "Fable 5", grok45: "Grok 4.5", gemini25flash: "Gemini 2.5 Flash",
     };
     const modelNote = (t) => t.b.perImage ? "Gemini · ~$" + IMG_EACH.toFixed(3) + " each"
@@ -4961,7 +5027,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
     const note = document.createElement("div");
     note.id = "usageNote";
-    note.textContent = "Estimated at list pricing, per model: Grok 4.5 $2/$6 · Haiku 5.5 $0.10/$0.50 · Haiku 4.5 $" + S_IN + "/$" + S_OUT +
+    note.textContent = "Estimated at list pricing, per model: Grok 4.5 $2/$6 · Sonnet 5.5 $2/$10 · Haiku 5.5 $0.10/$0.50 · Haiku 4.5 $" + S_IN + "/$" + S_OUT +
       " · Sonnet 5 $" + R_IN + "/$" + R_OUT + " · Opus 5 $" + O_IN + "/$" + O_OUT + " · Fable 5 $" + F_IN + "/$" + F_OUT +
       " per MTok (in/out); cached tokens 💰 re-read at 10% of the input rate. Quiet features are folded " +
       "into 🧩 Other. Exact billing is at console.anthropic.com and console.x.ai.";

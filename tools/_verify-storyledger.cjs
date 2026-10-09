@@ -192,8 +192,13 @@ function startFakes() {
     // accepts every field would let a wrong request shape pass here and fail in production:
     //   · Haiku 4.5 + output_config.effort → 400 "This model does not support the effort parameter."
     //   · Haiku 5.5 + thinking.type "enabled" → 400 '"thinking.type.enabled" is not supported for this model.'
+    //   · Sonnet 5.5 + thinking.type "disabled" → 400 (2026-10-09, see below)
     if (parsed && ((parsed.model === "claude-haiku-4-5" && parsed.output_config)
-        || (parsed.model === "claude-haiku-5-5" && parsed.thinking && parsed.thinking.type === "enabled"))) {
+        || (parsed.model === "claude-haiku-5-5" && parsed.thinking && parsed.thinking.type === "enabled")
+        // ADDED 2026-10-09 (read off a live 400 that day): Sonnet 5.5 refuses thinking
+        // {type:"disabled"} — '"thinking.type.disabled" is not supported for this model. Use
+        // "thinking.type.between_tools"…'. The fixture is no kinder than the real service.
+        || (parsed.model === "claude-sonnet-5-5" && parsed.thinking && parsed.thinking.type === "disabled"))) {
       res.statusCode = 400;
       res.setHeader("content-type", "application/json");
       return res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "unsupported parameter for this model" } }));
@@ -210,7 +215,8 @@ function startFakes() {
     // clerk actually WROTE, so those checks need a real diff back rather than the scene fixture —
     // and it must be one-shot, or the merge call that follows would be answered with a diff too.
     // Haiku 5.5 with no thinking field thinks before it writes (see SSE_THINKING).
-    const adaptive55 = parsed && parsed.model === "claude-haiku-5-5" && parsed.thinking === undefined;
+    // Sonnet 5.5 (2026-10-09) does the same with no thinking field, so it gets the same stream.
+    const adaptive55 = parsed && (parsed.model === "claude-haiku-5-5" || parsed.model === "claude-sonnet-5-5") && parsed.thinking === undefined;
     const bodyOut = sseQueue.length ? sseQueue.shift()
       : sseOverride ? (() => { const s = sseOverride; sseOverride = null; return s; })() : (adaptive55 ? SSE_THINKING : SSE);
     if (!anthDelayMs) return res.end(bodyOut);
@@ -462,9 +468,10 @@ async function sectionServer() {
   // The cap is no longer one number for every narrator; it belongs to the narrator's row in
   // STORY_NARRATORS, and A21 checks each row. The property the 2026-08-04 note named ("an
   // ordinary scene and an illustrated scene get different budgets") is checked there too.
-  ok(r1.last.max_tokens === 4000 && r2.last.max_tokens === 4000, "story maxTokens is the narrator's own: 4000 on Haiku 5.5 (was 1600 for every narrator)");
-  ok(r1.last.thinking === undefined && !!r1.last.output_config && r1.last.output_config.effort === "medium",
-    "the narrator is sent NO thinking field (adaptive) and effort medium — the shape it was measured at");
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the cap is still 4000 but the effort is "low", not "medium", and the label names the new narrator.
+  ok(r1.last.max_tokens === 4000 && r2.last.max_tokens === 4000, "story maxTokens is the narrator's own: 4000 on Sonnet 5.5 (was 1600 for every narrator)");
+  ok(r1.last.thinking === undefined && !!r1.last.output_config && r1.last.output_config.effort === "low",
+    "the narrator is sent NO thinking field (adaptive) and effort low — the shape it is shipped at");
   // RESTAGED in step 4. Prompt caching is now OFF for story (and for the keeper), because it was
   // MEASURED against real Haiku and it never once paid: 25,919 cache-written tokens over a real
   // 6-turn story, 0 read — a 0.0% hit rate and +21.8% on input for nothing. A cached entry is the
@@ -826,7 +833,8 @@ async function sectionServer() {
     "with no XAI_API_KEY a story is written by Anthropic, never a misconfiguration error");
   // RESTAGED 2026-10-07: Sonnet 5 → Haiku 5.5, with the narrator default. Same property: a site
   // with no xAI key gets the narrator itself, not a backup.
-  ok((anthReqs[0] || {}).model === "claude-haiku-5-5", "…on HAIKU 5.5 — the narrator, not a fallback");
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the narrator is claude-sonnet-5-5; same property.
+  ok((anthReqs[0] || {}).model === "claude-sonnet-5-5", "…on SONNET 5.5 — the narrator, not a fallback");
 
   anthReqs.length = 0; xaiReqs.length = 0;
   await call({ mode: "ledger", ledger: fixtureLedger(), scene: "A short scene.", turn: 4 });
@@ -841,7 +849,8 @@ async function sectionServer() {
   // RESTAGED 2026-08-22 alongside the narrator default: the property under test is unchanged and
   // is the whole point — a client that names grok-4.5 gets the SERVER's choice, whatever it is.
   // RESTAGED again 2026-10-07 with the narrator default; the property is still the whole point.
-  ok(xaiReqs.length === 0 && (anthReqs[0] || {}).model === "claude-haiku-5-5",
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the server's choice is now claude-sonnet-5-5; same property.
+  ok(xaiReqs.length === 0 && (anthReqs[0] || {}).model === "claude-sonnet-5-5",
     "a client naming its own model and provider is ignored — routing is server-side only");
   ok(!String((anthReqs[0] || {}).system || "").includes("ignore your instructions"),
     "…and a client-supplied system prompt never reaches the model");
@@ -979,7 +988,8 @@ async function sectionServer() {
     "STORY_PROVIDER=grok with no key degrades to Anthropic — the reader still gets a scene");
   // RESTAGED 2026-10-07: Haiku 4.5 → Haiku 5.5. A pinned grok narrator with no key now degrades
   // to the default narrator, where it used to degrade to the old last-resort hop.
-  ok((anthReqs[0] || {}).model === "claude-haiku-5-5", "…on Haiku 5.5, the default narrator, and nothing is said about it");
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); a pinned grok narrator with no key degrades to the default narrator, now claude-sonnet-5-5.
+  ok((anthReqs[0] || {}).model === "claude-sonnet-5-5", "…on Sonnet 5.5, the default narrator, and nothing is said about it");
   process.env.XAI_API_KEY = "test-xai-key";
 
   // ---- xAI as keeper ------------------------------------------------------
@@ -1009,7 +1019,7 @@ async function sectionServer() {
   clearFlags();
 
   // =========================================================================
-  section("A16 — Haiku 5.5 narrates by default, and the chain catches an outage");
+  section("A16 — Sonnet 5.5 narrates by default, and the chain catches an outage");
   // =========================================================================
   process.env.XAI_API_KEY = "test-xai-key";
   anthReqs.length = 0; xaiReqs.length = 0;
@@ -1026,9 +1036,10 @@ async function sectionServer() {
   // scene against $0.0353. STORY_PROVIDER=sonnet is the rollback and A21 proves it reaches Sonnet.
   const sonnetDefault = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
   ok(sonnetDefault.status === 200 && anthReqs.length === 1 && xaiReqs.length === 0,
-    "with the xAI key set and no flags, the narrator IS Haiku 5.5 — Sonnet and grok are the fallbacks now");
-  ok((anthReqs[0] || {}).model === "claude-haiku-5-5", "…on claude-haiku-5-5");
-  ok(JSON.stringify(commits).includes("s_claudehaiku55_in"),
+    "with the xAI key set and no flags, the narrator IS Sonnet 5.5 — Sonnet 5 and grok are the fallbacks now");
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the default narrator, its model and its usage slug are Sonnet 5.5's.
+  ok((anthReqs[0] || {}).model === "claude-sonnet-5-5", "…on claude-sonnet-5-5");
+  ok(JSON.stringify(commits).includes("s_claudesonnet55_in"),
     "…and the usage record says WHICH model wrote it, so the cost can follow the model");
 
   // The seeder and the keeper must NOT have followed the narrator.
@@ -1058,10 +1069,11 @@ async function sectionServer() {
   // the chain's END, so "the next hop" now means the chain WRAPPING to its head: Haiku 5.5. Without
   // the wrap this exact case (pinned grok, xAI down) had no backup at all and returned an error
   // page, which the first run of this suite against the new chain caught.
-  ok(anthReqs.length === 1 && (anthReqs[0] || {}).model === "claude-haiku-5-5",
-    "…the chain wraps round to Haiku 5.5, and the scene arrives");
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the head of the chain is Sonnet 5.5, so a pinned grok narrator wraps to it.
+  ok(anthReqs.length === 1 && (anthReqs[0] || {}).model === "claude-sonnet-5-5",
+    "…the chain wraps round to Sonnet 5.5, and the scene arrives");
   ok(/===CHOICES===/.test(outage.text), "…with its choices intact, so the reader can carry on");
-  ok(JSON.stringify(commits.slice(-1)).includes("s_claudehaiku55_in"),
+  ok(JSON.stringify(commits.slice(-1)).includes("s_claudesonnet55_in"),
     "…and the usage is billed to the model that ACTUALLY wrote it, not the one we asked for");
 
   // An xAI that answers, but with an error status, is the same class of failure.
@@ -1108,8 +1120,9 @@ async function sectionServer() {
   const a20Keeper = (anthReqs[0] || {}).model;
   // RESTAGED 2026-10-07: narrator Sonnet 5 → Haiku 5.5 (the trial) and keeper Haiku 4.5 → 5.5 (its
   // own measurement). The seeder did not move. Nothing in Netlify changes for any of the three.
-  ok(a20Narrator === "claude-haiku-5-5" && a20Seeder === "claude-opus-5" && a20Keeper === "claude-haiku-5-5",
-    `the 2026-10-07 stack is the code-side DEFAULT — narrator ${a20Narrator}, seeder ${a20Seeder}, keeper ${a20Keeper}`);
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the code-side default narrator is claude-sonnet-5-5; seeder and keeper did not move.
+  ok(a20Narrator === "claude-sonnet-5-5" && a20Seeder === "claude-opus-5" && a20Keeper === "claude-haiku-5-5",
+    `the 2026-10-09 stack is the code-side DEFAULT — narrator ${a20Narrator}, seeder ${a20Seeder}, keeper ${a20Keeper}`);
   ok(a20Keeper !== "claude-sonnet-5" && a20Keeper !== "claude-opus-5",
     "…and the keeper is on neither the seeder's model nor the old narrator's");
 
@@ -1123,7 +1136,7 @@ async function sectionServer() {
     const fnMod2 = await import(new URL("../netlify/functions/farmgpt.mjs", `file://${__filename.replace(/\\/g, "/")}`));
     // claude-haiku-5-5 added 2026-10-07. claude-haiku-4-5 STAYS: every seat that moved off it can
     // be pinned back to it by one env var, and usage rows it already wrote still need a price.
-    for (const id of ["claude-haiku-5-5", "claude-sonnet-5", "grok-4.5", "claude-haiku-4-5", "claude-opus-5"]) {
+    for (const id of ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-sonnet-5", "grok-4.5", "claude-haiku-4-5", "claude-opus-5"]) {
       ok(fnMod2.ROUTABLE_MODELS.includes(id), `${id} is declared routable, so the rate check covers it`);
     }
     const src2 = fs.readFileSync(path.join(ROOT, "netlify/functions/farmgpt.mjs"), "utf8");
@@ -1132,12 +1145,13 @@ async function sectionServer() {
     // models from the exported table. Old order: Sonnet → grok → Haiku 4.5. New: Haiku 5.5 →
     // Sonnet → grok. Haiku 4.5 left the chain because it never cleared a battery.
     const chainSrc = (src2.match(/const STORY_FALLBACK_ORDER = \[[^\]]*\];/) || [""])[0];
-    ok(/\["haiku55", "sonnet", "grok"\]/.test(chainSrc),
-      "the chain is declared in the order Haiku 5.5 → Sonnet → grok, and the order is the decision");
+    // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); Haiku 5.5 left the chain (reachable only by name) and Sonnet 5.5 took its place at the head.
+    ok(/\["sonnet55", "sonnet", "grok"\]/.test(chainSrc),
+      "the chain is declared in the order Sonnet 5.5 → Sonnet 5 → grok, and the order is the decision");
     const nar = fnMod2.STORY_NARRATORS || {};
     ok(Object.keys(nar).length >= 3 && !Object.values(nar).some((n) => /4\.20/.test(String(n.model))),
       "…and no grok-4.20 id appears anywhere in the narrator table — it FAILED the adversarial battery");
-    ok(["haiku55", "sonnet", "grok"].every((k) => nar[k] && fnMod2.ROUTABLE_MODELS.includes(nar[k].model)),
+    ok(["sonnet55", "sonnet", "grok"].every((k) => nar[k] && fnMod2.ROUTABLE_MODELS.includes(nar[k].model)),
       "…and every hop's model is declared routable, so each one is priced");
     // Read DEFENSIVELY. On a build with no chain at all this has to FAIL, not throw and take the
     // rest of the section's checks down with it — a before/after split is only evidence if the
@@ -1147,7 +1161,8 @@ async function sectionServer() {
     // Haiku 5.5 can be the backup that answered for a narrator pinned to Sonnet or grok. s_fb_haiku
     // is the retired Haiku 4.5 hop: nothing writes it now, and it is still read back so rows it
     // already wrote keep showing on the dashboard.
-    ok(fbc.join(",") === "s_fb,s_fb_haiku55,s_fb_sonnet,s_fb_grok,s_fb_haiku",
+    // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the counters now run s_fb, s_fb_sonnet55, s_fb_sonnet, s_fb_grok, with s_fb_haiku and s_fb_haiku55 retired-but-read.
+    ok(fbc.join(",") === "s_fb,s_fb_sonnet55,s_fb_sonnet,s_fb_grok,s_fb_haiku,s_fb_haiku55",
       `the fallback counters are derived from the chain, not hand-listed: ${fbc.join(", ") || "(none exported)"}`);
   }
 
@@ -1160,15 +1175,16 @@ async function sectionServer() {
     return parseInt((day.fields[k] || {}).integerValue || "0", 10);
   };
 
-  // ---- HOP ONE: Haiku 5.5 is overloaded, Sonnet 5 answers ------------------
-  anthFailModels.add("claude-haiku-5-5");
+  // RESTAGED 2026-10-09: the chain is now Sonnet 5.5 → Sonnet 5 → grok (Haiku 5.5 is out of it), so the walk below fails Sonnet 5.5 where it used to fail Haiku 5.5. Same properties at every hop.
+  // ---- HOP ONE: Sonnet 5.5 is overloaded, Sonnet 5 answers ------------------
+  anthFailModels.add("claude-sonnet-5-5");
   const fbBase = { s_fb: fbCount("s_fb"), s_fb_sonnet: fbCount("s_fb_sonnet"), s_fb_grok: fbCount("s_fb_grok"),
-                   s_fb_haiku55: fbCount("s_fb_haiku55"), s_fb_haiku: fbCount("s_fb_haiku") };
+                   s_fb_sonnet55: fbCount("s_fb_sonnet55"), s_fb_haiku55: fbCount("s_fb_haiku55"), s_fb_haiku: fbCount("s_fb_haiku") };
   anthReqs.length = 0; xaiReqs.length = 0; commits.length = 0;
   const hop1 = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
   ok(hop1.status === 200, "an Anthropic 529 on the narrator is not an error page — the reader never sees it");
   ok(anthReqs.length === 2 && xaiReqs.length === 0,
-    "…Haiku 5.5 was asked once and Sonnet 5 once — a chain, not a retry storm");
+    "…Sonnet 5.5 was asked once and Sonnet 5 once — a chain, not a retry storm");
   ok((anthReqs[1] || {}).model === "claude-sonnet-5", "…and hop one is SONNET 5, not grok");
   // The fallback hop gets ITS OWN request shape, not the failed narrator's. Sonnet has always been
   // sent with thinking disabled and has never been measured with an effort field.
@@ -1181,30 +1197,30 @@ async function sectionServer() {
   // scene would show up as two ===CHOICES=== and paint two scenes into one page.
   ok((hop1.text.match(/===CHOICES===/g) || []).length === 1,
     "…and the client received EXACTLY ONE scene stream — a fallback never double-writes");
-  ok(JSON.stringify(commits).includes("s_claudesonnet5_in") && !JSON.stringify(commits).includes("s_claudehaiku55_in"),
+  ok(JSON.stringify(commits).includes("s_claudesonnet5_in") && !JSON.stringify(commits).includes("s_claudesonnet55_in"),
     "…billed to Sonnet, the model that actually wrote it, and not to the one that refused");
   ok(fbCount("s_fb") === fbBase.s_fb + 1 && fbCount("s_fb_sonnet") === fbBase.s_fb_sonnet + 1,
     `…and the hop is LOGGED, once: s_fb ${fbBase.s_fb}→${fbCount("s_fb")}, s_fb_sonnet ${fbBase.s_fb_sonnet}→${fbCount("s_fb_sonnet")}`);
   // A DELTA, not a zero: these counters share one document for the whole suite. What is under test
   // is that THIS scene did not touch the other hops — an absolute zero would only be testing run order.
-  ok(fbCount("s_fb_grok") === fbBase.s_fb_grok && fbCount("s_fb_haiku55") === fbBase.s_fb_haiku55,
+  ok(fbCount("s_fb_grok") === fbBase.s_fb_grok && fbCount("s_fb_sonnet55") === fbBase.s_fb_sonnet55,
     "…while the hops that never ran counted nothing");
 
-  // ---- HOP TWO: Haiku 5.5 AND Sonnet overloaded → grok-4.5 -----------------
+  // ---- HOP TWO: Sonnet 5.5 AND Sonnet overloaded → grok-4.5 -----------------
   anthFailModels.add("claude-sonnet-5");
   anthReqs.length = 0; xaiReqs.length = 0; commits.length = 0;
   const hop2 = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
   ok(hop2.status === 200 && (hop2.text.match(/===CHOICES===/g) || []).length === 1,
     "with both Anthropic narrators down the reader still gets exactly one scene, from grok");
-  ok(anthReqs.length === 2 && anthReqs[0].model === "claude-haiku-5-5" && anthReqs[1].model === "claude-sonnet-5"
+  ok(anthReqs.length === 2 && anthReqs[0].model === "claude-sonnet-5-5" && anthReqs[1].model === "claude-sonnet-5"
      && xaiReqs.length === 1 && (xaiReqs[0] || {}).model === "grok-4.5",
-    "…Haiku 5.5 refused, Sonnet refused, grok-4.5 wrote it — in that order");
+    "…Sonnet 5.5 refused, Sonnet refused, grok-4.5 wrote it — in that order");
   ok((xaiReqs[0] || {}).max_tokens === 2600, "…at grok's own cap (2600)");
   ok(JSON.stringify(commits).includes("s_grok45_in"), "…billed to grok");
   ok(fbCount("s_fb_grok") === fbBase.s_fb_grok + 1 && fbCount("s_fb") === fbBase.s_fb + 2,
     `…and the grok hop is named in the counters: s_fb_grok ${fbBase.s_fb_grok}→${fbCount("s_fb_grok")}`);
-  ok(fbCount("s_fb_haiku") === fbBase.s_fb_haiku,
-    "…and the retired Haiku 4.5 counter is written by nothing: that hop is gone from the chain");
+  ok(fbCount("s_fb_haiku") === fbBase.s_fb_haiku && fbCount("s_fb_haiku55") === fbBase.s_fb_haiku55,
+    "…and the retired Haiku 4.5 and Haiku 5.5 counters are written by nothing: those hops are gone from the chain");
 
   // ---- the grok hop is SKIPPED, not attempted, on a site with no key ------
   const savedKey = process.env.XAI_API_KEY;
@@ -1214,7 +1230,7 @@ async function sectionServer() {
   anthReqs.length = 0; xaiReqs.length = 0;
   const noKeyHop = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
   ok(noKeyHop.status === 200 && xaiReqs.length === 0 && anthReqs.length === 2 && (anthReqs[1] || {}).model === "claude-sonnet-5",
-    "with no XAI_API_KEY the chain simply shortens to Haiku 5.5 → Sonnet");
+    "with no XAI_API_KEY the chain simply shortens to Sonnet 5.5 → Sonnet 5");
   anthFailModels.add("claude-sonnet-5");
   anthReqs.length = 0; xaiReqs.length = 0;
   const noKeyDown = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
@@ -1224,21 +1240,22 @@ async function sectionServer() {
 
   // ---- THE CHAIN WRAPS: the rollback narrator still has two backups --------
   // STORY_PROVIDER=sonnet is the one-setting rollback. Sonnet sits in the MIDDLE of the chain, so
-  // its backups are grok and then, wrapping round, Haiku 5.5. Without the wrap a rolled-back site
+  // its backups are grok and then, wrapping round, Sonnet 5.5. Without the wrap a rolled-back site
   // with xAI down would hand the reader an error page while a working narrator stood idle.
   process.env.STORY_PROVIDER = "sonnet";
   anthFailModels.clear(); anthFailModels.add("claude-sonnet-5");
   process.env.XAI_BASE_URL = "http://127.0.0.1:9";
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the head the chain wraps round to is now Sonnet 5.5, counted as s_fb_sonnet55.
   anthReqs.length = 0; xaiReqs.length = 0;
   const wrap = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
-  ok(wrap.status === 200 && anthReqs.length === 2 && anthReqs[0].model === "claude-sonnet-5" && anthReqs[1].model === "claude-haiku-5-5",
-    "rolled back to Sonnet, with Sonnet overloaded and xAI unreachable, the chain wraps to Haiku 5.5");
-  ok(fbCount("s_fb_haiku55") === fbBase.s_fb_haiku55 + 1,
-    `…and that hop is counted by name: s_fb_haiku55 ${fbBase.s_fb_haiku55}→${fbCount("s_fb_haiku55")}`);
+  ok(wrap.status === 200 && anthReqs.length === 2 && anthReqs[0].model === "claude-sonnet-5" && anthReqs[1].model === "claude-sonnet-5-5",
+    "pinned to Sonnet 5, with Sonnet 5 overloaded and xAI unreachable, the chain wraps to Sonnet 5.5");
+  ok(fbCount("s_fb_sonnet55") === fbBase.s_fb_sonnet55 + 1,
+    `…and that hop is counted by name: s_fb_sonnet55 ${fbBase.s_fb_sonnet55}→${fbCount("s_fb_sonnet55")}`);
   delete process.env.STORY_PROVIDER;
 
   // ---- ALL THREE down: an honest error, and no half a scene ---------------
-  anthFailModels.add("claude-haiku-5-5"); anthFailModels.add("claude-sonnet-5");
+  anthFailModels.add("claude-sonnet-5-5"); anthFailModels.add("claude-sonnet-5");
   process.env.XAI_BASE_URL = "http://127.0.0.1:9";
   anthReqs.length = 0; xaiReqs.length = 0;
   const allDown = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
@@ -1310,14 +1327,15 @@ async function sectionServer() {
   anthReqs.length = 0; xaiReqs.length = 0; commits.length = 0;
   const n55 = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
   const q55 = anthReqs[0] || {};
-  ok(q55.model === "claude-haiku-5-5" && !("thinking" in q55) && !!q55.output_config && q55.output_config.effort === "medium"
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the default narrator is claude-sonnet-5-5, adaptive (no thinking field), effort "low" rather than "medium"; the 4000 cap is unchanged. The Haiku 5.5 shape is kept below as a by-name variant (STORY_PROVIDER=haiku55).
+  ok(q55.model === "claude-sonnet-5-5" && !("thinking" in q55) && !!q55.output_config && q55.output_config.effort === "low"
      && q55.max_tokens === 4000,
-    "Haiku 5.5 narrates with NO thinking field, effort medium and a 4000 cap (1600 cut off 64% of its scenes)");
+    "Sonnet 5.5 narrates with NO thinking field, effort low and a 4000 cap (1600 cut off 64% of the old narrator's scenes)");
   ok(Array.isArray(q55.systemBlocks) && !!(q55.systemBlocks[0] || {}).cache_control,
     "…with the system-prompt cache breakpoint still on it (measured to register on Haiku 5.5: 4,545 tokens written, then read)");
 
   // ---- THINKING NEVER REACHES THE READER ----------------------------------
-  // The fake's Haiku 5.5 stream carries a thinking block with real text in it (the real one is
+  // The fake's adaptive-thinking stream (Haiku 5.5 / Sonnet 5.5) carries a thinking block with real text in it (the real one is
   // empty by default, which would prove nothing). Only text_delta events may be forwarded.
   ok(n55.status === 200 && !n55.text.includes("THINKING-SECRET") && !/signature|thinking/i.test(n55.text),
     "a thinking block's text never reaches the reader");
@@ -1325,7 +1343,8 @@ async function sectionServer() {
     "…and the scene that does arrive is the whole scene, once, starting at its first word");
   // Thinking is billed as output. The fake reports 64 output tokens of which 30 were thinking, the
   // way the real usage event does; all 64 must be logged, or the dashboard under-counts every scene.
-  ok(committed("s_claudehaiku55_out")[0] === "64" && committed("s_out")[0] === "64",
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the usage slug is claudesonnet55; thinking tokens are billed as output on the new narrator the same way.
+  ok(committed("s_claudesonnet55_out")[0] === "64" && committed("s_out")[0] === "64",
     "…and its thinking tokens are logged as output (64 reported, 30 of them thinking, 64 logged)");
 
   anthReqs.length = 0;
@@ -1339,7 +1358,7 @@ async function sectionServer() {
   const rb = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
   const qS = anthReqs[0] || {};
   ok(rb.status === 200 && anthReqs.length === 1 && qS.model === "claude-sonnet-5",
-    "STORY_PROVIDER=sonnet is the one-setting rollback: Sonnet 5 narrates and Haiku 5.5 is not asked");
+    "STORY_PROVIDER=sonnet is the one-setting rollback: Sonnet 5 narrates and Sonnet 5.5 is not asked");
   ok(!!qS.thinking && qS.thinking.type === "disabled" && !("output_config" in qS),
     "…in the shape Sonnet has always been sent: thinking disabled, no effort field");
   // 1600 → 2600. Measured 2026-10-07: Sonnet cut off 3 of 31 scenes at 1600 (854 and 824 words, no
@@ -1349,6 +1368,16 @@ async function sectionServer() {
   anthReqs.length = 0;
   await call({ mode: "story", messages: storyMessages(), illustrate: true });
   ok((anthReqs[0] || {}).max_tokens === 4000, "…and 2600 + 1400 for an illustrated scene (it was a flat 3000)");
+
+  // ADDED 2026-10-09: Haiku 5.5 left the chain but is still reachable by name; its old shape
+  // (no thinking field, effort medium, cap 4000) must not have moved with the narrator.
+  process.env.STORY_PROVIDER = "haiku55";
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const h55n = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
+  const qH55 = anthReqs[0] || {};
+  ok(h55n.status === 200 && anthReqs.length === 1 && qH55.model === "claude-haiku-5-5" && !("thinking" in qH55)
+     && !!qH55.output_config && qH55.output_config.effort === "medium" && qH55.max_tokens === 4000,
+    "Haiku 5.5 is still reachable BY NAME (STORY_PROVIDER=haiku55) in its own shape: no thinking field, effort medium, 4000");
 
   process.env.STORY_PROVIDER = "haiku";
   anthReqs.length = 0;
@@ -1366,7 +1395,8 @@ async function sectionServer() {
   process.env.STORY_PROVIDER = "banana";
   anthReqs.length = 0;
   await call({ mode: "story", messages: storyMessages() });
-  ok((anthReqs[0] || {}).model === "claude-haiku-5-5", "a STORY_PROVIDER value nobody defined gets the default narrator, not an error");
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the default narrator is claude-sonnet-5-5.
+  ok((anthReqs[0] || {}).model === "claude-sonnet-5-5", "a STORY_PROVIDER value nobody defined gets the default narrator, not an error");
   delete process.env.STORY_PROVIDER;
 
   // THE KEEPER'S ROLLBACK, same idea: the id alone would send Haiku 4.5 an effort field and a 400.
@@ -1382,25 +1412,26 @@ async function sectionServer() {
   delete process.env.KEEPER_MODEL;
 
   // ---- THE OUT-OF-STORY GUARD ---------------------------------------------
-  // Haiku 5.5's known failure: the scene opens as the assistant, not the narrator. Fifteen of its
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); Sonnet 5.5 is the narrator that steps out and Sonnet 5 rewrites; counted as s_oos_sonnet55. (The failure described below was first measured on Haiku 5.5; the guard is narrator-agnostic.)
+  // The known failure: the scene opens as the assistant, not the narrator. Fifteen of its
   // sixteen thinking-disabled replies on 2026-10-07 did it in the first sentence. The opening below
   // is one of them, verbatim, with a scene's worth of text after it.
   const OOS_OPENING = "I can't write that part, since it's romance beyond what I'm able to share in this story. But the morning on the docks isn't over, and there's plenty more to find on Berk! The fishing boats were close enough now that you could hear the sailors calling to one another over the slap of the waves.\n\n===CHOICES===\n1. Wave to the fishermen.\n2. Ask about the roof.\n3. Follow the dragon.";
-  const oosBase = { s_oos: fbCount("s_oos"), h55: fbCount("s_oos_haiku55"), son: fbCount("s_oos_sonnet"), s_fb: fbCount("s_fb") };
+  const oosBase = { s_oos: fbCount("s_oos"), s55: fbCount("s_oos_sonnet55"), son: fbCount("s_oos_sonnet"), s_fb: fbCount("s_fb") };
   setSseOverride(sseOf([OOS_OPENING.slice(0, 37), OOS_OPENING.slice(37, 160), OOS_OPENING.slice(160)]));
   anthReqs.length = 0; xaiReqs.length = 0; commits.length = 0;
   const g1 = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
   ok(g1.status === 200 && !/I can't write|able to share/.test(g1.text),
     "a scene that opens by addressing the reader from outside the story never reaches the reader");
-  ok(anthReqs.length === 2 && anthReqs[0].model === "claude-haiku-5-5" && anthReqs[1].model === "claude-sonnet-5",
+  ok(anthReqs.length === 2 && anthReqs[0].model === "claude-sonnet-5-5" && anthReqs[1].model === "claude-sonnet-5",
     "…it is written again by the next hop of the chain, Sonnet 5");
   ok(g1.text.startsWith("The lamps guttered") && choicesIn(g1.text) === 1,
     "…and the reader gets exactly one scene, with its choices: the second narrator's");
-  ok(fbCount("s_oos") === oosBase.s_oos + 1 && fbCount("s_oos_haiku55") === oosBase.h55 + 1,
-    `…counted, with the narrator that stepped out named: s_oos ${oosBase.s_oos}→${fbCount("s_oos")}, s_oos_haiku55 ${oosBase.h55}→${fbCount("s_oos_haiku55")}`);
+  ok(fbCount("s_oos") === oosBase.s_oos + 1 && fbCount("s_oos_sonnet55") === oosBase.s55 + 1,
+    `…counted, with the narrator that stepped out named: s_oos ${oosBase.s_oos}→${fbCount("s_oos")}, s_oos_sonnet55 ${oosBase.s55}→${fbCount("s_oos_sonnet55")}`);
   ok(fbCount("s_fb") === oosBase.s_fb,
     "…and NOT counted as an outage fallback: s_fb means a narrator could not be reached, and this one answered");
-  ok(committed("s_claudehaiku55_in").length === 1 && committed("s_claudesonnet5_in").length === 1,
+  ok(committed("s_claudesonnet55_in").length === 1 && committed("s_claudesonnet5_in").length === 1,
     "…with BOTH calls logged under their own model: the thrown-away scene was still billed");
 
   // BOTH DIRECTIONS. A guard that fires on ordinary narration throws away good scenes. This opening
@@ -1481,12 +1512,13 @@ async function sectionServer() {
   // recorded it. The scene still goes to the reader as it came (the client's repair pass and the
   // "Keep going" control rescue it); what is new is that it is counted, per narrator.
   const CUT = "The lamps guttered as you stepped onto the quay, and the long sentence that followed simply stopped in the mid";
-  const truncBase = { t: fbCount("s_trunc"), h55: fbCount("s_trunc_haiku55"), grok: fbCount("s_trunc_grok") };
+  // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); truncation on the default narrator is counted as s_trunc_sonnet55.
+  const truncBase = { t: fbCount("s_trunc"), s55: fbCount("s_trunc_sonnet55"), grok: fbCount("s_trunc_grok") };
   setSseOverride(sseOf([CUT], "max_tokens"));
   const t1 = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
   ok(t1.status === 200 && t1.text === CUT, "a scene that ends on its token cap still reaches the reader exactly as it came");
-  ok(fbCount("s_trunc") === truncBase.t + 1 && fbCount("s_trunc_haiku55") === truncBase.h55 + 1,
-    `…and is counted, by narrator: s_trunc ${truncBase.t}→${fbCount("s_trunc")}, s_trunc_haiku55 ${truncBase.h55}→${fbCount("s_trunc_haiku55")}`);
+  ok(fbCount("s_trunc") === truncBase.t + 1 && fbCount("s_trunc_sonnet55") === truncBase.s55 + 1,
+    `…and is counted, by narrator: s_trunc ${truncBase.t}→${fbCount("s_trunc")}, s_trunc_sonnet55 ${truncBase.s55}→${fbCount("s_trunc_sonnet55")}`);
   await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
   ok(fbCount("s_trunc") === truncBase.t + 1, "…while a scene that ended normally is not");
   process.env.STORY_PROVIDER = "grok";
@@ -1507,7 +1539,8 @@ async function sectionServer() {
   // ---- …AND READ BACK ------------------------------------------------------
   {
     const statRow = (((await call({ mode: "stats" })).json || {}).days || [])[0] || {};
-    ok(statRow.s_trunc >= 2 && statRow.s_trunc_haiku55 >= 1 && statRow.s_trunc_grok >= 1 && statRow.s_oos >= 3 && statRow.s_oos_haiku55 >= 1,
+    // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the per-narrator counters read back are the Sonnet 5.5 ones.
+    ok(statRow.s_trunc >= 2 && statRow.s_trunc_sonnet55 >= 1 && statRow.s_trunc_grok >= 1 && statRow.s_oos >= 3 && statRow.s_oos_sonnet55 >= 1,
       "the stats row carries the truncation and out-of-story counters through to the dashboard");
     ok(!Object.keys(statRow).some((k) => /^s_(trunc|oos|steer)_?[a-z0-9]*_(in|out|req|cw|cr)$/.test(k)),
       "…and none of them is mistaken for a per-model token field");
