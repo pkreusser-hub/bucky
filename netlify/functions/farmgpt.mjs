@@ -1527,6 +1527,19 @@ export function storyRefusalOf(readerText, prevScene) {
   if (held && (harmAsked(t) || AIR_ASK_RE.test(t))) return "harm";
   return null;
 }
+// A scene that already SHOWS restraint or mind control (a story written before 2026-10-09, or a
+// narrator slip). Live on Sonnet 5.5 the same day: given such a scene and a bare "2", the narrator,
+// whose rules now say none of it is ever written, restarted the story ("Morning came to Berk…")
+// four times in four, and neither steer rode, because their triggers read harm and degradation, not
+// the restraint or the spell itself. These widen WHEN the carry-over notes ride; the notes then
+// say to end it in a line or two and carry on from where the story stands.
+export function restraintShown(prevScene) {
+  return askedUnfreed(RESTRAINT_ASK_RE, sceneBodyTail(prevScene).toLowerCase().replace(/[’]/g, "'"));
+}
+export function mindShown(prevScene) {
+  const p = sceneBodyAll(prevScene).toLowerCase().replace(/[’]/g, "'");
+  return askedUnfreed(MIND_ASK_RE, p) || PREV_SERV_RE.test(p);
+}
 // What the reader reads. Plain words for an 8-to-12-year-old, no emoji, and each one ends by asking
 // for the next idea, because that is what Dad asked the refusal to do.
 export const STORY_REFUSAL_MESSAGES = {
@@ -4461,6 +4474,8 @@ export default async (req) => {
     // THE PLAIN NO (storyRefusalOf). Never on a repair pass: that turn is the page asking for the
     // end of a scene the reader already has, not the reader asking for anything.
     if (lastUser >= 0 && body.repair !== true) refuseKind = storyRefusalOf(readerNow, prevScene);
+    if (lastUser >= 0 && !harmSteer && restraintShown(prevScene)) harmSteer = true;
+    if (lastUser >= 0 && !mindSteer && mindShown(prevScene)) mindSteer = true;
   }
   if (refuseKind) {
     const message = STORY_REFUSAL_MESSAGES[refuseKind];

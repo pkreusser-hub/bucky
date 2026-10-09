@@ -633,12 +633,24 @@ console.log("— the plain no (Dad, 2026-10-09) —");
   commits.length = 0;
   nextReplies.push({ text: "", stop: "refusal" });
   const ra = await call({ mode: "story", messages: [{ role: "user", content: "A story." }, { role: "assistant", content: DOCK }, { role: "user", content: "something the filter declines" }] });
-  ok(ra.text === "===NOT WRITTEN===\n" + fnMod.STORY_REFUSAL_MESSAGES.other, "a story turn the AI service declines gets the marker and the general plain no");
+  ok(ra.text === "===NOT WRITTEN===\n" + (fnMod.STORY_REFUSAL_MESSAGES || {}).other, "a story turn the AI service declines gets the marker and the general plain no");
   ok(commits.flatMap((c) => c.writes || []).flatMap((w) => (w.transform && w.transform.fieldTransforms) || []).some((f) => f.fieldPath === "s_refuse_api"),
     "…counted as s_refuse_api");
   nextReplies.push({ text: "", stop: "refusal" });
   const rr = await call({ mode: "research", messages: [{ role: "user", content: "a question" }] });
   ok(rr.text === "Hmm, I can't help with that one. Let's try something else!", "research mode keeps its old line for a declined request");
+
+  // THE TURN AFTER A SCENE THAT ALREADY SHOWS IT. Live on Sonnet 5.5: after a scene with a
+  // captive chained to a mast, a bare "2" got a story restarted on a new morning, four times in
+  // four, with no note riding. The carry-over note now rides after any such scene.
+  const MAST = "The hunters had chained your wrists to the mast and left you there as the ship turned north.\n\n===CHOICES===\n1. a\n2. b\n3. c";
+  ok(fnMod.restraintShown && fnMod.restraintShown(MAST) && !fnMod.restraintShown(CELL) && !fnMod.restraintShown("You broke the chains on your wrists and ran.\n\n===CHOICES===\n1. a"),
+    "a scene that shows restraint is recognised; a plain lock-up and a scene of getting free are not");
+  await call({ mode: "story", messages: [{ role: "user", content: "A dragon story." }, { role: "assistant", content: MAST }, { role: "user", content: "2" }] });
+  ok(lastTurnText().includes(C_STEER) && lastTurnText().includes("carrying on from exactly where the story stands"),
+    "a bare \"2\" after a captive chained to a mast carries the captivity note");
+  await call({ mode: "story", messages: [{ role: "user", content: "A dragon story." }, { role: "assistant", content: CELL }, { role: "user", content: "2" }] });
+  ok(!lastTurnText().includes(C_STEER), "…and a bare \"2\" after a plain lock-up does not");
 
   // THE PROMPT. The section is on the story system prompt, with the marker, and nowhere else.
   await call({ mode: "story", messages: [{ role: "user", content: "A harbour story." }] });
