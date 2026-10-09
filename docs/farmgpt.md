@@ -3182,3 +3182,17 @@ does; the reminder fake can now give the narrator's plain no and the API's pre-o
 - Sonnet 5.5's server-side fallback (`fallbacks: "default"`) is not sent: it retries only the cyber
   and frontier-LLM categories, never this app's, and a decline here is meant to reach the reader as
   the plain no.
+
+## Same day, later: ONE generic message. RESTAGES the per-kind messages above
+Dad asked for the message to be generic: the request is not allowed under the content rules, try
+another idea. Every refusal, whoever made it, now shows the reader exactly:
+
+> Story Time can't write that part because of its content rules. Try a different idea: pick one of
+> the choices or type what should happen next.
+
+- `STORY_REFUSAL_MESSAGE` in farmgpt.mjs, `REFUSAL_MESSAGE` in farmgpt.html, same words; the suite
+  reads the page source to hold them equal. It names nothing about what was asked.
+- The kind (`restraint` / `harm` / `mind`) is still on the JSON, the counters and the Story Log.
+- The narrator's plain no is now the marker plus ONE sentence naming the kind, written for Dad's
+  Story Log. The page never shows it; it shows the fixed message instead.
+- story-reminder **201/201**, story-plainno **22/22**, storyledger **938/938**.

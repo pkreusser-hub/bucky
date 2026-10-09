@@ -1167,11 +1167,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // The storyteller's plain no (2026-10-09; STORY_REFUSAL_MARK in farmgpt.mjs). A reply that opens
   // with it is a note to the reader, never a scene: it is not kept in the story.
   const REFUSAL_MARK = "===NOT WRITTEN===";
-  const REFUSAL_FALLBACK = "I won't write that part. Story Time doesn't describe explicit violence, characters being tied up or chained, or mind control. What should happen instead? Pick one of the choices or type a new idea.";
+  // ONE message for every refusal (Dad, 2026-10-09): the reader is told it is outside the content
+  // rules and asked for another idea, never what exactly was not allowed. The storyteller's own
+  // sentence after the marker is for Dad's Story Log (the server keeps it) and is not shown here.
+  // Same words as STORY_REFUSAL_MESSAGE in farmgpt.mjs.
+  const REFUSAL_MESSAGE = "Story Time can't write that part because of its content rules. Try a different idea: pick one of the choices or type what should happen next.";
   const refusalText = (raw) => {
     const x = String(raw || "").replace(/^\s+/, "");
-    if (!x.startsWith(REFUSAL_MARK)) return null;
-    return x.slice(REFUSAL_MARK.length).replace(/===[A-Z ]+===[\s\S]*$/, "").trim() || REFUSAL_FALLBACK;
+    return x.startsWith(REFUSAL_MARK) ? REFUSAL_MESSAGE : null;
   };
   // True while a streaming reply could still turn out to be the plain no, so nothing of it is drawn.
   const mayBeRefusal = (raw) => {
@@ -2500,7 +2503,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       try { data = await resp.json(); } catch { /* fall through to the generic error below */ }
       // The plain no from the app's own check: no model was asked, nothing to stream.
       if (data && data.refused) {
-        const err = new Error(data.message || REFUSAL_FALLBACK);
+        const err = new Error(data.message || REFUSAL_MESSAGE);
         err.refused = true;
         throw err;
       }

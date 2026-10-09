@@ -103,8 +103,11 @@ const seedStory = `(() => {
   window.__STORY__.showView("story");   // setStory only swaps the object; the reading view is shown here
   return true;
 })()`;
-const APP_NO = "I won't write that part. Story Time doesn't describe characters being tied up, chained, handcuffed or gagged. Someone can still get caught and locked in a room or a cell. What should happen instead? Pick one of the choices or type a new idea.";
-const MODEL_NO = "===NOT WRITTEN===\nI won't write that part. Story Time doesn't describe explicit violence. What should happen in the story instead?";
+// RESTAGED 2026-10-09 (same day): one generic message for every refusal, Dad's wording request.
+const GENERIC = "Story Time can't write that part because of its content rules. Try a different idea: pick one of the choices or type what should happen next.";
+const APP_NO = GENERIC;
+// The narrator's own sentence after the marker is for Dad's log; the page shows GENERIC instead.
+const MODEL_NO = "===NOT WRITTEN===\nThis asks for a graphic, bloody wound described in detail.";
 
 const settle = (page) => page.waitForFunction("!window.__STORY__.busyNow", { timeout: 20000 }).then(() => new Promise((r) => setTimeout(r, 300)));
 const readState = (page) => page.evaluate(() => {
@@ -146,7 +149,7 @@ async function sectionAppNo(browser) {
   let st = await readState(page);
   ok(st.msgs === 2 && st.lastRole === "assistant", "the refused turn is not kept: the story is back to its last scene");
   ok(st.savedMsgs === 2, "…and the saved copy agrees");
-  ok(st.chapters === ch0 && !/won't write/.test(st.chapterText), "no scene was added, and the answer is not drawn as story text");
+  ok(st.chapters === ch0 && !/content rules/.test(st.chapterText), "no scene was added, and the answer is not drawn as story text");
   ok(st.notes === 1 && st.noteText === APP_NO, "the note shows the server's message, word for word");
   ok(st.noteShown && st.noteInk > 100, "…and it is on screen: laid out, with ink in it (a Range, not the box)");
   ok(st.btns.length === 3 && st.btns[0].includes("Ask about the ferry"), "the previous scene's three choices are back to tap");
@@ -180,8 +183,8 @@ async function sectionModelNo(browser) {
   const st = await readState(page);
   ok(st.msgs === 2 && st.savedMsgs === 2, "the refused turn is not kept in the story, or in the saved copy");
   ok(st.chapters === ch0, "no scene element is left behind");
-  ok(!st.seen.some((t) => /NOT WRITTEN|won't write/.test(t)), "the marker and the answer were never drawn as story text, not even mid-stream");
-  ok(st.notes === 1 && st.noteText === MODEL_NO.replace("===NOT WRITTEN===\n", ""), "the note shows the narrator's words without the marker line");
+  ok(!st.seen.some((t) => /NOT WRITTEN|graphic, bloody/.test(t)), "the marker and the answer were never drawn as story text, not even mid-stream");
+  ok(st.notes === 1 && st.noteText === GENERIC, "the note shows the one generic message, not the narrator's sentence (that is for Dad's log)");
   ok(st.noteShown, "…on screen");
   ok(sent.filter((b) => b.repair === true).length === 0, "a reply with no choices that is a plain no is NOT sent for repair");
   ok(st.btns.length === 3, "the previous choices are back");
@@ -196,7 +199,7 @@ async function sectionModelNo(browser) {
   await p2.page.evaluate(() => window.__STORY__.takeTurn("2"));
   await settle(p2.page);
   const st2 = await readState(p2.page);
-  ok(/^I won't write that part\..*What should happen instead\?/.test(st2.noteText), "a bare marker gets the page's own general message");
+  ok(st2.noteText === GENERIC, "a bare marker gets the same generic message");
   ok(p2.errors.length === 0, "no page errors (bare marker)");
   await p2.page.close();
 }

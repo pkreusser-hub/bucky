@@ -105,7 +105,7 @@ console.log("— story mode: reminder on the last user turn —");
   // RESTAGED 2026-10-09: the reminder no longer says "redirect, never refuse" for everything. Dad
   // replaced the in-story redirect with a plain no for three kinds of request; every other rule is
   // still answered inside the story.
-  ok(t.includes("follow STORY TIME'S PLAIN NO") && t.includes("===NOT WRITTEN===") && /explicit violence, for restraint .* or for mind control/.test(t),
+  ok(t.includes("follow STORY TIME'S PLAIN NO") && t.includes("===NOT WRITTEN===") && /explicit violence, for restraint .* or for mind control/.test(t) && t.includes("one short sentence naming which of the three it is"),
     "reminder sends explicit violence, restraint and mind control to the plain no, with the marker line");
   ok(t.includes("If it crosses any other rule, do not refuse") && t.includes("different, fun direction"),
     "…and still redirects inside the story for every other rule");
@@ -575,13 +575,19 @@ console.log("— the plain no (Dad, 2026-10-09) —");
   let j = null; try { j = JSON.parse(r.text); } catch {}
   ok(r.status === 200 && j && j.refused === true && j.kind === "restraint", "a restraint ask is answered with JSON {refused, kind}");
   ok(anthropicReqs.length === before, "…and no model is asked at all");
-  ok(j && /^I won't write that part\./.test(j.message) && /What should happen instead\? Pick one of the choices or type a new idea\.$/.test(j.message),
-    "…the message says it won't write it and asks what should happen instead");
-  ok(j && /tied up, chained, handcuffed or gagged/.test(j.message) && /caught and locked in a room or a cell/.test(j.message),
-    "…names what it won't describe, and what is still fine");
+  // RESTAGED 2026-10-09 (same day): Dad asked for ONE generic message instead of one per kind that
+  // named what was not allowed. It says the request is outside the content rules and asks for
+  // another idea; the kind stays on the JSON, the counters and the Story Log.
+  const GENERIC = fnMod.STORY_REFUSAL_MESSAGE || "";
+  ok(j && j.message === GENERIC && /because of its content rules/.test(GENERIC) && /Try a different idea/.test(GENERIC),
+    "…with the one generic message: outside the content rules, try a different idea");
+  ok(j && !/tied|chain|cuff|gag|hypno|brainwash|violence|hurt/i.test(j.message), "…which names nothing about what was asked");
   const allMsgs = Object.values(fnMod.STORY_REFUSAL_MESSAGES || {});
-  ok(allMsgs.length === 4 && allMsgs.every((m) => !/\p{Extended_Pictographic}/u.test(m) && m.length < 320 && m.endsWith("type a new idea.")),
-    "every refusal message is short, has no emoji, and ends by asking for the next idea");
+  ok(allMsgs.length === 4 && allMsgs.every((m) => m === GENERIC) && !/\p{Extended_Pictographic}/u.test(GENERIC) && GENERIC.length < 200,
+    "every kind gets that same message: short, no emoji");
+  const pageSrc = fs.readFileSync(new URL("../farmgpt.html", import.meta.url), "utf8");
+  ok(GENERIC && pageSrc.includes('const REFUSAL_MESSAGE = ' + JSON.stringify(GENERIC) + ';'),
+    "…and the page shows the same words for the storyteller's own plain no");
   const fts = commits.flatMap((c) => c.writes || []).flatMap((w) => (w.transform && w.transform.fieldTransforms) || []);
   const inc = (k) => fts.filter((f) => f.fieldPath === k && f.increment && f.increment.integerValue === "1").length;
   ok(inc("s_refuse") === 2 && inc("s_refuse_restraint") === 2, "…counted as s_refuse and s_refuse_restraint, daily and hourly");
@@ -589,7 +595,7 @@ console.log("— the plain no (Dad, 2026-10-09) —");
   ok(logW.length === 1 && /__41__refused_\d+$/.test(logW[0].update.name), "…logged to the Story Log under its own id, so the next real scene at idx 41 cannot overwrite it");
   ok(logW.length === 1 && logW[0].update.fields.refused && logW[0].update.fields.refused.booleanValue === true
      && logW[0].update.fields.choice.stringValue === "They chain my wrists to the bottom of the tank"
-     && /^\[Not written\] I won't write that part/.test(logW[0].update.fields.scene.stringValue),
+     && logW[0].update.fields.scene.stringValue === "[Not written] " + GENERIC,
     "…with the ask, the answer, and refused: true");
 
   commits.length = 0;
@@ -657,9 +663,13 @@ console.log("— the plain no (Dad, 2026-10-09) —");
   const sys = sysText(lastAnt());
   ok(sys.includes("STORY TIME'S PLAIN NO") && sys.includes("\n===NOT WRITTEN===\n") && sys.includes("do NOT write a scene"),
     "the story system prompt carries STORY TIME'S PLAIN NO with the marker on its own line");
+  ok(/ONE short sentence naming which of the three it is/.test(sys) && /the reader is shown a fixed message from the app/.test(sys),
+    "…asks the narrator for one sentence for the parent's log, since the reader sees the app's fixed message");
   ok(/Being caught and locked in a room, a cell or a cage is NOT this; write that as usual\./.test(sys),
     "…and says a plain capture is written as usual");
-  ok(/This is the only time\s+you speak to the reader outside the story/.test(sys), "…and that the plain no is the one exception to staying in the story");
+  // RESTAGED 2026-10-09 (same day): the narrator no longer speaks to the reader at all; its one
+  // sentence goes to Dad's log and the reader sees the app's fixed message.
+  ok(/This is the only time you write\s+anything outside the story/.test(sys), "…and that the plain no is the one exception to staying in the story");
   await call({ mode: "research", messages: [{ role: "user", content: "What is a cell?" }] });
   ok(!sysText(lastAnt()).includes("===NOT WRITTEN==="), "research mode's prompt has no marker");
 }
