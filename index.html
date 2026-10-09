@@ -1568,7 +1568,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .sn-item.active { background: rgba(255,253,248,.14); }
 
   /* ===== Standalone app mode (2026-10-08): html[data-app] is set by the head script when the
-     address is /news, /shop or ?app=<id>. Same page, no chrome: no header, bottom nav, side
+     address is /news, /shop, /workorders, /calendar, /finance or ?app=<id>. Same page, no chrome: no header, bottom nav, side
      rail, sub-nav, add button or bell, and none of the space they reserved. Every selector is
      html[data-app] + the original one so it outranks the rule it overrides at every width
      (the >=1024px rail block sets body padding-left and #sidenav/#bnav display inside a media
@@ -3055,7 +3055,8 @@ function closeNotifPanel(){
 
 // ---- Live toast ----
 // `opts.tab` names the tab that raised the toast. In app mode only the app's own tab may toast:
-// work-order, bank and calendar toasts belong to features this app does not show.
+// another feature's toast (a work-order alert in the News app, say) belongs to something this app
+// does not show. The Work Orders and Calendar tabs tag their own feedback so it still shows there.
 function showToast(text, onClick, opts){
   if (APP && !(opts && opts.tab === APP.tab)) return;
   const wrap = document.getElementById("toastWrap");

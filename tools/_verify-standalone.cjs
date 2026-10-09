@@ -263,7 +263,14 @@ async function open(page, url, { profiles = roster(), rows = ALL_ROWS, sources =
     for (const who of ["Dad", "Grandma"]) localStorage.setItem("setting_stockWatch_" + who, JSON.stringify({ symbols: ["AAPL", "MSFT"], updatedAt: Date.now() }));
   }, profiles.concat(rows), sources, ls);
   await page.goto(BASE + url, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForFunction(() => window.__STANDALONE__ && window.__NAV__, { timeout: 20000 });
+  // A page that never exposes its hooks (a 404, a script error) is a failed check, not a crash; the
+  // stubs keep the later evaluate() calls from throwing, so they fail on their own values instead.
+  const hooks = await page.waitForFunction(() => window.__STANDALONE__ && window.__NAV__, { timeout: 20000 }).then(() => true, () => false);
+  if (!hooks){
+    ok(false, `[${url}] the page loaded and exposed its test hooks`);
+    await page.evaluate(() => { window.__STANDALONE__ = window.__STANDALONE__ || { id:"", apps:{}, head:null, toast(){}, live(){} };
+      window.__NAV__ = window.__NAV__ || { tab: () => "", goTo(){}, permitted: () => false, hidden: () => false, visible: () => false }; }).catch(() => {});
+  }
 }
 
 /* One row per app. sel: something only that tab draws (used to say "its content is on screen" or
@@ -392,7 +399,7 @@ async function sectionRegistry(browser){
   const r = await page.evaluate(() => ({ head: window.__STANDALONE__.head, main: window.__STANDALONE__.apps }));
   const hid = Object.keys(r.head || {}).sort(), mid = Object.keys(r.main || {}).sort();
   ok(hid.length === IDS.length && JSON.stringify(hid) === JSON.stringify(mid) && JSON.stringify(mid) === JSON.stringify(IDS.slice().sort()), `same ${IDS.length} app ids in both tables and in this suite (${hid} vs ${mid})`);
-  for (const id of mid){
+  for (const id of IDS.filter((i) => mid.includes(i))){   // an app missing from the registry is already a failed check above, not a crash here
     const h = r.head[id] || {}, m = r.main[id];
     ok(h.name === m.name && h.manifest === m.manifest && h.icon === m.icon && h.theme === m.theme, `${id}: name, manifest, icon and theme match across the two tables`);
     ok(!!h.fab === !!m.fab && !!m.fab === APPS[id].fab, `${id}: the + button flag agrees in both tables and with this suite (head ${!!h.fab}, main ${!!m.fab})`);
@@ -400,14 +407,14 @@ async function sectionRegistry(browser){
     ok(m.name === APPS[id].title && m.manifest === "/" + id + ".webmanifest" && m.icon === "/icons/" + id + "-apple-touch.png", `${id}: name, manifest and icon follow the id`);
   }
   // Only Finance carries an extra capability (it shares the bank area with the kids' Farm Bank).
-  ok(r.main.finance.cap === "seesFinance" && mid.filter((id) => r.main[id].cap).join() === "finance", "only finance has a registry cap, and it is seesFinance");
+  ok((r.main.finance || {}).cap === "seesFinance" && mid.filter((id) => r.main[id].cap).join() === "finance", "only finance has a registry cap, and it is seesFinance");
   // The area each app names is a real NAV_GROUPS id that navGroupPermitted() answers for.
   const areas = await page.evaluate((m) => Object.fromEntries(Object.entries(m).map(([id, a]) => [id, window.__NAV__.permitted(a.area, "Grandma")])), r.main);
-  ok(mid.every((id) => areas[id] === true), "every registry area is a real NAV_GROUPS id that permits Grandma (" + JSON.stringify(areas) + ")");
+  ok(IDS.every((id) => areas[id] === true), "every registry area is a real NAV_GROUPS id that permits Grandma (" + JSON.stringify(areas) + ")");
   // Each tab really belongs to the area the registry names (parsed from the NAV_GROUPS literal).
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const groups = {}; for (const g of html.matchAll(/\{ id:"(\w+)",\s*ico:"[^"]*",\s*name:"[^"]*",\s*def:"\w+",\s*members:\[([^\]]*)\]/g)) groups[g[1]] = g[2].replace(/["\s]/g, "").split(",");
-  for (const id of mid) ok((groups[r.main[id].area] || []).includes(r.main[id].tab), `NAV_GROUPS area ${r.main[id].area} holds tab ${r.main[id].tab}`);
+  for (const id of IDS) ok(!!r.main[id] && (groups[r.main[id].area] || []).includes(r.main[id].tab), `NAV_GROUPS area of ${id} holds its tab`);
   // The CSS keeps the + button off an app unless the head script set html[data-fab]: the rule is
   // attribute-based, so there is no id list in the stylesheet to drift from the registry.
   ok(/html\[data-app\]:not\(\[data-fab\]\) #addFab/.test(html), "the stylesheet hides the + button for html[data-app] unless html[data-fab] is set");
@@ -1368,21 +1375,24 @@ async function shotIcons(browser){
   const srv = await serve();
   const browser = await puppeteer.launch({ channel: "chrome", headless: "new", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"] });
   try {
-    if (want("A")) sectionFiles();
-    if (want("B")) await sectionRegistry(browser);
-    if (want("C")) await sectionMatrix(browser);
-    if (want("D")) await sectionLock(browser);
-    if (want("E")) await sectionNormal(browser);
-    if (want("F")) await sectionGates(browser);
-    if (want("G")) await sectionDenied(browser);
-    if (want("H")) await sectionToasts(browser);
-    if (want("I")) await sectionReviewFixes(browser);
-    if (want("J")) await sectionFab(browser);
-    if (want("K")) await sectionFinanceCap(browser);
-    if (want("L")) await sectionCalendarGeometry(browser);
-    if (want("M")) await sectionFlows(browser);
-    if (want("N")) sectionAudit();
-    if (want("S")) await shotPlates(browser);
+    // A section that throws (a missing element where the app is broken) is one failed check, and the
+    // next section still runs: the report must stay whole even against an app that lacks the feature.
+    const run = async (letter, fn) => { if (!want(letter)) return; try { await fn(); } catch (e) { ok(false, `section ${letter} aborted: ${String(e && e.message || e).split(/\r?\n/)[0].slice(0, 160)}`); } };
+    await run("A", () => sectionFiles());
+    await run("B", () => sectionRegistry(browser));
+    await run("C", () => sectionMatrix(browser));
+    await run("D", () => sectionLock(browser));
+    await run("E", () => sectionNormal(browser));
+    await run("F", () => sectionGates(browser));
+    await run("G", () => sectionDenied(browser));
+    await run("H", () => sectionToasts(browser));
+    await run("I", () => sectionReviewFixes(browser));
+    await run("J", () => sectionFab(browser));
+    await run("K", () => sectionFinanceCap(browser));
+    await run("L", () => sectionCalendarGeometry(browser));
+    await run("M", () => sectionFlows(browser));
+    await run("N", () => sectionAudit());
+    await run("S", () => shotPlates(browser));
     await shotIcons(browser);
   } finally {
     for (const c of contexts) { try { await c.close(); } catch {} }

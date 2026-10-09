@@ -2600,3 +2600,143 @@ section I of `tools/_verify-standalone.cjs`:
 Still running in app mode, on purpose: the allowance mint (any signed-in client may mint it; the
 doc id is deterministic), the identity migration, and the work-order notification diff (items
 land in the bell silently and show next time Bucky itself is opened).
+
+## Standalone apps: Work Orders, Calendar and Finance join News and Shopping (2026-10-09)
+
+Request: three more apps on the same mechanism, locked to one tab with the chrome removed:
+`/workorders` (Bucky Work Orders), `/calendar` (Bucky Calendar) and `/finance` (Bucky Finance).
+Each is a registry entry in both tables (head script and `STANDALONE_APPS`), a manifest
+(`workorders|calendar|finance.webmanifest`, `id` and `start_url` `/<id>`), four icons from
+`tools/make-standalone-icons.cjs` (it now takes `--only=<ids>`; News and Shopping regenerate
+byte-identical and were not touched), two `netlify.toml` rewrites per app (plain 200, both slash
+forms) and a `tools/standalone-sites/<id>/_redirects` proxy site. Nothing at the repo root is named
+`workorders`, `calendar` or `finance` (`calendar.html`-style files would be fine, an extensionless
+file or a folder would shadow the rewrite; the suite checks). `tools/standalone-sites/README.md` now
+covers all five.
+
+Areas and capabilities: Work Orders is NAV_GROUPS `wo` (`seesJobs`), Calendar is `plan`
+(`seesPlan`), Finance is `bank`. The profile page's "Permitted" checkboxes already control the
+first two; no new capability was added.
+
+### What the first two apps did not need
+
+**1. The add button.** App mode hid `#addFab` in CSS. Work Orders and Calendar have no other way to
+create an item (the empty state says "Tap the + button to add one"), and the FAB's `onclick`
+already routes by tab. The registry has `fab: true` for those two (in both tables); the head script
+sets `html[data-fab]`, and the CSS rule is `html[data-app]:not([data-fab]) #addFab {display:none}`,
+so there is no id list in the stylesheet to drift (the suite checks the flag agrees in head table,
+main table and suite, and that the attribute follows it). The button's normal offsets assume the
+bottom nav (82px up) and, on the desktop rail layout, 28px up and 32px in. In app mode it sits
+20px above the bottom safe area, and 18px from the right edge on a phone. On a wide window it parks
+in the margin beside the 760px column: `right: max(18px, (100vw - 760px) / 2 - 74px)` (58px button
+plus a 16px gap; 186px at 1280). My first version hugged the column's right edge, and at 1280x800 it sat over
+the month agenda card; the margin is cleaner than any amount of clearance. Body bottom padding is
+100px for these two apps (button 58 + offset 20 + 14 air, instead of 28), so the last card's
+controls and the last day-view slot scroll clear of it; the suite scrolls to the end of Work Orders
+with the last card open and asserts no control is under the button or below its top edge, and that
+the day grid ends above it. It stays hidden in News, Shopping and Finance, and on the denied card
+(`renderAppDenied` hides it, so a profile that cannot see the tab is not offered "add"). Normal
+Bucky's FAB offsets are asserted unchanged (82px up and 18px in on a phone; 28 and 32 on the
+desktop).
+
+**2. Finance shares the `bank` area with the kids' Farm Bank.** `navGroupPermitted("bank")` is true
+for a kid (`kidBank`), so the area check alone let Isaac into Bucky Finance. The registry gains an
+optional `cap`: Finance has `cap: "seesFinance"`, and `render()` denies when the area is not
+permitted OR `cap` is set and `!can(cap)`. It goes through `can()`, so a profile that grants a kid
+`seesFinance` gets in, and Grandma with `seesFinance` denied is refused (suite K5). The kid gets the
+standard denied card ("Finance isn't turned on for this account. Ask a parent to enable it.") and
+zero requests to `/.netlify/functions/stocks`, measured over 3.5 seconds. One more hole: with nobody
+picked yet the identity gate is on top and the tab used to render underneath, which for Finance
+means a stocks request before anyone says who they are (a kid about to tap Isaac would have caused
+one). Apps with a `cap` or `needsMe` now draw nothing (`renderAppBlank`) until `me()` is set, and
+picking a name renders again. Work Orders uses `needsMe` for a different reason: it expands only the
+signed-in person's own group on the first render and remembers it (`woGroupInit`), so a first render
+with nobody signed in left Grandma's group closed for good; the F2 check ("lands on workorders with
+its three cards") caught it.
+
+**3. Calendar's pinned month view.** With header and bottom nav `display:none` both measure 0, so
+`clampMonthAgenda()` sized the card to the window with nothing subtracted and that part was right.
+Three things were off, all scoped to `APP`:
+
+- `syncStickyTops()` took the header height (0) as the sticky offset, which would pin the controls
+  at `top: 0`, under the status bar. In app mode the offset is the body's computed `padding-top`,
+  which is `env(safe-area-inset-top)`. Headless has no inset, so the suite injects a 47px
+  `padding-top`, switches view to re-sync, scrolls, and asserts the CSS variable and computed `top`
+  are 47px and the pinned controls stop at y = 47.
+- The agenda card must stop above the + button where they overlap. `clampMonthAgenda()` now reduces
+  the card by the button's top edge when the button horizontally overlaps the card (always on a
+  phone, never on a wide window). Before this a card ended at `innerHeight - 10`, behind the button.
+- `body.cal-fixed {padding-bottom:0}` lost to `html[data-app] body`, which put 28px under a page
+  that must not scroll. `html[data-app] body.cal-fixed` (and the `[data-fab]` variant) restore it.
+
+Measured at 375x812 and 1280x800: `scrollHeight <= innerHeight`, `scrollTo(0, 500)` does not move
+the page, the card's bottom is inside the window (and at least 10px above the button on the phone),
+the card keeps its 150px floor and scrolls inside itself with eight events, every visible agenda
+row's text (a `Range`, not the row's box) is clear of the button, and after scrolling the card to
+its end the last row is fully inside it. Week and Day scroll normally with the controls pinned at
+y = 0. Normal Bucky's month view is asserted still sized by the bottom nav.
+
+### Dead-end audit of the three tabs
+
+`goTo()` refuses every other tab, and the bell and header are hidden. Section N reads the source of
+34 functions (15 work-order, 12 calendar and 7 finance ones, listed in the check) and fails if any calls `goTo`, assigns
+`location`, touches the bell, the profile button or the sub-nav, or calls `window.open`. None does.
+The only anchors are Finance's analysis citations and linkified work-order text, which open a new
+tab with `rel=noopener`. What the audit did find, and what was done:
+
+| control or message | in app mode | action |
+|---|---|---|
+| Dad payout "Confirm $N" on a finished kid order | shown only when `bankAdmin()` = `approvePayouts` and the device is PIN-unlocked. The boot-time PIN prompt is off in app mode, and nothing on the tab asks for it, so Dad saw a read-only card with no way forward | Dad profiles now get an "Enter Dad PIN to confirm $N" button on the card (app mode only). It calls `gateDad()`, then re-renders to the Confirm button. Wrong PIN leaves the button; no PIN yet walks the set-and-confirm path |
+| "Work order created/updated" toasts | `showToast` drops anything not tagged with the app's own tab, so saving gave no feedback | tagged `{tab:"workorders"}` |
+| Calendar "Adding event", "Event added", "Event updated", "Event deleted", save and delete failures, "Couldn't load the series", "Couldn't email X" | same: a refused save said nothing | tagged `{tab:"calendar"}` (`CAL_TOAST`) |
+| Claim a job with no name: "tap the 👤 button at the top" | the button does not exist here | app mode says "Pick who you are first, then try again." (unreachable after the identity gate, but the old text named a missing control) |
+| Calendar setup card (steps for Dad) | text only | none needed |
+| Notify picker empty state "add one under 👤 in Settings" | roster is never empty once the gate has passed | left |
+| Plan sub-nav (Calendar / Care), Jobs sub-nav (Jobs / Prints), the bell, profile page | hidden | none; Prints, Care and the bell are not part of these apps |
+| Notification-tap destinations (`goToWorkOrders`, `goToCalendar`, ...) | assign `currentTab` or call `goTo`, corrected by `render()` | already covered by section D for every app |
+
+Everything else works without the chrome and is asserted in section M: add (+ button, name, Save:
+count 5 to 6 open, toast, stored as an open order created by Grandma, shown under Unassigned), edit
+(sheet opens on the order, rename, toast), close (count 5 open to 4 open and 1 completed, stored as
+done by Grandma with no payout step), the Dad payout above (two prompts to set a PIN, one wrong
+PIN, one ledger entry of $7 by Dad to Isaac, card leaves the payout group), the empty state, the
+Calendar add sheet from the + button (today's date, the Notify picker lists Dad, Grandma and Isaac,
+ticking Isaac sends `notify: ["isaac"]` and the create body is `T14:00:00` to `T15:00:00`), preview
+then edit, a Google refusal (`{error:"google-error", detail}` as HTTP 200) and a function crash
+(HTTP 500) with the right toast text, the not-configured setup card, Finance's single series
+request (3 market symbols plus the 2 watchlist symbols, family password, no range), the range
+pills (Week, Year, Day each fetch one AAPL series with that range and select the pill), a drawn
+chart, and a 500 from the stocks function ("Couldn't load market data just now."). The calendar and
+stocks mocks return the shapes `calendar.mjs` and `stocks.mjs` return, including the refusals.
+
+### Suite and proof
+
+`node tools/_verify-standalone.cjs` is now **1173/1173**. All five apps go through the registry
+agreement, address matrix, tab lock, normal-Bucky-unchanged, gates, denied, toast and review
+sections; new sections J (the + button), K (Finance and the bank area), L (Calendar geometry), M
+(flows) and N (source audit). `--only=A,B,...` runs chosen sections, and `--shots <dir>` writes
+the plates. Restaged, with the reason at the check: the Home-bounce control and the toast-tagging
+check no longer use work orders as the "other tab" (work orders is an app now, so farmbank stands
+in), the normal-Bucky toast control accepts one or more toasts (the fixture now seeds orders
+assigned to Grandma, which normal Bucky toasts too), and the identical normal-Bucky controls run
+once instead of once per app. Peers on the branch: identity 169/169, profilepage 83/83,
+calnotify 122/122, finance 117/117.
+
+Before and after: with `index.html` and `netlify.toml` checked back to `origin/main` and everything
+else (manifests, icons, suite) in place, the new suite reports 508 passed and 94 failed, 10 of them
+"section aborted" (the old page has no `/calendar` rewrite and no FAB to click, so a section stops at
+its first missing element and the rest of its checks never run, which makes 84 a floor for the new
+checks that fail). The original suite (387 checks in its commit message, 403 counted) passes 403/403
+on `origin/main`; 372 of its checks carry the same name in the new run and all 372 pass against the
+old app, 0 original-named checks fail, and the other 31 are renamed, restaged, deduplicated (the
+per-app normal-Bucky controls) or sit in an aborted section. Restored, everything passes.
+
+Screenshots (375x812 and 1280x800) were read for: Work Orders with five orders, its empty state,
+the Dad payout card with the PIN button, Calendar month with eight events, its add sheet, Finance
+with data, and the kid's denied Finance card. They showed nothing to fix. The one layout change, parking the desktop button beside the
+column, came from a failing geometry check (the card's floor put its bottom under the button at
+1280x800), and the plates confirmed it.
+
+Not verified: a real safe-area inset (headless has none; the 47px injection stands in), Android
+install on the proxy sites (needs the deploys), and the stocks and calendar functions themselves
+(mocked to their documented shapes; not called).
