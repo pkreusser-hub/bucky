@@ -209,7 +209,10 @@ for (const id of byKind("chat")) {
   if (!(t >= since)) continue;
   const c = await fsGet(id);
   if (c.sys || (!c.text && !c.gif)) continue;
-  chat.push({ t: c.t, who: c.who, teamId: c.teamId, thread: c.thread || null, text: c.text || "[gif]" });
+  // gif: the Giphy link a message carried (its file name is a random id, not a title). Download it
+  // and look at a frame before describing it; text alone said only "[gif]" until 2026-10-10.
+  chat.push({ t: c.t, who: c.who, teamId: c.teamId, thread: c.thread || null, text: c.text || "[gif]",
+    gif: c.gif ? c.gif.url || c.gif.preview || null : null });
 }
 chat.sort((a, b) => a.t - b.t);
 const tx = [];
