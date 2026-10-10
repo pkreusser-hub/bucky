@@ -76,9 +76,9 @@ Isaac, 10:38 a.m. last Monday: “Yup. PS: me and Calvin are playing each other 
 
 Perry, 4:08 p.m. Friday: “Calvin's team this week”
 
-That was the whole message.
+It came with a GIF. RoboGoat still cannot see them, but Perry reports it was from The Replacements, the movie where a football team fills its roster with fill-ins during a players' strike. The casting is accurate.
 
-Calvin's three best scorers last week were Tetairoa McMillan, Kenneth Walker and Chuba Hubbard, who scored 103.0 between them. All three are on bye. Lamar Jackson is out with his ankle. Calvin's lineup has not changed since 9:23 Wednesday morning, just after he picked up Bo Nix, Romeo Doubs and the Jaguars defense in the span of a minute.
+Calvin's three best scorers last week were Tetairoa McMillan, Kenneth Walker and Chuba Hubbard, who scored 103.0 between them. All three are on bye. Lamar Jackson is out with his ankle. Calvin's lineup has not changed since 9:23 Wednesday morning, just after he signed his replacements, Bo Nix, Romeo Doubs and the Jaguars defense, in the span of a minute.
 
 Nix starts at quarterback against the Chargers, with his own running backs, J.K. Dobbins and RJ Harvey, also in Calvin's lineup. Ja'Marr Chase was still in the concussion protocol on Friday after a full practice and is questionable. Ashton Jeanty is questionable with an ankle and foot and did not practice Friday. His coach: “He's going to do his best to go.”
 
