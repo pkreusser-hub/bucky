@@ -28511,8 +28511,17 @@ async function openDetails(page, id) {
     }) || { found: false };
     ok(r.found && r.aboveWeek, "phone: the RoboGoat card sits directly above this week's games (" + JSON.stringify({ found: r.found, aboveWeek: r.aboveWeek }) + ")");
     ok(r.top >= 0 && r.top < r.vh / 2, "…in the top half of the first screen, so everyone sees it (top " + r.top + "px of " + r.vh + ")");
-    ok(loaded && r.kick === RG_KICK && r.hed === RG.headline && r.href === "robogoat/" + RG.path,
-      "…naming the newest column from robogoat/issues.json and linking to it (" + JSON.stringify({ kick: r.kick, hed: r.hed, href: r.href }) + ")");
+    // RESTAGED 2026-10-10 (Perry: "I want to log who actually reads the columns"): the link now
+    // carries this phone's team as ?r=app<team> for the column's read-log beacon. fullSeed claims
+    // team 1, so the expected href is the issue path plus ?r=app1, no longer the bare path.
+    ok(loaded && r.kick === RG_KICK && r.hed === RG.headline && r.href === "robogoat/" + RG.path + "?r=app1",
+      "…naming the newest column from robogoat/issues.json and linking to it, tagged with this phone's team (" + JSON.stringify({ kick: r.kick, hed: r.hed, href: r.href }) + ")");
+    const untagged = await evalOr(page, () => {
+      const t = localStorage.getItem("gffl_team"); localStorage.removeItem("gffl_team");
+      const h = /href="([^"]*)"/.exec(window.__GFFL__.UI._robogoatCardHtml())[1];
+      localStorage.setItem("gffl_team", t); return h;
+    });
+    ok(untagged === "robogoat/" + RG.path, "…and a phone with no team claimed links to the bare issue, no tag (" + JSON.stringify(untagged) + ")");
     ok(r.tapH >= 44 && r.inkInside && !r.clipped && r.rightEdge <= 390 && r.sideways <= 0,
       "…one ≥44px link, the headline's ink inside the card, nothing clipped, no sideways scroll (" + JSON.stringify({ tapH: r.tapH, inkInside: r.inkInside, clipped: r.clipped, sideways: r.sideways }) + ")");
     ok(r.img, "…with RoboGoat's portrait loaded (robogoat/robogoat-sm.png)");
@@ -28525,9 +28534,11 @@ async function openDetails(page, id) {
     let dest = {};
     if (r.found) {
       await Promise.all([page.waitForNavigation({ timeout: 9000 }).catch(() => null), page.click("#lnkRobogoat")]);
-      dest = await evalOr(page, () => ({ path: location.pathname, hed: !!document.querySelector(".hed h1"), rg: !!document.querySelector("header.mast img.robogoat") })) || {};
+      dest = await evalOr(page, () => ({ path: location.pathname, q: location.search, hed: !!document.querySelector(".hed h1"), rg: !!document.querySelector("header.mast img.robogoat") })) || {};
     }
-    ok(dest.path === "/robogoat/" + RG.path && dest.hed && dest.rg, "…and tapping it opens that column (" + JSON.stringify(dest) + ")");
+    // RESTAGED 2026-10-10 (read log): the tap lands on the same column with ?r=app1 as its query;
+    // the path check is unchanged, the query is now asserted too.
+    ok(dest.path === "/robogoat/" + RG.path && dest.q === "?r=app1" && dest.hed && dest.rg, "…and tapping it opens that column, tag in the URL (" + JSON.stringify(dest) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }

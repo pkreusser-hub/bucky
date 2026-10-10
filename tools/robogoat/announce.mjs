@@ -36,6 +36,9 @@ const payload = {
   secret: LG_PASS, familyKey: FAM_KEY,
   title: `RoboGoat · ${m[2]}`, body: hook[0].toUpperCase() + hook.slice(1), url,
   gfflAll: true, kind: /preview$/.test(m[2]) ? "preview" : "recap",
+  // Each device's link carries its own team (?r=push<team>) for the read log (Perry, 2026-10-10):
+  // notify.mjs tags it per device, and the page's beacon (rgread.mjs) reads it back.
+  readTag: true,
 };
 
 if (!argv.includes("--send")) {

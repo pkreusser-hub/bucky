@@ -11210,3 +11210,58 @@ Bite: the pre-review Week 5 column, rebuilt in a worktree, gave **249 pass / 2 f
 (1,938) and one voice ("RoboGoat gives him the streak"). The callback check cannot trip on a
 preview. Its pattern counts six of the Week 4 recap's seven callbacks; the seventh is phrased "On
 Saturday the column ended".
+
+## RoboGoat read log: who actually reads the columns (2026-10-10)
+
+Perry: "I want to log who actually reads the columns." His choices: identify readers from the app
+and the push only, show nothing on the pages, and pull the report by asking RoboGoat.
+
+- **How a read is logged.** Each issue page carries one invisible 1x1 `<img class="rgb">` (built
+  by `tools/robogoat/build.mjs`) pointing at `/.netlify/functions/rgread?i=<season>/<issue>`. The
+  function (`netlify/functions/rgread.mjs`) writes one `kind: "rgread"` doc into `gffl_<fam>`:
+  `{ kind, issue, via, team, t }`. It always answers with the pixel, even when the write fails. It
+  stores no IP and no user agent, and it skips link-preview bots.
+- **Who it can name.** The pages stay script-free, so the team comes from the Referer. No
+  Referrer-Policy is set anywhere on the site, so the browser default sends the full same-origin
+  URL, query included.
+  - The GFFL RoboGoat card links to the issue with `?r=app<LG.myTeamId()>`. A phone with no team
+    claimed gets the bare link. The archive fallback has no tag.
+  - `announce.mjs` sends `readTag: true`. notify.mjs then adds `?r=push<team>` to each device's
+    link, using that device's own `gfflTeam`. A device with no team gets the untagged link. A send
+    without `readTag` is unchanged, so every other push is untouched.
+  - The email link, the archive and a forwarded link log as `via: "direct"` with no team. They are
+    counted, never guessed at.
+  - A tag counts only on its own issue's URL, on the site's own hosts.
+  - A team means a phone's claimed team, not a person.
+- **Reading it.** `node tools/robogoat/reads.mjs [robogoat/<season>/<issue>] [--json]` runs one
+  Firestore query (read-only) and prints, per issue: who read it (app or push, how many times, the
+  first read in Chicago time), who has not been seen, and the untagged count. Opens before this
+  deploy left no trace.
+- **If the site ever sets a Referrer-Policy.** A policy that still sends the full URL to the same
+  origin keeps working: the default, `same-origin`, or `no-referrer-when-downgrade`. With
+  `no-referrer`, `origin` or `strict-origin`, every read turns "direct". The
+  robogoat suite's Referer round trip would not catch that, because its server sets no headers.
+  Check `netlify.toml` if the report suddenly shows only untagged reads.
+
+**Restaged:** GFFL RGL1. The card's href was the bare issue path; it is now the path plus
+`?r=app1`, because fullSeed claims team 1. The tap lands on the same path with that query. A new
+check confirms a phone with no team still gets the bare link. Cache-bust is now `20261010a`.
+
+**VERIFY:**
+- `node tools/_verify-robogoat.cjs` **275/275**. New checks:
+  - one beacon per issue, naming its own path;
+  - its inline rule is present;
+  - no beacon on the archive;
+  - at 360, 390 and 1280 px it loads 1x1, transparent, absolute and untappable;
+  - the Referer round trip. The suite's server answers the beacon with the real rgread handler and
+    records the Referer. Opening `?r=app5`, `?r=push12` and the bare email link reads as app 5,
+    push 12 and direct.
+- `node tools/_verify-rgread.mjs` **36/36**, against the strict fake Firestore. It includes the
+  `reads.mjs` report computed from the docs the handler wrote.
+- `node tools/_verify-notify-url.mjs` **50/50**, including 7 readTag checks.
+- `node tools/_verify-gffl.cjs --only RGL` **22/22**.
+
+**Bite**, in a worktree at HEAD with only the test files and the new function copied in:
+- robogoat: **252 pass / 23 fail**, all 23 of them the new checks;
+- RGL: **20 / 2**, the two tag checks;
+- notify-url: stops at the first readTag check, because `tagReadUrl` does not exist at HEAD.

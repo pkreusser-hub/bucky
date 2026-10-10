@@ -2536,7 +2536,11 @@
   UI._robogoat = undefined; // undefined = not asked yet; null = asked, nothing usable (yet)
   function robogoatCardHtml() {
     const x = UI._robogoat;
-    const href = x ? "robogoat/" + x.path : "robogoat/";
+    // Read log (Perry, 2026-10-10): the issue link carries this phone's team as ?r=app<team>, so
+    // the column's invisible beacon (netlify/functions/rgread.mjs) can log who read it from the
+    // Referer. Only the issue link: the archive fallback has no beacon. No team, no tag.
+    const tm = LG.myTeamId();
+    const href = x ? "robogoat/" + x.path + (tm ? "?r=app" + tm : "") : "robogoat/";
     const kick = x ? "RoboGoat · Week " + x.week + " " + (x.type === "preview" ? "preview" : "recap") : "RoboGoat";
     const hed = x ? x.headline : "Weekly previews and recaps";
     return `<div class="card rgcard" id="rgCard">
