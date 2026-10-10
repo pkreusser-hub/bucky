@@ -277,7 +277,7 @@ const PICKS = { 2: "3-1", 3: "4-0" };
           const words = body.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
           const cap = issue.type === "recap" ? 1900 : 1600;
           check(`${dir}: the column is at most ${cap} words (${words})`, words <= cap, String(words));
-          const wrote = (body.match(/\b(On \w+day|Last week),? I wrote\b/g) || []).length;
+          const wrote = (body.match(/\b((On \w+day|Last week),? I (also )?wrote|I also wrote)\b/g) || []).length;
           check(`${dir}: "On Saturday I wrote" and its cousins at most twice (${wrote})`, wrote <= 2, String(wrote));
           const third = src.filter((l) => l.trim() !== "RoboGoat").join("\n").replace(/^RoboGoat here\./m, "").replace(/“[^”]*”/g, " ");
           check(`${dir}: one voice: no third-person "RoboGoat" between the opener and the sign-off`, !/RoboGoat/.test(third), (third.match(/.{0,40}RoboGoat.{0,40}/) || [""])[0]);
