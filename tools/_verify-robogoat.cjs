@@ -15,6 +15,8 @@
 //   * Week 3, hand-computed here from the app's weekly totals (not read back from the page):
 //     scoreboard, standings, bench bars, the season panel, and the power-ranking arrows;
 //   * the link preview (og:image) exists at 1200×630, and the pages stay out of search engines.
+//   * the read log (Perry, 2026-10-10): every issue carries exactly one invisible beacon naming its
+//     own path, and a browser's request for it carries the tagged page URL as its Referer;
 // External requests (Google Fonts, ESPN headshots) are blocked: the pages must lay out on fallbacks.
 "use strict";
 
@@ -59,9 +61,19 @@ async function openPage(drv, browser, vw, url, errs) {
 
 // ---- tiny static server over the repo ----
 const MIME = { ".html": "text/html; charset=utf-8", ".jpg": "image/jpeg", ".png": "image/png", ".css": "text/css", ".json": "application/json" };
+// The read-log beacon is answered by the REAL netlify/functions/rgread.mjs (no service account in
+// this process, so it writes nothing and returns its pixel), and each hit's i and Referer are kept.
+const BEACON_HITS = [];
+let RGREAD = null;
 function serve() {
   return new Promise((res) => {
-    const srv = http.createServer((q, r) => {
+    const srv = http.createServer(async (q, r) => {
+      if (q.url.startsWith("/.netlify/functions/rgread")) {
+        BEACON_HITS.push({ i: new URL(q.url, "http://x").searchParams.get("i"), referer: q.headers.referer || "" });
+        const resp = await RGREAD.default(new Request("http://127.0.0.1" + q.url, { headers: { "user-agent": q.headers["user-agent"] || "" } }));
+        r.writeHead(resp.status, Object.fromEntries(resp.headers));
+        return r.end(Buffer.from(await resp.arrayBuffer()));
+      }
       let f = path.join(ROOT, decodeURIComponent(q.url.split("?")[0]));
       if (f.endsWith(path.sep) || f.endsWith("/")) f = path.join(f, "index.html");
       if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); return r.end("nope"); }
@@ -108,6 +120,8 @@ const PICKS = { 2: "3-1", 3: "4-0" };
 (async () => {
   const kit = await import(pathToFileURL(path.join(ROOT, "tools/robogoat/build.mjs")).href);
   const arc = await import(pathToFileURL(path.join(ROOT, "tools/robogoat/archive.mjs")).href);
+  delete process.env.FIREBASE_SERVICE_ACCOUNT; // the beacon route must never reach a real Firestore
+  RGREAD = await import(pathToFileURL(path.join(ROOT, "netlify/functions/rgread.mjs")).href);
   const ISSUES = kit.listIssues();
 
   // ---- the kit's number formatting matches the Python builder it replaced (ties to even) ----
@@ -139,6 +153,12 @@ const PICKS = { 2: "3-1", 3: "4-0" };
     check(`${dir}: noindex (family names stay out of search engines)`, /<meta name="robots" content="noindex">/.test(html));
     check(`${dir}: viewport meta for phones`, /<meta name="viewport" content="width=device-width,initial-scale=1">/.test(html));
     check(`${dir}: no script tags (static page)`, !/<script\b/i.test(html));
+    // Read log (Perry, 2026-10-10): one beacon, naming THIS issue (a copied page logging reads
+    // against another issue is the bug this guards), and the rule that keeps it invisible.
+    const beacons = [...html.matchAll(/<img class="rgb" src="\/\.netlify\/functions\/rgread\?i=([^"]+)" alt="" width="1" height="1" aria-hidden="true">/g)].map((x) => x[1]);
+    check(`${dir}: exactly one read-log beacon, naming its own path`, beacons.length === 1 && beacons[0] === dir.replace(/^robogoat\//, "")
+      && (html.match(/rgread/g) || []).length === 1, JSON.stringify(beacons));
+    check(`${dir}: the beacon's inline rule takes it out of layout and sight`, /\.rgb\{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none\}/.test(html));
     // Subject lines carry a hook (user, 2026-09-29): "RoboGoat: <hook> (Week N recap|preview)",
     // short enough that a phone's inbox shows the hook, never a generic "Week N Recap".
     const sm = /^RoboGoat: (.+) \(Week (\d+) (recap|preview)\)$/.exec(issue.subject || "");
@@ -157,6 +177,7 @@ const PICKS = { 2: "3-1", 3: "4-0" };
   const pub = (JSON.parse(aJson || '{"issues":[]}').issues || []).map((x) => x.published);
   check("archive: newest first", pub.every((p, i) => i === 0 || pub[i - 1] >= p), pub.join(", "));
   check("archive: noindex, viewport, no script", /<meta name="robots" content="noindex">/.test(aHtml) && /width=device-width/.test(aHtml) && !/<script\b/i.test(aHtml));
+  check("archive: no read-log beacon (it is not a column; a read there says nothing)", !/rgread/.test(aHtml));
 
   // ---- browser ----
   const drv = loadDriver();
@@ -219,6 +240,8 @@ const PICKS = { 2: "3-1", 3: "4-0" };
             const r = i.getBoundingClientRect(); return { src: i.getAttribute("src"), ok: i.naturalWidth > 0, top: r.top, h: r.height, right: r.right }; })(),
           bodyPx: parseFloat(getComputedStyle(document.querySelector("main > p, main section > p")).fontSize),
           archive: arch ? arch.href : "",
+          beacon: (() => { const b = document.querySelector("img.rgb"); if (!b) return null; const r = b.getBoundingClientRect(), cs = getComputedStyle(b);
+            return { w: r.width, h: r.height, op: cs.opacity, pos: cs.position, pe: cs.pointerEvents, loaded: b.naturalWidth === 1 }; })(),
           text: document.querySelector(".wrap").innerText,
           captions: [...document.querySelectorAll(".panel .dek, .panel .src")].map((e) => e.textContent),
           // a score or record ("35-27", "2-1") in copy must sit inside a no-wrap element, or phones split it at the hyphen
@@ -235,6 +258,8 @@ const PICKS = { 2: "3-1", 3: "4-0" };
       check(`${tag}: no page errors`, errs.length === 0, errs.join(" | "));
       check(`${tag}: no horizontal scroll`, m.sw <= m.iw, `${m.sw} > ${m.iw}`);
       check(`${tag}: every local image (team logos, portrait) loads`, m.brokenLocal.length === 0 && m.localCount >= 9, m.brokenLocal.join(", ") + ` (${m.localCount})`);
+      check(`${tag}: the read-log beacon loads, 1x1, transparent, out of the flow, untappable`,
+        !!m.beacon && m.beacon.loaded && m.beacon.w <= 1 && m.beacon.h <= 1 && m.beacon.op === "0" && m.beacon.pos === "absolute" && m.beacon.pe === "none", JSON.stringify(m.beacon));
       if (m.hasWp) {
         const wantSvg = vw.width <= 560 ? "wp wp-sm" : "wp wp-lg";
         check(`${tag}: exactly one win-probability chart shows, the ${wantSvg.split(" ")[1]} one`, m.visibleSvgs.length === 1 && m.visibleSvgs[0] === wantSvg, m.visibleSvgs.join(","));
@@ -410,6 +435,24 @@ const PICKS = { 2: "3-1", 3: "4-0" };
       JSON.stringify([m.ranks[0], m.ranks[1], m.ranks[3]]));
     check("season.json rankings match the column's published order", JSON.stringify(season.rankings["3"].map((t) => ({ 1: "Perry", 2: "Elan", 3: "Joe", 4: "Tom", 5: "Sandy", 9: "John", 11: "Calvin", 12: "Isaac" })[t])) === JSON.stringify(RANK_W3)
       && JSON.stringify(season.rankings["2"].map((t) => ({ 1: "Perry", 2: "Elan", 3: "Joe", 4: "Tom", 5: "Sandy", 9: "John", 11: "Calvin", 12: "Isaac" })[t])) === JSON.stringify(RANK_W2));
+  }
+
+  // ---- read log: the tag rides the Referer (Perry, 2026-10-10) ----
+  // The page is script-free, so the only way the reader's team reaches rgread is the browser
+  // sending the tagged page URL as the beacon's Referer. Opened here exactly as the GFFL card and a
+  // push open it; the real parseRead then reads the hit (host swapped to the live one, which is all
+  // the local server changes).
+  for (const [dir, q, via, team] of [[ISSUES[0], "?r=app5", "app", 5], [ISSUES[ISSUES.length - 1], "?r=push12", "push", 12], [ISSUES[0], "", "direct", null]]) {
+    BEACON_HITS.length = 0;
+    const errs = [];
+    const page = await openPage(drv, browser, VWS[1], `${base}/${dir}/${q}`, errs);
+    const hit = BEACON_HITS.find((h) => h.i === dir.replace(/^robogoat\//, ""));
+    const live = (u) => String(u).replace(base, "https://goatfantasyleague.com");
+    const read = hit && RGREAD.parseRead(live(`${base}/.netlify/functions/rgread?i=${hit.i}`), live(hit.referer), "Mozilla/5.0 (iPhone)");
+    check(`read log: ${dir}/${q || "(email link)"} -> one beacon hit whose Referer is the page${q ? " with its tag" : ""}, read as ${via}${team ? " team " + team : ""}`,
+      BEACON_HITS.length === 1 && !!hit && hit.referer === `${base}/${dir}/${q}` && !!read && read.via === via && read.team === team,
+      JSON.stringify({ hits: BEACON_HITS, read }));
+    await page.close();
   }
 
   await kitChecks();

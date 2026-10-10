@@ -14,10 +14,22 @@ Everything that turns a week of GFFL into a RoboGoat column page at
 | `share.mjs` | the 1200×630 `share.png` link preview | repo files only; bundled fonts in `fonts/` |
 | `archive.mjs` | `robogoat/index.html` (the archive page) + `robogoat/issues.json` | repo files only |
 | `announce.mjs` | the league push for a new issue; **dry run unless `--send`** | `--send` wakes every league phone |
+| `reads.mjs` | the private read log report: per issue, which teams read it (app or push), when, and how many untagged reads | reads Firestore |
 | `lib.mjs` | Firestore read helpers, names, browser launch | — |
 | `page.css` | the issue page's stylesheet, inlined by `build.mjs` | — |
 
 Nothing in this kit writes league data. The only outbound write is `announce.mjs --send`.
+
+**The read log** (Perry, 2026-10-10: "I want to log who actually reads the columns"; private, pulled
+on request). `build.mjs` puts an invisible 1x1 beacon on every issue page that points at
+`netlify/functions/rgread.mjs` with the issue's own path. That function, not this kit, writes one
+`kind: "rgread"` doc per read: issue, via, team, time. It stores no IP and no user agent. The page has no
+script, so the reader's team arrives in the Referer. The GFFL card links to the issue with
+`?r=app<team>`, and `announce.mjs` sends `readTag: true` so notify.mjs gives each phone's link
+`?r=push<team>`. The email link and the archive carry no tag; those reads count as untagged. When
+Perry asks who read a column, run `node tools/robogoat/reads.mjs [robogoat/<season>/<issue>]` and
+report it in plain words. Reads are logged only from the deploy that shipped this (2026-10-10);
+earlier opens left no trace.
 
 `.claude/settings.json` allows `node tools/robogoat/announce.mjs …` to run without a permission
 prompt (Perry, 2026-09-30), so a session can send the push once he says so. The allow rule

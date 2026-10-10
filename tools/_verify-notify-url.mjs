@@ -129,5 +129,20 @@ ok(eq(await toksM({ gfflTeam: 1, kind: "moves" }), ["TD"]),
 ok(eq(await toksM({ gfflTeam: 4, kind: "moves" }), []),
    "kind:moves drops the device that muted moves");
 
+// ---- RoboGoat read log (2026-10-10): readTag puts each device's own team on its link ----
+// tagReadUrl sits between resolveUrl and corsHeaders, so the same extraction as above reaches it.
+const tagReadUrl = new Function(body + ";return tagReadUrl;")();
+const W5 = LEAGUE + "/robogoat/2026/week-5-preview/";
+ok(tagReadUrl(W5, 5) === W5 + "?r=push5", "readTag: a column link gets ?r=push<team>");
+ok(tagReadUrl(W5 + "?x=1", 12) === W5 + "?x=1&r=push12", "readTag: an existing query gets &r=push<team>");
+ok(tagReadUrl(LEAGUE + "/league.html#matchup", 3) === LEAGUE + "/league.html?r=push3#matchup", "readTag: the tag goes before the #hash");
+ok(tagReadUrl(W5, null) === W5 && tagReadUrl(W5, 0) === W5 && tagReadUrl(W5, 21) === W5 && tagReadUrl(W5, NaN) === W5 && tagReadUrl(W5, 2.5) === W5,
+   "readTag: no team, or a team outside 1..20, leaves the link untouched");
+ok(tagReadUrl(null, 5) === null && tagReadUrl("", 5) === "", "readTag: a missing url passes through for resolveUrl to handle");
+ok(resolveUrl(tagReadUrl(W5, 5)) === W5 + "?r=push5", "readTag: a tagged league link still passes resolveUrl untouched");
+ok(/readTag === true && team != null && !Number\.isNaN\(team\) \? tagReadUrl\(url, team\) : url/.test(src)
+   && /sendFcmMessage\(accessToken, token, title, body \|\| "", link, tag\)/.test(src),
+   "readTag: the send loop tags only when readTag is exactly true and the device has a team, and sends the tagged link");
+
 console.log(`\nresolveUrl + audience: ${pass}/${pass+fail} passed`);
 process.exit(fail?1:0);
