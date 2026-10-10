@@ -3196,3 +3196,21 @@ another idea. Every refusal, whoever made it, now shows the reader exactly:
 - The narrator's plain no is now the marker plus ONE sentence naming the kind, written for Dad's
   Story Log. The page never shows it; it shows the fixed message instead.
 - story-reminder **201/201**, story-plainno **22/22**, storyledger **938/938**.
+
+## 2026-10-10 — the first day's read, and the dashboard line that could not appear
+**Fixed:** `usageRow` passed every story counter back to the dashboard except the plain no's.
+`s_refuse*` were written from 2026-10-09 but never read, so "N requests turned down" stayed blank
+while the Story Log held five refusals. storyledger **939/939** (new readback check; 938/939 with
+the function at origin/main, the new check the only failure).
+
+**The first day on Sonnet 5.5 (one reader, about 20 scenes after the deploy), every scene read:**
+- 5 turns refused: 3 by the app's check (arms chained behind the back, wrists cuffed, chained to the
+  bottom of a tank), 2 by the narrator ("pushes the lid down so there is only a tiny slit of air";
+  "I use water to pin her against the wall"). The second is the reader's own power used on a
+  villain, read as restraint: on the line, worth watching.
+- The reader rephrased after each no. One rephrasing got through both halves ("the lid falls
+  slightly, so the opening is not as big") and was written well: plenty of air, no distress, and
+  the captive planning her way out. The tank scenes before it were the same: "there is air, and
+  there is water, and there is no one to hurt you." Nothing in the day broke the rules.
+- 1 scene of about 20 ended with no choices and no chapter end (#80); the page's repair pass is
+  what rescues those, and the log keeps the original.
