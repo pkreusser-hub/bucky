@@ -155,6 +155,15 @@ rules.
     quoted and answered.
   - **The Wednesday Kicker.** The recap names the waiver pickup of the week (named for Sandy's
     Week 3 kicker).
+- **Who is related to whom** (Perry, 2026-10-10). Use it for jokes; get it right.
+  - Sandy is Perry's and Calvin's mother and Isaac's grandmother ("son #1" and "son #2" in her
+    chat are Calvin and Perry).
+  - Perry and Calvin are brothers. Isaac is Perry's son, so Calvin is Isaac's uncle.
+  - Joe is Perry's father-in-law and John's. John is Perry's brother-in-law.
+  - Tom is Joe's brother.
+  - Elan is Perry's and Calvin's cousin.
+  Do not infer anything beyond this list. A guessed relationship once put a wrong fact in a
+  review.
 - **Chat GIFs are visible.** `facts.chat[].gif` is the Giphy link a message carried; download it
   and Read it to see a frame. The file name is a random Giphy ID, not a title. Describe a GIF only from what is in
   the frame, or what its poster says it is.
