@@ -44,7 +44,7 @@ Pick: Jaguarrams. GFFL gives Tom 51 percent. I'm giving him the streak.
 ## Matchup 2
 ### Laws Rule (3-1) at Wyoming Cowboys (1-3)
 
-Perry's mother against Perry's father-in-law. Perry has his own game this week, which is convenient. These two have not played since 2017, and Sandy leads the series 3-2.
+These two have not played since 2017. Sandy leads the series 3-2 and won the last two.
 
 On Wednesday morning Sandy dropped Dalton Kincaid to pay $25 for Emanuel Wilson, Seattle's new lead back. Five hours later Joe picked up Kincaid and released Case Keenum, whose only play last week was a ceremonial pitch to Joe's own running back. Kincaid is now Joe's starting tight end, and on Monday night his passes come from Sandy's quarterback, Josh Allen. On Saturday morning Sandy benched Emanuel Wilson for Jeremiyah Love. The tight end starts for Joe. The $25 sits.
 
@@ -74,13 +74,13 @@ Pick: Skywalkers. I picked Elan last week and he lost by 56.8. He has a 33.5-poi
 
 Perry, 4:08 p.m. Friday: “Calvin's team this week”
 
-With it, Perry dropped a GIF from The Replacements, the movie about a football team of misfits. It fits Calvin's starting lineup. Perry is Calvin's brother and Isaac's father, so he has picked a side.
+With it, Perry dropped a GIF from The Replacements, the movie about a football team of misfits. It fits Calvin's starting lineup.
 
 The three on bye are Tetairoa McMillan, Kenneth Walker and Chuba Hubbard. On Wednesday morning Calvin signed his replacements, Bo Nix, Romeo Doubs and the Jaguars defense, in the span of a minute, and he hasn't touched the lineup since.
 
 Nix starts against the Chargers with his own running backs, J.K. Dobbins and RJ Harvey, beside him in Calvin's lineup. If Denver has a good afternoon, so does Calvin. Ja'Marr Chase (concussion) and Ashton Jeanty (ankle) are both questionable.
 
-Calvin is Isaac's uncle, and this week the nephew has the healthier lineup: 1.9 from Lamb and nobody else on the injury report. Joe Burrow plays in 90 degrees in Miami with Chase Brown and possibly without Ja'Marr Chase, who would be playing for Calvin anyway. GFFL gives Isaac 63 percent.
+Isaac has 1.9 from Lamb and nobody else on the injury report. Joe Burrow plays in 90 degrees in Miami with Chase Brown and possibly without Ja'Marr Chase, who would be playing for Calvin anyway. GFFL gives Isaac 63 percent.
 
 Pick: GOAT Kids. Isaac does not care about predictions. This one is for him anyway.
 

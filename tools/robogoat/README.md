@@ -155,7 +155,9 @@ rules.
     quoted and answered.
   - **The Wednesday Kicker.** The recap names the waiver pickup of the week (named for Sandy's
     Week 3 kicker).
-- **Who is related to whom** (Perry, 2026-10-10). Use it for jokes; get it right.
+- **Who is related to whom** (Perry, 2026-10-10). Get it right, and use it only inside a joke.
+  Never state a relationship as a plain line ("Calvin is Isaac's uncle"); Perry: "too awkward to
+  just state it like that, but you can work the relationships into future jokes."
   - Sandy is Perry's and Calvin's mother and Isaac's grandmother ("son #1" and "son #2" in her
     chat are Calvin and Perry).
   - Perry and Calvin are brothers. Isaac is Perry's son, so Calvin is Isaac's uncle.
