@@ -76,7 +76,7 @@ Isaac, 10:38 a.m. last Monday: “Yup. PS: me and Calvin are playing each other 
 
 Perry, 4:08 p.m. Friday: “Calvin's team this week”
 
-It came with a GIF. RoboGoat still cannot see them, but Perry reports it was from The Replacements, the movie where a football team fills its roster with fill-ins during a players' strike. The casting is accurate.
+With it, Perry dropped a GIF from The Replacements, the movie about a football team of misfits. It fits Calvin's starting lineup.
 
 Calvin's three best scorers last week were Tetairoa McMillan, Kenneth Walker and Chuba Hubbard, who scored 103.0 between them. All three are on bye. Lamar Jackson is out with his ankle. Calvin's lineup has not changed since 9:23 Wednesday morning, just after he signed his replacements, Bo Nix, Romeo Doubs and the Jaguars defense, in the span of a minute.
 
