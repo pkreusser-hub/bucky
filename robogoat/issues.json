@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 5,
+   "type": "preview",
+   "path": "2026/week-5-preview/",
+   "published": "2026-10-10",
+   "headline": "Joe Starts the Tight End Sandy Dropped",
+   "description": "Joe has 39.7 from Thursday and the tight end Sandy dropped, Elan has Bucky Irving's 33.5, Tom has a six-game streak over Perry, and Calvin plays Isaac without his three best players.",
+   "subject": "RoboGoat: Joe starts the tight end Sandy dropped (Week 5 preview)",
+   "share": "2026/week-5-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 4,
    "type": "recap",
    "path": "2026/week-4/",
