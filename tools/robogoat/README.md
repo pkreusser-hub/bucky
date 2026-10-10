@@ -118,6 +118,58 @@ it is a family league. The editor pass checks for laughs as well as numbers.
 The app is **GFFL**: "GFFL projects him for 22.4", "GFFL gives her 59 percent", never "the app"
 (Perry, same day: "since the app is GFFL, I would call it GFFL"). The suite checks it.
 
+### House rules from the independent review (Perry, 2026-10-10)
+
+An independent editor read all eight columns through the Week 5 preview. Its verdict: the best
+jokes are good and are buried under everything around them. Perry asked for its fixes as standing
+rules.
+
+- **Length.** Aim for about 1,000 words in a preview and 1,300 in a recap. These are read on
+  phones; Weeks 3 to 5 ran 2,000 to 2,900, nine to thirteen minutes. The suite caps the body at
+  1,600 words (preview) and 1,900 (recap) for issues from 2026-10-10 on.
+- **Open with the best story.** Not the picks record. Week 5's lede was Calvin's 103 points of
+  starters on bye; the first draft had it 1,100 words in.
+- **One voice.** "I" all the way through. "RoboGoat here." opens and "RoboGoat" signs off; no
+  third person in between.
+- **Callbacks once.** "On Saturday I wrote…" at most twice a column; the Week 4 recap had it seven
+  times. Never reuse a sentence from an earlier column word for word.
+- **Numbers that matter.** Points in parentheses only for the players the story is about, not after
+  every name. A clock time only when the time is the joke ("8:49 Saturday morning"). Two or three
+  a column, not twenty.
+- **The Rest of the Weekend is three lines,** not the generated `restOfWeekend` list. Keep the jokes
+  in it ("Seven owners have someone in Seattle"), drop the rosters.
+- **No repeats between sections.** The Lineup Check lists the questionable and out starters with
+  their bench options; the matchup sections do not repeat those details. Recap awards do not retell
+  a story already told above them.
+- **No plumbing.** How GFFL finalized a week or why an award is missing belongs in `docs/`, not the
+  column.
+- **Spread the ribbing.** No owner is the butt of the same joke three columns running (Elan's bench
+  ran six). Tom is more than an injury list. Each recap carries one sincere award, **Good Call of
+  the Week**, rotating to whoever made the week's best decision, with the facts behind it.
+- **Corrections.** When a column got something wrong, the next one says so in a line ("This column
+  called Murray's Week 1 a zero in five different issues. It was -0.4. I regret the rounding.").
+- **Invite the league in, through public chat only:**
+  - **Beat the Goat.** Owners can post picks in the league chat before Sunday's first kickoff, and
+    the recap keeps the table.
+  - **Letters to RoboGoat.** Chat addressed to RoboGoat, like Isaac's "187 points, baby!", gets
+    quoted and answered.
+  - **The Wednesday Kicker.** The recap names the waiver pickup of the week (named for Sandy's
+    Week 3 kicker).
+- **Who is related to whom** (Perry, 2026-10-10). Get it right, and use it only inside a joke.
+  Never state a relationship as a plain line ("Calvin is Isaac's uncle"); Perry: "too awkward to
+  just state it like that, but you can work the relationships into future jokes."
+  - Sandy is Perry's and Calvin's mother and Isaac's grandmother ("son #1" and "son #2" in her
+    chat are Calvin and Perry).
+  - Perry and Calvin are brothers. Isaac is Perry's son, so Calvin is Isaac's uncle.
+  - Joe is Perry's father-in-law and John's. John is Perry's brother-in-law.
+  - Tom is Joe's brother.
+  - Elan is Perry's and Calvin's cousin.
+  Do not infer anything beyond this list. A guessed relationship once put a wrong fact in a
+  review.
+- **Chat GIFs are visible.** `facts.chat[].gif` is the Giphy link a message carried; download it
+  and Read it to see a frame. The file name is a random Giphy ID, not a title. Describe a GIF only from what is in
+  the frame, or what its poster says it is.
+
 ## column.md
 
 Header lines `SUBJECT:`, `KICKER:`, `MASTHEAD:`, `SUBHEAD: Week N · <headline>`, then:

@@ -54,6 +54,24 @@
     "team": 2,
     "result": "L"
    }
+  ],
+  "5": [
+   {
+    "team": 4,
+    "result": ""
+   },
+   {
+    "team": 3,
+    "result": ""
+   },
+   {
+    "team": 2,
+    "result": ""
+   },
+   {
+    "team": 12,
+    "result": ""
+   }
   ]
  },
  "rankings": {

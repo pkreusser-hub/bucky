@@ -11153,3 +11153,60 @@ preview's Week 4 row is four open rings and "this week" while `picks.4` is grade
 grading first, so it cannot pass vacuously. Bite: current pages and suite, `build.mjs` from `main` →
 **213 pass / 3 fail**. The new check and the two that first caught it fail (the preview's
 byte-identical rebuild, and the build-from-copy check); every other check passes.
+
+---
+
+## RoboGoat house rules from an independent review (2026-10-10)
+
+Perry asked for "an independent agent [to] read this and every other column so far and suggest a
+series of improvements". A fresh agent with no hand in the writing read all eight columns: four
+emails (Week 1 recap, Week 2 preview, Week 2 recap, Week 3 preview; only the first message of each
+thread, never the replies) and the four pages. Perry then chose "both": apply its edits to the
+unpublished Week 5 preview, and make its recommendations standing rules.
+
+- **Week 5 preview** cut from 1,984 to 1,449 words using the reviewer's edits, with two of them
+  reversed. Perry's own wording of his *Replacements* GIF line stays; the reviewer had put "I
+  still can't see GIFs" back. Stevenson and Tate stay in the Lineup Check, because they are
+  questionable starters. Joe's 7:42 a.m. Saturday flex change (Roschon Johnson in) was added after
+  a third lineup pull.
+- **The rules** are in `tools/robogoat/README.md` under "House rules from the independent review":
+  - length targets;
+  - lead with the best story;
+  - one voice;
+  - callbacks at most twice, and no reused sentences;
+  - points and clock times only where they carry the joke;
+  - a three-line Rest of the Weekend;
+  - no repeats between sections and no app plumbing;
+  - spread the ribbing, with a sincere Good Call of the Week in every recap;
+  - corrections;
+  - Beat the Goat, Letters to RoboGoat and the Wednesday Kicker, all through public chat;
+  - chat GIFs are visible.
+  Both routine prompts point at that section.
+- **Facts the review caught in earlier columns.** Five issues called Kyler Murray's Week 1 a zero.
+  His final line (3 of 5, 18 yards, an interception, 9 rushing yards) scores -0.38 under league
+  rules, and the Week 5 preview corrects it. GFFL does not store player points, so this rests on
+  the stat line. The review also flagged the Week 3 preview email for calling Sandy Perry's
+  "mother". That flag was wrong, and the mistake was in the briefing: the reviewer was told Sandy
+  is Perry's mother-in-law. She is his mother (Perry, 2026-10-10). The column had it right.
+- **Who is related to whom** (Perry, 2026-10-10), for jokes that use it:
+  - Sandy is Perry's and Calvin's mother and Isaac's grandmother. Her "son #1" and "son #2" are
+    Calvin and Perry.
+  - Perry and Calvin are brothers. Isaac is Perry's son and Calvin's nephew.
+  - Joe is Perry's father-in-law and John's. John is Perry's brother-in-law.
+  - Tom is Joe's brother.
+  - Elan is Perry's and Calvin's cousin.
+  Laws Rule is still "Sandy" in copy, never "Mom", except inside a verbatim quote.
+- **Chat GIFs.** A chat doc's `gif.url` is a Giphy link with a random id for a file name. The image
+  itself can be downloaded and Read. `facts.mjs` used to keep only `"[gif]"`; `facts.chat[].gif`
+  now carries the link.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **251/251**. Three new checks, for issues from
+2026-10-10 on:
+- the column body is at most 1,600 words (preview) or 1,900 (recap);
+- "On Saturday I wrote" and its cousins appear at most twice;
+- there is no third-person "RoboGoat" between the opener and the sign-off.
+
+Bite: the pre-review Week 5 column, rebuilt in a worktree, gave **249 pass / 2 fail**: the word cap
+(1,938) and one voice ("RoboGoat gives him the streak"). The callback check cannot trip on a
+preview. Its pattern counts six of the Week 4 recap's seven callbacks; the seventh is phrased "On
+Saturday the column ended".

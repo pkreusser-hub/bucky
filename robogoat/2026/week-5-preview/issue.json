@@ -1,0 +1,149 @@
+{
+ "season": 2026,
+ "week": 5,
+ "type": "preview",
+ "published": "2026-10-10",
+ "subject": "RoboGoat: Joe starts the tight end Sandy dropped (Week 5 preview)",
+ "description": "Joe has 39.7 from Thursday and the tight end Sandy dropped, Elan has Bucky Irving's 33.5, Tom has a six-game streak over Perry, and Calvin plays Isaac without his three best players.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-5-preview/share.png",
+ "window": "Oct. 8 to 12, 2026",
+ "picksRecord": "10-2",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "2-2",
+  "2": "1-3",
+  "3": "1-3",
+  "4": "1-3",
+  "5": "3-1",
+  "9": "3-1",
+  "11": "3-1",
+  "12": "2-2"
+ },
+ "games": [
+  {
+   "away": 1,
+   "home": 4,
+   "note": "Tom has won six straight against Perry. Pick: Tom."
+  },
+  {
+   "away": 5,
+   "home": 3,
+   "note": "Joe leads 39.7 to 0.0 and starts the tight end Sandy dropped. Pick: Joe."
+  },
+  {
+   "away": 9,
+   "home": 2,
+   "note": "Elan leads 33.5 to 0.0 on Bucky Irving. Pick: Elan."
+  },
+  {
+   "away": 11,
+   "home": 12,
+   "note": "Calvin's three best players are on bye. Pick: Isaac."
+  }
+ ],
+ "standings": [
+  {
+   "team": 5,
+   "w": 3,
+   "l": 1,
+   "pf": 566.26
+  },
+  {
+   "team": 9,
+   "w": 3,
+   "l": 1,
+   "pf": 587.04
+  },
+  {
+   "team": 11,
+   "w": 3,
+   "l": 1,
+   "pf": 555.68
+  },
+  {
+   "team": 1,
+   "w": 2,
+   "l": 2,
+   "pf": 496.8
+  },
+  {
+   "team": 12,
+   "w": 2,
+   "l": 2,
+   "pf": 589.94
+  },
+  {
+   "team": 3,
+   "w": 1,
+   "l": 3,
+   "pf": 569.98
+  },
+  {
+   "team": 2,
+   "w": 1,
+   "l": 3,
+   "pf": 493.98
+  },
+  {
+   "team": 4,
+   "w": 1,
+   "l": 3,
+   "pf": 462.98
+  }
+ ],
+ "picks": [
+  4,
+  3,
+  2,
+  12
+ ]
+}

@@ -265,6 +265,23 @@ const PICKS = { 2: "3-1", 3: "4-0" };
         if (issue.published >= "2026-10-03") {
           check(`${dir}: the column calls the app "GFFL", never "the app"`, !/\bapps?\b/i.test(unquoted), (unquoted.match(/.{0,40}\bapps?\b.{0,40}/i) || [""])[0]);
         }
+        // House rules from the independent review of all eight columns (Perry, 2026-10-10), for issues
+        // from that day on. Weeks 3 to 5 ran 2,000 to 2,900 words on a phone; the targets are about
+        // 1,000 (preview) and 1,300 (recap), and these caps leave room. The Week 4 recap said "On
+        // Saturday I wrote" seven times. The voice is "I": "RoboGoat here." opens, "RoboGoat" signs
+        // off, and RoboGoat is not third person in between (chat quotes may name it).
+        if (issue.published >= "2026-10-10") {
+          const src = fs.readFileSync(path.join(ROOT, dir, "column.md"), "utf8").split("\n")
+            .filter((l) => !/^(SUBJECT|KICKER|MASTHEAD|SUBHEAD):|^\[IMAGE:/.test(l));
+          const body = src.join("\n");
+          const words = body.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
+          const cap = issue.type === "recap" ? 1900 : 1600;
+          check(`${dir}: the column is at most ${cap} words (${words})`, words <= cap, String(words));
+          const wrote = (body.match(/\b((On \w+day|Last week),? I (also )?wrote|I also wrote)\b/g) || []).length;
+          check(`${dir}: "On Saturday I wrote" and its cousins at most twice (${wrote})`, wrote <= 2, String(wrote));
+          const third = src.filter((l) => l.trim() !== "RoboGoat").join("\n").replace(/^RoboGoat here\./m, "").replace(/“[^”]*”/g, " ");
+          check(`${dir}: one voice: no third-person "RoboGoat" between the opener and the sign-off`, !/RoboGoat/.test(third), (third.match(/.{0,40}RoboGoat.{0,40}/) || [""])[0]);
+        }
         check(`${dir}: scores and records never split at the hyphen (each is in a no-wrap span)`, m.hyphenBreaks.length === 0, m.hyphenBreaks.join(" | "));
       }
       await page.close();
