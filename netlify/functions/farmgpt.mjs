@@ -2649,6 +2649,10 @@ function usageRow(d, label) {
   row[STORY_MIND_COUNTER] = n(STORY_MIND_COUNTER);
   for (const c of STORY_TRUNC_COUNTERS) row[c] = n(c);
   for (const c of STORY_OOS_COUNTERS) row[c] = n(c);
+  // 2026-10-10: the plain no's counters. Written since 2026-10-09 but MISSING here, so the
+  // dashboard's "requests turned down" line could never appear: found reading the first day's
+  // stats, which had five refusals in the Story Log and none on the page.
+  for (const c of STORY_REFUSE_COUNTERS) row[c] = n(c);
   return row;
 }
 async function readCollection(collection, label, cap) {
