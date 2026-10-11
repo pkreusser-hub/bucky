@@ -181,6 +181,9 @@ function setTheme(t) {
   renderBoard();
   if (G) { renderHero(); drawFieldStatic(); renderFieldView(false); renderTabBody(); }
   if (T) renderTeam();
+  // The RedZone feed's chips carry their team colour, which differs by theme (ffColor).
+  document.querySelectorAll('#rzn-feed [data-key]').forEach((n) => { n._html = null; });
+  if (typeof rzRenderFeed === 'function') rzRenderFeed();
 }
 
 // First navigation, now that every view exists.

@@ -1661,3 +1661,67 @@ this container), sunday-ff 56/56. RESTAGED: none. New:
 
 Bite: main's app files with the new suite score 391/395. They fail the 3 new checks and the webfont
 check. On main, the return runs the play again from t = 0.18 of 4.67.
+
+## Review fixes: twelve bugs from a read of the whole app (2026-10-11)
+
+User: "direct a group of haiku sub agents to review the Saturday app looking for bugs, issues,
+feature upgrades, holes", then, on the findings, "start the fix PR". Saturday isn't in this repo, so
+the review covered Sunday. Eight reviewers each read one slice. Every finding below was traced in
+the code before it was fixed. Each one now has a check that fails on the code before the fix.
+
+- **Polling.** `makePoller` dropped a tick asked for while one was in flight. Two consequences:
+  - Picking a week mid-poll left the new week waiting a whole interval (15 to 120 s).
+  - A play the scoreboard had already seen waited for the summary's next timer instead of being
+    fetched straight away.
+  A tick asked for during a fetch now runs as soon as that fetch returns.
+- **The week.** `loadBoard` drops an answer when the week changed while it was in flight. The old
+  week's games used to be drawn under the new week's label.
+- **Betting lines.** A failed line fetch is tried again on the next poll. It used to be given up for
+  the rest of the session, so that game never got an upset badge.
+- **Empty week.** The copy was left over from the filter chips removed on 2026-09-27, and its "Show
+  all games" button changed nothing. It now says "No games this week".
+- **Run direction.** NFL run text has no verb ("T.Pollard left tackle to TEN 42"), and the direction
+  regex needed one. Every NFL run got a random hole. The direction is now read from the phrase after
+  the runner's name.
+- **Penalties.** The first penalty pattern stopped at a space inside a name ("BUF-A.St. Brown",
+  "CHI-D.Smith Jr."). The fallback then read "on" as the team. Both patterns are fixed.
+- **The 8-bit stage's loop.** A scene's `onEnd` can start the next scene from inside the old
+  scene's frame (the try after a touchdown, the ruling after a review). That started a second loop,
+  and the old loop then overwrote `SIDE.raf`. Nothing could cancel it. Loops piled up, one per
+  chained scene, for the rest of the game. Each loop now carries a number (`SIDE.loopN`), and a loop
+  that isn't the newest stops. `sideStop` retires the current one.
+- **Back after a replay step.** `closeGameView` now clears `G.tabT`. The Plays tab refresh used to
+  fire after `G` was gone and throw on `G.sum`.
+- **Ties.** The final win-probability note treated a tie as an away win ("came back to win"). It
+  now says the game ended in a tie.
+- **Theme.** Night/Day now repaints the RedZone feed, whose chips carry a colour that depends on
+  the theme.
+- **Fantasy projections** (`normSlp`). Two gaps against GFFL's `lg-data.js`, ported over:
+  - `def_st_fum_rec` counts toward the D/ST's recoveries. GFFL added this on 2026-10-04; Sunday's
+    copy didn't get it.
+  - A kicker row with makes but no `fgm_yds` rebuilds its yards from the distance buckets
+    (`fgYdsFromBuckets`).
+
+Not changed: if the settings doc were missing, every score would read 0 with no error. A failed
+read throws and shows the error state; only a deleted settings doc reaches the zeros. That isn't
+worth a second copy of the default scoring table.
+
+Cache-bust ?v=20261011a.
+
+VERIFY: sunday 411/411, sunday-ff 60/60, halftime 77/77. New: 16 checks in "Review fixes" and 4 in
+F8.
+
+RESTAGED: the huddle-break check ("…and holds there as the offense breaks its huddle"). It capped
+the defense's *average* movement in the first 1.4 s at 0.6 yd, but that average depended on where
+Robinson's run ended, which was random until now. Measured on the fixture: no direction or "up the
+middle" gives 0.17, "right end" 0.48, and "left tackle" (the real text) 0.78. Most of the 0.78 comes
+from the two defenders with 12 and 16 yd to cover, who set off at 0.5 s as raBuild's `go` intends.
+The check is now per player:
+- no defender moves in the first 0.5 s;
+- every defender with 6 yd or less to his spot holds through 1.4 s;
+- the offense moves more than the defense.
+
+Bite: main's app files with the new suites score 397/411 and 57/60. They fail the 13 new app checks
+that test a fix plus the console check (main throws on the Back press), and 3 of the 4 F8 checks.
+Every pre-existing check passes. On main the stage's tick asks for 2 frames per frame after the
+chained scenes; with the fix it asks for 1.
