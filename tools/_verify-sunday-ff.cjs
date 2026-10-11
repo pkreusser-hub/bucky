@@ -413,6 +413,20 @@ async function sectionF() {
   FF.ingestPlays(EVENT, [td]);
   const back = FF.playCredits(EVENT, td.id).find((c) => c.name === "Christian Watson");
   ok(back && near(back.pts, 6.9) && run.rec === 1 && run.rec_td === 1, "F6 restoring the original play re-credits Watson +6.9 once (rec " + (run && run.rec) + ", rec_td " + (run && run.rec_td) + ")");
+
+  // F8 — Sleeper projection rows priced the way GFFL prices them (lg-data.js normSlp). Sunday's
+  // copy of normSlp had fallen behind it twice. Rows use Sleeper's own stat names.
+  // Special-teams fumble recoveries: GFFL added def_st_fum_rec on 2026-10-04.
+  const dstRow = FF.normSlp({ def_st_fum_rec: 1, pts_allow: 17 }, true);
+  ok(dstRow.dst_fum_rec === 1, "F8 a D/ST row's special-teams fumble recovery (def_st_fum_rec 1) counts as dst_fum_rec 1 (got " + dstRow.dst_fum_rec + ")");
+  const dstBoth = FF.normSlp({ fum_rec: 2, def_st_fum_rec: 1 }, true);
+  ok(dstBoth.dst_fum_rec === 3, "F8 …and adds to the defense's own recoveries: 2 + 1 = 3 (got " + dstBoth.dst_fum_rec + ")");
+  // FG yards when fgm_yds is absent: rebuilt from the buckets. One 40-49 (45) + one 30-39 (35)
+  // = 80 yards. At the live fg_made_yd rate that is 80 × rate; at 0 yards it would be nothing.
+  const kRow = FF.normSlp({ fgm: 2, fgm_30_39: 1, fgm_40_49: 1 }, false);
+  ok(kRow.fg_made_yd === 80, "F8 a kicker row with 2 makes and no fgm_yds rebuilds 35 + 45 = 80 FG yards from its buckets (got " + kRow.fg_made_yd + ")");
+  const kReal = FF.normSlp({ fgm: 2, fgm_yds: 83, fgm_30_39: 1, fgm_40_49: 1 }, false);
+  ok(kReal.fg_made_yd === 83, "F8 …but a row that carries fgm_yds (83) is read as-is (got " + kReal.fg_made_yd + ")");
 }
 
 // =================================================================================================
