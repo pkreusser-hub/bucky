@@ -21065,9 +21065,14 @@ async function openDetails(page, id) {
         const origCard = window.__GFFL__.UI.openPlayerCard, origGame = window.__GFFL__.UI.openNflGame;
         window.__GFFL__.UI.openPlayerCard = () => { n++; };
         window.__GFFL__.UI.openNflGame = () => { n++; };
+        // 2026-10-11: the live branch now calls UI.openSundayGame (a real navigation to
+        // sunday.html) — stubbed too, so this click never leaves the page mid-check.
+        const origSun = window.__GFFL__.UI.openSundayGame;
+        window.__GFFL__.UI.openSundayGame = () => { n++; };
         document.querySelector(".pcellgrid[data-pk]").click();
         window.__GFFL__.UI.openPlayerCard = origCard;
         window.__GFFL__.UI.openNflGame = origGame;
+        window.__GFFL__.UI.openSundayGame = origSun;
         return n;
       }));
       ok(dup === 1, "after three live repaints, tapping a player row opens exactly ONE card/game — no duplicate listeners (" + dup + ")");
@@ -21710,28 +21715,48 @@ async function openDetails(page, id) {
     await waitOr(page, ".muhead");
     const tap = await evalOr(page, () => {
       const UI = window.__GFFL__.UI;
-      let openedGame = null, openedCard = null;
-      const origGame = UI.openNflGame, origCard = UI.openPlayerCard;
-      UI.openNflGame = (eid) => { openedGame = eid; };
+      // RESTAGED 2026-10-11 (user: "clicking a player in GFFL takes the user to the old scores
+      // tab, not the new one"): the live row used to call UI.openNflGame, the in-app Scores view
+      // that lost its tab on 2026-09-27. It now calls UI.openSundayGame — Sunday is GFFL's
+      // Scores. openedGame records the Sunday call; openedOld must stay null.
+      let openedGame = null, openedCard = null, openedOld = null;
+      const origGame = UI.openSundayGame, origOld = UI.openNflGame, origCard = UI.openPlayerCard;
+      UI.openSundayGame = (eid) => { openedGame = eid; };
+      UI.openNflGame = (eid) => { openedOld = eid; };
       UI.openPlayerCard = (key) => { openedCard = key; };
       // P. Passer plays for PHI — DAL@PHI is "in" by default (sbFix()'s own default).
       const liveRow = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
       const liveEidAttr = liveRow && liveRow.dataset.liveEid;
       liveRow && liveRow.click();
-      const afterLive = { openedGame, openedCard };
+      const afterLive = { openedGame, openedCard, openedOld };
       openedGame = null; openedCard = null;
       // T. Tight plays for KC — KC@DEN is "pre" by default, so this row must still open the card.
       const preRow = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("T. Tight"));
       preRow && preRow.click();
       const afterPre = { openedGame, openedCard };
-      UI.openNflGame = origGame; UI.openPlayerCard = origCard;
+      UI.openSundayGame = origGame; UI.openNflGame = origOld; UI.openPlayerCard = origCard;
       return { liveEidAttr, afterLive, afterPre };
     });
     ok(!!tap && tap.liveEidAttr === "401900001", "a live player's row carries the live event id (" + JSON.stringify(tap && tap.liveEidAttr) + ")");
     ok(!!tap && tap.afterLive.openedGame === "401900001" && tap.afterLive.openedCard === null,
-      "…tapping it opens the GAME, not the card (" + JSON.stringify(tap && tap.afterLive) + ")");
+      "…tapping it opens the GAME on Sunday, not the card (" + JSON.stringify(tap && tap.afterLive) + ")");
+    ok(!!tap && tap.afterLive.openedOld === null,
+      "…and never the old tab-less in-app Scores view (" + JSON.stringify(tap && tap.afterLive) + ")");
     ok(!!tap && tap.afterPre.openedGame === null && !!tap.afterPre.openedCard,
       "…while a NOT-live player's row still opens the card, exactly as before (" + JSON.stringify(tap && tap.afterPre) + ")");
+    // The real tap, unstubbed: it leaves league.html for sunday.html#g<that event id>, the
+    // Sunday game detail (sd-app.js route(): /^#g(\d+)$/).
+    const liveSel = await evalOr(page, () => {
+      const r = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
+      if (r) r.setAttribute("data-test-live", "1");
+      return !!r;
+    });
+    let landed = "";
+    if (liveSel) {
+      await Promise.all([page.waitForNavigation({ timeout: 9000 }).catch(() => null), page.click('[data-test-live="1"]')]);
+      try { const u = new URL(page.url()); landed = u.pathname + u.hash; } catch (e) { /* keep "" */ }
+    }
+    ok(/\/sunday\.html#g401900001$/.test(landed), "…the real tap lands on sunday.html#g401900001 (" + landed + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
 

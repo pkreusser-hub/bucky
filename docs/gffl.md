@@ -11210,3 +11210,33 @@ Bite: the pre-review Week 5 column, rebuilt in a worktree, gave **249 pass / 2 f
 (1,938) and one voice ("RoboGoat gives him the streak"). The callback check cannot trip on a
 preview. Its pattern counts six of the Week 4 recap's seven callbacks; the seventh is phrased "On
 Saturday the column ended".
+
+---
+
+## GFFL — a live player's tap opens the game on Sunday, not the old Scores view (2026-10-11)
+
+User: "clicking a player in GFFL takes the user to the old scores tab, not the new one".
+
+On the Matchup page a row whose NFL game is live carries `data-live-eid` (item 1, 2026-08-22),
+and tapping it called `UI.openNflGame`. Since 2026-09-27 that in-app Scores view has no bar entry;
+the bar's "Scores" is `sunday.html`. So the tap landed on `league.html#nflgame=<id>`, a screen the
+family can no longer reach any other way.
+
+The tap now calls the new `UI.openSundayGame(eid)`, which goes to `sunday.html#g<eid>` (Sunday's
+game detail, same ESPN event id, `route()` in sd-app.js). A not-live player still opens the player
+card. `UI.openNflGame` and the old view are untouched: the old view's own card taps and the suite's
+many `openNflGame` reach-ins still use it.
+
+`gffl-v` → `20261011a` (lg-ui.js is served immutable), recorded with
+`node tools/_gffl_asset_versions.mjs --record`.
+
+Files: `assets/league/lg-ui.js`, `league.html`, `gffl-version.txt`,
+`tools/_gffl_asset_versions.json`, `tools/_verify-gffl.cjs`.
+
+RESTAGED, reasons at the checks: BA1 stubs `UI.openSundayGame` as the game opener and asserts
+`UI.openNflGame` is never called; the matchup-morph duplicate-listener check stubs
+`openSundayGame` too, so its click does not navigate away. NEW in BA1: the real, unstubbed tap
+lands on `/sunday.html#g401900001`.
+
+**VERIFY:** `--only AT,BA,AVG,SU` **339/339**. Bite (HEAD lg-ui.js, suite unchanged): BA **3
+fail**, landing on `/league.html#nflgame=401900001`.

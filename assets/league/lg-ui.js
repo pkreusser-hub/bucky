@@ -1083,7 +1083,9 @@
         // the very next tap without any re-wiring (the same "re-read at click time" rule the
         // scores card taps already follow). Every other data-pk source (league feed, locker,
         // injury report, hot picks, moves) never sets this attribute, so they are untouched.
-        if (el.dataset.liveEid) { UI.openNflGame(el.dataset.liveEid); return; }
+        // 2026-10-11: that game now opens on Sunday (sunday.html, the bar's "Scores"), not the
+        // old in-app Scores view, which lost its tab on 2026-09-27 — see UI.openSundayGame.
+        if (el.dataset.liveEid) { UI.openSundayGame(el.dataset.liveEid); return; }
         UI.openPlayerCard(el.dataset.pk);
       });
     });
@@ -3897,6 +3899,15 @@
     UI.nflGameId = id;
     UI._nflGame = null;
     UI.go("nflgame");
+  };
+
+  // The bar's "Scores" is sunday.html (2026-09-27), whose game detail is #g<eventId> (same ESPN
+  // event id). Anything outside the old NFL board that means "show me this game" goes there, so
+  // the family never lands on the tab-less in-app view.
+  UI.openSundayGame = function (eventId) {
+    const id = String(eventId || "");
+    if (!/^\d+$/.test(id)) return;
+    location.href = "sunday.html#g" + id;
   };
 
   // ---- field geometry. PORTED VERBATIM from sports.html (which is where it was worked out
