@@ -3780,6 +3780,13 @@ function raReviewed(p, rv, from) {
   return sc;
 }
 function sidePlay(p) {
+  // In RedZone a kickoff or punt is put up as it ended, not run (2026-10-11, user: "we never want to
+  // watch kickoffs or punts on redzone"; rzSkipKick in sd-redzone.js). sideSettle stages it through here.
+  if (!SIDE.settling && typeof rzSkipKick === 'function' && rzSkipKick(p)) {
+    SIDE.settling = true;
+    try { sideSettle(p); } finally { SIDE.settling = false; }
+    return;
+  }
   clearTimeout(SIDE.idle); SIDE.idle = 0;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
   if (typeof rzMarkPlayed === 'function' && G) rzMarkPlayed(G.id, p.id);   // RedZone shows each play once

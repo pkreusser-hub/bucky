@@ -14,9 +14,10 @@
    Two halves:
    - The director. Every scoreboard poll, each live game's last play is compared with the one seen
      before. A new one is news: the card cuts to the game it happened in once the play on screen has
-     had RZ.MIN to be read. Scores, turnovers and red-zone snaps outrank everything else, and a game
-     inside the 20 holds the card until its drive ends or something bigger happens elsewhere. With
-     no news anywhere for RZ.MAX, the card moves on to the next game worth watching.
+     had RZ.MIN to be read. Scores, turnovers and red-zone snaps outrank everything else; a red-zone
+     play holds the card while it's fresh, and the game's next snap brings the card back. With no news
+     anywhere for RZ.MAX, the card moves on to the next game worth watching. Kickoffs and punts are
+     never watched.
    - The league feed. Every play that moved a GFFL player's points, in every game this week, newest
      first. The credits come from the same core-API play engine as the game view's per-play chips
      (FF.playCredits), fetched for each game with a GFFL starter in it, not only the open one.
@@ -34,10 +35,10 @@ const RZ = {
   HOLD_SCORE: 8000, // a score stays this long; then its game is between drives and the card moves on
   HOLD_PICK: 14000, // a game the viewer tapped stays this long
   MAX: 30000,       // nothing new anywhere for this long: move on to the next game worth watching
-  RZ_MAX: 90000,    // ...unless the game on screen is inside the 20; then it may hold this long
+  RZ_FRESH: 12000,  // a red-zone play holds the card against lesser news this long after it landed
   TIE: 20000,       // equal news elsewhere takes the card once the current game has had this long
   STAGE_MAX: 25000, // the longest a cut waits for the big 8-bit view to finish the play it's showing
-  STALE: 45000,     // news this old is no longer news
+  STALE: 25000,     // news this old is no longer news (2026-10-11: was 45 s; see rzTick)
   seen: new Map(),  // gameId -> last play id seen on the scoreboard
   seenIds: new Map(), // gameId -> every play id that game's scoreboard has ever shown (news only once)
   played: new Set(), // "gameId|playId" of every play the 8-bit view has shown in RedZone
@@ -50,8 +51,9 @@ const RZ = {
   feedTimer: null,
 };
 // What a play is worth to the director. Higher wins the card.
-// A kickoff, punt or try ('dead') is shown when it happens in the game on screen but never pulls the
-// card to its game.
+// A kickoff, punt or try ('dead', 'pat') never pulls the card to its game. A kickoff or punt in the
+// game on screen sends the card elsewhere (2026-10-11, user: "we never want to watch kickoffs or punts
+// on redzone"), and the 8-bit view puts it up as it ended instead of running it (rzSkipKick).
 const RZ_PRIO = { score: 100, turnover: 80, redzone: 60, big: 50, gffl: 35, play: 15, pat: 0, dead: 0, meta: -1 };
 const RZ_LABEL = { score: '', turnover: '', redzone: 'Red zone', big: 'Big play', gffl: '', play: '', pat: '', dead: '', meta: '' };
 
@@ -159,6 +161,10 @@ function rzOnBoard(evs, now = Date.now()) {
     } else {
       // Two unseen plays from one game: the newer one, unless the older was a score or a turnover
       // the newer can't match (the touchdown, not the extra point after it).
+      // A kickoff, punt or try elsewhere never waits: it can't take the card, and while it sat in
+      // RZ.pending it stopped the quiet rotation (2026-10-11: a quiet game held the card 86 s, not 30,
+      // behind one kickoff and one punt in other games).
+      if (news.prio <= 0) continue;
       const old = RZ.pending.get(ev.id);
       if (!old || news.prio >= old.prio || !big(old.kind)) RZ.pending.set(ev.id, news);
     }
@@ -173,12 +179,17 @@ function rzHold(now) {
   const ev = S.byId.get(c.gid);
   if (c.manual && now - c.since < RZ.HOLD_PICK) return Infinity;
   if (c.kind === 'score' && now - c.since < RZ.HOLD_SCORE) return Infinity;
-  if (rzInRZ(ev)) return RZ_PRIO.redzone;
+  // 2026-10-11: a game inside the 20 held the card through its whole huddle, up to 90 s, against every
+  // ordinary play elsewhere (user: "jumping to plays that just happened vs getting stuck showing one
+  // game that is in huddle"). Waiting there never catches the snap live: the scoreboard reports a play
+  // after it's run, and its next red-zone snap is news that outranks ordinary plays and brings the card
+  // straight back. So the red zone holds while its play is fresh, not between snaps.
+  if (rzInRZ(ev) && now - c.at < RZ.RZ_FRESH) return RZ_PRIO.redzone;
   return 0;
 }
-// The game to go to when no play is waiting: the red zone first, then a game that just ran a snap,
-// then the game the scoreboard already ranks highest (close, late, upset watch, your GFFL players),
-// less the more recently it was on. A game between drives is last.
+// The game to go to when no play is waiting: a game that just ran a snap RedZone hasn't shown, then
+// the red zone, then the game the scoreboard already ranks highest (close, late, upset watch, your GFFL
+// players), less the more recently it was on. A game between drives is last.
 function rzBestGame(now, except) {
   let best = null, bestS = -Infinity;
   for (const ev of S.events || []) {
@@ -186,8 +197,12 @@ function rzBestGame(now, except) {
     const s = ev.sit || {};
     const ytg = s.yardLine != null && s.possession ? (s.possession === ev.home.id ? s.yardLine : 100 - s.yardLine) : null;
     let sc = excitement(ev) + (rzInRZ(ev) ? 60 + (ytg != null ? Math.max(0, 20 - ytg) : 0) : 0);
+    // A fresh snap the 8-bit view hasn't run here is a tier above every game without one (2026-10-11:
+    // it was +30 against the red zone's 60 to 80 and excitement()'s 0 to 100-odd, so the card could
+    // leave a finished drive for a game standing in its huddle, with nothing to run on arrival, instead
+    // of the game that had just snapped). Among fresh snaps the red zone and excitement still decide.
     const act = RZ.lastNews.get(ev.id);
-    if (act != null && now - act < 20000) sc += 30;
+    if (act != null && now - act < 20000) sc += rzPlayed(ev.id, ev.sit?.lastPlay?.id) ? 30 : 200;
     if (RZ.dead.has(ev.id)) sc -= 80;
     const last = RZ.shown.get(ev.id);
     if (last != null) sc -= Math.max(0, 40 - (now - last) / 3000);  // just left it: 40 down, back to even after 2 minutes
@@ -210,6 +225,9 @@ function rzCut(gid, news, now, manual = false) {
 // back at a game, a play in here is put up as it ended, not run again.
 const rzPlayed = (gid, pid) => pid != null && RZ.played.has(`${gid}|${pid}`);
 function rzMarkPlayed(gid, pid) { if (pid != null && rzFollowing()) RZ.played.add(`${gid}|${pid}`); }
+// A kickoff or punt the 8-bit view doesn't run in RedZone: it puts it up as it ended (sd-reenact.js's
+// sidePlay). A return for a touchdown, a muff or a block is a score or a turnover, and it runs.
+const rzSkipKick = (p) => !!p && rzFollowing() && (p.kind === 'kickoff' || p.kind === 'punt') && !p.scoring && !p.turnover;
 
 /* ───────────── the big view follows ───────────── */
 // 2026-10-04, user: "the card on the top right is changing to new plays and games but not the 8 bit
@@ -296,6 +314,16 @@ function rzTick(now = Date.now()) {
     return rzRender();
   }
   const dwell = now - c.since;
+  // A kickoff or punt in the game on screen: off to a game with a play to show, without waiting out
+  // RZ.MIN or the stage (2026-10-11, user: "we never want to watch kickoffs or punts on redzone").
+  // A score still has its 8 s, and a game the viewer picked its 14 s.
+  if (c.kind === 'dead' && rzHold(now) !== Infinity) {
+    let next = null;
+    for (const [gid, n] of RZ.pending) if (!next || n.prio > next.n.prio || (n.prio === next.n.prio && n.at > next.n.at)) next = { gid, n };
+    if (next) { rzCut(next.gid, next.n, now); return rzRender(); }
+    const ev = rzBestGame(now, c.gid);
+    if (ev && !RZ.dead.has(ev.id)) { rzCut(ev.id, null, now); return rzRender(); }
+  }
   if (dwell < RZ.MIN || rzStageBusy(now)) return rzRender();
   const hold = rzHold(now);
   let best = null;
@@ -310,13 +338,13 @@ function rzTick(now = Date.now()) {
     const ev = rzBestGame(now, c.gid);
     if (ev && !RZ.dead.has(ev.id)) { rzCut(ev.id, null, now); return rzRender(); }
   }
-  // Nothing new worth a cut. Rotate after a quiet spell, but a game in the red zone keeps the card.
+  // Nothing new worth a cut. Rotate after a quiet spell (2026-10-11: a game inside the 20 no longer
+  // keeps the card 90 s here; see rzHold).
   const quiet = now - Math.max(c.since, c.at);
-  const limit = rzInRZ(curEv) ? RZ.RZ_MAX : RZ.MAX;
-  if (quiet >= limit && !RZ.pending.size) {
+  if (quiet >= RZ.MAX && !RZ.pending.size) {
     const ev = rzBestGame(now, c.gid);
     if (ev) rzCut(ev.id, null, now);
-  } else if (quiet >= limit && best) rzCut(best.gid, best.n, now);
+  } else if (quiet >= RZ.MAX && best) rzCut(best.gid, best.n, now);
   rzRender();
 }
 

@@ -1725,3 +1725,64 @@ Bite: main's app files with the new suites score 397/411 and 57/60. They fail th
 that test a fix plus the console check (main throws on the Back press), and 3 of the 4 F8 checks.
 Every pre-existing check passes. On main the stage's tick asks for 2 frames per frame after the
 chained scenes; with the fix it asks for 1.
+
+## RedZone follows the plays, not the huddle; no kickoffs or punts (2026-10-11)
+
+User: "is GFFL redzone feature need any adjustments? … the goal is its showing teams in the redzone
+when possible, and also jumping to plays that just happened vs getting stuck showing one game that is
+in huddle", then, on the findings, "make all the changes. we never want to watch kickoffs or punts on
+redzone".
+
+The director was loaded into a scratch harness with stubbed globals before any change. Two ways it got
+stuck:
+- **A red-zone huddle held the card.** While the game on screen was inside the 20, only a score, a
+  turnover or another red-zone snap could take the card, for up to 90 s with nothing new in that game.
+  With two other games snapping every 10 s, the card stayed on the red-zone game for the full 90 s.
+  Waiting there never catches the snap live: the scoreboard reports a play after it's run, so the
+  8-bit view always draws it afterwards.
+- **A kickoff or punt in another game stopped the rotation.** A kickoff or punt elsewhere sat in
+  `RZ.pending` at priority 0. It couldn't take the card, but the quiet rotation only ran with
+  `RZ.pending` empty. A quiet game meant to hand off at 30 s held 86 s behind one kickoff and one punt.
+
+This reverses the red-zone hold of 2026-10-04 ("a game inside the 20 holds against anything below a
+red-zone snap" and "a quiet game inside the 20 may hold 90").
+
+- **The red zone holds while its play is fresh** (`RZ.RZ_FRESH`, 12 s from the play landing, in
+  `rzHold`), not between snaps. The game's next red-zone snap is priority 60, above every ordinary play,
+  so it brings the card straight back. `RZ_MAX` is gone; a quiet red-zone game gets the same 30 s as
+  any other.
+- **Priority 0 news never waits.** Kickoffs, punts and tries in other games aren't put in `RZ.pending`.
+- **No kickoffs or punts.** One in the game on screen sends the card on at once (`rzTick`), without
+  waiting out `RZ.MIN` or the stage. A score keeps its 8 s and a tapped game its 14 s. The 8-bit view
+  in RedZone puts a kickoff or punt up as it ended instead of running it (`rzSkipKick`, checked at the
+  top of `sidePlay`, which stages it through `sideSettle`). A return touchdown, a muff or a block is a
+  score or a turnover, and it runs. A game's own screen runs kicks as before.
+- **The rotation prefers a fresh snap.** A game that snapped in the last 20 s, with a play the 8-bit
+  view hasn't run in RedZone, gets +200 in `rzBestGame` (+30 if it has). That is a tier above the red
+  zone's 60 to 80 plus `excitement()`'s 0 to 100-odd, so a game that just snapped beats a red-zone game
+  standing in its huddle, where arrival would have nothing to run. Among games that just snapped, the
+  red zone and excitement still decide. (+90 was tried first and lost one way round on the fixture.)
+- **News goes stale at 25 s** (`RZ.STALE`, was 45). A play that old didn't just happen.
+
+Cache-bust ?v=20261011b.
+
+VERIFY: sunday 418/418, sunday-ff 60/60. RESTAGED, with the reason at each check:
+- "a game in the red zone keeps the card against an ordinary play elsewhere (25 s on)" is now "a fresh
+  red-zone play keeps the card at 8 s; the ordinary play takes it at 12 s; a touchdown takes it at once".
+- "a quiet game inside the 20 keeps the card up to 90 s" is now "moves on after 30 s like any other".
+
+New:
+- a red-zone game in its huddle gives the card to games that are snapping, and its next red-zone snap
+  brings the card back;
+- kickoffs and punts elsewhere don't wait, and don't keep a quiet game up past 30 s;
+- a kickoff, or a punt 3 s after a snap, in the game on screen sends the card on at once;
+- a kickoff 3 s after a touchdown leaves the touchdown up for its 8 s (a control: passes on main too);
+- leaving a finished drive, a game that just snapped beats a red-zone huddle, both ways round;
+- news over 25 s old is dropped;
+- in RedZone the 8-bit view puts a kickoff up as it ended. A return touchdown runs, and on a game's own
+  screen the kickoff runs. The fixture has no punt, so punts are covered by the director's checks.
+
+Bite: main's app files with the new suite score 410/418. They fail the 6 new checks that test a change
+and the 2 restaged ones. The control and every pre-existing check pass. On main a red-zone huddle keeps
+the card 90 s with two games snapping beside it, and a quiet game stays 86 s behind a kickoff and a
+punt elsewhere.
