@@ -11240,3 +11240,8 @@ lands on `/sunday.html#g401900001`.
 
 **VERIFY:** `--only AT,BA,AVG,SU` **339/339**. Bite (HEAD lg-ui.js, suite unchanged): BA **3
 fail**, landing on `/league.html#nflgame=401900001`.
+
+Full battery **4464/4464**, run in four pieces in a Linux sandbox (scratchpad `puppeteer-core@23`
+against `/opt/pw-browsers/chromium`). The single run twice died with `ProtocolError: Promise was
+collected`, first entering AS and then UD4. Neither section touches this change, and each passed
+alone (AS 28/28, UD4 8/8). The run then resumed from the next section.
