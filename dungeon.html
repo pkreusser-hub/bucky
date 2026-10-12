@@ -410,7 +410,10 @@
   }
   async function refreshCampaigns() {
     try { renderCampaigns((await callAction("dnd_list")).campaigns || []); }
-    catch (e) { $("campList").innerHTML = '<div class="sub">Couldn’t load: ' + e.message + "</div>"; }
+    catch (e) {   // the message can come from a server/proxy body: text, never markup
+      const d = document.createElement("div"); d.className = "sub"; d.textContent = "Couldn’t load: " + e.message;
+      $("campList").replaceChildren(d);
+    }
   }
 
   $("newCampBtn").addEventListener("click", () => { $("newCampCard").style.display = "block"; $("ncName").focus(); });

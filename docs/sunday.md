@@ -1786,3 +1786,11 @@ Bite: main's app files with the new suite score 410/418. They fail the 6 new che
 and the 2 restaged ones. The control and every pre-existing check pass. On main a red-zone huddle keeps
 the card 90 s with two games snapping beside it, and a quiet game stays 86 s behind a kickoff and a
 punt elsewhere.
+
+# Review fix (2026-10-12)
+- **Scoreboard froze after a phone lock with a game open**: hiding the tab stopped `boardPoller`, but
+  coming back with a game open restarted only the game's own pollers. The scoreboard poller (it feeds
+  the phone game strip and the desktop sidebar while a game is open) now restarts in both cases.
+  `_verify-sunday.cjs` **419/419** (+1); on HEAD the new check fails, the other 418 pass. Its
+  "called from visibilitychange" check is a source-proximity regex (`sideArrive()` within 400 chars),
+  so the explanatory comment sits above the listener, not inside it.

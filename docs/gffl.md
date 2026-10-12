@@ -11245,3 +11245,33 @@ Full battery **4464/4464**, run in four pieces in a Linux sandbox (scratchpad `p
 against `/opt/pw-browsers/chromium`). The single run twice died with `ProtocolError: Promise was
 collected`, first entering AS and then UD4. Neither section touches this change, and each passed
 alone (AS 28/28, UD4 8/8). The run then resumed from the next section.
+
+### Whole-project review fixes (2026-10-12)
+
+- **Postponed games locked their players.** `D.gameStarted` read ESPN's postponed shape (`state:"post"`,
+  `completed:false`) as underway, so every starter on that team was locked (no swap, drop or add) and a
+  waiver winner was forced to bench — D-S6 fixed `gameDone`/`remaining` for this shape but missed this
+  reader. Now `"post"` counts as started only when `completed !== false` (same convention, so a producer
+  that never states the field reads exactly as before), and a postponed game gets no kickoff fallback
+  (the ORIGINAL kickoff has passed and would re-lock the same men). Two checks in BF3.
+- **A bracket tap rewrote the live week.** The bracket's `[data-mu]` handler set `UI.week` to the
+  tapped game's week; `UI.week` is what the locker, `faAdd`, `addClaim` and `dropPlayer` write to, so a
+  lineup set after tapping last week's semi landed in last week's roster doc (and a future game minted a
+  copy-forward roster). It now browses via `UI._muWeek` like the week arrows (stepMuWeek). Check in U's
+  built-bracket page (clock moved to week 16, week-15 game tapped).
+- **lineupwarn warned recovered players every kickoff.** injstate's `""` is the app's committed
+  all-clear, but `findCandidates` treated it as unknown and fell back to the roster doc's import-time
+  `injury`. A present injstate field is authoritative now; `p.injury` only when injstate never saw the
+  player. `_verify-lineupwarn.mjs` **58/58** (+2, A6); on HEAD the new check fails, the control passes.
+- Version bumped to **20261012a** (gffl-version.txt, the gffl-v meta, the three ?v= strings) and
+  recorded with `node tools/_gffl_asset_versions.mjs --record`.
+- **VERIFY:** `--only BF,U,AVG` **133/133**; bite (HEAD lg-*.js, new suite): BF,U **2 fail** — exactly
+  the two new checks, every pre-existing check passes. Full battery **4449 run, 4448 pass**: A–S 665/665 in one run (which
+  then hit the known `Promise was collected` crash entering T, as the 2026-10-11 entry describes), T–AVG
+  in 14 chunks of 8 sections 3783/3784 — the 1 was TG's "a freeze-gap pulse reports the page was
+  frozen" timing check, 163/163 on its rerun (TG–TL).
+- Sandbox note: the default `GFFL_PORT_BASE` 8843 collided with a leftover server
+  (`EADDRINUSE 8847`); `GFFL_PORT_BASE=9350` runs clean.
+- **Reported, not changed:** `persistLineup` re-applies every slot from the render-time snapshot with a
+  blind `saveRoster` rather than a `rosterUpdate` delta of just the changed keys — a stale second device
+  can put a kicked-off player back in a starting slot. Worth converting to the delta pattern.

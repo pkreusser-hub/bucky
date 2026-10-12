@@ -1322,4 +1322,82 @@ Battle MVP; name Cursor's concurrent Farm Party work in the commit).
   (460d3b7d…/scratchpad — suites live in their OWN session dirs), fp_mp_local 10/10. Suite
   card-count assertions updated 3→4 cards / 1→2 playable for the new registry reality.
 
+# 🏁 Farm Kart — TITLE SCREEN + MENU v3 (2026-10-12)
+
+User: "give it a proper title page and good UI menu that feels like a modern game." Same MenuFlow
+screens, ids and flow logic underneath (every launch / reload / MP path is untouched); the skin,
+camera and input layer are new. All in `farmkart.html`.
+- **TITLE (attract mode)**: `#fkTitle` inside `#startOverlay` — stacked FARM / KART wordmark
+  (`.fkWord`: Lilita One, skewed, gradient fill over an outlined copy in `::before`, checker stripe),
+  tagline, pulsing prompt ("Press any button" / "Tap to start" / "Press A" with a pad), cinematic
+  letterbox bars. Shown ONLY on a bare boot (MenuFlow.init path 5); resume flows, `?track=` deep
+  links, MP and returning from a race never show it. `?notitle=1` skips it (tests / dev). Any key,
+  click, tap or pad A/Start → start sting (`menuSfx('start')`) → home. Its key handler is a window
+  CAPTURE listener that stops propagation, so the Enter that dismisses it never reaches `advance()`.
+- **MENU CAMERA** (`MenuCam`, beside `updateCamera`): replaces the chase cam while `G.phase==='menu'`
+  — `'title'` flies the racing line (12 u/s of sim time, 8.5u up, 7u outside, looking 34u ahead),
+  `'garage'` orbits the parked kart, `'showroom'` (racer select + MP lobby) orbits closer and faster so
+  loadout changes read live. Writes `camera.position` directly, never camPos/camHeading — the chase
+  cam resumes exactly where placeAtGrid snapped it. Wide screens shift the projection with
+  `setViewOffset` so the kart sits right of the panel (0.17·W garage, 0.21·W showroom); phones park it
+  0.30·H down, below the list. Leaving the menu clears the offset and restores the chase FOV.
+  GOTCHA: the menu cam owns `camera.fov` on the menu, so read the chase FOV after a race starts
+  (`_verify-hud-defaults.cjs` was restaged for exactly this).
+- **CHROME**: left-weighted scrim; top bar (`#mfTop`: brand / breadcrumb from histStack via `CRUMB`
+  / profile chip / own sound + music buttons — the race's `#muteBtn`/`#musicBtn`/`#help` hide under
+  `body.fkMenu`, which updateCamera toggles each frame); slab nav buttons (skewed clip-path, accent
+  fill + chevron on focus); cards with a check badge when selected; sticky Back/RACE bar (shaded only
+  when the screen actually scrolls — `#menuFlow.scrolly`); bottom hint bar (keycaps, or pad glyphs
+  when a pad is connected; hidden on touch). Track Editor is now a regular slab on home.
+- **NO EMOJI IN THE CHROME** (house rule): every menu icon is an inline SVG from MenuFlow's `ICON`
+  table (`cupIcon` tints the trophy per cup, `medalSvg` draws gold/silver/bronze); driver cards show
+  the name's initial; classes read "150cc / Truck"; locks are an SVG badge. The hidden `#legacyMenu`
+  still carries emoji — it is never rendered and must stay for its wiring (MENU OVERHAUL entry).
+- **INPUT**: one focus highlight shared by mouse (hover focuses), keys (arrows move spatially —
+  nearest item in that direction, `along + 2.2·across` — Enter/Space select, Esc/Backspace back) and
+  pad (d-pad / left stick with 380 ms hold-to-repeat, A select, B back, Start select). Keyboard and pad
+  users land focused on each new screen's first item (or its selected card); touch never shows a
+  ring. Esc / B never leave the MP lobby (that would drop the room). Synth sound cues for move /
+  select / back through masterGain (never create the AudioContext before a gesture).
+- **FONT**: Google Fonts Lilita One, loaded NON-blocking (`media="print" onload`), fallback Arial
+  Black — a slow font CDN must never delay first paint. Suites that block googleapis see the fallback.
+- **VERIFY**: `node tools/_verify-fk-menu.cjs` **56/56** (title on bare boot + flyover really moving
+  per sim-second, no emoji, Enter never starts a race, keyboard + pad navigation, crumbs/hints,
+  hand-computed camera projections 857.6 / 908.8 / (195, 675.2) px, sticky RACE on-screen, sound
+  toggle, race handoff: no view offset + chase FOV + chase distance, back to home not title,
+  `?notitle` + `?track=` skips, phone layout + touch release). Against HEAD it dies at the first check
+  (no title). Battery: `_verify-hud-defaults` PASS (restaged FOV read), audio 102/102, items 24/24,
+  minimap, modes 17/17, align-boost, editor, farmkart-mobile 119, fences, glbdrivers 65/65,
+  harvesthollow 70/70, midnightrun, ramp, tankbattle 75/75, driver / followterrain / grass-clear /
+  slope-conform / terrain-auth PASS. Pre-existing and identical on HEAD: loadout (expects 3 kart /
+  driver kinds — there are 4 / 7), proj-fx 14/16, gator3d, wall-drift, themepack's rainbow-road Y
+  check, turnpike's ribbon/curb colour checks, editor-bot's one blocked-resource console error, and
+  bots 142/145 — its MEASURED section fails 2-3 checks per run in this swiftshader sandbox on HEAD
+  too, and WHICH ones flips run to run (rival binding: normal one run, hard the next).
+- **SANDBOX GOTCHAS (cloud container)**: (1) suites that don't install request interception hang in
+  `networkidle0` on Firestore's Listen long-poll — run them with a `-r` preload that patches
+  `puppeteer.CdpBrowser.prototype.newPage` to abort googleapis|firestore|firebase|gstatic|playroom
+  (the ESM namespace's `launch` can't be reassigned). (2) A suite reuses ANY server already on its
+  port: a leftover http-server rooted at the working tree makes a "HEAD" run silently test the working
+  tree. Free the port (socket inode → pid) before every before/after run; the new suites spawn their
+  server `detached` and kill the process group.
+
+# 🏁 Farm Kart — review fixes (2026-10-12)
+- **Editor unsaved-work guards** (`farmkart-editor.html`): the Load picker and Import now confirm
+  before discarding unsaved edits (cancel restores the picker); the background cloud pull no longer
+  hot-swaps the open track while it is dirty (toast instead) and resets history when it does swap;
+  two bare `localStorage.getItem` boot reads are guarded (blocked storage killed the editor).
+  `node tools/_verify-fk-editor-guards.cjs` **11/11**; on HEAD the 5 guard checks fail and the
+  blocked-storage editor never boots.
+- **MP host heartbeat sub-steps** (hidden host tab, ~1 Hz): the whole ~1 s dt went into stepKart for
+  every bot in one step (the rAF path clamps 0.05). Now 0.05 steps + one snapshot publish per beat;
+  `net._hbLog` test hook. `node tools/_verify-fk-heartbeat.cjs` **5/5**.
+- **Touch input released on blur / hidden** (steer, drift, item latched after an app switch) and the
+  ♻ reset button respects pause. Checked in `_verify-fk-menu.cjs`'s phone pass.
+- **NOT fixed — needs a sync design** (reported): the editor's and game's cloud reconcile REPLACE the
+  local `fk_tracks_v1` map with the cloud one (a track saved offline is lost), and `doSave` writes the
+  whole local map over the cloud doc (another device's newer save can be wiped). Needs per-track
+  stamps or a read-merge-write; merging naively would re-upload stale shadows like the
+  toads-turnpike case above.
+
 ---

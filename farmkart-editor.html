@@ -397,7 +397,11 @@
           const map = JSON.parse(raw);
           if (map && map[currentId]){
             const t = FK_TRACK.sanitize(map[currentId]);
-            if (t){ track=t; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); }
+            // Never swap the track out from under unsaved edits (the pull can land seconds after
+            // boot, mid-edit). Clean: hot-reload + fresh history (old undo steps belong to the
+            // replaced copy). Dirty: keep the user's work and say a newer copy exists.
+            if (t && dirty){ toast('A newer copy of this track was saved on another device. Your unsaved edits are kept.', 4000); }
+            else if (t){ track=t; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); resetHistory(); clearDirty(); }
           }
         }catch(e){}
       }
@@ -1516,7 +1520,8 @@
   }
   function wireScenerySection(){
     const t=$('propToggle'); if (t) t.addEventListener('click', ()=>setPropsOpen($('sceneryBody').style.display==='none'));
-    setPropsOpen(localStorage.getItem(PROPS_OPEN_KEY)==='1');
+    let propsOpen=false; try{ propsOpen = localStorage.getItem(PROPS_OPEN_KEY)==='1'; }catch(e){}   // blocked storage must not kill boot
+    setPropsOpen(propsOpen);
   }
 
   function rebuild(){
@@ -1966,7 +1971,8 @@
     try{ localStorage.setItem(ADV_KEY, open ? '1' : '0'); }catch(e){}
   }
   $('advToggle').addEventListener('click', ()=>{ setAdvOpen($('advBody').style.display !== 'block'); });
-  setAdvOpen(localStorage.getItem(ADV_KEY) === '1');
+  let advOpen=false; try{ advOpen = localStorage.getItem(ADV_KEY) === '1'; }catch(e){}   // blocked storage must not kill boot
+  setAdvOpen(advOpen);
   wireScenerySection();
 
   // ---- raycasting / pointer interaction ----
@@ -2463,6 +2469,7 @@
     else toast('exported to box');
   });
   $('impBtn').addEventListener('click', ()=>{
+    if (dirty && !confirm('You have unsaved changes. Import over them and discard them?')) return;
     try{
       const data = JSON.parse($('io').value);
       const clean = FK_TRACK.sanitize(data);
@@ -2507,7 +2514,10 @@
     track=c; currentId=id||null; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); populateLoad();
     resetHistory(); clearDirty();
   }
-  $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
+  $('loadSel').addEventListener('change', ()=>{
+    // same unsaved-work guard as ＋ New course; cancelling puts the picker back on the open track
+    if (dirty && !confirm('You have unsaved changes. Load another track and discard them?')){ $('loadSel').value = currentId || ''; return; }
+    const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
 
   // ---- ＋ New course (2026-07-12): a fresh, simple oval loop with a unique id, switched into the
   // editor. Guards against losing unsaved work (confirm when dirty), resets history to one snapshot,

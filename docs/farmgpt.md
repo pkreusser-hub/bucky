@@ -3214,3 +3214,18 @@ the function at origin/main, the new check the only failure).
   there is water, and there is no one to hurt you." Nothing in the day broke the rules.
 - 1 scene of about 20 ended with no choices and no chapter end (#80); the page's repair pass is
   what rescues those, and the log keeps the original.
+
+# Review fixes (2026-10-12)
+- **Money read as math**: `mdToHtml` stashed any `$…$` on a line as inline LaTeX, so "She had $5 and
+  spent $3" italicised "5 and spent " — the common case for a homework tutor. Inline `$…$` now needs
+  to hug its content (Pandoc's rule) and not be followed by a digit; a leftover `$` before a number is
+  currency and is wrapped in its own `<span class="cur">` so KaTeX auto-render (which pairs delimiters
+  within one text node only) can't pair it either.
+- **Research history blanked by a literal `❢N❢`**: the math restore threw on a missing stash index
+  and aborted the whole render; it keeps the text now.
+- **dungeon.html**: a campaign-list load error put `e.message` into innerHTML — textContent now.
+- **Reported, not changed**: a mid-stream Anthropic `error` event is enqueued as story prose (and can
+  trigger a paid repair call); TeacherGPT runs Opus at 8000 max_tokens with no stop_reason check;
+  `ffcommentary` has no xAI outage fallback; a background-job 5xx falls through to a second paid run;
+  the parent-only storylog/budget modes are gated only by the family password that ships in client
+  JS — they need their own server-side secret.

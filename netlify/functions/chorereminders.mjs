@@ -6,15 +6,16 @@
 //
 // Intended Central-time sends: 8:30 AM, 1:00 PM, 8:30 PM.
 //
-// SCHEDULING NOTE (Netlify): a scheduled function accepts exactly ONE cron string.
-// The three target minutes differ (30 / 0 / 30) so they can't be expressed as one
-// 5-field cron without a cross product. We therefore schedule a cross-product cron
-// (`0,30 1,13,18 * * *`, 6 fires/day in UTC) and the handler SELECTS the three
-// intended fires by matching the current UTC time to the exact target minutes —
-// deterministic and DST-independent (crons are UTC). We ALSO compute the Central
-// hour and defensively no-op if it's way off from any expected slot (±90 min band),
-// which protects against a stray/manual invoke at an odd time. The schedule only
-// takes effect after deploy.
+// SCHEDULING NOTE (Netlify): a scheduled function accepts exactly ONE cron string, and
+// crons are UTC. The three target minutes differ (30 / 0 / 30), so the cron is a cross
+// product, and Central time is UTC-5 in summer (CDT) but UTC-6 in winter (CST), so it
+// covers BOTH offsets: `0,30 1,2,13,14,18,19 * * *` (12 fires/day). The handler then
+// SELECTS a fire by CENTRAL wall-clock time — only the fire that lands on 8:30 / 13:00 /
+// 20:30 Central (±6 min) sends; the other offset's fire that day lands an hour away and
+// no-ops. (2026-10-12 fix: the old version matched fixed UTC minutes computed for CDT, so
+// from the first Sunday of November every reminder went out an hour early, 7:30 / 12:00 /
+// 19:30, and the ±90-min Central "guard" let it through.) A stray/manual invoke at an odd
+// time still no-ops. The schedule only takes effect after deploy.
 //
 // Reuses notify.mjs's FCM technique (service-account JWT, RS256 via node:crypto)
 // but is fully self-contained per the repo's one-file-per-function convention —
@@ -53,13 +54,9 @@ const DEEP_LINK = "https://amenfarms.netlify.app/index.html#chores";
 const TITLE = "🐐 Chore check!";
 const BODY = "Time to knock out your chores and check them off in Bucky.";
 
-// The three intended send times, as minutes-past-midnight UTC:
-//   8:30 AM CDT = 13:30 UTC → 810 ; 1:00 PM CDT = 18:00 UTC → 1080 ; 8:30 PM CDT = 01:30 UTC → 90
-const TARGETS_UTC_MIN = [810, 1080, 90];
-const UTC_MATCH_WINDOW = 6; // minutes — cross-product fires are ≥30 min apart, so this never double-selects
-// Central-time slots (minutes past Central midnight) for the defensive ±90 no-op.
+// The three intended send times, as minutes past CENTRAL midnight (DST handled by Intl below).
 const TARGETS_CENTRAL_MIN = [510 /* 8:30 */, 780 /* 13:00 */, 1230 /* 20:30 */];
-const CENTRAL_BAND = 90;
+const MATCH_WINDOW = 6; // minutes — cron fires are ≥30 min apart, so this never double-selects
 
 // ---- Google token (hand-signed JWT, RS256) ----
 function base64url(input) {
@@ -180,9 +177,6 @@ function nowMs() {
   const t = Number(process.env.CHOREREMINDER_TEST_NOW_MS);
   return Number.isFinite(t) && t > 0 ? t : Date.now();
 }
-function utcMinutes(now) {
-  return now.getUTCHours() * 60 + now.getUTCMinutes();
-}
 // Central (America/Chicago) date key "YYYY-MM-DD" + minutes-past-midnight.
 function centralParts(now) {
   const fmt = new Intl.DateTimeFormat("en-CA", {
@@ -200,18 +194,13 @@ function centralParts(now) {
 // Returns the matched slot index (0/1/2) if this is one of the intended fires, else -1.
 function matchedSlot(now) {
   if (process.env.CHOREREMINDER_FORCE === "1") return 0;
-  const um = utcMinutes(now);
   const within = (a, b, w) => {
     let d = Math.abs(a - b);
     d = Math.min(d, 1440 - d); // wrap around midnight
     return d <= w;
   };
-  const idx = TARGETS_UTC_MIN.findIndex((t) => within(um, t, UTC_MATCH_WINDOW));
-  if (idx < 0) return -1;
-  // Defensive Central-band check: no-op if Central time is way off from every expected slot.
   const cm = centralParts(now).minutes;
-  const ok = TARGETS_CENTRAL_MIN.some((t) => within(cm, t, CENTRAL_BAND));
-  return ok ? idx : -1;
+  return TARGETS_CENTRAL_MIN.findIndex((t) => within(cm, t, MATCH_WINDOW));
 }
 
 // ---- Smart skip: is every DAILY chore already done for today (Central)? ----

@@ -6298,19 +6298,34 @@ function splitValue(value, n){
   return out;
 }
 // ----- Kid payout confirmation (Dad-only decision on a completed, value>0 kid work order) -----
+// Money is irreversible, so a payout is written ONCE per completion no matter how it's triggered:
+//  - payoutInFlight drops a second tap while the first is still awaiting its writes (a double-tap
+//    on a slow connection used to credit the kid twice);
+//  - the ledger docs get a deterministic id (order + completion time + kid), the allowance pattern,
+//    so a retry after a failed write, or Dad confirming on two devices, converges on ONE doc.
+//  - the card closes immediately (payoutPending cleared locally before the awaits); if a write
+//    fails, the order stays payoutPending in the backend and the retry is safe by the ids above.
+const payoutInFlight = new Set();
 async function confirmPayout(w){
-  const value = parseFloat(w.value) || 0;
-  const recipients = payoutRecipients(w);
-  const split = recipients.length > 1;
-  const amounts = splitValue(value, recipients.length || 1);
-  for (let i = 0; i < recipients.length; i++){
-    const kid = recipients[i], amt = amounts[i];
-    await addLedgerEntry(kid, amt, w.name + (split ? " (split)" : ""), BANK_ADMIN, "workorder");
-    notifyPayoutConfirmed(w, amt, kid);
+  if (!w.payoutPending || payoutInFlight.has(w.id)) return;
+  payoutInFlight.add(w.id);
+  try {
+    const value = parseFloat(w.value) || 0;
+    const recipients = payoutRecipients(w);
+    const split = recipients.length > 1;
+    const amounts = splitValue(value, recipients.length || 1);
+    const patch = { payoutPending: false };
+    Object.assign(w, patch); render();
+    for (let i = 0; i < recipients.length; i++){
+      const kid = recipients[i], amt = amounts[i];
+      const id = `payout_${idSlug(w.id)}_${w.doneAt || 0}_${idSlug(kid)}`;
+      await backend.set(id, { frequency:"kidbank", kid, amount: amt, desc: w.name + (split ? " (split)" : ""), by: BANK_ADMIN, at: Date.now(), kind: "workorder" });
+      notifyPayoutConfirmed(w, amt, kid);
+    }
+    await backend.update(w.id, patch);
+  } finally {
+    payoutInFlight.delete(w.id);
   }
-  const patch = { payoutPending: false };
-  Object.assign(w, patch); render();
-  await backend.update(w.id, patch);
 }
 async function notYetPayout(w){
   // Gentle reopen: done goes back to false (progress is untouched), payoutPending clears.
@@ -6697,7 +6712,14 @@ async function ensureDailyAllowance(){
     allowanceChecked.add(memKey);
     if (!existing){
       const id = `allowance_${idSlug(kid)}_${day}`;
-      await backend.set(id, { frequency:"kidbank", kid, amount: 2, desc: "All chores done — daily $2! ⭐", by: "BUCKY", at: Date.now(), kind: "allowance", day });
+      try {
+        await backend.set(id, { frequency:"kidbank", kid, amount: 2, desc: "All chores done — daily $2! ⭐", by: "BUCKY", at: Date.now(), kind: "allowance", day });
+      } catch (e) {
+        // offline / rejected: forget the check so the next render retries (the id is deterministic,
+        // so a retry can never mint twice) and carry on with the other kids
+        allowanceChecked.delete(memKey);
+        continue;
+      }
       notifyBankCredit(kid, 2, "Allowance", id);   // dedup on the deterministic allowance doc id
       if (currentTab === "farmbank") render();
     }
@@ -6799,15 +6821,23 @@ function openWhatFor(kid, amount){
   setTimeout(()=>document.getElementById("bankWhatForInput").focus(), 100);
 }
 function closeWhatFor(){ document.getElementById("bankWhatForOverlay").classList.remove("open"); }
+let whatForSaving = false;   // Save tapped twice / Enter + tap on a slow connection = one entry, not two
 async function saveWhatFor(){
+  if (whatForSaving) return;
   const desc = document.getElementById("bankWhatForInput").value.trim();
   if (!desc){ document.getElementById("bankWhatForInput").focus(); return; }
   if (!bankWhatForKid) { closeWhatFor(); return; }
-  const ledgerId = await addLedgerEntry(bankWhatForKid, bankWhatForAmount, desc, myName() || BANK_ADMIN, "manual");
-  // Only a positive amount is a deposit — notifyBankCredit ignores withdrawals (amount ≤ 0).
-  notifyBankCredit(bankWhatForKid, bankWhatForAmount, desc, "manual_" + ledgerId);
-  closeWhatFor();
-  render();
+  const kid = bankWhatForKid, amount = bankWhatForAmount;
+  whatForSaving = true;
+  closeWhatFor();   // the sheet goes away at once, so there is nothing left to tap again
+  try {
+    const ledgerId = await addLedgerEntry(kid, amount, desc, myName() || BANK_ADMIN, "manual");
+    // Only a positive amount is a deposit — notifyBankCredit ignores withdrawals (amount ≤ 0).
+    notifyBankCredit(kid, amount, desc, "manual_" + ledgerId);
+  } finally {
+    whatForSaving = false;
+    render();
+  }
 }
 document.getElementById("bankWhatForCancelBtn").onclick = closeWhatFor;
 document.getElementById("bankWhatForSaveBtn").onclick = saveWhatFor;
@@ -7008,6 +7038,10 @@ function startOfDay(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate
 function dateKeyLocal(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function parseDateKey(k){ const p = String(k||"").split("-").map(Number); return new Date(p[0], (p[1]||1)-1, p[2]||1); }
 function weekStart(d){ const s = startOfDay(d); s.setDate(s.getDate() - s.getDay()); return s; }   // Sunday
+// n CALENDAR days later, same wall-clock time. Never `+ n*86400000`: a local day is 23h or 25h on a
+// DST switch, so fixed-24h steps from a local midnight land at 11 PM the day before after the
+// November fall-back — the month grid showed a date twice and lost the last cell (2026-10-12 fix).
+function addDays(d, n){ const x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
 function hhmm(d){ return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
 
 async function calPost(action, extra){
@@ -7043,11 +7077,11 @@ async function calFetchEvents(min, max){
 
 // month grid = 6 weeks from the Sunday on/before the 1st; week/day = their own span.
 function calVisibleRange(){
-  if (calView === "day"){ const min = startOfDay(calFocus); return { min, max: new Date(min.getTime()+86400000) }; }
-  if (calView === "week"){ const a = weekStart(calFocus); return { min: new Date(a.getTime()-calWeeksBefore*7*86400000), max: new Date(a.getTime()+calWeekCount*7*86400000) }; }
+  if (calView === "day"){ const min = startOfDay(calFocus); return { min, max: addDays(min, 1) }; }
+  if (calView === "week"){ const a = weekStart(calFocus); return { min: addDays(a, -(calWeeksBefore*7)), max: addDays(a, calWeekCount*7) }; }
   const first = new Date(calFocus.getFullYear(), calFocus.getMonth(), 1);
   const gridStart = startOfDay(first); gridStart.setDate(gridStart.getDate() - first.getDay());
-  return { min: gridStart, max: new Date(gridStart.getTime()+42*86400000) };
+  return { min: gridStart, max: addDays(gridStart, 42) };
 }
 
 // Fire-and-forget refresh driven by renderCalendar: status once per session, events whenever
@@ -7083,13 +7117,13 @@ async function ensureCalData(force){
 
 // All events touching a given local day (all-day events expand across their [start,end) range).
 function calEventsForDay(key){
-  const dayStart = parseDateKey(key), dayEnd = new Date(dayStart.getTime()+86400000);
+  const dayStart = parseDateKey(key), dayEnd = addDays(dayStart, 1);
   const out = [];
   for (const e of calEvents){
     if (!e || !e.start) continue;
     if (e.allDay){
       const s = startOfDay(parseDateKey(e.start));
-      const en = e.end ? startOfDay(parseDateKey(e.end)) : new Date(s.getTime()+86400000);   // Google end is exclusive
+      const en = e.end ? startOfDay(parseDateKey(e.end)) : addDays(s, 1);   // Google end is exclusive
       if (dayStart >= s && dayStart < en) out.push(e);
     } else {
       const s = new Date(e.start);
@@ -7122,13 +7156,13 @@ function calHomeNow(){ return calHomeNowOverride ? new Date(calHomeNowOverride) 
 // whole of their day (a 9 AM event is still today's plan at 3 PM).
 function calUpcoming(limit){
   const min = startOfDay(calHomeNow());
-  const max = new Date(min.getTime() + CAL_HOME_DAYS * 86400000);
+  const max = addDays(min, CAL_HOME_DAYS);
   const items = [];
   for (const e of calEvents){
     if (!e || !e.start) continue;
     if (e.allDay){
       const s = startOfDay(parseDateKey(e.start));
-      const en = e.end ? startOfDay(parseDateKey(e.end)) : new Date(s.getTime() + 86400000);   // Google end is exclusive
+      const en = e.end ? startOfDay(parseDateKey(e.end)) : addDays(s, 1);   // Google end is exclusive
       if (en <= min || s >= max) continue;
       const day = s > min ? s : min;
       items.push({ e, day, t: day.getTime(), timed: 0 });
@@ -7175,7 +7209,7 @@ function calHomeRefresh(){
   if (Date.now() - calCacheTs < CAL_HOME_TTL) return;
   if (calStatus && calStatus.configured === false) return;   // not set up yet — nothing to fetch
   calHomeFetching = true;
-  const min = startOfDay(new Date()), max = new Date(min.getTime() + CAL_HOME_DAYS * 86400000);
+  const min = startOfDay(new Date()), max = addDays(min, CAL_HOME_DAYS);
   calFetchEvents(min, max)
     .then(() => { const cur = document.querySelector(".home2 .calwidget"); if (cur && currentTab === "dashboard") paintCalWidget(cur); })
     .catch(() => {})
@@ -7184,7 +7218,7 @@ function calHomeRefresh(){
 function calTitleText(){
   if (calView === "month") return calFocus.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   if (calView === "week"){
-    const ws = weekStart(calFocus), we = new Date(ws.getTime()+6*86400000);
+    const ws = weekStart(calFocus), we = addDays(ws, 6);
     return ws.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + " – " + we.toLocaleDateString(undefined,{month:"short",day:"numeric"});
   }
   return calFocus.toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
@@ -7397,7 +7431,7 @@ function buildCalMonth(container){
   const todayKey = dateKeyLocal(new Date());
   const monthIdx = calFocus.getMonth();
   for (let i=0;i<42;i++){
-    const d = new Date(min.getTime()+i*86400000);
+    const d = addDays(min, i);
     const key = dateKeyLocal(d);
     const cell = document.createElement("button"); cell.className = "cal-cell";
     if (d.getMonth() !== monthIdx) cell.classList.add("other");
@@ -7439,7 +7473,7 @@ function buildCalMonth(container){
 function calWeekDayCards(container, ws){
   const todayKey = dateKeyLocal(new Date());
   for (let i=0;i<7;i++){
-    const d = new Date(ws.getTime()+i*86400000);
+    const d = addDays(ws, i);
     const key = dateKeyLocal(d);
     const card = document.createElement("div"); card.className = "cal-daycard" + (key===todayKey?" today":"");
     if (key === todayKey) card.dataset.todayAnchor = "1";   // what the week feed scrolls to
@@ -7452,7 +7486,7 @@ function calWeekDayCards(container, ws){
   }
 }
 function calWeekSepLabel(ws){
-  const we = new Date(ws.getTime()+6*86400000);
+  const we = addDays(ws, 6);
   const yr = we.getFullYear() === new Date().getFullYear() ? "" : " " + we.getFullYear();
   return ws.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + " – " + we.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + yr;
 }
@@ -7461,7 +7495,7 @@ function buildCalWeek(container){
   const feed = document.createElement("div"); feed.className = "cal-weekfeed";
   const weekBlock = (w)=>{   // one week (separator + 7 day cards) as a fragment
     const frag = document.createDocumentFragment();
-    const ws = new Date(anchor.getTime() + w*7*86400000);
+    const ws = addDays(anchor, w*7);
     const sep = document.createElement("div"); sep.className = "cal-weeksep"; sep.textContent = calWeekSepLabel(ws);
     if (w === 0) sep.dataset.anchor = "1";
     frag.appendChild(sep);
@@ -8309,7 +8343,7 @@ function renderAnimalCare(){
   const root = document.createElement("div"); root.className = "care";
 
   const ws = weekStart(new Date()); ws.setDate(ws.getDate() + careWeekOffset*7);
-  const we = new Date(ws.getTime() + 6*86400000);
+  const we = addDays(ws, 6);
   const top = document.createElement("div"); top.className = "care-top";
   const title = document.createElement("div"); title.className = "care-wk-title";
   title.textContent = careWeekOffset === 0 ? "This week" : (ws.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + " – " + we.toLocaleDateString(undefined,{month:"short",day:"numeric"}));
@@ -8335,7 +8369,7 @@ function renderAnimalCare(){
 
   const todayKey = dateKeyLocal(new Date());
   for (let i=0;i<7;i++){
-    const d = new Date(ws.getTime() + i*86400000);
+    const d = addDays(ws, i);
     const key = dateKeyLocal(d);
     const card = document.createElement("div"); card.className = "care-card" + (key===todayKey ? " today" : "");
     const h = document.createElement("div"); h.className = "care-card-h";

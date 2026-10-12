@@ -3454,9 +3454,12 @@
         </div>
       </div>`;
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
+      // Browse that game's week the way the week arrows do (stepMuWeek): UI._muWeek, never
+      // UI.week. UI.week is the LIVE league week the locker, faAdd, addClaim and dropPlayer write
+      // to — setting it here (2026-10-12 fix) sent a lineup set after tapping last week's semi
+      // into last week's roster doc, and a tap on a future game minted a copy-forward roster.
       const wk = Number(el.dataset.wk);
-      if (wk) UI.week = wk;
-      UI._muWeek = null;
+      UI._muWeek = wk && wk !== UI.week ? wk : null;
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.go("matchup");
     }));

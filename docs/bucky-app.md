@@ -2740,3 +2740,38 @@ column, came from a failing geometry check (the card's floor put its bottom unde
 Not verified: a real safe-area inset (headless has none; the 47px injection stands in), Android
 install on the proxy sites (needs the deploys), and the stocks and calendar functions themselves
 (mocked to their documented shapes; not called).
+
+# Project review fixes (2026-10-12)
+
+From a whole-project review; every fix has a check that fails on the old code.
+- **Work-order payout double-pay** (`confirmPayout`): a double-tap on "Confirm $X" credited the kid
+  twice (each call `backend.add`ed a fresh ledger doc, no in-flight guard). Now an in-flight Set per
+  order, the card closes before the awaits, and the ledger doc id is deterministic —
+  `payout_<order>_<doneAt>_<kid>` — so a retry or a second device converges on one doc (the allowance
+  pattern). A NEW completion (new doneAt) after a reopen is still a new payout — whether reopening a
+  paid order should be allowed at all is a family-policy call, not changed here.
+  `_verify-standalone.cjs` now double-taps: **1173/1173**; on HEAD that check fails with two $7 entries.
+- **"What for?" sheet**: Save + Enter could write two manual ledger entries — guarded, sheet closes first.
+- **Daily allowance**: a failed write (offline) left the day marked checked, so the $2 was never
+  retried on that device; the check is now forgotten on failure and the loop continues to the other kids.
+- **Calendar across DST**: day cells, day/week/month ranges and the care week stepped `+ n*86400000`
+  from a local midnight; after the Nov 1 fall-back every later cell landed at 11 PM the day before
+  (November showed "1" twice and lost Dec 12; an 11:30 PM Nov 1 event fell off its day). New
+  `addDays()` (calendar arithmetic) at all 15 sites. `_verify-calview.cjs` section H (Chicago
+  timezone): **27/28**; the 1 failure (desktop week lands on today, 1034px of 900) fails identically
+  on HEAD — the suite's own comment calls that bound date-dependent.
+- **Chore reminders an hour early all winter** (`chorereminders.mjs`): targets were fixed UTC minutes
+  computed for CDT. The cron now covers both Central offsets (`0,30 1,2,13,14,18,19 * * *`) and the
+  handler selects by Central wall-clock time. `node tools/_verify-chorereminders-dst.mjs` **8/8**
+  (a CDT day, the fall-back day, CST days, spring-forward, a stray invoke); on HEAD 3 fail with sends
+  at 7:30 AM / 12:00 PM / 7:30 PM Central.
+- **News SSRF via redirect** (`news.mjs`): `redirect:"follow"` meant only the first address was ever
+  guarded. Redirects are now followed by hand (max 4) and every hop goes back through `guardUrl`;
+  hex-form IPv4-mapped IPv6 and 100.64/10 added to the private ranges. `_verify-news.cjs` **203/203**
+  (+3: a 301 still resolves, a hop to ftp:// is refused as `redirect-bad-scheme`, a loop stops).
+- **Books cover XSS**: `coverHtml` put the cover URL into `src="…"` unescaped (movies already
+  escaped) — escaped now.
+- **Reported, not changed** (need a design decision): care-map / doneLog / goat-edit whole-object
+  writes can drop a concurrent edit from another device; meal inbox drain can drop a meal logged
+  mid-drain; books/movies library sync is a union, so deletions resurrect; a whole-library doc will
+  hit Firestore's 1 MiB cap eventually.

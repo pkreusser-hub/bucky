@@ -195,6 +195,15 @@ async function main() {
     `A5: at 12:00Z the finder returns exactly McLaurin (${allDay.map((c) => c.name)})`);
   const pm = mod.findCandidates(T("2026-10-04T22:50:00Z"), slateOf(FIX.scoreboard), rostersOf(), injOf);
   ok(pm.length === 0, `A5: at 22:50Z (CAR@DET in window) no starter is Out/IR/D — Coker is only Q (${pm.map((c) => c.name)})`);
+  // A6 (2026-10-12): injstate's "" is the app's committed ALL-CLEAR, not "unknown". McLaurin's roster
+  // doc still carries an import-time injury:"OUT"; once injstate says he's healthy he is not warned.
+  const stale = () => rostersOf().map((r) => ({ ...r, players: r.players.map((p) => (p.key === "3121422" ? { ...p, injury: "OUT" } : p)) }));
+  const cleared = { ...injOf, p_3121422: { stringValue: "" } };
+  const a6 = mod.findCandidates(T("2026-10-04T12:00:00Z"), slateOf(FIX.scoreboard), stale(), cleared);
+  ok(a6.length === 0, `A6: an injstate all-clear ("") beats a stale roster injury:"OUT" (${a6.map((c) => c.name + ":" + c.desig)})`);
+  const noState = { ...injOf }; delete noState.p_3121422;
+  const a6b = mod.findCandidates(T("2026-10-04T12:00:00Z"), slateOf(FIX.scoreboard), stale(), noState);
+  ok(a6b.length === 1 && a6b[0].desig === "OUT", `A6: CONTROL — with no injstate field at all the roster's injury is still used (${a6b.map((c) => c.name + ":" + c.desig)})`);
 
   /* ============================ B. bench, IR slot, healthy ============================ */
   section("B. only STARTERS, only unavailable designations");

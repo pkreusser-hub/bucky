@@ -99,7 +99,9 @@
     // already honours ?fam= (and carries it into its share links), so guests get their own namespace.
     { name: "Pasture Panic",  desc: "3D survive-the-stampede",                      url: "pasturepanic.html?fam=arcade" },
     { name: "Baby Bucky",     desc: "raise & care for a baby goat",                 url: "goatcare.html" },
-    { name: "Castle Kruzer",  desc: "build a kingdom — flags, roads & knights",     url: "castlekruzer.html" },
+    // ?fam=arcade for the same reason as Pasture Panic: Castle Kruzer's co-op registers a lobby in
+    // lobbies_<familyKey> (fs-net.js familyKey() honours ?fam=), which games.html shows to the family.
+    { name: "Castle Kruzer",  desc: "build a kingdom — flags, roads & knights",     url: "castlekruzer.html?fam=arcade" },
     { name: "Farm Life",      desc: "one family farm, always growing",              url: "farmlife/dist/" },
   ];
 

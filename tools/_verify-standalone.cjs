@@ -1172,12 +1172,14 @@ async function sectionFlows(browser){
     ok(await waitFor(page, () => !document.getElementById("woPinBtn") && !!document.querySelector(".payout-confirm-btn")), "[wo payout] after the PIN is accepted the Confirm button replaces it");
     const post = await page.evaluate(() => ({ prompts: window.__PROMPT_COUNT__, confirm: (document.querySelector(".payout-confirm-btn") || {}).textContent || "" }));
     ok(post.prompts === 2 && post.confirm.startsWith("Confirm $7") && post.confirm.includes("Isaac"), `[wo payout] on-demand: the PIN was asked for twice (set and re-enter, no PIN existed yet), and the button reads "${post.confirm}"`);
-    await click(page, ".payout-confirm-btn");
+    // A DOUBLE-TAP, not one click (2026-10-12): two clicks in the same tick on a slow connection used
+    // to credit the kid twice. Both must land on the same button, so fire them before any re-render.
+    await page.evaluate(() => { const b = document.querySelector(".payout-confirm-btn"); b.click(); b.click(); });
     // before: 5 active (wo1..wo4 + payout). Confirmed: the card closes, so 4 open · 1 completed.
     ok(await waitFor(page, () => document.getElementById("progressText").textContent === "4 open · 1 completed"), "[wo payout] confirming closes the payout card: \"4 open · 1 completed\"");
     const st = await stored(page);
     const led = st.filter((r) => r.frequency === "kidbank" && r.kid === "Isaac" && r.kind === "workorder");
-    ok(led.length === 1 && led[0].amount === 7 && led[0].by === "Dad", `[wo payout] exactly one ledger entry: Isaac +$7 by Dad (${led.map((l) => l.amount + "/" + l.by)})`);
+    ok(led.length === 1 && led[0].amount === 7 && led[0].by === "Dad", `[wo payout] a double-tap still makes exactly one ledger entry: Isaac +$7 by Dad (${led.map((l) => l.amount + "/" + l.by)})`);
     ok(st.find((r) => r.id === "wo5").payoutPending === false, "[wo payout] and the order no longer awaits a payout");
     ok(await here(page, "workorders") && errors.length === 0, `[wo payout] still /workorders, no page errors${errors[0] ? ": " + errors[0] : ""}`);
     await page.close();

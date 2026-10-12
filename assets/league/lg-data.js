@@ -3165,7 +3165,14 @@
   D.gameStarted = function (team) {
     const g = D.S.games.get(slpTeam(team));
     if (!g) return false;
-    if (g.state === "in" || g.state === "post") return true;
+    if (g.state === "in") return true;
+    // POSTPONED / CANCELLED (2026-10-12, the D-S6 shape gameDone already honours): ESPN sends
+    // state "post" with completed:false for a game nobody played. That is NOT underway — reading it
+    // as started locked every starter on that team (no swap, no drop, no add) for a game that may
+    // be days away. No kickoff fallback for it either: the ORIGINAL kickoff has passed, which would
+    // re-lock exactly the same players. Same `!== false` convention as gameDone, so a "post" from a
+    // producer that never states the field still reads started.
+    if (g.state === "post") return g.completed !== false;
     return g.kickoff ? LG.now() >= new Date(g.kickoff).getTime() : false;
   };
   // RULE 2 (mathematical finality, 2026-08-20): has this player's score reached its FINAL,
