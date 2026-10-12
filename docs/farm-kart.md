@@ -1353,3 +1353,37 @@ VERIFY: `node tools/_verify-fk-styles.cjs` **81/81** — per style: kart contrac
 skin weights sum to 1, every clip track binds, wrists < 2 cm from grips at rest and full lock,
 cheer fists above head, wave = left on / right off, hit → hands back, wheels roll, GLB has 1 skin
 × 21 joints + all 13 clips. Racer tris: toon 11.7k, low-poly 1.9k, clay 15.2k.
+
+---
+
+# 🎨 Farm Kart — STORYBOOK TOON ITEMS pass (2026-10-12, branch `fk-itemfx`, ART/VFX only)
+
+`assets/farmkart-items.js` (`window.FK_ITEMS`, needs `FK_TOON`) holds every item model, item effect, the particle pool and the
+item HUD icons. No physics / item rules / networking / localStorage touched. farmkart.html reaches it through small hooks only:
+`buildCardboardItemBox/buildMimicBox/makeProjMesh/makeOrbitBit/buildEggMesh` wrappers, `syncEntityMeshes` + `syncOrbitMeshes`
+(per-frame `FK_ITEMS.syncBox/syncProj/syncHazard/syncOrbitBit/syncTrailShield`), `spawnItemExplode/shellBoom/spawnLightningBolt/
+updateLightningBolts` (delegates), the pool (`spawnParticle`/`updateParticles` delegate to `FK_ITEMS.makeParticlePool`), ONE line in
+`syncKartView` (`FK_ITEMS.syncKartFx(p, view, dt)`), and `updateItemSlot`.
+- **Models**: all procedural, MeshToon via `FK_TOON.mat`, ink hull via `FK_TOON.outline` (merged vertex-colour geometry, flat
+  per-triangle colour bands). Item box = rounded gold crate, glossy trim, blue "?" badge, rivets. Mimic = same silhouette/geometry,
+  red, angry eyes + toothy seam (learnable-different). Lettuce head (leaf rings), chicken (flapping wing pivots; the GLB chicken/lettuce
+  still load — `__KART__.projTpl`, the proj-fx suite — but are no longer used), round hay bale with twine, banded golden egg, tank shell.
+- **Kart FX** (`syncKartFx`, edge-detected from `boostT/starT/bullT`): boost = unlit cone flame (blue at tier 2+) + side speed streaks +
+  start burst; star = sunflower petal ring + STEPPED rainbow emissive (overrides the smooth hue wash) + sparkles; bull = horns on
+  `view.bounce` (they scale with the bull) + nostril steam that rides with the kart + dust + shockwave.
+- **Born effects are edge-detected** in the sync functions (WeakSet of projectile/hazard objects), so bots, remote karts and the host
+  all get muzzle/plop bursts with no hook in `useItem`/`fire*`.
+- **Particles**: ONE instanced draw call for the whole pool (was 1 per particle): shapes puff/dot/star/spark/ring/leaf/chip packed in one
+  atlas, billboarded in the vertex shader (flat rings lie on the road, sparks stretch along the screen-projected velocity). Records keep
+  the old shape (`{m, mat, live,...}`; `m` is now an Object3D proxy, `mat.color/opacity` plain values) so harnesses still work.
+  `MAX_PARTICLES` 160 -> 200. Pop-in `easeOutBack(life/0.09)`, shrink-out `1-((f-0.6)/0.4)^2`, **no alpha fade** (opacity is not
+  rendered; rings hold then pop). **Camera-pass guard**: anything within ~3.5u of the camera shrinks to 0, because a chase camera drives
+  through its own kart's puffs. Drift sparks: tier 1-3 are `spark` streaks in exactly `DRIFT_SPARK_COL[tier]` (tier 0 = tan puffs).
+- **Storm**: pooled rigs (6): angry cloud + flat zig-zag bolt (ink + yellow + white core, regenerated in place) + ground ring/stars/scorch.
+- **HUD**: emoji `ITEM_ICON` replaced by inline SVG (`FK_ITEMS.icon/heldHTML/rollHTML/trailHTML`). Triples = 3 stacked copies + `x3`
+  badge; trail = shield badge; rolling = CSS `steps()` reel. `updateItemSlot` only rewrites the DOM when the visible state changes
+  (key), otherwise the reel/pop/bob animations restart every frame. Slot frame is still 76x76 (the mobile suite measures it).
+  Lesson: an emissive on a toon cone blows out to white — unlit `MeshBasic` + ink hull for the flame.
+- Lathe profiles must run bottom -> top or the faces point inward and only the ink hull renders (hay bale showed as a black disc).
+  Colour lathe bands by ROW (thresholds exactly on profile ring values) or the triangle centroids zig-zag the band edge.
+VERIFY: `node tools/_verify-fk-itemfx.cjs` (110 checks). Regressions: items 24/24, hud-defaults PASS, mobile 119, tankbattle 75/75.

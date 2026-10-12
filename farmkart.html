@@ -140,16 +140,42 @@
   #mpPlaces .pl .pp{ color:#ffd45e; width:26px; }
   #mpPlaces .pl .pnm{ flex:1; }
   #mpPlaces .pl.me{ font-weight:800; }
-  /* ---- HUD item slot (top-center) ---- */
-  #itemSlot{ position:absolute; left:50%; top:calc(var(--sat) + 14px); transform:translateX(-50%); z-index:12; width:76px; height:76px; border-radius:16px;
-        background:rgba(0,0,0,.42); border:2px solid rgba(255,255,255,.25); display:flex; align-items:center;
+  /* ---- HUD item slot (top-center): Storybook toon frame (rounded, thick warm-brown ink, hard drop shadow) ----
+     Contents are inline SVG icons from FK_ITEMS (assets/farmkart-items.js); no emoji anywhere in the item HUD. */
+  #itemSlot{ position:absolute; left:50%; top:calc(var(--sat) + 14px); transform:translateX(-50%); z-index:12; width:76px; height:76px; border-radius:22px;
+        background:linear-gradient(#fff7dc,#ffe19a); border:4px solid #4a2c14; display:flex; align-items:center;
+        box-shadow:0 4px 0 #4a2c14, inset 0 3px 0 rgba(255,255,255,.85), inset 0 -6px 0 rgba(214,150,40,.28);
         justify-content:center; user-select:none; pointer-events:none; }
-  #itemSlot.rolling{ border-color:#ffe27a; animation:pulse .5s ease-in-out infinite; }
-  #itemSlot.filled{ border-color:#8effa0; }
-  #itemSlot.filled.trail{ border-color:#7ec8ff; box-shadow:0 0 12px rgba(100,180,255,.45); }
-  #itemIcon{ font-size:36px; line-height:1; text-align:center; padding:0 4px; }
-  /* queued/locked item shown while trailing (tap fires the trail first) — dimmed + smaller */
-  #itemIcon .queued{ font-size:0.5em; opacity:0.4; vertical-align:super; }
+  #itemSlot.rolling{ background:linear-gradient(#fff2b8,#ffc94a); animation:slotGlow .5s steps(2) infinite; }
+  #itemSlot.filled{ background:linear-gradient(#f2ffe0,#bff08a); }
+  #itemSlot.filled.trail{ background:linear-gradient(#eaf6ff,#a6d6ff); }
+  #itemIcon{ position:relative; width:56px; height:56px; line-height:0; }
+  #itemIcon .fkico{ display:block; width:100%; height:100%; overflow:visible; }
+  #itemSlot.filled #itemIcon{ animation:itemPop .38s cubic-bezier(.3,1.6,.5,1); }
+  #itemSlot.filled:not(.trail) #itemIcon .fkico{ animation:itemBob 1.2s ease-in-out infinite; }
+  /* slot-machine reel: every icon on one strip, stepped by CSS (one icon per ~100ms like the old roll) */
+  #itemIcon .reel{ display:block; position:relative; width:100%; height:100%; overflow:hidden; }
+  #itemIcon .strip{ display:block; animation:itemReel .9s steps(9) infinite; }
+  #itemIcon .strip i{ display:block; width:56px; height:56px; }
+  /* triples: three copies fanned + a count badge; trail: shield badge over the trailed item */
+  #itemIcon .stk{ position:relative; display:block; width:100%; height:100%; }
+  #itemIcon .stk i{ position:absolute; left:0; top:0; width:100%; height:100%; }
+  #itemIcon .stk .b2{ transform:translate(-11px,-6px) scale(.72); }
+  #itemIcon .stk .b1{ transform:translate(11px,-6px) scale(.72); }
+  #itemIcon .stk .b0{ transform:translate(0,4px) scale(.92); }
+  #itemIcon .cnt{ position:absolute; right:-14px; bottom:-14px; min-width:28px; height:28px; padding:0 4px; box-sizing:border-box; border-radius:14px; background:#e8392c; color:#fff;
+        border:3px solid #4a2c14; font:900 15px/22px system-ui,sans-serif; text-align:center; }
+  #itemIcon .shl{ position:relative; display:block; width:100%; height:100%; }
+  #itemIcon .shl i{ position:absolute; display:block; }
+  #itemIcon .shl .tk{ left:0; top:0; width:100%; height:100%; }
+  #itemIcon .shl .sh{ left:-16px; top:-16px; width:30px; height:30px; z-index:2; }
+  /* queued/locked item shown while trailing (tap fires the trail first) — small + dimmed, bottom-right */
+  #itemIcon .queued{ position:absolute; right:-16px; bottom:-14px; width:28px; height:28px; opacity:.7; filter:saturate(.6); z-index:2; }
+  #itemIcon .queued .fkico{ animation:none !important; }
+  @keyframes slotGlow{ 0%{ box-shadow:0 4px 0 #4a2c14, 0 0 0 0 rgba(255,200,60,0), inset 0 3px 0 rgba(255,255,255,.85); } 100%{ box-shadow:0 4px 0 #4a2c14, 0 0 16px 4px rgba(255,200,60,.75), inset 0 3px 0 rgba(255,255,255,.85); } }
+  @keyframes itemPop{ 0%{ transform:scale(.3) rotate(-14deg); } 100%{ transform:scale(1) rotate(0); } }
+  @keyframes itemBob{ 0%,100%{ transform:translateY(0) rotate(-2deg); } 50%{ transform:translateY(-2px) rotate(2deg); } }
+  @keyframes itemReel{ from{ transform:translateY(0); } to{ transform:translateY(-90%); } }
   /* ---- Minimap (top-right; free of place/item HUD) ---- */
   #minimap{ position:absolute; top:max(12px, env(safe-area-inset-top, 0px));
         right:max(12px, env(safe-area-inset-right, 0px)); z-index:15;
@@ -575,7 +601,7 @@
   <div id="fpsHud"></div>
   <div id="padToast">🎮 connected</div>
 
-  <div id="itemSlot"><div id="itemIcon">·</div></div>
+  <div id="itemSlot"><div id="itemIcon"></div></div>
   <canvas id="minimap" width="256" height="256" aria-label="Track minimap"></canvas>
 
   <div id="touchCtl">
@@ -673,7 +699,7 @@
     </div>
   </div>
 
-  <div id="help">WASD/arrows drive · Space/Shift drift · X tap=fire item · hold X=trail behind (🥬🐔🌾) · R reset · ` tuning</div>
+  <div id="help">WASD/arrows drive · Space/Shift drift · X tap=fire item · hold X=trail behind (lettuce, chicken, hay) · R reset · ` tuning</div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -682,6 +708,9 @@
   <script src="https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js"></script>
   <script src="assets/farmkart-track.js"></script>
   <script src="assets/farmkart-props.js"></script>
+  <!-- Storybook toon: shared library (toon ramp + ink outlines) and the item models / item VFX / item HUD icons built on it -->
+  <script src="assets/farmkart-toon.js"></script>
+  <script src="assets/farmkart-items.js"></script>
   <script>
   "use strict";
   /* ============================================================================
@@ -4196,14 +4225,14 @@
     const col = [0xff4757,0x2ed573,0x1e90ff][Math.max(0,p.balloons)] || 0xffdd55;
     for (let k=0;k<14;k++){ const a=Math.random()*Math.PI*2;
       spawnParticle(p.pos.x+Math.cos(a)*0.2, y, p.pos.z+Math.sin(a)*0.2, { color:col, opacity:0.95, life:0.5,
-        vx:Math.cos(a)*(2+Math.random()*3), vy:1+Math.random()*3, vz:Math.sin(a)*(2+Math.random()*3), grav:5, size:0.24, spin:6, grow:-0.1 }); }
+        vx:Math.cos(a)*(2+Math.random()*3), vy:1+Math.random()*3, vz:Math.sin(a)*(2+Math.random()*3), grav:5, size:0.24, spin:6, grow:-0.1, shape:'dot' }); }
   }
   function spawnConfetti(p){
     const y = (p.y || sampleHeight(p.pos.x,p.pos.z)) + 1.2;
     const cols=[0xff4757,0x2ed573,0x1e90ff,0xffd93b,0xff8ad8];
     for (let k=0;k<24;k++){ const a=Math.random()*Math.PI*2;
       spawnParticle(p.pos.x+Math.cos(a)*0.3, y, p.pos.z+Math.sin(a)*0.3, { color:cols[(Math.random()*cols.length)|0], opacity:0.95, life:1.0,
-        vx:Math.cos(a)*(2+Math.random()*4), vy:3+Math.random()*4, vz:Math.sin(a)*(2+Math.random()*4), grav:6, size:0.22, spin:8, grow:-0.05 }); }
+        vx:Math.cos(a)*(2+Math.random()*4), vy:3+Math.random()*4, vz:Math.sin(a)*(2+Math.random()*4), grav:6, size:0.22, spin:8, grow:-0.05, shape:'chip' }); }
   }
   function balloonPopSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'pop'):1; if(mul<=0.02)return; noiseBurst(0.09,{filter:'bandpass',freq:1800,freqTo:400,Q:0.8,vol:0.16,mul}); tone(520,0.06,{type:'square',vol:0.08,mul}); }
   function koSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'ko'):1; tone(400,0.3,{type:'sawtooth',vol:0.14,slideTo:120,mul}); tone(300,0.35,{type:'sine',vol:0.1,slideTo:90,mul}); }
@@ -4484,7 +4513,7 @@
     flashMuzzle(p); shellFireSound(p.pos);
     for (let k=0;k<5;k++){ const a=Math.random()*Math.PI*2;
       spawnParticle(t.x, sampleHeight(t.x,t.z)+TANK.barrelY, t.z, { color:Math.random()<0.5?0xffd070:0xff9a30,
-        opacity:0.9, life:0.16, vx:f.x*6+Math.cos(a)*2, vy:1+Math.random()*1.5, vz:f.z*6+Math.sin(a)*2, grav:6, size:0.3, grow:0.4 }); }
+        opacity:0.9, life:0.16, vx:f.x*6+Math.cos(a)*2, vy:1+Math.random()*1.5, vz:f.z*6+Math.sin(a)*2, grav:6, size:0.3, grow:0.4, shape:Math.random()<0.5?'star':'puff' }); }
   }
   function tankPushProjectile(p, kind, yaw){
     const t = tankBarrelTip(p, yaw), f = t.f;
@@ -4529,10 +4558,7 @@
     tone(90,0.18,{type:'sine',vol:0.15,slideTo:45,mul}); noiseBurst(0.12,{filter:'lowpass',freq:600,freqTo:120,vol:0.12,mul}); }
   function shellBoom(x,y,z){
     shellThudSound({x,z});
-    for (let k=0;k<14;k++){ const a=Math.random()*Math.PI*2, sp=2+Math.random()*6;
-      spawnParticle(x, y+0.2, z, { color:[0x555a60,0x30343a,0xff9a30,0xffd070][(Math.random()*4)|0],
-        opacity:0.9, life:0.35+Math.random()*0.3, vx:Math.cos(a)*sp, vy:2+Math.random()*5, vz:Math.sin(a)*sp,
-        grav:12, size:0.24+Math.random()*0.3, grow:0.3, spin:(Math.random()-0.5)*8 }); }
+    FK_ITEMS.spawnExplode(x, y, z, 'shell');   // toon cannon boom: smoke puffs pop+shrink, star sparks, ring, scorch decal
   }
 
   // ---- driving AI for enemy tanks = the battle roam brain + an UNSTICK rule (buildings trap naive
@@ -4872,79 +4898,17 @@
     stormSkyFlash();
     stormSound(p.pos);
   }
-  // ⚡ LIGHTNING BOLTS — a jagged bright bolt striking from the sky down onto each storm-hit kart,
-  // plus a full-screen sky flash. Purely local render FX (the spin ruling is host-authoritative; every
-  // client spawns its own bolts from its barnStormStrike call). Bolts are groups of thin cylinder
-  // segments (LineBasicMaterial width is ignored on Windows ANGLE, so real geometry reads far better).
-  const _lightningBolts = [];   // { group, t, maxT, mats:[] }
-  const _BOLT_UP = new THREE.Vector3(0,1,0);
-  function _boltSegment(ax, ay, az, bx, by, bz, r, mat){
-    const dx=bx-ax, dy=by-ay, dz=bz-az, len=Math.hypot(dx,dy,dz) || 1e-3;
-    const geo = new THREE.CylinderGeometry(r*0.5, r, len, 5);
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(ax+dx*0.5, ay+dy*0.5, az+dz*0.5);
-    m.quaternion.setFromUnitVectors(_BOLT_UP, new THREE.Vector3(dx/len, dy/len, dz/len));
-    return m;
-  }
-  function spawnLightningBolt(x, y, z){
-    const group = new THREE.Group();
-    const core = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:1 });
-    const glow = new THREE.MeshBasicMaterial({ color:0xbcd4ff, transparent:true, opacity:0.55 });
-    const topY = y + 30 + Math.random()*8, segs = 9;
-    let px=x + (Math.random()-0.5)*3, py=topY, pz=z + (Math.random()-0.5)*3;
-    for (let i=1;i<=segs;i++){
-      const f=i/segs, jitter=(1-f)*2.2;
-      const nx = x + (i===segs?0:(Math.random()-0.5)*jitter);
-      const ny = topY + (y-topY)*f;
-      const nz = z + (i===segs?0:(Math.random()-0.5)*jitter);
-      group.add(_boltSegment(px,py,pz, nx,ny,nz, 0.34, glow));   // fat soft glow
-      group.add(_boltSegment(px,py,pz, nx,ny,nz, 0.14, core));   // bright core
-      px=nx; py=ny; pz=nz;
-    }
-    scene.add(group);
-    _lightningBolts.push({ group, t:0, maxT:0.4, mats:[core, glow] });
-  }
-  function updateLightningBolts(dt){
-    for (let i=_lightningBolts.length-1;i>=0;i--){
-      const b=_lightningBolts[i]; b.t += dt;
-      const k = Math.max(0, 1 - b.t/b.maxT);
-      // strobe: full-bright first ~40%, then fade
-      const op = b.t < b.maxT*0.4 ? 1 : k;
-      b.mats[0].opacity = op; b.mats[1].opacity = 0.55*op;
-      if (b.t >= b.maxT){
-        scene.remove(b.group);
-        b.group.traverse(o=>{ if(o.geometry) o.geometry.dispose(); });
-        b.mats.forEach(m=>m.dispose());
-        _lightningBolts.splice(i,1);
-      }
-    }
-  }
+  // ⚡ LIGHTNING BOLTS — 2026-10-12 toon pass: an angry cartoon storm cloud pops in above each storm-hit
+  // kart, a flat zig-zag ink-rimmed bolt strobes down from it, then a ground shockwave ring + star burst +
+  // scorch decal land. Pooled rigs live in assets/farmkart-items.js (FK_ITEMS.spawnLightning/update).
+  // Purely local render FX (the spin ruling is host-authoritative; every client spawns its own).
+  function spawnLightningBolt(x, y, z){ FK_ITEMS.spawnLightning(x, y, z); }
+  function updateLightningBolts(dt){ FK_ITEMS.updateLightning(dt); }
   // brief bright full-scene flash via the existing #stormFlash overlay (independent of a kart hit).
   let _skyFlashT = 0;
   function stormSkyFlash(){ _skyFlashT = 0.4; }
   // Burst of leaf/feather/hay bits when a projectile or trailed shield is destroyed.
-  function spawnItemExplode(x, y, z, kind){
-    const cols = (kind === 'chicken' || kind === 'chicken3')
-      ? [0xf5f0e6, 0xe23b2e, 0xffa020, 0xfff8ee]
-      : (kind === 'hay')
-        ? [0xcaa24a, 0xd4a84b, 0xe8c878]
-        : (kind === 'mimic')
-          ? [0xc98a5a, 0xb56a3a, 0xd8a878, 0xe6c088]   // cardboard box shards
-          : (kind === 'shell')
-          ? [0x555a60, 0x30343a, 0xff9a30, 0xffd070]   // tank cannon boom (smoke + spark)
-          : [0x4a9a3a, 0x7ac26a, 0x2a6a24, 0xc8e8a0]; // tomato item = lettuce visuals
-    for (let i=0;i<12;i++){
-      const a = Math.random() * Math.PI * 2;
-      const sp = 2.2 + Math.random() * 5.5;
-      spawnParticle(x, y + 0.1, z, {
-        color: cols[(Math.random() * cols.length) | 0],
-        opacity: 0.95,
-        life: 0.28 + Math.random() * 0.32,
-        vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 5, vz: Math.sin(a) * sp,
-        grav: 14, size: 0.18 + Math.random() * 0.22, grow: 0.15, spin: (Math.random()-0.5)*8
-      });
-    }
-  }
+  function spawnItemExplode(x, y, z, kind){ FK_ITEMS.spawnExplode(x, y, z, kind); }   // toon impact burst per kind (leaf/feather/straw/shards/smoke/gold stars + rings + splat decals)
   // World position of a trailed item (behind the kart). Used by hit absorption + visuals.
   function trailWorldPos(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
@@ -5010,7 +4974,7 @@
       if (pr.kind === 'tomato') tomatoSplatSound(false, pr);
       else if (pr.kind === 'chicken') chickenSquawkSound(true, pr);
       else if (pr.kind === 'shell') shellThudSound(pr);
-      else if (pr.kind === 'egg'){ eggHitSound(pr); spawnParticle(pr.x, pr.y+0.4, pr.z, { color:0xfff2a0, opacity:1, life:0.5, vx:0, vy:6, vz:0, grav:10, size:0.9, grow:1.2, spin:5 }); }
+      else if (pr.kind === 'egg'){ eggHitSound(pr); }   // detonation VFX = FK_ITEMS.spawnExplode('egg') above
       pr.life = 0; return true;
     }
     return false;
@@ -5034,7 +4998,7 @@
         pr.x = cp.x; pr.z = cp.z; pr.y = sampleHeight(cp.x, cp.z) + TUNE.eggHeight;
         if (Math.random() < 0.8) spawnParticle(pr.x, pr.y, pr.z, { color: Math.random()<0.5?0xffe873:0xfff6c0,
           opacity:0.95, life:0.4, vx:(Math.random()-0.5)*1.2, vy:0.4+Math.random()*1.2, vz:(Math.random()-0.5)*1.2,
-          grav:2, size:0.24, grow:-0.2, spin:4 });
+          grav:2, size:0.24, grow:-0.2, spin:4, shape:'star' });
         const caught = tgt && (pr.prog >= totalProgress(tgt) - 2 || Math.hypot(tgt.pos.x-pr.x, tgt.pos.z-pr.z) < 6);
         if (caught || !tgt){
           pr.diving = true;
@@ -6074,58 +6038,13 @@
   }
 
   // ---------- K4: item-entity VISUALS (render-only, reconciled from G each frame) ----------
-  // Cardboard item crates — kraft texture + packing-tape cross, slow yaw spin + bob.
-  const _cardboardTex = (function(){
-    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
-    const c = cv.getContext('2d');
-    // kraft cardboard (brown, not yellow)
-    c.fillStyle = '#a67c4a'; c.fillRect(0,0,128,128);
-    // corrugation grain
-    for (let y=0;y<128;y+=3){
-      c.fillStyle = (y%6===0) ? 'rgba(50,30,10,0.12)' : 'rgba(255,230,190,0.06)';
-      c.fillRect(0, y, 128, 1.5);
-    }
-    // packing-tape cross (amber, not neon)
-    c.fillStyle = 'rgba(196,160,50,0.75)';
-    c.fillRect(54, 0, 20, 128);
-    c.fillRect(0, 54, 128, 20);
-    // soft stamp
-    c.fillStyle = 'rgba(60,35,15,0.45)';
-    c.font = 'bold 44px Segoe UI, sans-serif';
-    c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText('?', 64, 70);
-    // box edge / flap crease
-    c.strokeStyle = 'rgba(50,30,10,0.55)'; c.lineWidth = 5; c.strokeRect(3,3,122,122);
-    c.strokeStyle = 'rgba(50,30,10,0.25)'; c.lineWidth = 2;
-    c.beginPath(); c.moveTo(64, 3); c.lineTo(64, 125); c.stroke();
-    const t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
-  })();
-  const ITEMBOX_GEO = new THREE.BoxGeometry(1.35, 1.15, 1.35);
-  const ITEMBOX_TAPE_GEO = new THREE.BoxGeometry(0.16, 0.045, 1.37);
-  const _itemBoxMat = new THREE.MeshLambertMaterial({ map:_cardboardTex, color:0xffffff });
-  const _itemTapeMat = new THREE.MeshLambertMaterial({ color:0xc4a032 });
-  function buildCardboardItemBox(){
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(ITEMBOX_GEO, _itemBoxMat));
-    const tapeA = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
-    tapeA.position.y = 0.575; g.add(tapeA);
-    const tapeB = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
-    tapeB.position.y = 0.575; tapeB.rotation.y = Math.PI/2; g.add(tapeB);
-    return g;
-  }
-  // 🎁 MIMIC CRATE — looks like a real item box but with a SUBTLY REDDER tint kids can learn to spot
-  // (the cardboard map multiplied by a warm-red color). Slightly darker tape too.
-  const _mimicBoxMat = new THREE.MeshLambertMaterial({ map:_cardboardTex, color:0xff8f6a, emissive:0x1a0805 });
-  const _mimicTapeMat = new THREE.MeshLambertMaterial({ color:0xa85528 });
-  function buildMimicBox(){
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(ITEMBOX_GEO, _mimicBoxMat));
-    const tapeA = new THREE.Mesh(ITEMBOX_TAPE_GEO, _mimicTapeMat);
-    tapeA.position.y = 0.575; g.add(tapeA);
-    const tapeB = new THREE.Mesh(ITEMBOX_TAPE_GEO, _mimicTapeMat);
-    tapeB.position.y = 0.575; tapeB.rotation.y = Math.PI/2; g.add(tapeB);
-    return g;
-  }
+  // 2026-10-12 STORYBOOK TOON pass: the item box / mimic crate / lettuce / chicken / hay / golden egg / shell
+  // models, their per-frame animation and every item effect live in assets/farmkart-items.js (FK_ITEMS).
+  // The wrappers below keep the old names so callers and the test hook (__KART__.buildMimicBox) are unchanged.
+  // Real item box = sunny gold toon crate with a blue '?' badge; the MIMIC is the same shape in red with angry
+  // eyes and a toothy seam, so it stays learnable-different at race speed.
+  function buildCardboardItemBox(){ return FK_ITEMS.buildItemBox(); }
+  function buildMimicBox(){ return FK_ITEMS.buildMimicBox(); }
   const TOMATO_GEO  = new THREE.SphereGeometry(0.55, 12, 10); // fallback if lettuce GLB missing
   const HAY_GEO     = new THREE.CylinderGeometry(0.7, 0.7, 0.95, 10);
   const _boxMeshes = [];   // persistent Groups, one per G.itemBoxes entry
@@ -6319,48 +6238,13 @@
     catch(e){ wrap.userData.footOffset = 0.6; }
     return wrap;
   }
-  // 🥚 golden egg projectile: a shiny gold egg with an emissive glow (sparkle trail via particles).
-  const EGG_GEO = new THREE.SphereGeometry(0.6, 14, 12);
-  function buildEggMesh(){
-    const g = new THREE.Group();
-    const shell = new THREE.Mesh(EGG_GEO, new THREE.MeshLambertMaterial({ color:0xffd23a, emissive:0x8a6a00 }));
-    shell.scale.set(0.85, 1.15, 0.85);   // egg-ish
-    g.add(shell);
-    return g;
-  }
-  function makeProjMesh(kind){
-    if (kind === 'shell'){ const m = new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8),
-      new THREE.MeshLambertMaterial({ color:0x2a2c30, emissive:0x3a1c08 })); m.userData.tplVer = 0; return m; }
-    if (kind === 'egg') return buildEggMesh();
-    if (kind === 'chicken'){
-      // Prefer a real GLB only when it has a texture atlas (reads as a chicken at distance).
-      // Untextured blob GLBs look worse than the procedural chunky chicken.
-      if (_projTpl.chicken && _projTpl.chicken.userData && _projTpl.chicken.userData.hasMap){
-        const m = _projTpl.chicken.clone(true); m.userData.tplVer = _projTplVer; return m;
-      }
-      return buildChickenMesh();
-    }
-    // tomato / tomato3 projectiles render as leafy lettuce
-    if (_projTpl.lettuce){ const m = _projTpl.lettuce.clone(true); m.userData.tplVer = _projTplVer; return m; }
-    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0x4a9a3a, emissive:0x1a3010 }));
-    m.userData.fallback = true; m.userData.tplVer = 0; return m;
-  }
-  function makeOrbitBit(kind){
-    if (kind === 'chicken' || kind === 'chicken3'){
-      if (_projTpl.chicken && _projTpl.chicken.userData && _projTpl.chicken.userData.hasMap){
-        const m = _projTpl.chicken.clone(true); m.scale.multiplyScalar(0.85); m.userData.tplVer = _projTplVer; return m;
-      }
-      const m = buildChickenMesh(); m.scale.multiplyScalar(0.85); return m;
-    }
-    if (kind === 'hay'){
-      const m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a }));
-      m.rotation.z = Math.PI/2; m.scale.setScalar(0.55); return m;
-    }
-    if (kind === 'mimic'){ const m = buildMimicBox(); m.scale.setScalar(0.5); return m; }
-    if (_projTpl.lettuce){ const m = _projTpl.lettuce.clone(true); m.scale.multiplyScalar(0.85); m.userData.tplVer = _projTplVer; return m; }
-    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0x4a9a3a, emissive:0x1a3010 }));
-    m.scale.setScalar(0.72); m.userData.fallback = true; return m;
-  }
+  // 🥚 golden egg projectile: shiny banded gold egg (toon, ink rim) — sparkle trail comes from FK_ITEMS.syncProj.
+  function buildEggMesh(){ return FK_ITEMS.buildEgg(); }
+  // Projectile / orbit-bit meshes: procedural toon models from FK_ITEMS (lettuce head, flapping chicken, banded
+  // egg, tank shell, hay bale). The CC0 lettuce/chicken GLB templates above still load (the proj-fx suite and
+  // __KART__.projTpl read them) but are superseded: the procedural chicken/lettuce read better and match the ink style.
+  function makeProjMesh(kind){ const m = FK_ITEMS.buildProj(kind); m.userData.tplVer = _projTplVer; return m; }
+  function makeOrbitBit(kind){ const m = FK_ITEMS.buildOrbitBit(kind); m.userData.tplVer = _projTplVer; return m; }
 
   function buildItemBoxes(){
     // clear any prior boxes (track reload etc.)
@@ -6404,8 +6288,12 @@
     const cv = document.createElement('canvas'); cv.width = cv.height = 128;
     const c = cv.getContext('2d');
     c.clearRect(0,0,128,128);
-    c.strokeStyle = '#fff'; c.lineWidth = 14; c.lineCap = 'round'; c.lineJoin = 'round';
-    for (let k=0;k<3;k++){ const y = 30 + k*34; c.beginPath(); c.moveTo(24, y+26); c.lineTo(64, y); c.lineTo(104, y+26); c.stroke(); }
+    // toon pass: chunky chevrons with a warm-brown ink rim under a white fill (the material colour tints the fill)
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    for (const [col, w] of [['#2b1a12', 26], ['#fff', 14]]){
+      c.strokeStyle = col; c.lineWidth = w;
+      for (let k=0;k<3;k++){ const y = 30 + k*34; c.beginPath(); c.moveTo(24, y+26); c.lineTo(64, y); c.lineTo(104, y+26); c.stroke(); }
+    }
     const t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
   })();
   const CHEV_GEO = new THREE.PlaneGeometry(TRACK_WIDTH*0.3, TRACK_WIDTH*0.42);
@@ -6414,7 +6302,7 @@
     for (const m of _padMeshes){ scene.remove(m); if (m.material) m.material.dispose(); }
     _padMeshes.length = 0;
     for (const pad of (G.boostPads||[])){
-      const mat = new THREE.MeshBasicMaterial({ color:0x6cf0ff, transparent:true, opacity:0.85, map:_chevTex, depthWrite:false });
+      const mat = new THREE.MeshBasicMaterial({ color:0x6cf0ff, transparent:true, alphaTest:0.4, map:_chevTex, depthWrite:false });
       const m = new THREE.Mesh(CHEV_GEO, mat);
       // YXZ: yaw to track tangent FIRST, then lay the plane flat — arrows always face drive direction
       m.rotation.order = 'YXZ';
@@ -6432,19 +6320,16 @@
     // K7 boost pads: subtle emissive pulse (opacity breathes)
     for (let i=0;i<(G.boostPads?G.boostPads.length:0);i++){
       const m = _padMeshes[i]; if (!m) continue;
-      m.material.opacity = 0.6 + 0.35*(0.5 + 0.5*Math.sin(performance.now()*0.006 + i));
+      // toon: crisp chevrons that flip cyan / yellow in steps (no soft opacity breathing)
+      m.material.color.setHex(((Math.floor(performance.now()/220) + i) % 2) ? 0xfff27a : 0x6cf0ff);
     }
     // item boxes: slow yaw spin + gentle bob; hide while respawning
     const now = performance.now() * 0.001;
     for (let i=0;i<G.itemBoxes.length;i++){
       const b = G.itemBoxes[i], m = _boxMeshes[i]; if (!m) continue;
-      m.visible = b.active;
-      if (!b.active) continue;
-      m.rotation.y += dt * 0.55;
-      m.rotation.x = 0; m.rotation.z = 0;
       const baseY = sampleHeight(b.x, b.z) + 1.05;
       m.userData.baseY = baseY;
-      m.position.y = baseY + Math.sin(now * 1.35 + (m.userData.phase || i)) * 0.22;
+      FK_ITEMS.syncBox(m, b, i, dt, now, baseY);   // toon crate: spin + bob + respawn pop-in + pickup burst (sets m.visible)
     }
     // projectiles (lettuce GLB / chicken GLB — remake when template version bumps after load)
     for (let i=0;i<G.projectiles.length;i++){
@@ -6456,16 +6341,8 @@
         m = makeProjMesh(want); m.userData.kind = want; m.userData.tplVer = _projTplVer;
         scene.add(m); _projPool[i] = m;
       }
-      m.visible = true; m.position.set(pr.x, pr.y, pr.z);
-      if (want === 'chicken'){
-        const yaw = Math.atan2(pr.vx, pr.vz);
-        m.rotation.y = yaw;
-        m.position.y += 0.15 * Math.sin(performance.now()*0.012 + i);
-      } else if (want === 'egg'){
-        m.rotation.y += dt * 6;                       // spin
-        m.position.y += 0.35 + 0.12 * Math.sin(performance.now()*0.01 + i);
-        if (Math.random() < 0.6) spawnParticle(pr.x, pr.y+0.3, pr.z, { color:0xfff2a0, opacity:0.95, life:0.35, vx:(Math.random()-0.5)*2, vy:1+Math.random()*2, vz:(Math.random()-0.5)*2, grav:6, size:0.22, grow:-0.3, spin:4 });   // sparkle trail
-      }
+      m.visible = true;
+      FK_ITEMS.syncProj(m, pr, i, dt, now);   // position + toon animation (flap / tumble / squash on ricochet) + trails + born burst
     }
     for (let i=G.projectiles.length;i<_projPool.length;i++) _projPool[i].visible = false;
     // hazards: hay bales + 🎁 mimic crates (kind-aware pooled meshes; rebuild on kind change)
@@ -6476,14 +6353,12 @@
       if (!m || m.userData.hkind !== want){
         if (m) scene.remove(m);
         if (want === 'mimic'){ m = buildMimicBox(); }
-        else { m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a })); m.rotation.z = Math.PI/2; }
+        else { m = FK_ITEMS.buildHay(); }
         m.userData.hkind = want; scene.add(m); _hazPool[i] = m;
       }
       m.visible = true; m.position.set(hz.x, hz.y, hz.z);
-      if (want === 'mimic'){   // spin + bob like a real item box to sell the disguise
-        m.rotation.y += dt * 0.55;
-        m.position.y = hz.y + Math.sin(performance.now()*0.001*1.35 + i) * 0.18;
-      }
+      FK_ITEMS.syncHazard(m, hz, i, dt, now, want);   // plop-in scale, drop burst; the mimic spins like a real box to sell the disguise
+      if (want === 'mimic') m.position.y = hz.y + Math.sin(now * 1.35 + i) * 0.18;
     }
     for (let i=G.hazards.length;i<_hazPool.length;i++) _hazPool[i].visible = false;
     // orbit / trail visuals around each kart that holds a triple or trails a single
@@ -6528,6 +6403,7 @@
           const ox = Math.cos(a)*rad, oz = Math.sin(a)*rad;
           m.position.set(p.pos.x + r.x*ox + f.x*oz, py + 0.15*Math.sin(a*2), p.pos.z + r.z*ox + f.z*oz);
           m.scale.setScalar(0.75);
+          FK_ITEMS.syncOrbitBit(m, p.itemHeld, a, dt, performance.now()*0.001);   // toon: chickens flap, lettuce tumbles
         }
       }
       // TRAIL: one shield bit behind the kart (separate channel `id+'_trail'` — coexists with a held item)
@@ -6538,6 +6414,7 @@
         arr[0].visible = true;
         arr[0].position.set(tw.x, tw.y, tw.z);
         arr[0].scale.setScalar(p.trailKind === 'hay' ? 0.7 : 0.85);
+        FK_ITEMS.syncTrailShield(arr[0], p.trailKind, performance.now()*0.001);   // pulsing blue shield ring around the trailed item
         for (let i=1;i<arr.length;i++) arr[i].visible = false;
       }
     }
@@ -6801,40 +6678,19 @@
   // ---------- K6: pooled particle system (drift dust · boost puffs · landing poof · spin stars) ----------
   // Fixed pool, allocated once. Each particle owns a material (recolored, never re-created) so there
   // is ZERO per-frame allocation. Billboarded to the camera each frame.
-  const PARTICLE_GEO = new THREE.PlaneGeometry(1, 1);
-  const MAX_PARTICLES = 160;
-  const particles = [];
-  for (let i=0;i<MAX_PARTICLES;i++){
-    const mat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0, depthWrite:false });
-    const m = new THREE.Mesh(PARTICLE_GEO, mat); m.visible = false; m.renderOrder = 5; scene.add(m);
-    particles.push({ m, mat, live:false, life:0, maxLife:1, vx:0, vy:0, vz:0, grav:0, size:0.5, grow:0, spin:0, startOp:0.8 });
-  }
-  let _pIdx = 0;
-  function spawnParticle(x, y, z, o){
-    const p = particles[_pIdx]; _pIdx = (_pIdx + 1) % MAX_PARTICLES;
-    p.m.position.set(x, y, z); p.m.visible = true; p.live = true;
-    p.mat.color.setHex(o.color != null ? o.color : 0xffffff);
-    p.startOp = o.opacity != null ? o.opacity : 0.8; p.mat.opacity = p.startOp;
-    p.life = 0; p.maxLife = o.life || 0.4;
-    p.vx = o.vx || 0; p.vy = o.vy || 0; p.vz = o.vz || 0; p.grav = o.grav || 0;
-    p.size = o.size || 0.5; p.grow = o.grow || 0; p.spin = o.spin || 0;
-    p.m.scale.setScalar(p.size); p.m.rotation.z = Math.random()*Math.PI;
-  }
-  function updateParticles(dt){
-    for (const p of particles){
-      if (!p.live) continue;
-      p.life += dt;
-      if (p.life >= p.maxLife){ p.live = false; p.m.visible = false; continue; }
-      const f = p.life / p.maxLife;
-      p.vy -= p.grav * dt;
-      p.m.position.x += p.vx*dt; p.m.position.y += p.vy*dt; p.m.position.z += p.vz*dt;
-      p.mat.opacity = p.startOp * (1 - f);
-      p.m.scale.setScalar(Math.max(0.02, p.size + p.grow*f));
-      p.m.quaternion.copy(camera.quaternion);
-      if (p.spin) p.m.rotateZ(p.spin*dt);
-    }
-  }
-  function particleActiveCount(){ let n = 0; for (const p of particles) if (p.live) n++; return n; }
+  // 2026-10-12 STORYBOOK TOON pass: the pool + billboards now live in assets/farmkart-items.js
+  // (FK_ITEMS.makeParticlePool): camera-facing toon shapes with an ink rim (puff / star / spark streak /
+  // ring / leaf / chip) that POP IN with overshoot and SHRINK OUT instead of alpha-fading. Same record shape
+  // ({m, mat, live, ...}) and the same spawnParticle(x,y,z,{color,life,vx,vy,vz,grav,size,grow,spin,...}) call;
+  // new optional keys: shape, stretch, drag, flat, pop. Fixed pool, round-robin recycle, no per-frame allocation.
+  const MAX_PARTICLES = 200;
+  FK_ITEMS.init({ scene, camera, sampleHeight:(x,z)=>sampleHeight(x,z) });
+  const _pool = FK_ITEMS.makeParticlePool(scene, ()=>camera, MAX_PARTICLES);
+  FK_ITEMS.bindPool(_pool);
+  const particles = _pool.particles;
+  function spawnParticle(x, y, z, o){ _pool.spawn(x, y, z, o); }
+  function updateParticles(dt){ _pool.update(dt); FK_ITEMS.update(dt); }
+  function particleActiveCount(){ return _pool.activeCount(); }
   // juice spawners (called per kart per frame from syncKartView; time-accumulated => no per-frame alloc)
   function spawnDriftDust(p, view, gy, dt){
     view._dustAcc = (view._dustAcc || 0) + dt;
@@ -6855,7 +6711,8 @@
       const up = tier === 0 ? (1.1 + Math.random()*0.6) : (1.6 + tier*0.5 + Math.random()*0.8);
       spawnParticle(rx, gy + 0.15, rz, { color:col, opacity:op, life:tier===0?0.4:0.34,
         vx:r.x*side*1.1 - f.x*1.2 + (Math.random()-0.5)*(1+tier*0.4), vy:up, vz:r.z*side*1.1 - f.z*1.2 + (Math.random()-0.5)*(1+tier*0.4),
-        grav:tier===0?1.2:2.4, size:sz, grow:tier===0?0.7:0.2, spin:tier?5:0 });
+        grav:tier===0?1.2:2.4, size:tier===0?sz:sz*0.8, grow:tier===0?0.7:0, spin:tier?5:0,
+        shape:tier===0?'puff':'spark', stretch:2.4 });   // toon: tan dust puffs; tier sparks are ink-rimmed streaks that fly along their velocity
     }
   }
   // ---- SURFACE PAINT FX (2026-07-13 R3): subtle per-surface wheel kicks while driving on a
@@ -6877,12 +6734,12 @@
         const col = Math.random()<0.5 ? 0xe8f6ff : 0xbfe6f7;
         spawnParticle(rx, gy + 0.12, rz, { color:col, opacity:0.85, life:0.35,
           vx:r.x*side*1.4 - f.x*1.0 + (Math.random()-0.5), vy:1.3 + Math.random()*0.9, vz:r.z*side*1.4 - f.z*1.0 + (Math.random()-0.5),
-          grav:2.6, size:0.16, grow:-0.1, spin:6 });
+          grav:2.6, size:0.16, grow:-0.1, spin:6, shape:'star' });
       } else {
         const col = Math.random()<0.5 ? 0x5a4028 : 0x3e2c1a;
         spawnParticle(rx, gy + 0.08, rz, { color:col, opacity:0.9, life:0.4,
           vx:-f.x*1.6 + (Math.random()-0.5)*1.6, vy:1.0 + Math.random()*0.8, vz:-f.z*1.6 + (Math.random()-0.5)*1.6,
-          grav:4.0, size:0.26, grow:0.2 });
+          grav:4.0, size:0.26, grow:0.2, shape:'dot' });
       }
     }
   }
@@ -6904,6 +6761,7 @@
         vx:Math.cos(a)*(2.2 + Math.random()), vy:0.8 + Math.random()*0.5, vz:Math.sin(a)*(2.2 + Math.random()),
         grav:2.5, size:0.4, grow:0.8 });
     }
+    FK_ITEMS.shockRing(p.pos.x, gy + 0.12, p.pos.z, 0xffffff, 3.6, 0.32);   // toon: a quick shockwave ring under the puffs
   }
   // ---- WATER SPLASH (2026-07-12): white spray at the wheels while a kart crosses a water body ----
   // Entry (dry->wet): a ring/wake of white spray + a growing splash disc + a proximity splash sound.
@@ -6921,9 +6779,9 @@
         const a = (i/n)*Math.PI*2 + Math.random()*0.4;
         spawnParticle(p.pos.x + Math.cos(a)*0.7, wy + 0.15, p.pos.z + Math.sin(a)*0.7,
           { color:0xeaf6ff, opacity:0.85, life:0.5, vx:Math.cos(a)*(3 + Math.random()*2), vy:2.2 + Math.random()*1.4,
-            vz:Math.sin(a)*(3 + Math.random()*2), grav:6.5, size:0.4, grow:0.5 });
+            vz:Math.sin(a)*(3 + Math.random()*2), grav:6.5, size:0.4, grow:0.5, shape:'dot' });
       }
-      spawnParticle(p.pos.x, wy + 0.05, p.pos.z, { color:0xdff2ff, opacity:0.5, life:0.45, size:0.6, grow:5.5 });  // wake ring
+      FK_ITEMS.shockRing(p.pos.x, wy + 0.08, p.pos.z, 0xdff2ff, 5.5, 0.45);   // wake ring (flat toon ring)
       waterSplashSound(p.pos);
     }
     // WADING (2026-07-14): past wheel depth the spray gets HEAVIER (faster cadence, bigger, taller)
@@ -6941,7 +6799,7 @@
         const rx = p.pos.x - f.x*0.7 + r.x*side*0.7, rz = p.pos.z - f.z*0.7 + r.z*side*0.7;
         spawnParticle(rx, wy + 0.2, rz, { color:0xf0faff, opacity:0.7, life:0.34*big,
           vx:r.x*side*1.4 - f.x*1.5 + (Math.random()-0.5), vy:(1.6 + Math.random()*0.9)*big, vz:r.z*side*1.4 - f.z*1.5 + (Math.random()-0.5),
-          grav:5, size:0.32*big, grow:0.4*big });
+          grav:5, size:0.32*big, grow:0.4*big, shape:'dot' });
       }
     } else view._sprayAcc = 0;
     view._inWater = inW;
@@ -6952,7 +6810,7 @@
       view._starAcc -= 0.09;
       const a = Math.random()*Math.PI*2, rad = 0.7;
       spawnParticle(p.pos.x + Math.cos(a)*rad, (p.y || 0) + 1.5, p.pos.z + Math.sin(a)*rad, { color:0xffe45e, opacity:0.95, life:0.5,
-        vx:Math.cos(a)*0.6, vy:1.2, vz:Math.sin(a)*0.6, size:0.42, spin:6, grow:-0.15 });
+        vx:Math.cos(a)*0.6, vy:1.2, vz:Math.sin(a)*0.6, size:0.42, spin:6, grow:-0.15, shape:'star' });
     }
   }
 
@@ -7220,6 +7078,7 @@
     } else {
       bodyMat.emissive.setHex(0x000000);
     }
+    FK_ITEMS.syncKartFx(p, view, dt);   // toon item FX on the kart: boost flame + streaks, star petal ring + rainbow steps, bull horns + steam (assets/farmkart-items.js)
     // TANK BATTLE: mount + aim the turret (scene-level, world-relative yaw). Lazily builds the turret.
     if (ACTIVE_TRACK.tankBattle) syncTurret(p, view, dt);
   }
@@ -7598,43 +7457,38 @@
   }
   const itemSlot = document.getElementById('itemSlot');
   const itemIcon = document.getElementById('itemIcon');
-  const ITEM_ICON = {
-    boost:'⚡', tomato:'🥬', hay:'🌾', chicken:'🐔',
-    tomato3:'🥬×3', chicken3:'🐔×3',
-    egg:'🥚', star:'🌻', bull:'🐂', storm:'⛈', mimic:'📦❗'
-  };
+  // 2026-10-12 TOON HUD: the emoji ITEM_ICON table is gone. Slot contents are inline SVG built by FK_ITEMS
+  // (icon per kind, stacked copies + count badge for the x3 triples, shield badge for the trail, a stepped
+  // slot-machine reel while rolling). The DOM is only rewritten when the visible state CHANGES (key below),
+  // so the CSS animations (reel scroll, pop-in, bob) are not restarted every frame. DOM ids / classes
+  // (#itemSlot .rolling/.filled/.trail, #itemIcon) are unchanged.
+  let _itemSlotKey = '';
+  function setItemIconHTML(key, html){ if (_itemSlotKey === key) return; _itemSlotKey = key; itemIcon.innerHTML = html; }
   function updateItemSlot(p){
     const racing = G.phase === 'racing' || G.phase === 'finished';
     itemSlot.style.display = racing ? 'flex' : 'none';
     if (!racing) return;
-    const trailBadge = p.trailKind ? '🛡' + (ITEM_ICON[p.trailKind] || '') : '';
-    const heldIconOf = ()=>{
-      let icon = ITEM_ICON[p.itemHeld] || '·';
-      if (isTriple(p.itemHeld) && p.itemCount > 0) icon = (p.itemHeld === 'chicken3' ? '🐔' : '🥬') + '×' + p.itemCount;
-      return icon;
-    };
+    const heldHTML = ()=> FK_ITEMS.heldHTML(p.itemHeld, p.itemCount, isTriple(p.itemHeld));
+    const heldKey = ()=> p.itemHeld + '/' + (isTriple(p.itemHeld) ? p.itemCount : 0);
     if (p.trailKind){
       // TRAIL-FIRE (2026-07-12): the shield is what a TAP fires now, so it's the PRIMARY icon. Any item
-      // picked up while trailing is LOCKED/queued — shown dimmed after the shield until the trail fires.
+      // picked up while trailing is LOCKED/queued — shown small and dimmed beside the shield until the trail fires.
       itemSlot.className = 'filled trail';
-      let queued = '';
+      let queued = '', qk = '';
       if (p.itemRollT > 0){
         const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
-        queued = '<span class="queued">' + (ITEM_ICON[k] || '·') + '</span>';
-      } else if (p.itemHeld){
-        queued = '<span class="queued">' + heldIconOf() + '</span>';
-      }
-      itemIcon.innerHTML = trailBadge + (queued ? ' ' + queued : '');
+        queued = FK_ITEMS.icon(k); qk = 'r' + k;
+      } else if (p.itemHeld){ queued = heldHTML(); qk = heldKey(); }
+      setItemIconHTML('t|' + p.trailKind + '|' + qk, FK_ITEMS.trailHTML(p.trailKind, queued));
     } else if (p.itemRollT > 0){
       itemSlot.className = 'rolling';
-      const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
-      itemIcon.textContent = (ITEM_ICON[k] || '·');
+      setItemIconHTML('roll', FK_ITEMS.rollHTML());
     } else if (p.itemHeld){
       itemSlot.className = 'filled';
-      itemIcon.textContent = heldIconOf();
+      setItemIconHTML('h|' + heldKey(), heldHTML());
     } else {
       itemSlot.className = '';
-      itemIcon.textContent = '·';
+      setItemIconHTML('empty', FK_ITEMS.icon('empty'));
     }
   }
 
@@ -11441,7 +11295,7 @@
     // new items (2026-07-11): golden egg / sunflower star / bull rush / barn storm
     computeRollWeights, placeFracOf, computePlace, findLeader, fireGoldenEgg, barnStormStrike, bullInput,
     // 2026-07-12 batch: lightning bolts / trail-fire / critters
-    spawnLightningBolt, get lightningBolts(){ return _lightningBolts; }, get skyFlashT(){ return _skyFlashT; },
+    spawnLightningBolt, get lightningBolts(){ return FK_ITEMS.liveBolts(); }, get skyFlashT(){ return _skyFlashT; },
     fireTrail, computeStandings, get finishOrder(){ return G.finishOrder; },
     CRITTER_KINDS, CRITTER_CFG, buildCritterMesh, critterHitSound, sampleIdxAtTotalProgress,
     soloRaceTick, updatePhase, finishRace, recordFinish, forceFinishRemaining,
@@ -11449,7 +11303,7 @@
     updateItemSlot, get itemIcon(){ return itemIcon; }, get itemSlot(){ return itemSlot; },
     updateLightningBolts, BULL_SIZE,
     advanceProjectiles, advanceHazards, stepKart, syncKartView,
-    ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON,
+    ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON: Object.fromEntries(FK_ITEMS.ICON_KINDS.map(k=>[k, FK_ITEMS.icon(k)])),   /* kind -> inline SVG (was emoji) */
     // ---- 2026-07-12 R1 (Feel & Fairness): six MK-inspired features ----
     // 1. rescue crow
     rescueTriggered, startRescue, advanceRescue, updateRescueCrows, waterSurfaceAt, waterObjAt,
@@ -11542,7 +11396,7 @@
     get MIRROR(){ return MIRROR; },
     get Ghost(){ return Ghost; }, get Podium(){ return Podium; }, fkToast,
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
-    BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount, updateParticles, syncEntityMeshes,
+    BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount, updateParticles, syncEntityMeshes, spawnParticle, updateItemBoxes, MAX_PARTICLES,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,
       engineFreq: engineOsc ? engineOsc.frequency.value : null,
       engineHarmonic: engineOsc2 ? engineOsc2.frequency.value : null,
