@@ -1453,3 +1453,145 @@ the 2026-07-10 "cloud track sync" entry. User: "fix the farm kart sync".
   editor, fences.
 
 ---
+
+# 🎨 Farm Kart — ART STYLE PROTOTYPES (2026-10-12, branch only, NOT in the game)
+
+`farmkart-styles.html` + `assets/farmkart-styles/fks-{rig,toon,lowpoly,clay}.js`. Three candidate
+replacements for the blocky box look, each with a kart, Bucky as racer, a course and a sky:
+**Storybook Toon** (3-band MeshToon ramp, inverted-hull ink outlines incl. on the skinned racer,
+chibi proportions), **Golden-Hour Low-Poly** (flatShading + per-triangle vertex colour, 21° sun,
+dusk sky + mountain rings), **Clay Toybox** (lumpy MeshStandard + thumbprint bump, PCFSoft,
+`stepFps:12` stop-motion stepping of the racer + kart rig, toggleable). Views: Race (auto-driver
+on a shared loop with boost pads + drift), Showroom (orbit), Compare all (3 scissor viewports).
+Download button exports kart + seated racer + every clip as a GLB.
+- **One rig for all styles** (`fks-rig.js`): 21-bone `THREE.Skeleton`, bind pose = the seated
+  driving pose with identity bind rotations, so clip keys are plain euler offsets. Styles only
+  author geometry via `FKS.skinBuilder()` (`rigid` / `limb` blends into child+parent at joints /
+  `along` for the torso). Clips: idle, drive, steerL/R, drift, boost, hit, trick, wave, cheer;
+  `clip.ik = {L,R}` says how much two-bone hand IK owns each arm. Kart contract: root → chassis
+  (roll/pitch/bob/squash) → seat / steerColumn → steerWheel → grip_L/R, wheelPivot_n → wheelSpin_n.
+- **Measured, not guessed:** the steering wheel must sit at kart **(0, 1.25, 0.16)** with
+  `wheelLock` 1.2 rad — at z 0.28 / lock 1.5 the left wrist missed its grip by 12.7 cm at full
+  lock (the suite's "hands follow the turned wheel" check failed at 0.123 before the move).
+- **Clip gotcha:** the upper arm's bind direction is 41° *below* forward, so an X offset θ aims
+  it at (−41° − θ). The first cheer used −150° and put the fists behind the head; −125° is overhead.
+- **Clay gotcha:** three's `bumpScale` is screen-space — 0.32 with a speckled canvas read as
+  knitted carpet at chase distance. Blurred map + ×0.025 scale reads as pressed clay.
+- r128 needs `material.skinning = true` on every skinned material (skinBuilder sets it); renderer
+  stays `LinearEncoding` like farmkart.html so hex colours render as picked.
+VERIFY: `node tools/_verify-fk-styles.cjs` **81/81** — per style: kart contract, 21 shared bones,
+skin weights sum to 1, every clip track binds, wrists < 2 cm from grips at rest and full lock,
+cheer fists above head, wave = left on / right off, hit → hands back, wheels roll, GLB has 1 skin
+× 21 joints + all 13 clips. Racer tris: toon 11.7k, low-poly 1.9k, clay 15.2k.
+
+---
+
+# 🎨 Farm Kart — STORYBOOK TOON ITEMS pass (2026-10-12, branch `fk-itemfx`, ART/VFX only)
+
+`assets/farmkart-items.js` (`window.FK_ITEMS`, needs `FK_TOON`) holds every item model, item effect, the particle pool and the
+item HUD icons. No physics / item rules / networking / localStorage touched. farmkart.html reaches it through small hooks only:
+`buildCardboardItemBox/buildMimicBox/makeProjMesh/makeOrbitBit/buildEggMesh` wrappers, `syncEntityMeshes` + `syncOrbitMeshes`
+(per-frame `FK_ITEMS.syncBox/syncProj/syncHazard/syncOrbitBit/syncTrailShield`), `spawnItemExplode/shellBoom/spawnLightningBolt/
+updateLightningBolts` (delegates), the pool (`spawnParticle`/`updateParticles` delegate to `FK_ITEMS.makeParticlePool`), ONE line in
+`syncKartView` (`FK_ITEMS.syncKartFx(p, view, dt)`), and `updateItemSlot`.
+- **Models**: all procedural, MeshToon via `FK_TOON.mat`, ink hull via `FK_TOON.outline` (merged vertex-colour geometry, flat
+  per-triangle colour bands). Item box = rounded gold crate, glossy trim, blue "?" badge, rivets. Mimic = same silhouette/geometry,
+  red, angry eyes + toothy seam (learnable-different). Lettuce head (leaf rings), chicken (flapping wing pivots; the GLB chicken/lettuce
+  still load — `__KART__.projTpl`, the proj-fx suite — but are no longer used), round hay bale with twine, banded golden egg, tank shell.
+- **Kart FX** (`syncKartFx`, edge-detected from `boostT/starT/bullT`): boost = unlit cone flame (blue at tier 2+) + side speed streaks +
+  start burst; star = sunflower petal ring + STEPPED rainbow emissive (overrides the smooth hue wash) + sparkles; bull = horns on
+  `view.bounce` (they scale with the bull) + nostril steam that rides with the kart + dust + shockwave.
+- **Born effects are edge-detected** in the sync functions (WeakSet of projectile/hazard objects), so bots, remote karts and the host
+  all get muzzle/plop bursts with no hook in `useItem`/`fire*`.
+- **Particles**: ONE instanced draw call for the whole pool (was 1 per particle): shapes puff/dot/star/spark/ring/leaf/chip packed in one
+  atlas, billboarded in the vertex shader (flat rings lie on the road, sparks stretch along the screen-projected velocity). Records keep
+  the old shape (`{m, mat, live,...}`; `m` is now an Object3D proxy, `mat.color/opacity` plain values) so harnesses still work.
+  `MAX_PARTICLES` 160 -> 200. Pop-in `easeOutBack(life/0.09)`, shrink-out `1-((f-0.6)/0.4)^2`, **no alpha fade** (opacity is not
+  rendered; rings hold then pop). **Camera-pass guard**: anything within ~3.5u of the camera shrinks to 0, because a chase camera drives
+  through its own kart's puffs. Drift sparks: tier 1-3 are `spark` streaks in exactly `DRIFT_SPARK_COL[tier]` (tier 0 = tan puffs).
+- **Storm**: pooled rigs (6): angry cloud + flat zig-zag bolt (ink + yellow + white core, regenerated in place) + ground ring/stars/scorch.
+- **HUD**: emoji `ITEM_ICON` replaced by inline SVG (`FK_ITEMS.icon/heldHTML/rollHTML/trailHTML`). Triples = 3 stacked copies + `x3`
+  badge; trail = shield badge; rolling = CSS `steps()` reel. `updateItemSlot` only rewrites the DOM when the visible state changes
+  (key), otherwise the reel/pop/bob animations restart every frame. Slot frame is still 76x76 (the mobile suite measures it).
+  Lesson: an emissive on a toon cone blows out to white — unlit `MeshBasic` + ink hull for the flame.
+- Lathe profiles must run bottom -> top or the faces point inward and only the ink hull renders (hay bale showed as a black disc).
+  Colour lathe bands by ROW (thresholds exactly on profile ring values) or the triangle centroids zig-zag the band edge.
+VERIFY: `node tools/_verify-fk-itemfx.cjs` (110 checks). Regressions: items 24/24, hud-defaults PASS, mobile 119, tankbattle 75/75.
+
+# 🎨 Farm Kart — STORYBOOK TOON is the game's look (2026-10-12, branch, fk-toon workstream)
+
+`assets/farmkart-toon-game.js` (loaded after `farmkart-toon.js` + `farmkart-styles/fks-rig.js`) turns the
+prototype's Storybook Toon into farmkart.html on every track. Hooks in farmkart.html are one-liners:
+`FK_TOON_GAME.install` (scene setup), `buildSky`/`frame` (setSky), `retuneLights` + `decorateMovers`
+(after the per-track light overrides), `decorateProps` (async GLB props), `worldBuilt` (after the local
+kart view), `inkLod` + driver sync (syncKartView), `podiumCheer` (Podium.update).
+- **Live toonify, not a rebuild of every builder.** `Object3D.prototype.add` is wrapped: every subtree
+  added anywhere has its lit materials swapped for `MeshToon` via `FK_TOON.convertMaterial`, plus a
+  1.5 s sweep for runtime `mesh.material = ...` swaps. GOTCHA that shaped it: a swapped material breaks
+  every reference game code still holds (ghost fade, boost/star glow, balloon pops, tank lifts). The toon
+  copy is therefore LIVE-LINKED: it shares the source's `color`/`emissive` Color objects and forwards
+  opacity/transparent/visible/maps/depth flags/`version` (so `src.needsUpdate = true` recompiles it).
+- **Entities get ink by rule:** scene-level adds after `worldBuilt()` (critters, cows, crows, item boxes,
+  turrets, gates, balloons) are inked if 0.12–4.5 u in radius and cast shadows; trains + traffic are
+  inked at boot (minR 0.35 — the dozen tiny bits per car were a draw call each); instanced GLB props get
+  ink scaled per instance, tiny submeshes skipped. Hulls follow the source material's visible/opacity.
+- **Ink LOD (measured):** ink px = t·514/d at 720p. 2 cm kart ink is 0.37 px at 28 u, 1.2 cm GLB-driver /
+  Gator ink 0.39 px at 16 u — hulls switch off past those (a GLB driver's hull is 47k skinned tris).
+- **Lights:** presets stay Lambert-era numbers; ONE rescale after setSky + overrides: hemi ×0.53, then
+  both scaled so the lit band = min(1.18, old hemi+sun) (day → 0.44 / 0.74, the prototype's numbers),
+  hemi ground 35% toward warm tan. Sun shadow: PCF 2048 (phone 1024, smaller box), box follows the view,
+  texel-snapped. GLB Tripo drivers do NOT cast (47k tris re-skinned per shadow pass).
+- **Sky:** every preset (incl. default 'day', which now goes through setSky — preset values = the boot
+  defaults) gets a gradient dome + one merged mesh of puffy inked clouds (2 calls); the 'clouds' preset's
+  alpha sprites are hidden, stars/moon/snow/sun-disc stay.
+- **Karts:** 3 merged meshes (paint/vertex-coloured body/lamps) + ink, fat toon wheels (outer r 0.26 =
+  `_TIRE_ROUT`, so tread planting is untouched), toon steering wheel (grips 58° off top), pennant flair.
+  Footprint unchanged. Seat surface at kart (0, 0.60, 0.10) = the prototype's wheel-to-seat relation for
+  the TUNE wheel at (0, 1.00, 0.36). **KART_RIDER_H is pinned to 1.57** (the old boot bbox measure, the
+  same for every procedural combo) — the toque + pennant must not move wading/drowning depths.
+- **Drivers:** bucky/otis/boots are skinned on the 21-bone rig, ONE vertex-coloured material + one ink
+  hull each (skinBuilder groups → vertex colours). `FKS.RacerAnimator` per driver; base/steer/drift from
+  the kart, one-shots on rising edges (spinT → hit, boostT → boost, airborne > 0.3 s → trick), cheer on
+  `p.finished`; hand IK to the grips. syncKartDriver now runs AFTER the hop/squash/bull transforms so the
+  IK solves against the frame's final pose. Bucky's toque is a separate head-bone mesh hidden by hats.
+  Full lock reach: the far grip is 0.412 from the shoulder vs 0.409 of arm → 0.3 cm miss (budget 2 cm).
+- GOTCHA: `FKS.geo.taperTube` winds inward (normals point in) — exhausts/horns/roll bar read as dark
+  hollow pipes with a pale rim. `tube()` in the toon-game file flips the winding.
+- Perf (probe, 12-kart pile-up at the start, seeded roster): calls wario 1220→216, harvest 394→314,
+  amen 566→294, moo 952→157. Tris rise (e.g. amen 532k→~0.86–1.1M) almost entirely from GLB-driver /
+  Gator ink + kart shadow pass while the whole field is within 16 u; it falls as the pack spreads.
+VERIFY: `node tools/_verify-fk-toon.cjs` 72/72 (pre-toon app: 18 pass / 54 fail). `_verify-glbdrivers`
+restaged: body mats MeshToon+skinning, ink hulls excluded from the body count (reason at the check).
+- GOTCHA (battery): the fixed-port suites (`_verify-items` 8851, `-glbdrivers` 8851, `-hud-defaults` 8853,
+  `-minimap` 8848, `-harvesthollow` 8877, `-farmkart-mobile` 8871) REUSE whatever server is already on
+  their port. In this environment stale `http-server`s rooted at the MAIN checkout held all of them, so
+  running the battery from a worktree silently tested main. Run port-shifted copies from the worktree's
+  own tools/ dir (same ROOT) — the toon battery above was verified that way.
+
+# Farm Kart - HARVEST HOLLOW storybook art pass (2026-10-12)
+
+`assets/farmkart-hh-art.js` (`window.FK_HH_ART.build(scene, ctx)` + `update(dt, t)`) dresses `?track=harvest-hollow` and nothing
+else. farmkart.html carries two hooks: one `if (ACTIVE_TRACK_ID === 'harvest-hollow')` block right after the start-line strip,
+and one `FK_HH_ART.update` line in the frame loop. Track data is untouched (_verify-harvesthollow stays 70/70). Scenery only.
+- LOOK: golden-afternoon sky dome (+ sun disc), haze fog 0xf3dfba, outlined cumulus ring that follows the camera and drifts,
+  a skirt mesh that continues the ground past its edge into rolling far hills + three gumdrop-hill layers + far farm silhouettes.
+  Ground vertex colours are rewritten (mown verge stripes, soft meadow patches, tilled fields where the track paints gold, yard,
+  ford sand). Road = canvas texture (ruts, pebbles, mottling) on a rebuilt ribbon with UVs; candy-stripe prism curbs on bends;
+  cream centre dashes on straights. Lights are retuned for this track only (hemi .52 / sun .68) so the toon lit band lands on the
+  picked colour (the generic sun preset over-exposed it).
+- LANDMARKS: start gantry (checker strip, banner, bunting, flags; beam bottom >= 6u over the road), hay-bale grandstand + 20
+  cheering critters, corner chevron boards, working windmill (the static GLB windmill is hidden by position once it loads),
+  barn lanterns/signs/clutter, ford footbridge + stepping stones + reeds/lily pads/sparkles, pond ducks, scarecrows, tractor +
+  wagon, mailbox, beehives, laundry line, picket fence, fruit orchard, hedgerows, stone walls, flowers, boulders, crop rows.
+- HOW: a Kit bakes primitives into 110u spatial chunks with vertex colours + per-vertex ink + per-vertex sway weight; the ink
+  hull is extruded in the vertex shader (hull normal = ellipsoid-radial, so any convex primitive is watertight) and the wind
+  wobble is a vertex-shader sin driven by one uniform. Pieces with ink 0 get NO hull (a BackSide hull over a double-wound leaf
+  paints it black - that bug cost an hour). Animated things (crowd, ducks, birds, butterflies, leaves, sparkles) are instanced.
+- PLACEMENT RULE: `ok(x,z,r)` = road edge + 2u + r, 5.5u off the rail loop, off fences/objects/water/own claims. First pass put
+  signs at hw+3.6 with r 1.7 and every one was rejected - offsets must be >= hw + 2 + r. Flat roads build the bed as ONE span
+  (N*2 verts, not 9 columns), so "find the road mesh" must take the first N*2 mesh, not N*9.
+- PERF (swiftshader chase poses, calls / tris, art blocked -> on): start 311->450 / 100k->201k; crops 70->220 / 101k->242k;
+  ford 49->179 / 92k->191k; barn 49->151 / 92k->163k. Phone profile (pointer:coarse) builds 128k art tris vs 199k desktop
+  (half the scatter, no ink hull on small props, fewer clouds). Further cut available: skip the crop rows on phones.
+- VERIFY: `node tools/_verify-fk-hh.cjs` 39/39 (isolation on moo-moo-farm, landmarks, every vertex vs the centreline, toon/basic
+  materials, animation, perf budget, phone profile, 0 pageerrors); against the pre-change app it is 4 pass / 35 fail.

@@ -5,7 +5,8 @@
  * Parameterized over every id in GLB_DRIVER_DEFS (bucky3d/otis3d/boots3d/huey3d).
  *  - blocks googleapis/firestore/firebase/gstatic/playroom (house convention; solo/local only)
  *  - per char: boots farmkart.html with fk_driver=<id>, forceRace, waits for the skinned clone, then
- *      asserts glb:true, SkinnedMesh >50 bones, all mats MeshLambert+skinning, seated bbox height in a
+ *      asserts glb:true, SkinnedMesh >50 bones, all mats MeshToon+skinning (MeshLambert before the 2026-10-12
+ *      Storybook Toon pass), seated bbox height in a
  *      sane band around the entry's targetH, steer lean flips the spine bone sign, and screenshots the
  *      driver in BOTH the Bucky kart and the Gator 3D kart (wheel/pedal placement sane in the gator).
  *  - a bot forced onto each id renders an INDEPENDENT SkeletonUtils clone.
@@ -147,7 +148,13 @@ async function main() {
       let boneCount = 0, skinned = 0, skinMat = 0, hasMap = 0, tris = 0;
       v.group.traverse((o) => {
         if (o.isBone) boneCount++;
-        if (o.isSkinnedMesh) { skinned++; const m = o.material; if (m && m.type === "MeshLambertMaterial" && m.skinning) skinMat++; if (m && m.map) hasMap++; if (o.geometry && o.geometry.index) tris += o.geometry.index.count / 3; }
+        // RESTAGED 2026-10-12 (Storybook Toon): the cast now renders MeshToon (the game-wide cel ramp)
+        // instead of MeshLambert, and each body carries an ink hull — itself a SkinnedMesh bound to the
+        // same skeleton (MeshBasic, BackSide). The rule this guards is unchanged: every BODY material
+        // keeps skinning:true (r128 freezes a skinned mesh in bind pose without it). Ink hulls are
+        // excluded from the body count; their own skinning flag is asserted in _verify-fk-toon.cjs.
+        if (o.isSkinnedMesh && o.userData.fkOutline) return;
+        if (o.isSkinnedMesh) { skinned++; const m = o.material; if (m && m.type === "MeshToonMaterial" && m.skinning) skinMat++; if (m && m.map) hasMap++; if (o.geometry && o.geometry.index) tris += o.geometry.index.count / 3; }
       });
       const box = new THREE.Box3().setFromObject(g._clone); const sz = box.getSize(new THREE.Vector3());
       return {
@@ -164,7 +171,7 @@ async function main() {
     ok(dump.glb === true && dump.ready === true, `${id}: contract glb:true + ready`);
     ok(dump.glbId === id, `${id}: contract._glbId matches`);
     ok(dump.boneCount > 50, `${id}: >50 bones (${dump.boneCount})`);
-    ok(dump.skinned >= 1 && dump.skinMat === dump.skinned, `${id}: all skinned meshes MeshLambert+skinning (${dump.skinMat}/${dump.skinned})`);
+    ok(dump.skinned >= 1 && dump.skinMat === dump.skinned, `${id}: all skinned meshes MeshToon+skinning (${dump.skinMat}/${dump.skinned})`);
     ok(dump.hasMap >= 1, `${id}: baseColor texture present (${dump.hasMap})`);
     // seated bbox height within a sane band around targetH (seated pose folds limbs, so allow 0.55..1.15x)
     ok(dump.h > dump.targetH * 0.55 && dump.h < dump.targetH * 1.2, `${id}: seated height ${dump.h}u sane vs targetH ${dump.targetH} (0.55..1.2x)`);

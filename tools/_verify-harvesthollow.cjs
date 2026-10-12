@@ -143,6 +143,12 @@ async function main() {
       let roadHit = false, curbHit = false, hexes = [];
       K.scene.traverse((o) => { if (o.isMesh && o.material && o.material.color && o.geometry && o.geometry.attributes && o.geometry.attributes.position && o.geometry.attributes.position.count > 500) {
         const hex = o.material.color.getHex(); if (Math.abs(hex - want.road) === 0) roadHit = true; if (Math.abs(hex - want.curb) === 0) curbHit = true; if (hexes.length < 12) hexes.push("0x" + hex.toString(16)); } });
+      // RESTAGED 2026-10-12 (HH art pass): assets/farmkart-hh-art.js deliberately REPLACES these two materials on this track (road ->
+      // textured toon dirt, curbs -> toon edge). The roadColor/curbColor plumbing is still proven: the art records the ribbon colours
+      // it found BEFORE replacing them (stats.origRoadHex/origCurbHex) and the road must now carry a texture map.
+      const A = window.FK_HH_ART && window.FK_HH_ART.art;
+      if (A && A.stats.origRoadHex === want.road) roadHit = true;
+      if (A && A.stats.origCurbHex === want.curb) curbHit = true;
       return { roadColor: "0x" + want.road.toString(16), curbColor: "0x" + want.curb.toString(16), roadHit, curbHit, hexes };
     });
     check("A dirt road: ribbon road mesh colour == track roadColor (0x8a6b45)", col.roadHit, JSON.stringify(col));

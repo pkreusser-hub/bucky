@@ -144,16 +144,42 @@
   #mpPlaces .pl .pp{ color:#ffd45e; width:26px; }
   #mpPlaces .pl .pnm{ flex:1; }
   #mpPlaces .pl.me{ font-weight:800; }
-  /* ---- HUD item slot (top-center) ---- */
-  #itemSlot{ position:absolute; left:50%; top:calc(var(--sat) + 14px); transform:translateX(-50%); z-index:12; width:76px; height:76px; border-radius:16px;
-        background:rgba(0,0,0,.42); border:2px solid rgba(255,255,255,.25); display:flex; align-items:center;
+  /* ---- HUD item slot (top-center): Storybook toon frame (rounded, thick warm-brown ink, hard drop shadow) ----
+     Contents are inline SVG icons from FK_ITEMS (assets/farmkart-items.js); no emoji anywhere in the item HUD. */
+  #itemSlot{ position:absolute; left:50%; top:calc(var(--sat) + 14px); transform:translateX(-50%); z-index:12; width:76px; height:76px; border-radius:22px;
+        background:linear-gradient(#fff7dc,#ffe19a); border:4px solid #4a2c14; display:flex; align-items:center;
+        box-shadow:0 4px 0 #4a2c14, inset 0 3px 0 rgba(255,255,255,.85), inset 0 -6px 0 rgba(214,150,40,.28);
         justify-content:center; user-select:none; pointer-events:none; }
-  #itemSlot.rolling{ border-color:#ffe27a; animation:pulse .5s ease-in-out infinite; }
-  #itemSlot.filled{ border-color:#8effa0; }
-  #itemSlot.filled.trail{ border-color:#7ec8ff; box-shadow:0 0 12px rgba(100,180,255,.45); }
-  #itemIcon{ font-size:36px; line-height:1; text-align:center; padding:0 4px; }
-  /* queued/locked item shown while trailing (tap fires the trail first) — dimmed + smaller */
-  #itemIcon .queued{ font-size:0.5em; opacity:0.4; vertical-align:super; }
+  #itemSlot.rolling{ background:linear-gradient(#fff2b8,#ffc94a); animation:slotGlow .5s steps(2) infinite; }
+  #itemSlot.filled{ background:linear-gradient(#f2ffe0,#bff08a); }
+  #itemSlot.filled.trail{ background:linear-gradient(#eaf6ff,#a6d6ff); }
+  #itemIcon{ position:relative; width:56px; height:56px; line-height:0; }
+  #itemIcon .fkico{ display:block; width:100%; height:100%; overflow:visible; }
+  #itemSlot.filled #itemIcon{ animation:itemPop .38s cubic-bezier(.3,1.6,.5,1); }
+  #itemSlot.filled:not(.trail) #itemIcon .fkico{ animation:itemBob 1.2s ease-in-out infinite; }
+  /* slot-machine reel: every icon on one strip, stepped by CSS (one icon per ~100ms like the old roll) */
+  #itemIcon .reel{ display:block; position:relative; width:100%; height:100%; overflow:hidden; }
+  #itemIcon .strip{ display:block; animation:itemReel .9s steps(9) infinite; }
+  #itemIcon .strip i{ display:block; width:56px; height:56px; }
+  /* triples: three copies fanned + a count badge; trail: shield badge over the trailed item */
+  #itemIcon .stk{ position:relative; display:block; width:100%; height:100%; }
+  #itemIcon .stk i{ position:absolute; left:0; top:0; width:100%; height:100%; }
+  #itemIcon .stk .b2{ transform:translate(-11px,-6px) scale(.72); }
+  #itemIcon .stk .b1{ transform:translate(11px,-6px) scale(.72); }
+  #itemIcon .stk .b0{ transform:translate(0,4px) scale(.92); }
+  #itemIcon .cnt{ position:absolute; right:-14px; bottom:-14px; min-width:28px; height:28px; padding:0 4px; box-sizing:border-box; border-radius:14px; background:#e8392c; color:#fff;
+        border:3px solid #4a2c14; font:900 15px/22px system-ui,sans-serif; text-align:center; }
+  #itemIcon .shl{ position:relative; display:block; width:100%; height:100%; }
+  #itemIcon .shl i{ position:absolute; display:block; }
+  #itemIcon .shl .tk{ left:0; top:0; width:100%; height:100%; }
+  #itemIcon .shl .sh{ left:-16px; top:-16px; width:30px; height:30px; z-index:2; }
+  /* queued/locked item shown while trailing (tap fires the trail first) — small + dimmed, bottom-right */
+  #itemIcon .queued{ position:absolute; right:-16px; bottom:-14px; width:28px; height:28px; opacity:.7; filter:saturate(.6); z-index:2; }
+  #itemIcon .queued .fkico{ animation:none !important; }
+  @keyframes slotGlow{ 0%{ box-shadow:0 4px 0 #4a2c14, 0 0 0 0 rgba(255,200,60,0), inset 0 3px 0 rgba(255,255,255,.85); } 100%{ box-shadow:0 4px 0 #4a2c14, 0 0 16px 4px rgba(255,200,60,.75), inset 0 3px 0 rgba(255,255,255,.85); } }
+  @keyframes itemPop{ 0%{ transform:scale(.3) rotate(-14deg); } 100%{ transform:scale(1) rotate(0); } }
+  @keyframes itemBob{ 0%,100%{ transform:translateY(0) rotate(-2deg); } 50%{ transform:translateY(-2px) rotate(2deg); } }
+  @keyframes itemReel{ from{ transform:translateY(0); } to{ transform:translateY(-90%); } }
   /* ---- Minimap (top-right; free of place/item HUD) ---- */
   #minimap{ position:absolute; top:max(12px, env(safe-area-inset-top, 0px));
         right:max(12px, env(safe-area-inset-right, 0px)); z-index:15;
@@ -709,7 +735,7 @@
   <div id="fpsHud"></div>
   <div id="padToast">🎮 connected</div>
 
-  <div id="itemSlot"><div id="itemIcon">·</div></div>
+  <div id="itemSlot"><div id="itemIcon"></div></div>
   <canvas id="minimap" width="256" height="256" aria-label="Track minimap"></canvas>
 
   <div id="touchCtl">
@@ -829,7 +855,7 @@
     </div>
   </div>
 
-  <div id="help">WASD/arrows drive · Space/Shift drift · X tap=fire item · hold X=trail behind (🥬🐔🌾) · R reset · ` tuning</div>
+  <div id="help">WASD/arrows drive · Space/Shift drift · X tap=fire item · hold X=trail behind (lettuce, chicken, hay) · R reset · ` tuning</div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -838,6 +864,15 @@
   <script src="https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js"></script>
   <script src="assets/farmkart-track.js"></script>
   <script src="assets/farmkart-props.js"></script>
+  <!-- STORYBOOK TOON (2026-10-12): shared cel-shading library, the shared 21-bone racer rig, the
+       game-side toon pass (live toonify, ink, sky, toon karts + skinned drivers), and the item
+       models / item VFX / item HUD icons built on the same library -->
+  <script src="assets/farmkart-toon.js"></script>
+  <script src="assets/farmkart-styles/fks-rig.js"></script>
+  <script src="assets/farmkart-toon-game.js"></script>
+  <script src="assets/farmkart-items.js"></script>
+  <!-- HARVEST HOLLOW hero-course art pass (only runs on ?track=harvest-hollow) -->
+  <script src="assets/farmkart-hh-art.js"></script>
   <script>
   "use strict";
   /* ============================================================================
@@ -1312,6 +1347,10 @@
   const sun = new THREE.DirectionalLight(0xffffff, 0.75);
   sun.position.set(40, 80, 20);
   scene.add(sun);
+  // STORYBOOK TOON (2026-10-12): cel-shade everything from here on — every lit material that is added
+  // to the scene becomes MeshToon (live-linked to its source), sun shadow map on, NoToneMapping.
+  // Lights are retuned for the toon ramp after the sky preset + per-track overrides (see setSky).
+  FK_TOON_GAME.install(scene, renderer, hemi, sun);
 
   // (ground plane is built LATER, once sampleHeight() exists — it is now a displaced grid.)
 
@@ -1496,7 +1535,10 @@
         if (!entry) return;   // genuinely failed after 3 attempts — leave this model's objects unrendered (no placeholder in-game), everything else unaffected
         _glbCache[id] = entry;
         // static-batch every object using this model into InstancedMeshes (one per template submesh)
-        scene.add(_instanceGlbModel(entry, _glbObjs.filter(o => o.model === id)));
+        // STORYBOOK TOON hook: toon + ink (thickness scaled per instance; tiny submeshes skipped) as the props land
+        const _propGrp = _instanceGlbModel(entry, _glbObjs.filter(o => o.model === id));
+        FK_TOON_GAME.decorateProps(_propGrp);
+        scene.add(_propGrp);
       });
     });
   }
@@ -1732,11 +1774,20 @@
     sun.color.setHex(c.sun.color); sun.intensity = c.sun.intensity; sun.position.set(c.sun.pos[0], c.sun.pos[1], c.sun.pos[2]);
     if (SKY_OBJ){ scene.remove(SKY_OBJ); SKY_OBJ.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }); }
     SKY_OBJ = FK_TRACK.buildSkyObjects(preset, THREE, { mobile:(typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches) });
+    // STORYBOOK TOON: gradient dome + puffy outlined clouds for this preset (replaces the soft alpha
+    // cloud sprites; stars/moon/snow/sun disc stay). The dome follows the camera, and the same per-frame
+    // hook moves the sun's shadow box with the view.
+    SKY_OBJ.add(FK_TOON_GAME.buildSky(preset, SKY_OBJ));
+    const _skyUpd = SKY_OBJ.userData.update;
+    SKY_OBJ.userData.update = (dt, cam)=>{ _skyUpd(dt, cam); FK_TOON_GAME.frame(dt, cam); };
     scene.add(SKY_OBJ);
+    if (_toonLit) FK_TOON_GAME.retuneLights(preset);   // a runtime re-sky (tests) gets the toon light scale too
     return SKY_OBJ;
   }
-  // only depart from the byte-identical default path when a track actually specifies a non-day sky
-  if (ACTIVE_TRACK.sky && ACTIVE_TRACK.sky !== 'day') setSky(ACTIVE_TRACK.sky);
+  let _toonLit = false;
+  // STORYBOOK TOON: every preset (incl. the default 'day') now builds its toon dome via setSky; the
+  // 'day' preset values equal the boot defaults above, so lights/fog/clear colour are unchanged by it.
+  setSky(ACTIVE_TRACK.sky || 'day');
   // CITY THEME lighting readability (2026-07-17): the shared night preset (hemi 0.40) is tuned for a
   // dark rural night; a LIT city highway wants a touch more fill so karts + road read clearly. Nudge
   // hemisphere fill up + warm its ground tint WITHOUT mutating the shared SKY_PRESETS.night object
@@ -1757,6 +1808,11 @@
   if (ACTIVE_TRACK.decor === 'skyway'){    // floating light-ribbon — a soft violet fill so the road + karts read against the void
     hemi.intensity = 0.62; hemi.color.setHex(0x3a2f66); hemi.groundColor.setHex(0x0a0a14); sun.intensity = 0.5; sun.color.setHex(0xbfc4ff);
   }
+  // STORYBOOK TOON: ONE toon-aware rescale of whatever the preset + the overrides above produced (the
+  // presets stay Lambert-era numbers; FK_TOON_GAME.retuneLights documents the rule), then ink + shadows
+  // on the boot-time moving set pieces (trains, traffic).
+  FK_TOON_GAME.retuneLights(ACTIVE_TRACK.sky || 'day'); _toonLit = true;
+  FK_TOON_GAME.decorateMovers([TRAIN_GROUP, TRAFFIC_GROUP]);
 
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.
@@ -1812,37 +1868,30 @@
     scene.add(grp);
   }
 
+  // HARVEST HOLLOW ART PASS (FK_HH_ART, assets/farmkart-hh-art.js): sky dome, clouds, hills, re-coloured ground + road,
+  // curbs, landmarks, crops, critters. Scenery only (no physics); built ONLY on this track. Updated per frame below.
+  let HH_ART = null;
+  if (ACTIVE_TRACK_ID === 'harvest-hollow' && window.FK_HH_ART && window.FK_TOON){
+    HH_ART = FK_HH_ART.build(scene, {
+      camera, renderer, sampleHeight, groundSampleHeight, centerPts, tangents, arcS, TRACK_WIDTH, TRACK_LEN, nearestCenterInfo, ACTIVE_TRACK,
+      FINISH, waterSurfaceAt, getSkyObj:()=>SKY_OBJ, IS_MOBILE:(typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches)
+    });
+    // the course brings its own golden-afternoon dome + cumulus, so the generic toon sky (setSky's
+    // fkToonSky group: dome + inked cloud ring) would double up behind it — hide it on this track only
+    if (HH_ART && SKY_OBJ) SKY_OBJ.traverse(o => { if (o.name === 'fkToonSky') o.visible = false; });
+  }
+
   // ---------- kart meshes (K3.5: one VIEW per player id, built from shared geometry) ----------
   // Views are LOCAL-only render state (outside G), keyed by player id like G.players. The local
   // player's group keeps name 'kart' (test hook + camera). Each view owns its own smoothed surface
   // normal + last-airborne latch so bots tilt/thump independently.
-  // ---- procedural spinning wheels (clean cylinders — replace the fused-mesh tires, no wobble/holes) ----
-  // Tire = LatheGeometry with a rounded cross-section (flat tread + rounded shoulders like a real
-  // tire), revolved about the axle (local Z). Smaller than the first pass so it doesn't clip the body.
-  const _TIRE_ROUT = 0.26, _TIRE_HUBR = 0.11, _TIRE_HW = 0.11, _TIRE_SH = 0.07;
-  function _makeTireGeo(){
-    const V = THREE.Vector2, p = [], Rout=_TIRE_ROUT, Rin=_TIRE_HUBR, hw=_TIRE_HW, sh=_TIRE_SH;
-    p.push(new V(Rin, -hw));
-    for (let k=0;k<=4;k++){ const t=k/4*Math.PI/2; p.push(new V(Rout-sh+Math.sin(t)*sh, -hw+sh-Math.cos(t)*sh)); }  // bottom shoulder
-    for (let k=0;k<=4;k++){ const t=k/4*Math.PI/2; p.push(new V(Rout-sh+Math.cos(t)*sh, hw-sh+Math.sin(t)*sh)); }   // top shoulder
-    p.push(new V(Rin, hw));
-    const g = new THREE.LatheGeometry(p, 22); g.rotateX(Math.PI/2); g.computeVertexNormals(); return g;   // axle -> local Z
-  }
-  const _WHEEL_TIRE = _makeTireGeo();
-  const _WHEEL_HUB  = new THREE.CylinderGeometry(_TIRE_HUBR, _TIRE_HUBR, _TIRE_HW*2*0.95, 12); _WHEEL_HUB.rotateX(Math.PI/2);
-  const _WHEEL_LUG  = new THREE.BoxGeometry(0.05, 0.075, _TIRE_HW*2*0.9);   // knobby tread block (spans tire width in Z)
-  const _WHEEL_TIRE_MAT = new THREE.MeshLambertMaterial({ color:0x161616 });
-  const _WHEEL_HUB_MAT  = new THREE.MeshLambertMaterial({ color:0xf2c200 });   // John Deere yellow hub
-  function buildProcWheel(){
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(_WHEEL_TIRE, _WHEEL_TIRE_MAT));
-    g.add(new THREE.Mesh(_WHEEL_HUB, _WHEEL_HUB_MAT));
-    // knobby tread lugs around the circumference — these make the spin unmistakable when moving.
-    const N=12, r=_TIRE_ROUT+0.01;
-    for (let i=0;i<N;i++){ const a=i/N*Math.PI*2; const lug=new THREE.Mesh(_WHEEL_LUG,_WHEEL_TIRE_MAT);
-      lug.position.set(Math.cos(a)*r, Math.sin(a)*r, 0); lug.rotation.z=a; g.add(lug); }
-    return g;
-  }
+  // ---- procedural spinning wheels: outer radius _TIRE_ROUT is the physics/placement constant (the
+  // tread is planted at kart-local y=0 from it every frame); the mesh itself is the toon wheel below.
+  const _TIRE_ROUT = 0.26;
+  // STORYBOOK TOON (2026-10-12): fat cartoon tire + hubcaps + big bolts, one vertex-coloured mesh + ink
+  // (FK_TOON_GAME.buildWheel). Same outer radius (_TIRE_ROUT) and axle (local Z), so the per-frame
+  // tread planting / spin / steer in syncKartView is untouched.
+  function buildProcWheel(noInk){ return FK_TOON_GAME.buildWheel(noInk); }
   // Custom Bucky Kart — game-forward space: +Z front, +Y up, +X right. 4 wheels.
   // (Replaces the fused Meshy Gator; parts are separate so seat/wheel/tires animate cleanly.)
   // Axle Y is overwritten each frame to plant the tire tread at kart-local y=0 (see syncKartView).
@@ -1941,13 +1990,10 @@
   const KART_CYL_GEO    = new THREE.CylinderGeometry(0.28, 0.28, 0.55, 12);
   const KART_CAP_GEO    = new THREE.SphereGeometry(0.28, 12, 10);
   // Shared mats/geos for the custom kart (cloned per-view only where color differs)
+  // (STORYBOOK TOON: the box karts that used these are gone — kept as toon mats for any old harness)
   const _KART_MAT = {
-    cream:  new THREE.MeshLambertMaterial({ color:0xf3e6c8 }),
-    dark:   new THREE.MeshLambertMaterial({ color:0x2a2a2a }),
-    yellow: new THREE.MeshLambertMaterial({ color:0xf2c200 }),
-    chrome: new THREE.MeshLambertMaterial({ color:0xb8c0c8 }),
-    seat:   new THREE.MeshLambertMaterial({ color:0xf2c200 }),
-    grill:  new THREE.MeshLambertMaterial({ color:0x1a1a1a }),
+    cream:  FK_TOON.mat(0xf3e6c8), dark: FK_TOON.mat(0x2a2a2a), yellow: FK_TOON.mat(0xf2c200),
+    chrome: FK_TOON.mat(0xb8c0c8), seat: FK_TOON.mat(0xf2c200), grill: FK_TOON.mat(0x1a1a1a),
   };
   const kartViews = {};   // id -> { group, bounce, bodyMat, kartNormal, lastAirborne }
 
@@ -2075,11 +2121,9 @@
   // Mario-Kart-ish points-by-place for a 12-kart field (1st..12th).
   const FK_CUP_POINTS = [15,12,10,9,8,7,6,5,4,3,2,1];
 
-  // Kart + driver built in GAME space (+Z forward). Hands parent to wheel grips; feet to pedals;
-  // limb segments stretch between joints each frame so grip/pedal contact stays locked.
-  const _drvTmpV = new THREE.Vector3();
-  const _drvTmpV2 = new THREE.Vector3();
-  const _drvTmpV3 = new THREE.Vector3();
+  // Kart + driver built in GAME space (+Z forward). STORYBOOK TOON: the drivers are skinned and reach
+  // the wheel grips by two-bone IK (FK_TOON_GAME.syncDriver); the palettes below are the characters'
+  // reference colours (FK_TOON_GAME.DRIVER_PAL carries the same fur/cream/nose/eye values).
   // Per-driver material kits (cloned once; shared across instances of that driver)
   function _makeDriverMats(cfg){
     const m = (c)=>({ color:c });
@@ -2105,33 +2149,17 @@
   };
   // back-compat alias used by older harnesses
   const _GOAT = _DRIVER_MATS.bucky;
-  // Steering wheel: hub + rim + 3 spokes. Rim rotates about local Z (faces the driver).
-  function buildSteerWheel(){
-    const g = new THREE.Group();
-    const hubMat = new THREE.MeshLambertMaterial({ color:0x2a2a2a });
-    const rimMat = new THREE.MeshLambertMaterial({ color:0x1a1a1a });
-    const spokeMat = new THREE.MeshLambertMaterial({ color:0x444444 });
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.035, 10), hubMat);
-    hub.rotation.x = Math.PI/2; g.add(hub);
-    const rim = new THREE.Group(); g.add(rim);
-    rim.add(new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.022, 8, 18), rimMat));
-    for (let i=0;i<3;i++){
-      const holder = new THREE.Group(); holder.rotation.z = i * (Math.PI*2/3);
-      const sp = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.14, 0.016), spokeMat);
-      sp.position.y = 0.07; holder.add(sp); rim.add(holder);
-    }
-    // Grip anchors — hands are parented here so they ride the rim as it turns
-    const gripL = new THREE.Object3D(); gripL.position.set(-0.15, 0.04, 0.01); rim.add(gripL);
-    const gripR = new THREE.Object3D(); gripR.position.set( 0.15, 0.04, 0.01); rim.add(gripR);
-    g.userData.rim = rim; g.userData.gripL = gripL; g.userData.gripR = gripR;
-    return g;
-  }
+  // Steering wheel: rim + 3 spokes + horn button (STORYBOOK TOON: FK_TOON_GAME.buildSteerWheel). Same
+  // contract: userData.rim rotates about local Z; userData.gripL/gripR ride the rim (the toon driver's
+  // hand IK targets; gripL = the driver's left hand, +X).
+  function buildSteerWheel(noInk){ return FK_TOON_GAME.buildSteerWheel(noInk); }
   // Pedal pair under the dash (visual + foot anchors)
   function buildPedals(){
     const g = new THREE.Group();
-    const mat = new THREE.MeshLambertMaterial({ color:0x222222 });
+    const mat = FK_TOON_GAME.kartMats().pedal;
     const padL = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.03, 0.14), mat);
     const padR = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.03, 0.14), mat);
+    padL.userData.noOutline = padR.userData.noOutline = true;   // 10 cm pads: ink would be noise
     g.add(padL, padR);
     const footL = new THREE.Object3D(); footL.position.set(-0.16, 0.02, 0); g.add(footL);
     const footR = new THREE.Object3D(); footR.position.set( 0.16, 0.02, 0); g.add(footR);
@@ -2139,126 +2167,24 @@
     g.userData.footL = footL; g.userData.footR = footR;
     return g;
   }
-  // ---- Kart body builders (shared seat/dash height so driver TUNE fit works on all 3) ----
-  // bodyColor = per-player accent. Returns { root, bodyMat }.
-  function _kartBox(root, w,h,d, mat, x,y,z){
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
-    m.position.set(x,y,z); root.add(m); return m;
-  }
+  // ---- Kart body builders (STORYBOOK TOON 2026-10-12) ----
+  // Rebuilt in the prototype's toon language (assets/farmkart-toon-game.js SHAPES): rounded bubbly
+  // shapes, a headlight "face" + bumper smile, hay bale / exhaust stacks / swaying pennant flair.
+  // Each kart is 3 merged meshes (paint / vertex-coloured body / lamps) + ink hulls instead of ~40
+  // boxes. Footprint is unchanged: wheels still mount at KART_WHEEL_POS (fillKartModel), and the seat
+  // surface sits where the toon driver's seat offset (FK_TOON_GAME.SEAT_OFF) expects it.
+  // bodyColor = per-player accent. Returns { root, bodyMat } (bodyMat meshes get the view's paint).
   function buildBuckyKart(bodyColor){
-    const root = new THREE.Group();
-    root.name = 'buckyKart';
-    const accent = new THREE.MeshLambertMaterial({ color:bodyColor, emissive:0x000000 });
-    const hayMat = new THREE.MeshLambertMaterial({ color:0xd4a84b });
-    const M = _KART_MAT;
-    const box = (w,h,d, mat, x,y,z) => _kartBox(root, w,h,d, mat, x,y,z);
-
-    box(1.10, 0.16, 1.60, M.dark, 0, 0.26, 0.02);
-    box(1.02, 0.42, 0.90, accent, 0, 0.55, 0.00);
-    for (const sx of [-1, 1]){
-      box(0.16, 0.30, 1.55, accent, sx*0.54, 0.44, 0.02);
-      box(0.10, 0.18, 0.40, M.dark, sx*0.58, 0.30, 0.62);
-      box(0.10, 0.18, 0.40, M.dark, sx*0.58, 0.30, -0.58);
-    }
-    box(0.95, 0.36, 0.58, accent, 0, 0.54, 0.78);
-    box(0.50, 0.12, 0.30, M.dark, 0, 0.76, 0.72);
-    box(0.72, 0.24, 0.07, M.grill, 0, 0.44, 1.08);
-    box(1.08, 0.12, 0.14, M.chrome, 0, 0.28, 1.10);
-    for (const sx of [-1, 1]){
-      const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 10), M.yellow);
-      lamp.rotation.x = Math.PI/2; lamp.position.set(sx*0.34, 0.52, 1.10); root.add(lamp);
-    }
-    box(0.98, 0.10, 0.52, accent, 0, 0.50, -0.78);
-    for (const sx of [-1, 1]) box(0.06, 0.32, 0.52, accent, sx*0.46, 0.70, -0.78);
-    box(0.98, 0.32, 0.06, accent, 0, 0.70, -1.02);
-    box(0.42, 0.22, 0.28, hayMat, -0.12, 0.68, -0.78);
-    box(0.36, 0.18, 0.24, hayMat,  0.18, 0.66, -0.72);
-    box(0.40, 0.14, 0.38, M.seat, 0, 0.78, -0.06);
-    box(0.40, 0.42, 0.10, M.seat, 0, 1.02, -0.28);
-    box(0.88, 0.14, 0.24, M.dark, 0, 0.84, 0.34);
-    box(0.80, 0.04, 0.04, M.chrome, 0, 1.05, 0.42);
-    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.50, 8), M.chrome);
-    exhaust.rotation.x = Math.PI/2; exhaust.position.set(0.58, 0.38, -0.50); root.add(exhaust);
-    box(0.30, 0.18, 0.04, M.cream, 0, 0.66, 1.09);
-    return { root, bodyMat: accent };
+    return FK_TOON_GAME.buildKart('bucky', FK_TOON.mat(bodyColor, { emissive:0x000000 }));
   }
   // Tall-hood farm tractor — always FIRE-ENGINE RED (slot color ignored for body paint)
   const TRACTOR_RED = 0xc62828;
   function buildTractorKart(/* bodyColor unused — tractor is always red */){
-    const root = new THREE.Group();
-    root.name = 'tractorKart';
-    const accent = new THREE.MeshLambertMaterial({ color:TRACTOR_RED, emissive:0x000000 });
-    const M = _KART_MAT;
-    const box = (w,h,d, mat, x,y,z) => _kartBox(root, w,h,d, mat, x,y,z);
-
-    box(1.05, 0.18, 1.55, M.dark, 0, 0.26, 0.00);
-    // Engine hood (tall front)
-    box(0.72, 0.52, 0.78, accent, 0, 0.62, 0.72);
-    box(0.78, 0.10, 0.82, M.dark, 0, 0.92, 0.72);
-    box(0.58, 0.36, 0.08, M.grill, 0, 0.52, 1.14);
-    box(0.90, 0.12, 0.14, M.chrome, 0, 0.30, 1.12);
-    for (const sx of [-1, 1]){
-      const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 10), M.yellow);
-      lamp.rotation.x = Math.PI/2; lamp.position.set(sx*0.28, 0.70, 1.12); root.add(lamp);
-    }
-    // Cabin tub behind hood
-    box(0.95, 0.38, 0.70, accent, 0, 0.56, -0.18);
-    for (const sx of [-1, 1]){
-      box(0.14, 0.34, 0.70, accent, sx*0.52, 0.50, -0.18);
-      box(0.18, 0.28, 0.55, accent, sx*0.52, 0.48, 0.55); // front fenders
-      box(0.22, 0.36, 0.55, accent, sx*0.54, 0.52, -0.70); // rear fenders
-    }
-    // Vertical exhaust stack
-    const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.72, 8), M.chrome);
-    stack.position.set(0.38, 1.10, 0.55); root.add(stack);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.06, 8), M.dark);
-    cap.position.set(0.38, 1.48, 0.55); root.add(cap);
-    // Hitch bar
-    box(0.55, 0.08, 0.10, M.dark, 0, 0.36, -0.95);
-    box(0.10, 0.10, 0.22, M.chrome, 0, 0.36, -1.08);
-    // Seat + dash (same seats as Bucky Kart)
-    box(0.40, 0.14, 0.38, M.seat, 0, 0.78, -0.06);
-    box(0.40, 0.42, 0.10, M.seat, 0, 1.02, -0.28);
-    box(0.78, 0.14, 0.22, M.dark, 0, 0.84, 0.28);
-    box(0.70, 0.04, 0.04, M.chrome, 0, 1.05, 0.36);
-    return { root, bodyMat: accent };
+    return FK_TOON_GAME.buildKart('tractor', FK_TOON.mat(TRACTOR_RED, { emissive:0x000000 }));
   }
-  // Flat riding mower — wide low deck, small engine hump, roll bar (tiny wheels via wheelSizeMul)
+  // Flat riding mower — wide low deck, engine hump, roll bar (tiny wheels via wheelSizeMul)
   function buildMowerKart(bodyColor){
-    const root = new THREE.Group();
-    root.name = 'mowerKart';
-    const accent = new THREE.MeshLambertMaterial({ color:bodyColor, emissive:0x000000 });
-    const M = _KART_MAT;
-    const box = (w,h,d, mat, x,y,z) => _kartBox(root, w,h,d, mat, x,y,z);
-
-    // Wide cutting deck (low — sits on small wheels)
-    box(1.35, 0.10, 1.45, accent, 0, 0.20, 0.05);
-    box(1.40, 0.05, 1.50, M.dark, 0, 0.13, 0.05);
-    // Side skirts
-    for (const sx of [-1, 1]) box(0.08, 0.16, 1.40, accent, sx*0.68, 0.24, 0.05);
-    // Engine hump / nose
-    box(0.70, 0.24, 0.55, accent, 0, 0.38, 0.62);
-    box(0.55, 0.08, 0.40, M.dark, 0, 0.54, 0.62);
-    box(0.50, 0.14, 0.06, M.grill, 0, 0.34, 0.92);
-    box(0.95, 0.06, 0.12, M.chrome, 0, 0.18, 0.95);
-    for (const sx of [-1, 1]){
-      const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.05, 8), M.yellow);
-      lamp.rotation.x = Math.PI/2; lamp.position.set(sx*0.26, 0.40, 0.92); root.add(lamp);
-    }
-    // Discharge chute (right)
-    box(0.22, 0.08, 0.28, M.dark, 0.72, 0.22, 0.20);
-    // Roll bar behind seat
-    for (const sx of [-1, 1]){
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.55, 6), M.chrome);
-      post.position.set(sx*0.28, 0.95, -0.35); root.add(post);
-    }
-    box(0.60, 0.04, 0.04, M.chrome, 0, 1.22, -0.35);
-    // Seat + tiny dash (same seat height as other karts so driver TUNE fit still works)
-    box(0.40, 0.14, 0.38, M.seat, 0, 0.78, -0.06);
-    box(0.40, 0.42, 0.10, M.seat, 0, 1.02, -0.28);
-    box(0.70, 0.12, 0.20, M.dark, 0, 0.82, 0.30);
-    box(0.60, 0.03, 0.03, M.chrome, 0, 1.00, 0.38);
-    return { root, bodyMat: accent };
+    return FK_TOON_GAME.buildKart('mower', FK_TOON.mat(bodyColor, { emissive:0x000000 }));
   }
   function buildCustomKart(bodyColor){ return buildBuckyKart(bodyColor); } // back-compat
   function buildKartBody(kartId, bodyColor){
@@ -2332,14 +2258,17 @@
       if (!(o.isMesh || o.isSkinnedMesh) || !o.material) return;
       const src = Array.isArray(o.material) ? o.material[0] : o.material;
       const map = (src && src.map) ? src.map : null;   // baseColor only; drop normal/metallicRoughness
-      o.material = new THREE.MeshLambertMaterial({
+      // STORYBOOK TOON (2026-10-12): MeshToon on the shared 3-band ramp (was MeshLambert). The old 0.30
+      // emissive lift fixed near-black side faces under Lambert; the ramp's 0.42 floor now lights those,
+      // so only a 0.12 lift is kept (0.30 on top of the ramp washed the cel bands out).
+      o.material = FK_TOON.mat(map ? 0xffffff : ((src && src.color) ? src.color.clone() : new THREE.Color(0xcccccc)), {
         map,
-        color: map ? 0xffffff : ((src && src.color) ? src.color.clone() : new THREE.Color(0xcccccc)),
         skinning: true,   // r128: required or the skinned mesh freezes in bind pose
-        // emissive lift so unlit faces read under the toon Hemisphere+Directional rig (props do the same)
-        emissive: new THREE.Color(0xffffff).multiplyScalar(0.30), emissiveMap: map
+        emissive: new THREE.Color(0xffffff).multiplyScalar(0.12), emissiveMap: map
       });
-      o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+      // STORYBOOK TOON: no shadow-map pass for the 47k-tri Tripo drivers (the kart body's shadow
+      // already reads under them; casting would re-skin every one of them a second time per frame)
+      o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
     });
     sceneRoot.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(sceneRoot);
@@ -2397,6 +2326,9 @@
       contract.head = boneMap['Head'] || null;            // hats read g.head (gated off for glb in setViewHat)
       contract._headBone = boneMap['Head'] || null;
       contract._spine = boneMap['Spine01'] || boneMap['Spine02'] || boneMap['Waist'] || null;
+      // STORYBOOK TOON: ink hull on the skinned clone (deforms with the rig; ~1.2 cm in world units)
+      // thin:true -> its hull drops at FK_TOON_GAME.INK_FAR_THIN (16 u), where 1.2 cm is sub-pixel
+      if (!contract._noInk) FK_TOON_GAME.inkTree(contract.wrapper, { k:0.016, min:0.009, max:0.013, minR:0.05, thin:true });
       contract._ready = true;
     });
   }
@@ -2435,11 +2367,13 @@
       const src = Array.isArray(o.material) ? o.material[0] : o.material;
       const map = (src && src.map) ? src.map : null;   // baseColor only
       const flatCol = (src && src.color) ? src.color.clone() : new THREE.Color(0x4a9d3f);
-      o.material = new THREE.MeshLambertMaterial({
-        map, color: map ? 0xffffff : flatCol,
+      // STORYBOOK TOON (2026-10-12): MeshToon (was MeshLambert); lift cut to ~40% for the same reason as
+      // the GLB drivers (the ramp floor already lights the side faces).
+      o.material = FK_TOON.mat(map ? 0xffffff : flatCol, {
+        map,
         // textured: white lift through the map; flat (v3 wheels): lift TINTED by the
         // material's own color so dark tires stay dark instead of washing out grey
-        emissive: map ? new THREE.Color(0xffffff).multiplyScalar(0.30) : flatCol.clone().multiplyScalar(0.35),
+        emissive: map ? new THREE.Color(0xffffff).multiplyScalar(0.12) : flatCol.clone().multiplyScalar(0.14),
         emissiveMap: map
       });
       o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
@@ -2460,7 +2394,7 @@
   // Empty synchronous body — the GLB clone attaches async (fillKartModel → _attachGator3d).
   function buildGator3dKart(bodyColor){
     const root = new THREE.Group(); root.name = 'gator3dKart'; root.userData.gator3d = true;
-    return { root, bodyMat: new THREE.MeshLambertMaterial({ color:bodyColor }) };
+    return { root, bodyMat: FK_TOON.mat(bodyColor) };
   }
   // Clone the GLB into the kart body root, normalize footprint + seat on ground, and register the
   // wheel + steering-wheel nodes so the render loop spins/steers them. Async (pops in like scenery).
@@ -2500,6 +2434,9 @@
       if (wheels[0]){ const wb = new THREE.Box3().setFromObject(wheels[0].node); wr = Math.max(0.08, (wb.max.y - wb.min.y) * 0.5); }
       view.glbWheelR = wr;
       view.glbWheels = wheels;
+      // STORYBOOK TOON: ink AFTER the Wheel_/SteerWheel registration above (an ink child named
+      // "Wheel_FL_ink" must never be picked up as a wheel node)
+      if (!view._noInk) FK_TOON_GAME.inkTree(wrap, { k:0.02, min:0.012, max:0.02, minR:0.05, thin:true });   // 27k-tri hull: near-only LOD
       view._gatorReady = true;
     });
   }
@@ -2512,10 +2449,14 @@
     pedalX:0,  pedalY:-0.02, pedalZ:0.10,
   };
 
-  // ---- Procedural humanoid drivers (Bucky goat / Otis dog / Boots cat) ----
-  // Shared hierarchy: hips → torso/chest/head + shoulder pivots; hands on wheel grips;
-  // feet on pedals. Limb segments stretch each frame between joints.
-  function buildDriver(kind){
+  // ---- Drivers (Bucky goat / Otis dog / Boots cat) — STORYBOOK TOON (2026-10-12) ----
+  // The box-limbed procedural drivers are now SKINNED toon characters on the shared 21-bone rig
+  // (assets/farmkart-styles/fks-rig.js; geometry in assets/farmkart-toon-game.js): one vertex-coloured
+  // SkinnedMesh + one ink hull each, animated by FKS.RacerAnimator clips (idle/drive/steer/drift/boost/
+  // hit/trick/cheer) driven from the real kart state, with two-bone hand IK onto the steering-wheel
+  // grips. Contract: { kind, toon:true, root, head (hat anchor on the head bone), mesh, bones, anim }.
+  function buildDriver(kind, opts){
+    opts = opts || {};
     const id = normalizeDriverId(kind);
     if (GLB_DRIVER_DEFS[id]){
       // GLB (Tripo cast) driver: root (gets TUNE placement each frame) > wrapper (normalization scale
@@ -2525,180 +2466,13 @@
       const wrapper = new THREE.Group(); root.add(wrapper);
       const contract = { kind:id, glb:true, root, wrapper, head:null, bones:null,
                          _clone:null, _ready:false, _spine:null, _headBone:null,
-                         _def:GLB_DRIVER_DEFS[id], _glbId:id };
+                         _def:GLB_DRIVER_DEFS[id], _glbId:id, _noInk:!!opts.noInk };
       _attachGlbDriver(contract, id);
       return contract;
     }
-    const G = _DRIVER_MATS[id] || _DRIVER_MATS.bucky;
-    const root = new THREE.Group(); root.name = 'driver_'+id;
-    const hips = new THREE.Group(); root.add(hips);
-    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.28), G.fur);
-    pelvis.position.y = 0.08; hips.add(pelvis);
-
-    const torso = new THREE.Group(); torso.position.y = 0.16; hips.add(torso);
-    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.38, 0.26), G.shirt);
-    chest.position.y = 0.22; torso.add(chest);
-    // Chest band / apron (color reads the character)
-    const apron = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.28, 0.04), id==='bucky' ? G.cream : G.band);
-    apron.position.set(0, 0.18, 0.14); torso.add(apron);
-
-    const head = new THREE.Group(); head.position.y = 0.48; torso.add(head);
-    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.30, 0.30), G.fur);
-    head.add(skull);
-
-    if (id === 'otis'){
-      // Cream golden-retriever: soft snout, black nose, floppy hanging ears
-      const blaze = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.14, 0.03), G.cream);
-      blaze.position.set(0, 0.04, 0.155); head.add(blaze);
-      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.22), G.cream);
-      snout.position.set(0, -0.04, 0.22); head.add(snout);
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.08, 0.08), G.nose);
-      nose.position.set(0, -0.02, 0.34); head.add(nose);
-      for (const sx of [-1, 1]){
-        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.04), G.eye);
-        eye.position.set(sx*0.09, 0.07, 0.16); head.add(eye);
-        // Floppy ear hanging from side
-        const ear = new THREE.Group(); ear.position.set(sx*0.18, 0.06, 0.00);
-        ear.rotation.z = sx * 0.35; ear.rotation.x = 0.55;
-        const flap = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.22, 0.05), G.fur);
-        flap.position.y = -0.10; ear.add(flap);
-        const inner = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.02), G.cream);
-        inner.position.set(0, -0.08, 0.03); ear.add(inner);
-        head.add(ear);
-      }
-      // Soft tail hint behind hips
-      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.22), G.fur);
-      tail.position.set(0, 0.10, -0.22); hips.add(tail);
-    } else if (id === 'boots'){
-      // Grey cat: pointy ears, pink nose, white blaze optional
-      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.11, 0.14), G.fur);
-      snout.position.set(0, -0.06, 0.18); head.add(snout);
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.06), G.nose);
-      nose.position.set(0, -0.04, 0.28); head.add(nose);
-      for (const sx of [-1, 1]){
-        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.06, 0.04), G.eye);
-        eye.position.set(sx*0.09, 0.06, 0.16); head.add(eye);
-        // Pointy ear (cone-ish via tapered box stack)
-        const ear = new THREE.Group(); ear.position.set(sx*0.12, 0.18, 0.00);
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.10, 0.05), G.fur);
-        base.position.y = 0.04; ear.add(base);
-        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.04), G.fur);
-        tip.position.y = 0.12; ear.add(tip);
-        const inner = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.02), G.cream);
-        inner.position.set(0, 0.05, 0.03); ear.add(inner);
-        head.add(ear);
-      }
-      // Thin upturned tail
-      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.28), G.fur);
-      tail.position.set(0.10, 0.14, -0.24); tail.rotation.y = 0.4; tail.rotation.x = -0.5; hips.add(tail);
-    } else {
-      // Bucky goat (default): blaze, snout, side ears, beard
-      const blaze = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.03), G.cream);
-      blaze.position.set(0, 0.04, 0.155); head.add(blaze);
-      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.13, 0.18), G.cream);
-      snout.position.set(0, -0.05, 0.20); head.add(snout);
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.07), G.nose);
-      nose.position.set(0, -0.05, 0.30); head.add(nose);
-      for (const sx of [-1, 1]){
-        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.04), G.eye);
-        eye.position.set(sx*0.09, 0.07, 0.16); head.add(eye);
-        const ear = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.04), G.fur);
-        ear.position.set(sx * 0.22, 0.04, 0.02); head.add(ear);
-        const inner = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.045, 0.015), G.cream);
-        inner.position.set(sx * 0.22, 0.04, 0.04); head.add(inner);
-      }
-      const beard = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.06), G.cream);
-      beard.position.set(0, -0.18, 0.14); head.add(beard);
-    }
-
-    const shoulderL = new THREE.Object3D(); shoulderL.position.set(-0.22, 0.34, 0.02); torso.add(shoulderL);
-    const shoulderR = new THREE.Object3D(); shoulderR.position.set( 0.22, 0.34, 0.02); torso.add(shoulderR);
-    const hipL = new THREE.Object3D(); hipL.position.set(-0.12, 0.02, 0.04); hips.add(hipL);
-    const hipR = new THREE.Object3D(); hipR.position.set( 0.12, 0.02, 0.04); hips.add(hipR);
-
-    function makeLimbSeg(len, thick, mat){
-      const m = new THREE.Mesh(new THREE.BoxGeometry(thick, len, thick), mat);
-      m.geometry.translate(0, -len/2, 0);
-      return m;
-    }
-    const armMat = G.fur;
-    const legMat = G.fur;
-    const upperArmL = makeLimbSeg(0.22, 0.08, armMat);
-    const lowerArmL = makeLimbSeg(0.20, 0.07, armMat);
-    const upperArmR = makeLimbSeg(0.22, 0.08, armMat);
-    const lowerArmR = makeLimbSeg(0.20, 0.07, armMat);
-    const upperLegL = makeLimbSeg(0.24, 0.10, legMat);
-    const lowerLegL = makeLimbSeg(0.22, 0.08, legMat);
-    const upperLegR = makeLimbSeg(0.24, 0.10, legMat);
-    const lowerLegR = makeLimbSeg(0.22, 0.08, legMat);
-    root.add(upperArmL, lowerArmL, upperArmR, lowerArmR, upperLegL, lowerLegL, upperLegR, lowerLegR);
-
-    function makeHand(){
-      const h = new THREE.Group();
-      const palmMat = id === 'boots' ? G.paw : G.cream;
-      const palm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.10), palmMat);
-      h.add(palm);
-      for (let i=-1;i<=1;i++){
-        const f = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.03, 0.06), palmMat);
-        f.position.set(i*0.025, 0.01, 0.07); h.add(f);
-      }
-      return h;
-    }
-    const handL = makeHand();
-    const handR = makeHand();
-
-    function makeFoot(){
-      const f = new THREE.Group();
-      const soleMat = id === 'boots' ? G.paw : G.dark;
-      const sole = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.05, 0.16), soleMat);
-      sole.position.z = 0.02; f.add(sole);
-      if (id === 'boots'){
-        // White boot tip
-        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.05), G.paw);
-        tip.position.set(0, -0.01, 0.10); f.add(tip);
-      } else {
-        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.05), G.horn);
-        tip.position.set(0, -0.01, 0.10); f.add(tip);
-      }
-      return f;
-    }
-    const footL = makeFoot();
-    const footR = makeFoot();
-
-    return {
-      kind:id, root, hips, torso, head,
-      shoulderL, shoulderR, hipL, hipR,
-      upperArmL, lowerArmL, upperArmR, lowerArmR,
-      upperLegL, lowerLegL, upperLegR, lowerLegR,
-      handL, handR, footL, footR
-    };
+    return FK_TOON_GAME.buildDriver(id, { noInk:!!opts.noInk });
   }
   function buildGoatDriver(){ return buildDriver('bucky'); } // back-compat
-  // Point + stretch a limb segment from world A → world B.
-  // Mesh is parented under the kart; we convert to parent-local. Geometry pivot is at the
-  // top (y=0) and extends along local -Y by restLen (via geometry.translate).
-  const _drvNegY = new THREE.Vector3(0, -1, 0);
-  function stretchLimb(mesh, fromW, toW, restLen){
-    const parent = mesh.parent; if (!parent) return;
-    _drvTmpV.copy(fromW); parent.worldToLocal(_drvTmpV);
-    _drvTmpV2.copy(toW);  parent.worldToLocal(_drvTmpV2);
-    _drvTmpV3.copy(_drvTmpV2).sub(_drvTmpV);
-    const dist = _drvTmpV3.length();
-    if (dist < 1e-4){ mesh.visible = false; return; }
-    mesh.visible = true;
-    mesh.position.copy(_drvTmpV);
-    _drvTmpV3.normalize();
-    mesh.quaternion.setFromUnitVectors(_drvNegY, _drvTmpV3);
-    mesh.scale.set(1, dist / Math.max(0.05, restLen), 1);
-  }
-  // Midpoint helper for elbow/knee (simple bend offset)
-  function limbMid(fromW, toW, bendSide, bendAmt, out){
-    out.copy(fromW).add(toW).multiplyScalar(0.5);
-    // Bend sideways + a touch "out" so elbows/knees read
-    out.x += bendSide * bendAmt;
-    out.y += bendAmt * 0.15;
-    return out;
-  }
   function fillKartDriver(view){
     if (!view.kartRoot) return;
     const kartMesh = view.kartRoot;
@@ -2711,7 +2485,7 @@
       view._limbMeshes = null;
     }
 
-    const sw = buildSteerWheel();
+    const sw = buildSteerWheel(view._noInk);
     kartMesh.add(sw);
     view.steerWheel = sw;
     // Gator 3D shows the GLB SteerWheel node; keep this procedural rim ONLY for its grip anchors
@@ -2721,8 +2495,10 @@
     const pedals = buildPedals();
     kartMesh.add(pedals);
     view.pedals = pedals;
+    // the toon karts' footwell is closed (the pads are never seen) — only the open Gator shows them
+    pedals.visible = normalizeKartId(view.kartId) === 'gator3d';
 
-    const goat = buildDriver(view.driverId || 'bucky');
+    const goat = buildDriver(view.driverId || 'bucky', { noInk:view._noInk });
     if (goat.glb){
       // GLB skinned driver (Bucky 3D): the rig poses itself — no hand/foot parenting, no limb-mesh
       // extraction. Steering wheel + pedals are still built (they're kart furniture, not driver-owned).
@@ -2735,25 +2511,13 @@
       syncDriverPlacement(view);
       return;
     }
-    sw.userData.gripL.add(goat.handL);
-    sw.userData.gripR.add(goat.handR);
-    goat.handL.rotation.set(0.4, 0, 0.2);
-    goat.handR.rotation.set(0.4, 0, -0.2);
-    pedals.userData.footL.add(goat.footL);
-    pedals.userData.footR.add(goat.footR);
-
+    // toon driver: hands find the grips by IK every frame (FK_TOON_GAME.syncDriver) — nothing parented
     kartMesh.add(goat.root);
     view.driverRoot = goat.root;
     view.goat = goat;       // back-compat name
     view.driver = goat;
     view.driverLean = 0;
-    const limbs = [goat.upperArmL, goat.lowerArmL, goat.upperArmR, goat.lowerArmR,
-                   goat.upperLegL, goat.lowerLegL, goat.upperLegR, goat.lowerLegR];
-    for (const m of limbs){
-      goat.root.remove(m);
-      kartMesh.add(m);
-    }
-    view._limbMeshes = limbs;
+    view._limbMeshes = null;
     view._hatMesh = null;                          // rebuilt driver → old hat is gone with the old head
     if (view.hatId && view.hatId !== 'none') setViewHat(view, view.hatId);   // R4: re-attach the hat on rebuild
     syncDriverPlacement(view);
@@ -2805,50 +2569,13 @@
       }
       return;
     }
-    // Lean torso into the turn; hips stay planted
-    g.torso.rotation.z = -view.driverLean;
-    g.head.rotation.z = view.driverLean * 0.35;
-    g.head.rotation.x = -0.08;
-    // Steering wheel rim
+    // Toon driver: rim turns with the steer, then the clip layers + hand IK run off the real kart state
+    // (lean/look-through comes from the steerL/R + drift clips, not a torso rotation).
     const rimAngle = -st * TUNE.steerWheelTurn;
     if (view.steerWheel && view.steerWheel.userData.rim){
       view.steerWheel.userData.rim.rotation.z = rimAngle;
     }
-    // Need world matrices for limb stretch (shoulders/hands/feet → world → kart-local)
-    view.kartRoot.updateMatrixWorld(true);
-    if (!view._limbW){
-      view._limbW = {
-        shL:new THREE.Vector3(), shR:new THREE.Vector3(),
-        hpL:new THREE.Vector3(), hpR:new THREE.Vector3(),
-        hdL:new THREE.Vector3(), hdR:new THREE.Vector3(),
-        ftL:new THREE.Vector3(), ftR:new THREE.Vector3(),
-        mid:new THREE.Vector3()
-      };
-    }
-    const W = view._limbW;
-    g.shoulderL.getWorldPosition(W.shL);
-    g.shoulderR.getWorldPosition(W.shR);
-    g.hipL.getWorldPosition(W.hpL);
-    g.hipR.getWorldPosition(W.hpR);
-    g.handL.getWorldPosition(W.hdL);
-    g.handR.getWorldPosition(W.hdR);
-    g.footL.getWorldPosition(W.ftL);
-    g.footR.getWorldPosition(W.ftR);
-
-    // Arms: shoulder → elbow mid → hand
-    limbMid(W.shL, W.hdL, -1, 0.08, W.mid);
-    stretchLimb(g.upperArmL, W.shL, W.mid, 0.22);
-    stretchLimb(g.lowerArmL, W.mid, W.hdL, 0.20);
-    limbMid(W.shR, W.hdR,  1, 0.08, W.mid);
-    stretchLimb(g.upperArmR, W.shR, W.mid, 0.22);
-    stretchLimb(g.lowerArmR, W.mid, W.hdR, 0.20);
-    // Legs: hip → knee mid → foot (knees drop for a seated look)
-    limbMid(W.hpL, W.ftL, -1, 0.06, W.mid); W.mid.y -= 0.05;
-    stretchLimb(g.upperLegL, W.hpL, W.mid, 0.24);
-    stretchLimb(g.lowerLegL, W.mid, W.ftL, 0.22);
-    limbMid(W.hpR, W.ftR,  1, 0.06, W.mid); W.mid.y -= 0.05;
-    stretchLimb(g.upperLegR, W.hpR, W.mid, 0.24);
-    stretchLimb(g.lowerLegR, W.mid, W.ftR, 0.22);
+    if (g.toon) FK_TOON_GAME.syncDriver(view, g, p, dt, view.steerWheel);
   }
   // Build the selected kart body into a view (sync — no GLB wait). Idempotent rebuild.
   function fillKartModel(view){
@@ -2868,6 +2595,9 @@
     });
     // Tractor is always red (overrides slot/bot paint). Others keep the view's bodyMat color.
     if (normalizeKartId(view.kartId) === 'tractor') view.bodyMat.color.setHex(TRACTOR_RED);
+    // STORYBOOK TOON: the time-trial ghost clones every material translucent — ink hulls would read as
+    // dark smudges inside it, so a _noInk view sheds the body's hulls (wheels/driver skip them at build)
+    if (view._noInk){ const hulls = []; built.root.traverse(o => { if (o.userData.fkOutline) hulls.push(o); }); for (const o of hulls) o.parent.remove(o); }
     view.modelSlot.add(built.root);
     view.kartRoot = built.root;
     view.placeholder.visible = false;
@@ -2880,7 +2610,7 @@
     } else {
       for (const [nm, x, y, z] of KART_WHEEL_POS){
         const mount = new THREE.Group();
-        const tire = buildProcWheel();
+        const tire = buildProcWheel(view._noInk);
         tire.rotation.y = Math.PI/2;
         mount.add(tire);
         mount.userData.bx = x; mount.userData.by = y; mount.userData.bz = z;
@@ -2904,9 +2634,10 @@
   function buildKartView(id, bodyColor, isLocal, name, opts){
     opts = opts || {};
     const group = new THREE.Group(); group.name = isLocal ? 'kart' : ('kart_'+id);
+    group.userData.fkKart = true;   // STORYBOOK TOON: karts ink themselves (not the generic entity pass)
     const bounce = new THREE.Group(); group.add(bounce);
     const placeholder = new THREE.Group(); bounce.add(placeholder);
-    const bodyMat = new THREE.MeshLambertMaterial({ color:bodyColor, emissive:0x000000 });
+    const bodyMat = FK_TOON.mat(bodyColor, { emissive:0x000000 });   // STORYBOOK TOON paint (emissive = boost/star glow)
     const body = new THREE.Mesh(KART_BODY_GEO, bodyMat); body.position.y = 0.5; placeholder.add(body);
     const modelSlot = new THREE.Group(); bounce.add(modelSlot);
     if (!isLocal && name && !(opts && opts.noName)){ bounce.add(makeNameSprite(name, bodyColor)); }
@@ -2915,7 +2646,8 @@
     const driverId = normalizeDriverId(opts.driverId != null ? opts.driverId : (isLocal ? loadDriverId() : 'bucky'));
     const hatId = normalizeHatId(opts.hatId != null ? opts.hatId : (isLocal ? (loadLoadout().hatId) : 'none'));
     const view = { group, bounce, bodyMat, placeholder, modelSlot, kartRoot:null, kartNormal:new THREE.Vector3(0,1,0),
-      lastAirborne:false, kartId, driverId, hatId };
+      lastAirborne:false, kartId, driverId, hatId,
+      _noInk: id === '__ghost' };   // the translucent time-trial ghost clones its materials: no ink hulls on it
     kartViews[id] = view;
     fillKartModel(view);
     return view;
@@ -2930,19 +2662,15 @@
     delete kartViews[id];
   }
   buildKartView('local', 0x3d8b3d, true, null);
-  // WATER DEPTH ZONES (2026-07-14): measure the real kart+rider combined height H ONCE from the
-  // freshly-built local view. The view is at the scene origin with identity transforms here, and
-  // the wheels are built with their tread bottom at kart-local y=0, so bbox max.y = wheel tread up
-  // to the top of the driver's head/hat. Measured: bucky kart + bucky driver ≈ 1.57u.
-  (function measureKartRiderH(){
-    try {
-      const v = kartViews['local'];
-      v.group.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(v.bounce);
-      const h = box.max.y;
-      if (isFinite(h) && h > 0.8 && h < 4) KART_RIDER_H = h;
-    } catch (e) { /* keep the documented 1.8 fallback */ }
-  })();
+  // WATER DEPTH ZONES (2026-07-14): H = the kart+rider combined height. It used to be MEASURED once at
+  // boot from the local view's bbox (bucky kart + bucky driver = 1.57u; every procedural kart/driver
+  // combo measured the same 1.57 — the driver's head was always the top). STORYBOOK TOON (2026-10-12)
+  // pins it to that measured value: the toon karts carry a pennant and Bucky a toque, and an art pass
+  // must not change wading/drowning depths (physics feel is the product).
+  KART_RIDER_H = 1.57;
+  // STORYBOOK TOON: the world is built — from here on, things added straight to the scene are
+  // entities (critters, cows, crows, item boxes, turrets, gates) and get ink + cast shadows.
+  FK_TOON_GAME.worldBuilt();
 
   // ---------- STATE (K1: ALL race-mutable state lives in one G object; local-only concerns
   //   — camera, meshes, input, tune — stay OUTSIDE G, so a future Playroom sync is a thin
@@ -4364,14 +4092,14 @@
     const col = [0xff4757,0x2ed573,0x1e90ff][Math.max(0,p.balloons)] || 0xffdd55;
     for (let k=0;k<14;k++){ const a=Math.random()*Math.PI*2;
       spawnParticle(p.pos.x+Math.cos(a)*0.2, y, p.pos.z+Math.sin(a)*0.2, { color:col, opacity:0.95, life:0.5,
-        vx:Math.cos(a)*(2+Math.random()*3), vy:1+Math.random()*3, vz:Math.sin(a)*(2+Math.random()*3), grav:5, size:0.24, spin:6, grow:-0.1 }); }
+        vx:Math.cos(a)*(2+Math.random()*3), vy:1+Math.random()*3, vz:Math.sin(a)*(2+Math.random()*3), grav:5, size:0.24, spin:6, grow:-0.1, shape:'dot' }); }
   }
   function spawnConfetti(p){
     const y = (p.y || sampleHeight(p.pos.x,p.pos.z)) + 1.2;
     const cols=[0xff4757,0x2ed573,0x1e90ff,0xffd93b,0xff8ad8];
     for (let k=0;k<24;k++){ const a=Math.random()*Math.PI*2;
       spawnParticle(p.pos.x+Math.cos(a)*0.3, y, p.pos.z+Math.sin(a)*0.3, { color:cols[(Math.random()*cols.length)|0], opacity:0.95, life:1.0,
-        vx:Math.cos(a)*(2+Math.random()*4), vy:3+Math.random()*4, vz:Math.sin(a)*(2+Math.random()*4), grav:6, size:0.22, spin:8, grow:-0.05 }); }
+        vx:Math.cos(a)*(2+Math.random()*4), vy:3+Math.random()*4, vz:Math.sin(a)*(2+Math.random()*4), grav:6, size:0.22, spin:8, grow:-0.05, shape:'chip' }); }
   }
   function balloonPopSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'pop'):1; if(mul<=0.02)return; noiseBurst(0.09,{filter:'bandpass',freq:1800,freqTo:400,Q:0.8,vol:0.16,mul}); tone(520,0.06,{type:'square',vol:0.08,mul}); }
   function koSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'ko'):1; tone(400,0.3,{type:'sawtooth',vol:0.14,slideTo:120,mul}); tone(300,0.35,{type:'sine',vol:0.1,slideTo:90,mul}); }
@@ -4652,7 +4380,7 @@
     flashMuzzle(p); shellFireSound(p.pos);
     for (let k=0;k<5;k++){ const a=Math.random()*Math.PI*2;
       spawnParticle(t.x, sampleHeight(t.x,t.z)+TANK.barrelY, t.z, { color:Math.random()<0.5?0xffd070:0xff9a30,
-        opacity:0.9, life:0.16, vx:f.x*6+Math.cos(a)*2, vy:1+Math.random()*1.5, vz:f.z*6+Math.sin(a)*2, grav:6, size:0.3, grow:0.4 }); }
+        opacity:0.9, life:0.16, vx:f.x*6+Math.cos(a)*2, vy:1+Math.random()*1.5, vz:f.z*6+Math.sin(a)*2, grav:6, size:0.3, grow:0.4, shape:Math.random()<0.5?'star':'puff' }); }
   }
   function tankPushProjectile(p, kind, yaw){
     const t = tankBarrelTip(p, yaw), f = t.f;
@@ -4697,10 +4425,7 @@
     tone(90,0.18,{type:'sine',vol:0.15,slideTo:45,mul}); noiseBurst(0.12,{filter:'lowpass',freq:600,freqTo:120,vol:0.12,mul}); }
   function shellBoom(x,y,z){
     shellThudSound({x,z});
-    for (let k=0;k<14;k++){ const a=Math.random()*Math.PI*2, sp=2+Math.random()*6;
-      spawnParticle(x, y+0.2, z, { color:[0x555a60,0x30343a,0xff9a30,0xffd070][(Math.random()*4)|0],
-        opacity:0.9, life:0.35+Math.random()*0.3, vx:Math.cos(a)*sp, vy:2+Math.random()*5, vz:Math.sin(a)*sp,
-        grav:12, size:0.24+Math.random()*0.3, grow:0.3, spin:(Math.random()-0.5)*8 }); }
+    FK_ITEMS.spawnExplode(x, y, z, 'shell');   // toon cannon boom: smoke puffs pop+shrink, star sparks, ring, scorch decal
   }
 
   // ---- driving AI for enemy tanks = the battle roam brain + an UNSTICK rule (buildings trap naive
@@ -5040,79 +4765,17 @@
     stormSkyFlash();
     stormSound(p.pos);
   }
-  // ⚡ LIGHTNING BOLTS — a jagged bright bolt striking from the sky down onto each storm-hit kart,
-  // plus a full-screen sky flash. Purely local render FX (the spin ruling is host-authoritative; every
-  // client spawns its own bolts from its barnStormStrike call). Bolts are groups of thin cylinder
-  // segments (LineBasicMaterial width is ignored on Windows ANGLE, so real geometry reads far better).
-  const _lightningBolts = [];   // { group, t, maxT, mats:[] }
-  const _BOLT_UP = new THREE.Vector3(0,1,0);
-  function _boltSegment(ax, ay, az, bx, by, bz, r, mat){
-    const dx=bx-ax, dy=by-ay, dz=bz-az, len=Math.hypot(dx,dy,dz) || 1e-3;
-    const geo = new THREE.CylinderGeometry(r*0.5, r, len, 5);
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(ax+dx*0.5, ay+dy*0.5, az+dz*0.5);
-    m.quaternion.setFromUnitVectors(_BOLT_UP, new THREE.Vector3(dx/len, dy/len, dz/len));
-    return m;
-  }
-  function spawnLightningBolt(x, y, z){
-    const group = new THREE.Group();
-    const core = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:1 });
-    const glow = new THREE.MeshBasicMaterial({ color:0xbcd4ff, transparent:true, opacity:0.55 });
-    const topY = y + 30 + Math.random()*8, segs = 9;
-    let px=x + (Math.random()-0.5)*3, py=topY, pz=z + (Math.random()-0.5)*3;
-    for (let i=1;i<=segs;i++){
-      const f=i/segs, jitter=(1-f)*2.2;
-      const nx = x + (i===segs?0:(Math.random()-0.5)*jitter);
-      const ny = topY + (y-topY)*f;
-      const nz = z + (i===segs?0:(Math.random()-0.5)*jitter);
-      group.add(_boltSegment(px,py,pz, nx,ny,nz, 0.34, glow));   // fat soft glow
-      group.add(_boltSegment(px,py,pz, nx,ny,nz, 0.14, core));   // bright core
-      px=nx; py=ny; pz=nz;
-    }
-    scene.add(group);
-    _lightningBolts.push({ group, t:0, maxT:0.4, mats:[core, glow] });
-  }
-  function updateLightningBolts(dt){
-    for (let i=_lightningBolts.length-1;i>=0;i--){
-      const b=_lightningBolts[i]; b.t += dt;
-      const k = Math.max(0, 1 - b.t/b.maxT);
-      // strobe: full-bright first ~40%, then fade
-      const op = b.t < b.maxT*0.4 ? 1 : k;
-      b.mats[0].opacity = op; b.mats[1].opacity = 0.55*op;
-      if (b.t >= b.maxT){
-        scene.remove(b.group);
-        b.group.traverse(o=>{ if(o.geometry) o.geometry.dispose(); });
-        b.mats.forEach(m=>m.dispose());
-        _lightningBolts.splice(i,1);
-      }
-    }
-  }
+  // ⚡ LIGHTNING BOLTS — 2026-10-12 toon pass: an angry cartoon storm cloud pops in above each storm-hit
+  // kart, a flat zig-zag ink-rimmed bolt strobes down from it, then a ground shockwave ring + star burst +
+  // scorch decal land. Pooled rigs live in assets/farmkart-items.js (FK_ITEMS.spawnLightning/update).
+  // Purely local render FX (the spin ruling is host-authoritative; every client spawns its own).
+  function spawnLightningBolt(x, y, z){ FK_ITEMS.spawnLightning(x, y, z); }
+  function updateLightningBolts(dt){ FK_ITEMS.updateLightning(dt); }
   // brief bright full-scene flash via the existing #stormFlash overlay (independent of a kart hit).
   let _skyFlashT = 0;
   function stormSkyFlash(){ _skyFlashT = 0.4; }
   // Burst of leaf/feather/hay bits when a projectile or trailed shield is destroyed.
-  function spawnItemExplode(x, y, z, kind){
-    const cols = (kind === 'chicken' || kind === 'chicken3')
-      ? [0xf5f0e6, 0xe23b2e, 0xffa020, 0xfff8ee]
-      : (kind === 'hay')
-        ? [0xcaa24a, 0xd4a84b, 0xe8c878]
-        : (kind === 'mimic')
-          ? [0xc98a5a, 0xb56a3a, 0xd8a878, 0xe6c088]   // cardboard box shards
-          : (kind === 'shell')
-          ? [0x555a60, 0x30343a, 0xff9a30, 0xffd070]   // tank cannon boom (smoke + spark)
-          : [0x4a9a3a, 0x7ac26a, 0x2a6a24, 0xc8e8a0]; // tomato item = lettuce visuals
-    for (let i=0;i<12;i++){
-      const a = Math.random() * Math.PI * 2;
-      const sp = 2.2 + Math.random() * 5.5;
-      spawnParticle(x, y + 0.1, z, {
-        color: cols[(Math.random() * cols.length) | 0],
-        opacity: 0.95,
-        life: 0.28 + Math.random() * 0.32,
-        vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 5, vz: Math.sin(a) * sp,
-        grav: 14, size: 0.18 + Math.random() * 0.22, grow: 0.15, spin: (Math.random()-0.5)*8
-      });
-    }
-  }
+  function spawnItemExplode(x, y, z, kind){ FK_ITEMS.spawnExplode(x, y, z, kind); }   // toon impact burst per kind (leaf/feather/straw/shards/smoke/gold stars + rings + splat decals)
   // World position of a trailed item (behind the kart). Used by hit absorption + visuals.
   function trailWorldPos(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
@@ -5178,7 +4841,7 @@
       if (pr.kind === 'tomato') tomatoSplatSound(false, pr);
       else if (pr.kind === 'chicken') chickenSquawkSound(true, pr);
       else if (pr.kind === 'shell') shellThudSound(pr);
-      else if (pr.kind === 'egg'){ eggHitSound(pr); spawnParticle(pr.x, pr.y+0.4, pr.z, { color:0xfff2a0, opacity:1, life:0.5, vx:0, vy:6, vz:0, grav:10, size:0.9, grow:1.2, spin:5 }); }
+      else if (pr.kind === 'egg'){ eggHitSound(pr); }   // detonation VFX = FK_ITEMS.spawnExplode('egg') above
       pr.life = 0; return true;
     }
     return false;
@@ -5202,7 +4865,7 @@
         pr.x = cp.x; pr.z = cp.z; pr.y = sampleHeight(cp.x, cp.z) + TUNE.eggHeight;
         if (Math.random() < 0.8) spawnParticle(pr.x, pr.y, pr.z, { color: Math.random()<0.5?0xffe873:0xfff6c0,
           opacity:0.95, life:0.4, vx:(Math.random()-0.5)*1.2, vy:0.4+Math.random()*1.2, vz:(Math.random()-0.5)*1.2,
-          grav:2, size:0.24, grow:-0.2, spin:4 });
+          grav:2, size:0.24, grow:-0.2, spin:4, shape:'star' });
         const caught = tgt && (pr.prog >= totalProgress(tgt) - 2 || Math.hypot(tgt.pos.x-pr.x, tgt.pos.z-pr.z) < 6);
         if (caught || !tgt){
           pr.diving = true;
@@ -6242,58 +5905,13 @@
   }
 
   // ---------- K4: item-entity VISUALS (render-only, reconciled from G each frame) ----------
-  // Cardboard item crates — kraft texture + packing-tape cross, slow yaw spin + bob.
-  const _cardboardTex = (function(){
-    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
-    const c = cv.getContext('2d');
-    // kraft cardboard (brown, not yellow)
-    c.fillStyle = '#a67c4a'; c.fillRect(0,0,128,128);
-    // corrugation grain
-    for (let y=0;y<128;y+=3){
-      c.fillStyle = (y%6===0) ? 'rgba(50,30,10,0.12)' : 'rgba(255,230,190,0.06)';
-      c.fillRect(0, y, 128, 1.5);
-    }
-    // packing-tape cross (amber, not neon)
-    c.fillStyle = 'rgba(196,160,50,0.75)';
-    c.fillRect(54, 0, 20, 128);
-    c.fillRect(0, 54, 128, 20);
-    // soft stamp
-    c.fillStyle = 'rgba(60,35,15,0.45)';
-    c.font = 'bold 44px Segoe UI, sans-serif';
-    c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText('?', 64, 70);
-    // box edge / flap crease
-    c.strokeStyle = 'rgba(50,30,10,0.55)'; c.lineWidth = 5; c.strokeRect(3,3,122,122);
-    c.strokeStyle = 'rgba(50,30,10,0.25)'; c.lineWidth = 2;
-    c.beginPath(); c.moveTo(64, 3); c.lineTo(64, 125); c.stroke();
-    const t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
-  })();
-  const ITEMBOX_GEO = new THREE.BoxGeometry(1.35, 1.15, 1.35);
-  const ITEMBOX_TAPE_GEO = new THREE.BoxGeometry(0.16, 0.045, 1.37);
-  const _itemBoxMat = new THREE.MeshLambertMaterial({ map:_cardboardTex, color:0xffffff });
-  const _itemTapeMat = new THREE.MeshLambertMaterial({ color:0xc4a032 });
-  function buildCardboardItemBox(){
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(ITEMBOX_GEO, _itemBoxMat));
-    const tapeA = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
-    tapeA.position.y = 0.575; g.add(tapeA);
-    const tapeB = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
-    tapeB.position.y = 0.575; tapeB.rotation.y = Math.PI/2; g.add(tapeB);
-    return g;
-  }
-  // 🎁 MIMIC CRATE — looks like a real item box but with a SUBTLY REDDER tint kids can learn to spot
-  // (the cardboard map multiplied by a warm-red color). Slightly darker tape too.
-  const _mimicBoxMat = new THREE.MeshLambertMaterial({ map:_cardboardTex, color:0xff8f6a, emissive:0x1a0805 });
-  const _mimicTapeMat = new THREE.MeshLambertMaterial({ color:0xa85528 });
-  function buildMimicBox(){
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(ITEMBOX_GEO, _mimicBoxMat));
-    const tapeA = new THREE.Mesh(ITEMBOX_TAPE_GEO, _mimicTapeMat);
-    tapeA.position.y = 0.575; g.add(tapeA);
-    const tapeB = new THREE.Mesh(ITEMBOX_TAPE_GEO, _mimicTapeMat);
-    tapeB.position.y = 0.575; tapeB.rotation.y = Math.PI/2; g.add(tapeB);
-    return g;
-  }
+  // 2026-10-12 STORYBOOK TOON pass: the item box / mimic crate / lettuce / chicken / hay / golden egg / shell
+  // models, their per-frame animation and every item effect live in assets/farmkart-items.js (FK_ITEMS).
+  // The wrappers below keep the old names so callers and the test hook (__KART__.buildMimicBox) are unchanged.
+  // Real item box = sunny gold toon crate with a blue '?' badge; the MIMIC is the same shape in red with angry
+  // eyes and a toothy seam, so it stays learnable-different at race speed.
+  function buildCardboardItemBox(){ return FK_ITEMS.buildItemBox(); }
+  function buildMimicBox(){ return FK_ITEMS.buildMimicBox(); }
   const TOMATO_GEO  = new THREE.SphereGeometry(0.55, 12, 10); // fallback if lettuce GLB missing
   const HAY_GEO     = new THREE.CylinderGeometry(0.7, 0.7, 0.95, 10);
   const _boxMeshes = [];   // persistent Groups, one per G.itemBoxes entry
@@ -6487,48 +6105,13 @@
     catch(e){ wrap.userData.footOffset = 0.6; }
     return wrap;
   }
-  // 🥚 golden egg projectile: a shiny gold egg with an emissive glow (sparkle trail via particles).
-  const EGG_GEO = new THREE.SphereGeometry(0.6, 14, 12);
-  function buildEggMesh(){
-    const g = new THREE.Group();
-    const shell = new THREE.Mesh(EGG_GEO, new THREE.MeshLambertMaterial({ color:0xffd23a, emissive:0x8a6a00 }));
-    shell.scale.set(0.85, 1.15, 0.85);   // egg-ish
-    g.add(shell);
-    return g;
-  }
-  function makeProjMesh(kind){
-    if (kind === 'shell'){ const m = new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8),
-      new THREE.MeshLambertMaterial({ color:0x2a2c30, emissive:0x3a1c08 })); m.userData.tplVer = 0; return m; }
-    if (kind === 'egg') return buildEggMesh();
-    if (kind === 'chicken'){
-      // Prefer a real GLB only when it has a texture atlas (reads as a chicken at distance).
-      // Untextured blob GLBs look worse than the procedural chunky chicken.
-      if (_projTpl.chicken && _projTpl.chicken.userData && _projTpl.chicken.userData.hasMap){
-        const m = _projTpl.chicken.clone(true); m.userData.tplVer = _projTplVer; return m;
-      }
-      return buildChickenMesh();
-    }
-    // tomato / tomato3 projectiles render as leafy lettuce
-    if (_projTpl.lettuce){ const m = _projTpl.lettuce.clone(true); m.userData.tplVer = _projTplVer; return m; }
-    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0x4a9a3a, emissive:0x1a3010 }));
-    m.userData.fallback = true; m.userData.tplVer = 0; return m;
-  }
-  function makeOrbitBit(kind){
-    if (kind === 'chicken' || kind === 'chicken3'){
-      if (_projTpl.chicken && _projTpl.chicken.userData && _projTpl.chicken.userData.hasMap){
-        const m = _projTpl.chicken.clone(true); m.scale.multiplyScalar(0.85); m.userData.tplVer = _projTplVer; return m;
-      }
-      const m = buildChickenMesh(); m.scale.multiplyScalar(0.85); return m;
-    }
-    if (kind === 'hay'){
-      const m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a }));
-      m.rotation.z = Math.PI/2; m.scale.setScalar(0.55); return m;
-    }
-    if (kind === 'mimic'){ const m = buildMimicBox(); m.scale.setScalar(0.5); return m; }
-    if (_projTpl.lettuce){ const m = _projTpl.lettuce.clone(true); m.scale.multiplyScalar(0.85); m.userData.tplVer = _projTplVer; return m; }
-    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0x4a9a3a, emissive:0x1a3010 }));
-    m.scale.setScalar(0.72); m.userData.fallback = true; return m;
-  }
+  // 🥚 golden egg projectile: shiny banded gold egg (toon, ink rim) — sparkle trail comes from FK_ITEMS.syncProj.
+  function buildEggMesh(){ return FK_ITEMS.buildEgg(); }
+  // Projectile / orbit-bit meshes: procedural toon models from FK_ITEMS (lettuce head, flapping chicken, banded
+  // egg, tank shell, hay bale). The CC0 lettuce/chicken GLB templates above still load (the proj-fx suite and
+  // __KART__.projTpl read them) but are superseded: the procedural chicken/lettuce read better and match the ink style.
+  function makeProjMesh(kind){ const m = FK_ITEMS.buildProj(kind); m.userData.tplVer = _projTplVer; return m; }
+  function makeOrbitBit(kind){ const m = FK_ITEMS.buildOrbitBit(kind); m.userData.tplVer = _projTplVer; return m; }
 
   function buildItemBoxes(){
     // clear any prior boxes (track reload etc.)
@@ -6572,8 +6155,12 @@
     const cv = document.createElement('canvas'); cv.width = cv.height = 128;
     const c = cv.getContext('2d');
     c.clearRect(0,0,128,128);
-    c.strokeStyle = '#fff'; c.lineWidth = 14; c.lineCap = 'round'; c.lineJoin = 'round';
-    for (let k=0;k<3;k++){ const y = 30 + k*34; c.beginPath(); c.moveTo(24, y+26); c.lineTo(64, y); c.lineTo(104, y+26); c.stroke(); }
+    // toon pass: chunky chevrons with a warm-brown ink rim under a white fill (the material colour tints the fill)
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    for (const [col, w] of [['#2b1a12', 26], ['#fff', 14]]){
+      c.strokeStyle = col; c.lineWidth = w;
+      for (let k=0;k<3;k++){ const y = 30 + k*34; c.beginPath(); c.moveTo(24, y+26); c.lineTo(64, y); c.lineTo(104, y+26); c.stroke(); }
+    }
     const t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
   })();
   const CHEV_GEO = new THREE.PlaneGeometry(TRACK_WIDTH*0.3, TRACK_WIDTH*0.42);
@@ -6582,7 +6169,7 @@
     for (const m of _padMeshes){ scene.remove(m); if (m.material) m.material.dispose(); }
     _padMeshes.length = 0;
     for (const pad of (G.boostPads||[])){
-      const mat = new THREE.MeshBasicMaterial({ color:0x6cf0ff, transparent:true, opacity:0.85, map:_chevTex, depthWrite:false });
+      const mat = new THREE.MeshBasicMaterial({ color:0x6cf0ff, transparent:true, alphaTest:0.4, map:_chevTex, depthWrite:false });
       const m = new THREE.Mesh(CHEV_GEO, mat);
       // YXZ: yaw to track tangent FIRST, then lay the plane flat — arrows always face drive direction
       m.rotation.order = 'YXZ';
@@ -6600,19 +6187,16 @@
     // K7 boost pads: subtle emissive pulse (opacity breathes)
     for (let i=0;i<(G.boostPads?G.boostPads.length:0);i++){
       const m = _padMeshes[i]; if (!m) continue;
-      m.material.opacity = 0.6 + 0.35*(0.5 + 0.5*Math.sin(performance.now()*0.006 + i));
+      // toon: crisp chevrons that flip cyan / yellow in steps (no soft opacity breathing)
+      m.material.color.setHex(((Math.floor(performance.now()/220) + i) % 2) ? 0xfff27a : 0x6cf0ff);
     }
     // item boxes: slow yaw spin + gentle bob; hide while respawning
     const now = performance.now() * 0.001;
     for (let i=0;i<G.itemBoxes.length;i++){
       const b = G.itemBoxes[i], m = _boxMeshes[i]; if (!m) continue;
-      m.visible = b.active;
-      if (!b.active) continue;
-      m.rotation.y += dt * 0.55;
-      m.rotation.x = 0; m.rotation.z = 0;
       const baseY = sampleHeight(b.x, b.z) + 1.05;
       m.userData.baseY = baseY;
-      m.position.y = baseY + Math.sin(now * 1.35 + (m.userData.phase || i)) * 0.22;
+      FK_ITEMS.syncBox(m, b, i, dt, now, baseY);   // toon crate: spin + bob + respawn pop-in + pickup burst (sets m.visible)
     }
     // projectiles (lettuce GLB / chicken GLB — remake when template version bumps after load)
     for (let i=0;i<G.projectiles.length;i++){
@@ -6624,16 +6208,8 @@
         m = makeProjMesh(want); m.userData.kind = want; m.userData.tplVer = _projTplVer;
         scene.add(m); _projPool[i] = m;
       }
-      m.visible = true; m.position.set(pr.x, pr.y, pr.z);
-      if (want === 'chicken'){
-        const yaw = Math.atan2(pr.vx, pr.vz);
-        m.rotation.y = yaw;
-        m.position.y += 0.15 * Math.sin(performance.now()*0.012 + i);
-      } else if (want === 'egg'){
-        m.rotation.y += dt * 6;                       // spin
-        m.position.y += 0.35 + 0.12 * Math.sin(performance.now()*0.01 + i);
-        if (Math.random() < 0.6) spawnParticle(pr.x, pr.y+0.3, pr.z, { color:0xfff2a0, opacity:0.95, life:0.35, vx:(Math.random()-0.5)*2, vy:1+Math.random()*2, vz:(Math.random()-0.5)*2, grav:6, size:0.22, grow:-0.3, spin:4 });   // sparkle trail
-      }
+      m.visible = true;
+      FK_ITEMS.syncProj(m, pr, i, dt, now);   // position + toon animation (flap / tumble / squash on ricochet) + trails + born burst
     }
     for (let i=G.projectiles.length;i<_projPool.length;i++) _projPool[i].visible = false;
     // hazards: hay bales + 🎁 mimic crates (kind-aware pooled meshes; rebuild on kind change)
@@ -6644,14 +6220,12 @@
       if (!m || m.userData.hkind !== want){
         if (m) scene.remove(m);
         if (want === 'mimic'){ m = buildMimicBox(); }
-        else { m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a })); m.rotation.z = Math.PI/2; }
+        else { m = FK_ITEMS.buildHay(); }
         m.userData.hkind = want; scene.add(m); _hazPool[i] = m;
       }
       m.visible = true; m.position.set(hz.x, hz.y, hz.z);
-      if (want === 'mimic'){   // spin + bob like a real item box to sell the disguise
-        m.rotation.y += dt * 0.55;
-        m.position.y = hz.y + Math.sin(performance.now()*0.001*1.35 + i) * 0.18;
-      }
+      FK_ITEMS.syncHazard(m, hz, i, dt, now, want);   // plop-in scale, drop burst; the mimic spins like a real box to sell the disguise
+      if (want === 'mimic') m.position.y = hz.y + Math.sin(now * 1.35 + i) * 0.18;
     }
     for (let i=G.hazards.length;i<_hazPool.length;i++) _hazPool[i].visible = false;
     // orbit / trail visuals around each kart that holds a triple or trails a single
@@ -6696,6 +6270,7 @@
           const ox = Math.cos(a)*rad, oz = Math.sin(a)*rad;
           m.position.set(p.pos.x + r.x*ox + f.x*oz, py + 0.15*Math.sin(a*2), p.pos.z + r.z*ox + f.z*oz);
           m.scale.setScalar(0.75);
+          FK_ITEMS.syncOrbitBit(m, p.itemHeld, a, dt, performance.now()*0.001);   // toon: chickens flap, lettuce tumbles
         }
       }
       // TRAIL: one shield bit behind the kart (separate channel `id+'_trail'` — coexists with a held item)
@@ -6706,6 +6281,7 @@
         arr[0].visible = true;
         arr[0].position.set(tw.x, tw.y, tw.z);
         arr[0].scale.setScalar(p.trailKind === 'hay' ? 0.7 : 0.85);
+        FK_ITEMS.syncTrailShield(arr[0], p.trailKind, performance.now()*0.001);   // pulsing blue shield ring around the trailed item
         for (let i=1;i<arr.length;i++) arr[i].visible = false;
       }
     }
@@ -6969,40 +6545,19 @@
   // ---------- K6: pooled particle system (drift dust · boost puffs · landing poof · spin stars) ----------
   // Fixed pool, allocated once. Each particle owns a material (recolored, never re-created) so there
   // is ZERO per-frame allocation. Billboarded to the camera each frame.
-  const PARTICLE_GEO = new THREE.PlaneGeometry(1, 1);
-  const MAX_PARTICLES = 160;
-  const particles = [];
-  for (let i=0;i<MAX_PARTICLES;i++){
-    const mat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0, depthWrite:false });
-    const m = new THREE.Mesh(PARTICLE_GEO, mat); m.visible = false; m.renderOrder = 5; scene.add(m);
-    particles.push({ m, mat, live:false, life:0, maxLife:1, vx:0, vy:0, vz:0, grav:0, size:0.5, grow:0, spin:0, startOp:0.8 });
-  }
-  let _pIdx = 0;
-  function spawnParticle(x, y, z, o){
-    const p = particles[_pIdx]; _pIdx = (_pIdx + 1) % MAX_PARTICLES;
-    p.m.position.set(x, y, z); p.m.visible = true; p.live = true;
-    p.mat.color.setHex(o.color != null ? o.color : 0xffffff);
-    p.startOp = o.opacity != null ? o.opacity : 0.8; p.mat.opacity = p.startOp;
-    p.life = 0; p.maxLife = o.life || 0.4;
-    p.vx = o.vx || 0; p.vy = o.vy || 0; p.vz = o.vz || 0; p.grav = o.grav || 0;
-    p.size = o.size || 0.5; p.grow = o.grow || 0; p.spin = o.spin || 0;
-    p.m.scale.setScalar(p.size); p.m.rotation.z = Math.random()*Math.PI;
-  }
-  function updateParticles(dt){
-    for (const p of particles){
-      if (!p.live) continue;
-      p.life += dt;
-      if (p.life >= p.maxLife){ p.live = false; p.m.visible = false; continue; }
-      const f = p.life / p.maxLife;
-      p.vy -= p.grav * dt;
-      p.m.position.x += p.vx*dt; p.m.position.y += p.vy*dt; p.m.position.z += p.vz*dt;
-      p.mat.opacity = p.startOp * (1 - f);
-      p.m.scale.setScalar(Math.max(0.02, p.size + p.grow*f));
-      p.m.quaternion.copy(camera.quaternion);
-      if (p.spin) p.m.rotateZ(p.spin*dt);
-    }
-  }
-  function particleActiveCount(){ let n = 0; for (const p of particles) if (p.live) n++; return n; }
+  // 2026-10-12 STORYBOOK TOON pass: the pool + billboards now live in assets/farmkart-items.js
+  // (FK_ITEMS.makeParticlePool): camera-facing toon shapes with an ink rim (puff / star / spark streak /
+  // ring / leaf / chip) that POP IN with overshoot and SHRINK OUT instead of alpha-fading. Same record shape
+  // ({m, mat, live, ...}) and the same spawnParticle(x,y,z,{color,life,vx,vy,vz,grav,size,grow,spin,...}) call;
+  // new optional keys: shape, stretch, drag, flat, pop. Fixed pool, round-robin recycle, no per-frame allocation.
+  const MAX_PARTICLES = 200;
+  FK_ITEMS.init({ scene, camera, sampleHeight:(x,z)=>sampleHeight(x,z) });
+  const _pool = FK_ITEMS.makeParticlePool(scene, ()=>camera, MAX_PARTICLES);
+  FK_ITEMS.bindPool(_pool);
+  const particles = _pool.particles;
+  function spawnParticle(x, y, z, o){ _pool.spawn(x, y, z, o); }
+  function updateParticles(dt){ _pool.update(dt); FK_ITEMS.update(dt); }
+  function particleActiveCount(){ return _pool.activeCount(); }
   // juice spawners (called per kart per frame from syncKartView; time-accumulated => no per-frame alloc)
   function spawnDriftDust(p, view, gy, dt){
     view._dustAcc = (view._dustAcc || 0) + dt;
@@ -7023,7 +6578,8 @@
       const up = tier === 0 ? (1.1 + Math.random()*0.6) : (1.6 + tier*0.5 + Math.random()*0.8);
       spawnParticle(rx, gy + 0.15, rz, { color:col, opacity:op, life:tier===0?0.4:0.34,
         vx:r.x*side*1.1 - f.x*1.2 + (Math.random()-0.5)*(1+tier*0.4), vy:up, vz:r.z*side*1.1 - f.z*1.2 + (Math.random()-0.5)*(1+tier*0.4),
-        grav:tier===0?1.2:2.4, size:sz, grow:tier===0?0.7:0.2, spin:tier?5:0 });
+        grav:tier===0?1.2:2.4, size:tier===0?sz:sz*0.8, grow:tier===0?0.7:0, spin:tier?5:0,
+        shape:tier===0?'puff':'spark', stretch:2.4 });   // toon: tan dust puffs; tier sparks are ink-rimmed streaks that fly along their velocity
     }
   }
   // ---- SURFACE PAINT FX (2026-07-13 R3): subtle per-surface wheel kicks while driving on a
@@ -7045,12 +6601,12 @@
         const col = Math.random()<0.5 ? 0xe8f6ff : 0xbfe6f7;
         spawnParticle(rx, gy + 0.12, rz, { color:col, opacity:0.85, life:0.35,
           vx:r.x*side*1.4 - f.x*1.0 + (Math.random()-0.5), vy:1.3 + Math.random()*0.9, vz:r.z*side*1.4 - f.z*1.0 + (Math.random()-0.5),
-          grav:2.6, size:0.16, grow:-0.1, spin:6 });
+          grav:2.6, size:0.16, grow:-0.1, spin:6, shape:'star' });
       } else {
         const col = Math.random()<0.5 ? 0x5a4028 : 0x3e2c1a;
         spawnParticle(rx, gy + 0.08, rz, { color:col, opacity:0.9, life:0.4,
           vx:-f.x*1.6 + (Math.random()-0.5)*1.6, vy:1.0 + Math.random()*0.8, vz:-f.z*1.6 + (Math.random()-0.5)*1.6,
-          grav:4.0, size:0.26, grow:0.2 });
+          grav:4.0, size:0.26, grow:0.2, shape:'dot' });
       }
     }
   }
@@ -7072,6 +6628,7 @@
         vx:Math.cos(a)*(2.2 + Math.random()), vy:0.8 + Math.random()*0.5, vz:Math.sin(a)*(2.2 + Math.random()),
         grav:2.5, size:0.4, grow:0.8 });
     }
+    FK_ITEMS.shockRing(p.pos.x, gy + 0.12, p.pos.z, 0xffffff, 3.6, 0.32);   // toon: a quick shockwave ring under the puffs
   }
   // ---- WATER SPLASH (2026-07-12): white spray at the wheels while a kart crosses a water body ----
   // Entry (dry->wet): a ring/wake of white spray + a growing splash disc + a proximity splash sound.
@@ -7089,9 +6646,9 @@
         const a = (i/n)*Math.PI*2 + Math.random()*0.4;
         spawnParticle(p.pos.x + Math.cos(a)*0.7, wy + 0.15, p.pos.z + Math.sin(a)*0.7,
           { color:0xeaf6ff, opacity:0.85, life:0.5, vx:Math.cos(a)*(3 + Math.random()*2), vy:2.2 + Math.random()*1.4,
-            vz:Math.sin(a)*(3 + Math.random()*2), grav:6.5, size:0.4, grow:0.5 });
+            vz:Math.sin(a)*(3 + Math.random()*2), grav:6.5, size:0.4, grow:0.5, shape:'dot' });
       }
-      spawnParticle(p.pos.x, wy + 0.05, p.pos.z, { color:0xdff2ff, opacity:0.5, life:0.45, size:0.6, grow:5.5 });  // wake ring
+      FK_ITEMS.shockRing(p.pos.x, wy + 0.08, p.pos.z, 0xdff2ff, 5.5, 0.45);   // wake ring (flat toon ring)
       waterSplashSound(p.pos);
     }
     // WADING (2026-07-14): past wheel depth the spray gets HEAVIER (faster cadence, bigger, taller)
@@ -7109,7 +6666,7 @@
         const rx = p.pos.x - f.x*0.7 + r.x*side*0.7, rz = p.pos.z - f.z*0.7 + r.z*side*0.7;
         spawnParticle(rx, wy + 0.2, rz, { color:0xf0faff, opacity:0.7, life:0.34*big,
           vx:r.x*side*1.4 - f.x*1.5 + (Math.random()-0.5), vy:(1.6 + Math.random()*0.9)*big, vz:r.z*side*1.4 - f.z*1.5 + (Math.random()-0.5),
-          grav:5, size:0.32*big, grow:0.4*big });
+          grav:5, size:0.32*big, grow:0.4*big, shape:'dot' });
       }
     } else view._sprayAcc = 0;
     view._inWater = inW;
@@ -7120,7 +6677,7 @@
       view._starAcc -= 0.09;
       const a = Math.random()*Math.PI*2, rad = 0.7;
       spawnParticle(p.pos.x + Math.cos(a)*rad, (p.y || 0) + 1.5, p.pos.z + Math.sin(a)*rad, { color:0xffe45e, opacity:0.95, life:0.5,
-        vx:Math.cos(a)*0.6, vy:1.2, vz:Math.sin(a)*0.6, size:0.42, spin:6, grow:-0.15 });
+        vx:Math.cos(a)*0.6, vy:1.2, vz:Math.sin(a)*0.6, size:0.42, spin:6, grow:-0.15, shape:'star' });
     }
   }
 
@@ -7344,8 +6901,9 @@
       _wqSteer.setFromAxisAngle(GATOR3D_STEER_AXIS, ang);
       view.glbSteer.quaternion.copy(view.glbSteer.userData._base).multiply(_wqSteer);
     }
-    // Chef Bucky driver: lean into turns, rotate steering wheel, hands on the rim
-    syncKartDriver(p, view, dt);
+    // STORYBOOK TOON: pennant flair (sways with speed / steer)
+    if (view.kartRoot && view.kartRoot.userData.flair) view.kartRoot.userData.flair(dt, p);
+    FK_TOON_GAME.inkLod(view);   // far karts drop their ink hulls (sub-pixel at that range)
     // hop bounce
     let by = 0;
     if (p.hop > 0){
@@ -7369,6 +6927,9 @@
       if (Math.abs(p.bullScale - target) < 0.005) p.bullScale = target;
       if (p.bullScale > 1.001){ view.bounce.scale.multiplyScalar(p.bullScale); }
     }
+    // Driver: lean/clips, rotate steering wheel, hands on the rim. STORYBOOK TOON: runs AFTER the
+    // hop/squash/bull transforms above so the hand IK solves against this frame's final kart pose.
+    syncKartDriver(p, view, dt);
     // Body stays its paint color while drifting — tier feedback is on wheel sparks (spawnDriftDust).
     // Soft orange only while actually boosting (separate from drift charge).
     const bodyMat = view.bodyMat;
@@ -7388,6 +6949,7 @@
     } else {
       bodyMat.emissive.setHex(0x000000);
     }
+    FK_ITEMS.syncKartFx(p, view, dt);   // toon item FX on the kart: boost flame + streaks, star petal ring + rainbow steps, bull horns + steam (assets/farmkart-items.js)
     // TANK BATTLE: mount + aim the turret (scene-level, world-relative yaw). Lazily builds the turret.
     if (ACTIVE_TRACK.tankBattle) syncTurret(p, view, dt);
   }
@@ -7841,43 +7403,38 @@
   }
   const itemSlot = document.getElementById('itemSlot');
   const itemIcon = document.getElementById('itemIcon');
-  const ITEM_ICON = {
-    boost:'⚡', tomato:'🥬', hay:'🌾', chicken:'🐔',
-    tomato3:'🥬×3', chicken3:'🐔×3',
-    egg:'🥚', star:'🌻', bull:'🐂', storm:'⛈', mimic:'📦❗'
-  };
+  // 2026-10-12 TOON HUD: the emoji ITEM_ICON table is gone. Slot contents are inline SVG built by FK_ITEMS
+  // (icon per kind, stacked copies + count badge for the x3 triples, shield badge for the trail, a stepped
+  // slot-machine reel while rolling). The DOM is only rewritten when the visible state CHANGES (key below),
+  // so the CSS animations (reel scroll, pop-in, bob) are not restarted every frame. DOM ids / classes
+  // (#itemSlot .rolling/.filled/.trail, #itemIcon) are unchanged.
+  let _itemSlotKey = '';
+  function setItemIconHTML(key, html){ if (_itemSlotKey === key) return; _itemSlotKey = key; itemIcon.innerHTML = html; }
   function updateItemSlot(p){
     const racing = G.phase === 'racing' || G.phase === 'finished';
     itemSlot.style.display = racing ? 'flex' : 'none';
     if (!racing) return;
-    const trailBadge = p.trailKind ? '🛡' + (ITEM_ICON[p.trailKind] || '') : '';
-    const heldIconOf = ()=>{
-      let icon = ITEM_ICON[p.itemHeld] || '·';
-      if (isTriple(p.itemHeld) && p.itemCount > 0) icon = (p.itemHeld === 'chicken3' ? '🐔' : '🥬') + '×' + p.itemCount;
-      return icon;
-    };
+    const heldHTML = ()=> FK_ITEMS.heldHTML(p.itemHeld, p.itemCount, isTriple(p.itemHeld));
+    const heldKey = ()=> p.itemHeld + '/' + (isTriple(p.itemHeld) ? p.itemCount : 0);
     if (p.trailKind){
       // TRAIL-FIRE (2026-07-12): the shield is what a TAP fires now, so it's the PRIMARY icon. Any item
-      // picked up while trailing is LOCKED/queued — shown dimmed after the shield until the trail fires.
+      // picked up while trailing is LOCKED/queued — shown small and dimmed beside the shield until the trail fires.
       itemSlot.className = 'filled trail';
-      let queued = '';
+      let queued = '', qk = '';
       if (p.itemRollT > 0){
         const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
-        queued = '<span class="queued">' + (ITEM_ICON[k] || '·') + '</span>';
-      } else if (p.itemHeld){
-        queued = '<span class="queued">' + heldIconOf() + '</span>';
-      }
-      itemIcon.innerHTML = trailBadge + (queued ? ' ' + queued : '');
+        queued = FK_ITEMS.icon(k); qk = 'r' + k;
+      } else if (p.itemHeld){ queued = heldHTML(); qk = heldKey(); }
+      setItemIconHTML('t|' + p.trailKind + '|' + qk, FK_ITEMS.trailHTML(p.trailKind, queued));
     } else if (p.itemRollT > 0){
       itemSlot.className = 'rolling';
-      const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
-      itemIcon.textContent = (ITEM_ICON[k] || '·');
+      setItemIconHTML('roll', FK_ITEMS.rollHTML());
     } else if (p.itemHeld){
       itemSlot.className = 'filled';
-      itemIcon.textContent = heldIconOf();
+      setItemIconHTML('h|' + heldKey(), heldHTML());
     } else {
       itemSlot.className = '';
-      itemIcon.textContent = '·';
+      setItemIconHTML('empty', FK_ITEMS.icon('empty'));
     }
   }
 
@@ -10398,6 +9955,8 @@
     function update(dt, now){
       if (!active) return;
       t += dt; orbit += dt*0.35;
+      // STORYBOOK TOON hook: the podium drivers cheer (fists pumping) for the whole ceremony
+      for (const id of karts){ const v = kartViews[id]; if (v && v.goat && v.goat.toon) FK_TOON_GAME.podiumCheer(v, dt); }
       const r=20, cx=OX, cy=OY+5, cz=OZ;
       camera.up.set(0,1,0);
       camera.position.set(cx+Math.sin(orbit)*r, cy+7+Math.sin(orbit*0.5)*1.5, cz+Math.cos(orbit)*r);
@@ -10500,6 +10059,7 @@
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SEA_GROUP.userData.animate) SEA_GROUP.userData.animate(now*0.001);       // global-sea ripple
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
+    if (HH_ART) FK_HH_ART.update(dt, now*0.001);   // HARVEST HOLLOW art: windmill sails, crowd, birds, wind sway, water sparkle
     if (SKYWAY_GROUP && SKYWAY_GROUP.userData.update) SKYWAY_GROUP.userData.update(dt, camera);  // wave-2 skyway star twinkle
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
     if (TRAFFIC_GROUP.userData.update) TRAFFIC_GROUP.userData.update(dt);         // civilian traffic (Toad's Turnpike) — drives at all times
@@ -11928,7 +11488,7 @@
     // new items (2026-07-11): golden egg / sunflower star / bull rush / barn storm
     computeRollWeights, placeFracOf, computePlace, findLeader, fireGoldenEgg, barnStormStrike, bullInput,
     // 2026-07-12 batch: lightning bolts / trail-fire / critters
-    spawnLightningBolt, get lightningBolts(){ return _lightningBolts; }, get skyFlashT(){ return _skyFlashT; },
+    spawnLightningBolt, get lightningBolts(){ return FK_ITEMS.liveBolts(); }, get skyFlashT(){ return _skyFlashT; },
     fireTrail, computeStandings, get finishOrder(){ return G.finishOrder; },
     CRITTER_KINDS, CRITTER_CFG, buildCritterMesh, critterHitSound, sampleIdxAtTotalProgress,
     soloRaceTick, updatePhase, finishRace, recordFinish, forceFinishRemaining,
@@ -11936,7 +11496,7 @@
     updateItemSlot, get itemIcon(){ return itemIcon; }, get itemSlot(){ return itemSlot; },
     updateLightningBolts, BULL_SIZE,
     advanceProjectiles, advanceHazards, stepKart, syncKartView,
-    ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON,
+    ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON: Object.fromEntries(FK_ITEMS.ICON_KINDS.map(k=>[k, FK_ITEMS.icon(k)])),   /* kind -> inline SVG (was emoji) */
     // ---- 2026-07-12 R1 (Feel & Fairness): six MK-inspired features ----
     // 1. rescue crow
     rescueTriggered, startRescue, advanceRescue, updateRescueCrows, waterSurfaceAt, waterObjAt,
@@ -12029,7 +11589,7 @@
     get MIRROR(){ return MIRROR; },
     get Ghost(){ return Ghost; }, get Podium(){ return Podium; }, fkToast,
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
-    BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount, updateParticles, syncEntityMeshes,
+    BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount, updateParticles, syncEntityMeshes, spawnParticle, updateItemBoxes, MAX_PARTICLES,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,
       engineFreq: engineOsc ? engineOsc.frequency.value : null,
       engineHarmonic: engineOsc2 ? engineOsc2.frequency.value : null,
