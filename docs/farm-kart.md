@@ -1678,3 +1678,47 @@ the road, and a stretch where you could fall off the course. It also asked for a
   2600 phone), with a cool rim on the flake so it reads against snow.
 - VERIFY: `node tools/_verify-yeti.cjs` 65/65. Bite against cf8d422 (the first Yeti push): 56/65, exactly the 9 new
   checks failing.
+
+# Farm Kart — playtest round 3: landing stutter, Yeti cave wall, Midnight Run lamps, "Techno Barn" (2026-10-12)
+
+- LANDING STUTTER ("the screen stutters coming down from a big ramp jump"): the camera was smooth (frame-to-frame
+  curvature 0.015 u at 60 Hz). The KART bounced. Off the Yeti ski jump it lands at ~37 m/s on a descent that keeps
+  steepening, and the terrain-crest launch in `stepKart` re-launched it 2 frames after each touchdown, 3 times in 15
+  frames. Each landing hit harder than `landMinImpact`, so each fired the squash, thump and dust again. The fix is
+  `LAND_SETTLE_T` = 0.6 s: after a real landing (airtime >= `landMinAirT`) the crest launch is suppressed and the kart
+  stays glued. Ramp exits still launch. At 0.35 s a 5-frame crest hop still got through 0.42 s after landing. The Yeti
+  descent profile 15 -> 16 -> 12 also had a crest right past the landing zone; it now eases out 15 -> 11.5 -> 9 -> 6.5.
+  `updateCamera` is now on `__KART__` so a suite can step the camera at a real 60 Hz (headless frames run ~355 ms).
+- YETI CAVE GREY WALL: a tunnel's `s` is its START (`buildTunnelMesh` and `naturalTunnelCoverAt` use the span
+  [s*L, s*L+len]). Yeti Ridge wrote it as the CENTRE in the generator, the art and the suite. The bore therefore ran 22 u
+  past the glacier hill built over it. Inside the bore the ground mesh IS the hill (cover = 1), so the last 22 u of the
+  cave held snow at road level that you drove through, and its slope filled the exit. Now `s = F.cave - 22/L`, the art
+  uses start-based spans, and the generator keeps the hill >= road + 10 over the whole bore (+6 u past each mouth,
+  because the replica centreline and the game's differ by ~2 u there). The suite's road scan now keeps the WHOLE bore
+  clear to 5 u, not just to kart height; the wall sat at 1..17 u and the 2.6 u band never saw it.
+- MIDNIGHT RUN STREET LAMPS: `buildCityscape` stood every pole at half+1.2, inside the walled runoff (62 of 62, with no
+  collision), and karts drove through them. Poles now stand just behind the wall (half + wallMargin + 0.8) on a longer
+  arm, so the head still hangs 1.2 u over the road edge. Each pole reaches down to the real ground; a row of viaduct
+  lamps used to float 8 u in the air. A lamp whose full-height pole would stand in ANY road's walled corridor is left out
+  (2 per city track, at the viaduct crossing). Toad's Turnpike gets the same fix (shared code). `_verify-midnightrun`
+  checks both; against main they fail with 62 poles inside and 6+ floating.
+- HARVEST HOLLOW WINDMILL: the static GLB windmill stood 3.3 u from the centreline. The art pass hides it for its animated
+  windmill, but that hide polls while the GLB loads, so `_verify-fk-playtest`'s corridor check flaked (1 run in 2). The
+  generator now seats it >= 16 u off every road.
+- MUSIC "Techno Barn" (`fk-music-race-techno-barn.mp3`, Midnight Run `music:"techno-barn"`): there is no ElevenLabs key
+  in cloud sessions, so it is composed and synthesized in `tools/_gen-fk-techno-farm.mjs`. Plain-JS DSP (polyBLEP
+  oscillators, TPT state-variable and tanh ladder filters, Freeverb, ping-pong delay, kick sidechain), rendered to a
+  float WAV and mastered with a two-pass ffmpeg loudnorm. 128 BPM, A minor, 48 bars = 90.0 s:
+  - **Drums:** 909-style kick, claps and hats.
+  - **Harmony:** an acid bassline over Am-F-C-G, chord stabs, and a pluck arpeggio in drop B.
+  - **Farm:** an 808 cowbell, synthesized chicken "ba-gawk"s, formant-filtered moos (call and response in the break),
+    and a rooster crow on the drop.
+
+  Mix checks were made against the ElevenLabs themes with an FFT band-share script, not by ear. The first render put 74%
+  of its energy at 40-80 Hz (the acid bass at A1 sat on the kick), mids were 5 dB low and highs 5-8 dB low. Fixes: the
+  acid moved up an octave, a shorter kick, louder stabs and hats, wider pans. It now matches Moonlight Run within
+  ~1.5 dB above 40 Hz at -11.9 LUFS. Chrome decodes it to exactly 90.000 s with no silent head or tail (the ElevenLabs
+  themes carry 0.5 s and 0.9 s of silence, which is a gap at every loop). The 4 s ring-out is folded onto the head.
+- VERIFY: `_verify-yeti.cjs` 74/74 (against main 69/74: the 4 ski-jump micro-hop runs and the cave-bore scan fail).
+  `_verify-midnightrun.cjs` adds 5 checks (lamps x2, music x3). Its old lamp-base check and `_verify-turnpike`'s were
+  restaged: the branch a lamp belongs to is now read 7 u below the pole TOP, since a pole's base may be the ground.

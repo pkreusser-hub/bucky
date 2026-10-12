@@ -28,8 +28,9 @@ const PTS = [
   [105,170,18.5],[140,172,20],                                            // leg 3 (east, to the summit)
   [165,180,21],[182,196,22],                                              // summit swing -> glacier cave
   [188,222,22],[190,246,22],                                              // ski-jump run-up + lip
-  [191,270,15],[192,295,16],[190,320,12],                                 // crevasse dip + downhill landing
-  [178,346,7],[150,366,4],[115,378,3],[80,378,3],[52,366,3.5],            // frozen-lake sweep (left)
+  [191,270,15],[192,295,11.5],[190,320,9],                                // crevasse dip + an easing-out downhill landing (was 15->16->12: a crest that
+  //   re-launched karts landing at ~37 m/s - playtest 'screen stutters coming down from a big ramp jump')
+  [178,346,6.5],[150,366,4],[115,378,3],[80,378,3],[52,366,3.5],            // frozen-lake sweep (left)
   [30,348,4.5],[6,336,5],[-12,318,5.5],[-8,298,6],[-26,288,6.5],[-46,284,7], // pine-forest S (ends in a hard left)
   [-54,268,7.2],[-54,246,7.5],                                            // straight run-in to the gorge lip
   [-55,226,5],[-55,206,7.5],                                              // creek dip + landing
@@ -113,8 +114,15 @@ for (let i = Math.floor(BB.x0/CELL); i <= Math.ceil(BB.x1/CELL); i++) for (let j
   // road edge (bilinear between 6 u cells). Within half+8 of a road the ground may rise at most 0.9 per u past edge+1,
   // measured from the LOWEST branch there. Not inside the glacier cave span: that hill IS the tunnel's cover.
   if (dmin < HALF + 8){
-    const nn = nearest(x, z), caveS = F.cave*L, inCave = Math.abs(arcS[nn.i] - caveS) < 22 - 6;   // the tunnel span (len 44) less one 6 u cell: an uncapped cell at the portal blended a 1.2 u lump onto the road outside it
-    if (!inCave){ const near = branchesNear(x, z, HALF + 8); const lo = near.length ? Math.min(...near.map(b => b.y)) : nn.y;
+    // Inside the glacier cave span the game draws THIS terrain as the land over the bore (naturalTunnelCoverAt), so it
+    // must stay above the 6 u bore ceiling: an earlier version capped the last 6 u inside each portal and the hill came
+    // down INTO the cave as a grey snow wall you drove through (playtest 2026-10-12). Over the bore: >= road + 10.
+    // (+6: this builder's replica centreline and the game's sample the arc a couple of units apart at the mouth - with
+    //  +0.5 the hill sloped down to 1.2 u over the road where the game still draws the cover. Outside the span the game
+    //  keeps the ROAD at road height whatever this field says, so overshooting the span here is harmless.)
+    const nn = nearest(x, z), caveS = F.cave*L, inCave = Math.abs(arcS[nn.i] - caveS) <= 22 + 6;
+    if (inCave) target = Math.max(target, nn.y + 10);
+    else { const near = branchesNear(x, z, HALF + 8); const lo = near.length ? Math.min(...near.map(b => b.y)) : nn.y;
       target = Math.min(target, lo - 0.25 + Math.max(0, dmin - (HALF + 1)) * 0.9); }
   }
   const v = Math.round((target - groundHills(x, z))*100)/100;
@@ -209,7 +217,10 @@ const track = {
     { s:r3(fracNear(56,20)), lane:0.1 },                 // the descent
   ],
   ramps:undefined,
-  tunnels:[{ id:"yr_cave", tag:"glacier cave", s:r3(F.cave), len:44, style:"natural" }],
+  // a tunnel's s is where it STARTS (FK_TRACK.buildTunnelMesh / naturalTunnelCoverAt: span [s*L, s*L+len]). It was
+  // written as the CENTRE, so the real bore ran 22 u past the glacier hill built over it: the hill sat at road level in
+  // the last 22 u of the cave (a grey wall you drove through) and its slope filled the exit (playtest 2026-10-12).
+  tunnels:[{ id:"yr_cave", tag:"glacier cave", s:r3(F.cave - 22/L), len:44, style:"natural" }],
   bridges:[{ id:"yr_overpass", tag:"village overpass", s:r3(F.overpass), len:48 }],
   chickens:[
     { id:"yr_snow1", s:r3(fracNear(140,370)), kind:"snowman" },

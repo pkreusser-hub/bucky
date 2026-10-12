@@ -280,5 +280,16 @@
     "estDurationS": 94.07,
     "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
     "notes": "Themed race-music library entry (2026-07-12). Final Lap Frenzy: maximum-intensity finale with rising key changes (final lap). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-techno-barn.mp3",
+    "kind": "race-music",
+    "displayName": "Techno Barn",
+    "target": "~90-110s",
+    "prompt": "no prompt: composed and synthesized in tools/_gen-fk-techno-farm.mjs — 128 BPM A-minor farm techno: 909-style kick/claps/hats, resonant acid bassline (Am-F-C-G), detuned chord stabs, pluck arpeggio, 808 cowbell, synthesized chicken clucks, a formant moo and a rooster crow at the drop",
+    "bytes": 1441167,
+    "estDurationS": 90.0,
+    "api": "none (procedural JS synth -> 32-bit WAV -> ffmpeg two-pass loudnorm -11.3 LUFS -> libmp3lame 128k)",
+    "notes": "Race theme for Bucky's Midnight Run (2026-10-12, family ask: 'techno farm'). 48 bars, loop-seamless: the 4 s ring-out is folded onto the head and bars 46-47 strip back to the intro groove. Re-render: node tools/_gen-fk-techno-farm.mjs"
   }
 ]

@@ -1953,6 +1953,12 @@
   const RAMP_LAUNCH_BASE = 3.0, RAMP_LAUNCH_SPEEDF = 0.35, RAMP_LAUNCH_MAX = 16, RAMP_FULL_HEIGHT = 3;
   const RAMP_AIR_GUIDE = 1.5;   // rad/s cap on the in-flight steer toward the road (see RAMP-JUMP GUIDANCE in stepKart)
   const RAMP_AIR_LOOK = 16;     // m along the centreline the guidance aims at
+  // LANDING SETTLE (2026-10-12 playtest: "the screen stutters coming down from a big ramp jump"). Off the Yeti ski jump
+  // the kart lands at ~37 m/s on a descent that keeps steepening, and the terrain-crest launch below re-launched it two
+  // frames after every touchdown: 3 micro-hops in 15 frames, each one firing the squash + thump + dust again. For this
+  // long after a REAL landing (airtime >= landMinAirT) the crest launch is suppressed and the kart stays glued. Ramp
+  // exits still launch (explicit, above the crest test).
+  const LAND_SETTLE_T = 0.6;     // 0.35 still let a 5-frame crest hop through 0.42 s after the Yeti ski-jump landing (31.6 m/s on the descent bend)
   function rideHeight(sx, sz, seedY){
     return Math.max(sampleHeightAtY(sx, sz, seedY), groundSampleHeight(sx, sz), rampLift(sx, sz, seedY));
   }
@@ -3454,6 +3460,7 @@
             p.landT = TUNE.landSquashT;
             p.landFx = true;                 // one-shot; render layer fires the thump then clears it
           }
+          if (p.airT >= TUNE.landMinAirT) p._landSettle = LAND_SETTLE_T;   // see LAND_SETTLE_T
           p.airT = 0;
         }
       } else {
@@ -3464,7 +3471,7 @@
         // (how fast the required follow-rate is changing) — a sustained steep decline no longer launches.
         // natural terrain-crest launch (hills / hairpin crest). Suppressed while physically ON a ramp —
         // ramps launch explicitly on exit (above), so the crest test never preempts with a weak pop.
-        if (reqAccel < -TUNE.gravity*TUNE.launchHyst && spd > TUNE.launchMinSpeed && !rampSup){
+        if (reqAccel < -TUNE.gravity*TUNE.launchHyst && spd > TUNE.launchMinSpeed && !rampSup && !(p._landSettle > 0)){
           p.airborne = true; p.airT = 0;   // p.vy already holds the previous frame's terrainVY = pre-crest carry
         } else {
           p.y = groundYnew; p.vy = terrainVY;
@@ -3475,6 +3482,7 @@
       if (rampSup) p._rampY = rampSup.y;   // last ramp surface height (seat the launch here on exit)
     }
     if (p.landT > 0) p.landT = Math.max(0, p.landT - dt);
+    if (p._landSettle > 0) p._landSettle = Math.max(0, p._landSettle - dt);
 
     // ---- boost timer & hop ----
     if (p.boostT > 0){
@@ -11514,7 +11522,7 @@
     spawnLightningBolt, get lightningBolts(){ return FK_ITEMS.liveBolts(); }, get skyFlashT(){ return _skyFlashT; },
     fireTrail, computeStandings, get finishOrder(){ return G.finishOrder; },
     CRITTER_KINDS, CRITTER_CFG, buildCritterMesh, critterHitSound, sampleIdxAtTotalProgress,
-    soloRaceTick, updatePhase, finishRace, recordFinish, forceFinishRemaining,
+    soloRaceTick, updateCamera, updatePhase, finishRace, recordFinish, forceFinishRemaining,
     sweptTrailAbsorb, trailWorldPos, TRAIL_ABSORB_R,
     updateItemSlot, get itemIcon(){ return itemIcon; }, get itemSlot(){ return itemSlot; },
     updateLightningBolts, BULL_SIZE,

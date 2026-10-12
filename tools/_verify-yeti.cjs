@@ -62,8 +62,10 @@ async function open(browser, base, track, viewport){
     // (tools/_hh_build.cjs + tools/_fk_walls.cjs). It may differ from HEAD in exactly: fences (walls added), objects (the
     // decorative GLB fence rows the walls replace) and wallStyle (wooden fence). Every other builtin stays byte-identical.
     const HH_OK = ["fences", "objects", "wallStyle"];
-    const changed = Object.keys(OLD.BUILTIN_TRACKS).filter((id) => id !== "yeti-ridge" && id !== "harvest-hollow" && JSON.stringify(OLD.BUILTIN_TRACKS[id]) !== JSON.stringify(FK.BUILTIN_TRACKS[id]));
-    check("every other builtin track is byte-identical to git HEAD", changed.length === 0, changed.join(","));
+    // (2026-10-12: midnight-run gained music:"techno-barn" - it may differ from HEAD in exactly that key)
+    const sameBut = (a, b, keys) => { const A = Object.assign({}, a), B = Object.assign({}, b); for (const k of keys){ delete A[k]; delete B[k]; } return JSON.stringify(A) === JSON.stringify(B); };
+    const changed = Object.keys(OLD.BUILTIN_TRACKS).filter((id) => id !== "yeti-ridge" && id !== "harvest-hollow" && !(id === "midnight-run" ? sameBut(OLD.BUILTIN_TRACKS[id], FK.BUILTIN_TRACKS[id], ["music"]) : JSON.stringify(OLD.BUILTIN_TRACKS[id]) === JSON.stringify(FK.BUILTIN_TRACKS[id])));
+    check("every other builtin track is byte-identical to git HEAD (midnight-run: but for its music slug)", changed.length === 0, changed.join(","));
     const a = OLD.BUILTIN_TRACKS["harvest-hollow"], b = FK.BUILTIN_TRACKS["harvest-hollow"];
     const hhKeys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
     check(`harvest-hollow differs from HEAD only in ${HH_OK.join("/")} (${hhKeys.join(",")})`, hhKeys.every((k) => HH_OK.includes(k)), hhKeys.join(","));
@@ -71,8 +73,15 @@ async function open(browser, base, track, viewport){
     const bSet = new Set(b.objects.map(noId)), lost = a.objects.filter((o) => !bSet.has(noId(o)));
     // ...plus untagged props whose footprint reached into the road (the same road-clearance rule as Yeti: a crate by the coop)
     const hhC = cat(a.points), hhNear = (x, z) => Math.min(...hhC.map((c) => Math.hypot(c.x - x, c.z - z)));
-    const odd = lost.filter((o) => o.model !== "farm_fence" && !(!o.tag && hhNear(o.x, o.z) < a.width / 2 + 0.5 + o.sx * 0.45 + 0.3));
-    check(`harvest-hollow: objects removed = the decorative farm_fence rows + road-intruding props (${lost.length})`, lost.some((o) => o.model === "farm_fence") && odd.length === 0, odd.map((o) => o.model + "@" + o.x + "," + o.z).join(" "));
+    // ...and the static windmill GLB, which was re-seated >= 16 u off the road (it stood 3.3 u from the centreline)
+    const odd = lost.filter((o) => o.model !== "farm_fence" && !(o.model === "farm_tower_windmill" && b.objects.some((q) => q.model === o.model && hhNear(q.x, q.z) >= 16)) && !(!o.tag && hhNear(o.x, o.z) < a.width / 2 + 0.5 + o.sx * 0.45 + 0.3));
+    // RESTAGED: this compares against git HEAD, so once the HH walls are committed nothing differs and "some farm_fence
+    // rows were removed" no longer holds - the rule that matters is that NOTHING ELSE was removed. The fence rows' absence
+    // is asserted directly against the data instead.
+    check(`harvest-hollow: objects removed vs HEAD are only decorative farm_fence rows + road-intruding props (${lost.length})`, odd.length === 0, odd.map((o) => o.model + "@" + o.x + "," + o.z).join(" "));
+    // (a lone farm_fence by the coop is a set piece; the ROWS stood 12.5 u off the home lane, inside half+6)
+    const laneFence = b.objects.filter((o) => o.model === "farm_fence" && hhNear(o.x, o.z) < b.width / 2 + 6);
+    check("harvest-hollow: no decorative farm_fence rows left along the road (the wooden walls replace them)", laneFence.length === 0, laneFence.map((o) => o.x + "," + o.z).join(" "));
   }
 
   // ---------------- B: geometry (pure, from the data) ----------------
@@ -141,7 +150,7 @@ async function open(browser, base, track, viewport){
         p.pos.x = cc.x; p.pos.z = cc.z; p.theta = Math.atan2(t.x, t.z); p.v.x = t.x * v0; p.v.z = t.z * v0; p.y = K.sampleHeight(cc.x, cc.z) + 0.2; p.vy = 0; p.airborne = false; p.onRamp = false; p._rampBoosted = false;
         p.lastSampleIdx = i; p.progressS = K.arcS[i]; p.prevProgressS = K.arcS[i]; p.isBot = false; p.finished = false; G.phase = "racing";
         for (const id in G.players) if (id !== "local"){ G.players[id].pos.x = 9999; G.players[id].pos.z = 9999; }
-        let ramped = false, air = 0, landed = false, landF = -1, peak = 0, maxAir = 0, after = 0;
+        let ramped = false, air = 0, landed = false, landF = -1, peak = 0, maxAir = 0, after = 0, relaunch = 0;
         for (let f = 0; f < 420; f++){
           const n = K.nearestCenterInfo(p.pos.x, p.pos.z), tg = K.centerPts[(n.idx + 6) % N];
           K.soloRaceTick(1 / 60, { steer: Math.max(-1, Math.min(1, wrap(Math.atan2(tg.x - p.pos.x, tg.z - p.pos.z) - p.theta) * 2.2)), throttle: 1, brake: 0, drift: false });
@@ -150,8 +159,9 @@ async function open(browser, base, track, viewport){
           if (p.airborne && !landed){ air++; maxAir = Math.max(maxAir, d); peak = Math.max(peak, (p.y || 0) - K.centerPts[n.idx].y); }
           else if (air > 6 && !landed){ landed = true; landF = f; }
           if (landed && f - landF <= 90) after = Math.max(after, d);
+          if (landed && f - landF <= 60 && f > landF && p.airborne) relaunch++;   // micro-hops right after touchdown
         }
-        out.push({ rid, v0, ramped, air, peak: +peak.toFixed(1), maxAir: +maxAir.toFixed(1), after: +after.toFixed(1), landed });
+        out.push({ rid, v0, ramped, air, peak: +peak.toFixed(1), maxAir: +maxAir.toFixed(1), after: +after.toFixed(1), landed, relaunch });
       }
     }
     return { out, half: K.TRACK_WIDTH / 2 };
@@ -159,6 +169,9 @@ async function open(browser, base, track, viewport){
   for (const r of j.out){
     const minPeak = r.rid === "yr_skijump" ? 12 : 6;
     check(`${r.rid} @ ${r.v0} m/s: launches off the ramp, peak ${r.peak} u >= ${minPeak} (${r.air} airborne frames)`, r.ramped && r.peak >= minPeak, JSON.stringify(r));
+    // 2026-10-12 playtest "the screen stutters coming down from a big ramp jump": the kart re-launched off the steepening
+    // landing slope 2 frames after touchdown, 3 times (each firing squash + thump + dust). LAND_SETTLE_T keeps it down.
+    check(`${r.rid} @ ${r.v0} m/s: lands once, no micro-hops in the next second (${r.relaunch} airborne frames)`, r.landed && r.relaunch === 0, JSON.stringify(r));
     check(`${r.rid} @ ${r.v0} m/s: flight + 1.5 s after landing stays over the road (max ${Math.max(r.maxAir, r.after)} <= ${j.half})`, r.landed && r.maxAir <= j.half && r.after <= j.half, JSON.stringify(r));
   }
 
@@ -235,9 +248,12 @@ async function open(browser, base, track, viewport){
     const xings = []; for (const tr of (TR.trains || [])){ const P = tr.points; for (let k = 0; k < P.length; k++){ const a = P[k], b = P[(k + 1) % P.length], len = Math.hypot(b.x - a.x, b.z - a.z); for (let u = 0; u <= len; u += 2){ const x = a.x + (b.x - a.x) * u / len, z = a.z + (b.z - a.z) * u / len; if (near(x, z) < hw) xings.push({ x, z }); } } }
     const atXing = (x, z) => xings.some((q) => Math.hypot(x - q.x, z - q.z) < 10);
     const critters = (K.G.chickens || []).map((c) => ({ x: c.x, z: c.z })), atCritter = (x, z) => critters.some((c) => Math.hypot(x - c.x, z - c.z) < 3);   // crossing animals (hazards)
-    const tunS = (TR.tunnels || []).map((t) => [t.s * K.TRACK_LEN - t.len / 2 - 2, t.s * K.TRACK_LEN + t.len / 2 + 2]);
+    const tunS = (TR.tunnels || []).map((t) => [t.s * K.TRACK_LEN - 2, t.s * K.TRACK_LEN + t.len + 2]);   // s = tunnel START
     const skipObj = (o) => { for (let q = o; q; q = q.parent){ const u = q.userData || {}; if (u.isItemBox || u.trains || u.fkToonKart || u.waterId || q.name === "fkParticles" || q.isPoints) return true; } return false; };
-    const tunnelShell = new Set(); if (K.scene) K.scene.traverse((o) => { if (o.userData && (o.userData.tunnelId || o.userData.isTunnel)) o.traverse((c) => tunnelShell.add(c)); });
+    // inside a tunnel bore the space up to 5 u must be clear (not just kart height): the glacier hill once sagged INTO
+    // the cave as a grey snow wall (1..17 u across the last few units of the bore) that you drove through. The bore's own shell is skipped there.
+    const tunShell = new Set(); if (K.TUNNEL_GROUP) K.TUNNEL_GROUP.traverse((c) => tunShell.add(c));
+    const tunMid = (TR.tunnels || []).map((t) => [t.s * K.TRACK_LEN + 0.5, t.s * K.TRACK_LEN + t.len - 0.5]);
     const hits = {}; const v = new THREE.Vector3(), M = new THREE.Matrix4(), W = new THREE.Matrix4();
     K.scene.updateMatrixWorld(true);
     K.scene.traverse((o) => {
@@ -250,7 +266,10 @@ async function open(browser, base, track, viewport){
         if (rad < 0.4) continue;   // butterflies / leaves / birds flitting over the road: smaller than a kart wheel, no collision
         for (let i = 0; i < pos.count; i++){
           v.fromBufferAttribute(pos, i).applyMatrix4(W); if (near(v.x, v.z) > hw - 0.3) continue;
-          const u = under(v.x, v.z, v.y); if (!u) continue; const h = v.y - u.y; if (h <= 0.7 || h >= 2.6) continue;
+          const u = under(v.x, v.z, v.y); if (!u) continue; const h = v.y - u.y;
+          const inBore = tunMid.some(([a0, a1]) => K.arcS[u.i] > a0 && K.arcS[u.i] < a1);
+          if (inBore && tunShell.has(o)) continue;
+          if (h <= 0.7 || h >= (inBore ? 5 : 2.6)) continue;   // bore: clear to 5 u (the grey wall sat at 1..6 u; portal icicle tips are dressing at >= 5.3)
           if (inRamp(v.x, v.z) || atXing(v.x, v.z) || atCritter(v.x, v.z)) continue;
           if (tunS.some(([a0, a1]) => K.arcS[u.i] > a0 && K.arcS[u.i] < a1) && near(v.x, v.z) > hw - 1.5) continue;   // tunnel wall foot at the edge
           const key = (o.name || (o.parent && o.parent.name) || o.type) + (o.userData.bridgeWall ? "[bridgeWall]" : "") + " @" + Math.round(v.x / 8) * 8 + "," + Math.round(v.z / 8) * 8;
@@ -277,7 +296,7 @@ async function open(browser, base, track, viewport){
     await pg.waitForFunction(() => { let n = 0; __KART__.scene.traverse((o) => { if (o.isInstancedMesh) n++; }); return n > 30; }, null, { timeout: 90000 });
     await pg.waitForTimeout(4000);
     const hits = await pg.evaluate(SCAN);
-    check("Yeti: nothing solid at kart height over any road (scene-wide vertex scan)", hits.length === 0, hits.slice(0, 8).join(" | "));
+    check("Yeti: nothing solid at kart height over any road, nor anywhere inside the cave bore (scene-wide vertex scan)", hits.length === 0, hits.slice(0, 8).join(" | "));
     const w = await pg.evaluate(WALLS);
     // measured 0.900 / 0.905: the gaps are the overpass span (own walls), the glacier cave (tunnel walls), the low road
     // under the overpass (a 2D wall there would block the bridge above), the rail crossings and the critter crossings

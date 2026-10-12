@@ -137,7 +137,12 @@ lineAlong(0.565, 0.70, -1, 16, 12, (x,z,a,s)=>obj(orchardTrees[(s+2)%orchardTree
 lineAlong(0.575, 0.69, -1, 27, 15, (x,z,a,s)=>obj(orchardTrees[(s+1)%orchardTrees.length],x,z,7,0));
 
 // ---- WINDMILL at the hairpin (inside the turn) ----
-obj("farm_tower_windmill", -6, -128, 17, 0.4, {tag:"windmill"});
+// the static windmill GLB stood 3.3 u from the centreline (in the road); the art pass hides it for its own animated
+// windmill, but that hide polls as the GLB loads, so it could be seen (and fk-playtest's corridor check flaked) for a
+// moment. Seat it on the nearest spot within 30 u of the old one that clears every road by >= 16 u.
+(function(){ let best = null; for (let dx = -30; dx <= 30; dx += 1.5) for (let dz = -30; dz <= 30; dz += 1.5){ const x = -6 + dx, z = -128 + dz, d = nearestDist(x, z);
+  if (d < 16) continue; const cost = Math.hypot(dx, dz); if (!best || cost < best.cost) best = { x, z, cost }; }
+  obj("farm_tower_windmill", best ? best.x : -6, best ? best.z : -128, 17, 0.4, {tag:"windmill"}); })();
 obj("rock_largeB", -30, -132, 5.5, 0.7); obj("rock_smallA", 6, -132, 4, 1.2);
 
 // ---- BARNYARD: open barn BESIDE the road + silo + coop + clutter (~s 0.87..0.93) ----

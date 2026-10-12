@@ -904,7 +904,7 @@
       ART_STATS.caveIce = (ART_STATS.caveIce || 0) + 1;
     });
     for (const tn of (TR.tunnels || [])){
-      const s0 = tn.s * TLEN - tn.len / 2, s1 = tn.s * TLEN + tn.len / 2;
+      const s0 = tn.s * TLEN, s1 = tn.s * TLEN + tn.len;   // s is the tunnel START (span [s*L, s*L+len])
       for (const sEnd of [s0 - 1.5, s1 + 1.5]){
         const p = atS(sEnd, 0), y = p.y;
         for (const side of [1, -1]){
@@ -912,8 +912,8 @@
             kit.cone(0.9 + rng() * 0.5, 0.1, 3 + rng() * 4.5, x, H(x, z) - 0.3, z, pick([PAL.ice, PAL.iceL, PAL.iceD]), 0.06, 6, { rx: (rng() - 0.5) * 0.4, rz: side * (0.15 + rng() * 0.2) }); }
           claim(p.x + p.nx * side * (hw + 4.4), p.z + p.nz * side * (hw + 4.4), 2.4, 'cave-crystal');
         }
-        // icicles hanging across the portal mouth (above the 4.5u tunnel clearance line)
-        for (let i = 0; i < 14; i++){ const lat = -hw + 0.6 + i * (hw * 2 - 1.2) / 13, x = p.x + p.nx * lat, z = p.z + p.nz * lat; kit.cone(0.22, 0.02, 0.9 + rng() * 0.8, x, y + 6.4, z, PAL.iceL, 0.0, 5, { rx: Math.PI }); }
+        // icicles hanging across the portal mouth (tips above 5 u; the suite keeps the bore clear to 5 u)
+        for (let i = 0; i < 14; i++){ const lat = -hw + 0.6 + i * (hw * 2 - 1.2) / 13, x = p.x + p.nx * lat, z = p.z + p.nz * lat; kit.cone(0.22, 0.02, 0.9 + rng() * 0.8, x, y + 7.2, z, PAL.iceL, 0.0, 5, { rx: Math.PI }); }   // tips >= 5.3 u: clear of the bore band
         // glowing cyan crystals (unlit)
         for (const side of [1, -1]) glows.push({ x: p.x + p.nx * side * (hw + 2.2), y: y + 1.3, z: p.z + p.nz * side * (hw + 2.2), r: 0.55, c: 0x7fe9ff });
       }
