@@ -372,6 +372,9 @@
       FkCloud.fs = fsMod; FkCloud.ok = true;
     }catch(err){ FkCloud.ok = false; }
   }
+  // NOTE: no retry of a failed init — the browser caches a failed module import for the page's
+  // life (Firebase's own internal imports included). A save made by an editor that booted offline
+  // stays PENDING and is pushed by the next online editor or game boot (FK_TRACK.cloudSyncTracks).
   const fkEdCloudReady = fkEdInitCloud();
   function fkTracksDocRef(){ return FkCloud.fs.doc(FkCloud.db, 'settings_' + fkEdFamilyKey, 'fkTracks'); }
   // Background reconcile: pulls the cloud map, overwrites localStorage on success (silent on
@@ -382,27 +385,20 @@
   async function fkEdPullCloud(){
     await fkEdCloudReady;
     if (!FkCloud.ok) return;
-    try{
-      const snap = await Promise.race([
-        FkCloud.fs.getDoc(fkTracksDocRef()),
-        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 3000))
-      ]);
-      const raw = snap.exists() ? snap.data().tracks : null;
-      if (typeof raw !== 'string') return;
-      const localRaw = localStorage.getItem('fk_tracks_v1') || '{}';
-      if (raw === localRaw) return;
-      localStorage.setItem('fk_tracks_v1', raw);
-      if (currentId){
-        try{
-          const map = JSON.parse(raw);
-          if (map && map[currentId]){
-            const t = FK_TRACK.sanitize(map[currentId]);
-            if (t){ track=t; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); }
-          }
-        }catch(e){}
-      }
-      populateLoad();
-    }catch(err){ /* offline/timeout — keep the local copy, no error surfaced */ }
+    // 2026-10-12: merge, never replace (FK_TRACK.cloudSyncTracks, assets/farmkart-track.js) —
+    // a track saved here while offline survives the pull and is pushed now.
+    const r = await FK_TRACK.cloudSyncTracks(FkCloud.fs, FkCloud.db, fkTracksDocRef(), { timeoutMs:4000 });
+    if (!r.ok) return;   // offline/timeout — keep the local copy, no error surfaced
+    if (r.pushed.length) toast('Saved ' + r.pushed.length + ' track' + (r.pushed.length > 1 ? 's' : '') + ' from this device to all devices', 3000);
+    if (currentId && r.changed.indexOf(currentId) >= 0 && r.map[currentId]){
+      const t = FK_TRACK.sanitize(r.map[currentId]);
+      // Never swap the track out from under unsaved edits (the pull can land seconds after
+      // boot, mid-edit). Clean: hot-reload + fresh history (old undo steps belong to the
+      // replaced copy). Dirty: keep the user's work and say a newer copy exists.
+      if (t && dirty){ toast('A newer copy of this track was saved on another device. Your unsaved edits are kept.', 4000); }
+      else if (t){ track=t; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); resetHistory(); clearDirty(); }
+    }
+    if (r.changed.length) populateLoad();
   }
 
   // ---- working track (v1). Load ?track=<id> from fk_tracks_v1 (a saved edit wins) or a built-in
@@ -1516,7 +1512,8 @@
   }
   function wireScenerySection(){
     const t=$('propToggle'); if (t) t.addEventListener('click', ()=>setPropsOpen($('sceneryBody').style.display==='none'));
-    setPropsOpen(localStorage.getItem(PROPS_OPEN_KEY)==='1');
+    let propsOpen=false; try{ propsOpen = localStorage.getItem(PROPS_OPEN_KEY)==='1'; }catch(e){}   // blocked storage must not kill boot
+    setPropsOpen(propsOpen);
   }
 
   function rebuild(){
@@ -1966,7 +1963,8 @@
     try{ localStorage.setItem(ADV_KEY, open ? '1' : '0'); }catch(e){}
   }
   $('advToggle').addEventListener('click', ()=>{ setAdvOpen($('advBody').style.display !== 'block'); });
-  setAdvOpen(localStorage.getItem(ADV_KEY) === '1');
+  let advOpen=false; try{ advOpen = localStorage.getItem(ADV_KEY) === '1'; }catch(e){}   // blocked storage must not kill boot
+  setAdvOpen(advOpen);
   wireScenerySection();
 
   // ---- raycasting / pointer interaction ----
@@ -2438,19 +2436,28 @@
     if (!currentId) currentId = slug(track.name);
     map[currentId] = clean;
     try{ localStorage.setItem('fk_tracks_v1', JSON.stringify(map)); }catch(e){ toast('save failed'); return null; }
+    FK_TRACK.noteTrackSaved(currentId);   // pending until the cloud confirms it — survives being offline
     populateLoad();
     clearDirty();
     const savedId = currentId;
-    // CLOUD SYNC: push the WHOLE map so any device/version picks up the new track (user request).
-    // Fire-and-forget — doSave() keeps returning the id synchronously for testBtn's window.open.
+    // CLOUD SYNC (2026-10-12): a merge-push of THIS save (plus any earlier unpushed ones) in a
+    // Firestore transaction — never the whole local map over the cloud, which used to delete
+    // tracks saved on other devices since this one last synced. Fire-and-forget: doSave() keeps
+    // returning the id synchronously for testBtn's window.open.
     (async ()=>{
       await fkEdCloudReady;
-      if (!FkCloud.ok){ toast('✔ saved "'+savedId+'" on THIS device only (offline)', 3000); return; }
-      toast('⏳ saving "'+savedId+'" to all devices…', 3000);
-      try{
-        await FkCloud.fs.setDoc(fkTracksDocRef(), { tracks: JSON.stringify(map), updatedAt: Date.now() });
-        toast('✔ saved "'+savedId+'" to ALL devices', 3000);
-      }catch(err){ toast('✔ saved "'+savedId+'" on THIS device only (cloud save failed)', 3000); }
+      if (!FkCloud.ok){ toast('Saved "'+savedId+'" on this device. It goes to the other devices next time this one is online.', 4000); return; }
+      toast('Saving "'+savedId+'" to all devices…', 3000);
+      const r = await FK_TRACK.cloudSyncTracks(FkCloud.fs, FkCloud.db, fkTracksDocRef(), { timeoutMs:6000 });
+      if (r.ok && r.pushed.indexOf(savedId) >= 0) toast('Saved "'+savedId+'" to all devices', 3000);
+      else if (r.ok && FK_TRACK.pendingTrackIds().indexOf(savedId) < 0){
+        // the cloud held a NEWER save of this id from another device, so the merge kept theirs.
+        // Don't swap the user's work out: it stays open and unsaved, and saving again wins.
+        if (currentId === savedId) markDirty();
+        toast('Another device saved a newer "'+savedId+'". Your version is still open: save again to keep yours.', 5000);
+      }
+      else toast('Saved "'+savedId+'" on this device. It goes to the other devices next time this one is online.', 4000);
+      if (r.ok && r.changed.length) populateLoad();
     })();
     return savedId;
   }
@@ -2463,6 +2470,7 @@
     else toast('exported to box');
   });
   $('impBtn').addEventListener('click', ()=>{
+    if (dirty && !confirm('You have unsaved changes. Import over them and discard them?')) return;
     try{
       const data = JSON.parse($('io').value);
       const clean = FK_TRACK.sanitize(data);
@@ -2507,7 +2515,10 @@
     track=c; currentId=id||null; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); populateLoad();
     resetHistory(); clearDirty();
   }
-  $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
+  $('loadSel').addEventListener('change', ()=>{
+    // same unsaved-work guard as ＋ New course; cancelling puts the picker back on the open track
+    if (dirty && !confirm('You have unsaved changes. Load another track and discard them?')){ $('loadSel').value = currentId || ''; return; }
+    const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
 
   // ---- ＋ New course (2026-07-12): a fresh, simple oval loop with a unique id, switched into the
   // editor. Guards against losing unsaved work (confirm when dirty), resets history to one snapshot,

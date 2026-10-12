@@ -1322,6 +1322,136 @@ Battle MVP; name Cursor's concurrent Farm Party work in the commit).
   (460d3b7d…/scratchpad — suites live in their OWN session dirs), fp_mp_local 10/10. Suite
   card-count assertions updated 3→4 cards / 1→2 playable for the new registry reality.
 
+# 🏁 Farm Kart — TITLE SCREEN + MENU v3 (2026-10-12)
+
+User: "give it a proper title page and good UI menu that feels like a modern game." Same MenuFlow
+screens, ids and flow logic underneath (every launch / reload / MP path is untouched); the skin,
+camera and input layer are new. All in `farmkart.html`.
+- **TITLE (attract mode)**: `#fkTitle` inside `#startOverlay` — stacked FARM / KART wordmark
+  (`.fkWord`: Lilita One, skewed, gradient fill over an outlined copy in `::before`, checker stripe),
+  tagline, pulsing prompt ("Press any button" / "Tap to start" / "Press A" with a pad), cinematic
+  letterbox bars. Shown ONLY on a bare boot (MenuFlow.init path 5); resume flows, `?track=` deep
+  links, MP and returning from a race never show it. `?notitle=1` skips it (tests / dev). Any key,
+  click, tap or pad A/Start → start sting (`menuSfx('start')`) → home. Its key handler is a window
+  CAPTURE listener that stops propagation, so the Enter that dismisses it never reaches `advance()`.
+- **MENU CAMERA** (`MenuCam`, beside `updateCamera`): replaces the chase cam while `G.phase==='menu'`
+  — `'title'` flies the racing line (12 u/s of sim time, 8.5u up, 7u outside, looking 34u ahead),
+  `'garage'` orbits the parked kart, `'showroom'` (racer select + MP lobby) orbits closer and faster so
+  loadout changes read live. Writes `camera.position` directly, never camPos/camHeading — the chase
+  cam resumes exactly where placeAtGrid snapped it. Wide screens shift the projection with
+  `setViewOffset` so the kart sits right of the panel (0.17·W garage, 0.21·W showroom); phones park it
+  0.30·H down, below the list. Leaving the menu clears the offset and restores the chase FOV.
+  GOTCHA: the menu cam owns `camera.fov` on the menu, so read the chase FOV after a race starts
+  (`_verify-hud-defaults.cjs` was restaged for exactly this).
+- **CHROME**: left-weighted scrim; top bar (`#mfTop`: brand / breadcrumb from histStack via `CRUMB`
+  / profile chip / own sound + music buttons — the race's `#muteBtn`/`#musicBtn`/`#help` hide under
+  `body.fkMenu`, which updateCamera toggles each frame); slab nav buttons (skewed clip-path, accent
+  fill + chevron on focus); cards with a check badge when selected; sticky Back/RACE bar (shaded only
+  when the screen actually scrolls — `#menuFlow.scrolly`); bottom hint bar (keycaps, or pad glyphs
+  when a pad is connected; hidden on touch). Track Editor is now a regular slab on home.
+- **NO EMOJI IN THE CHROME** (house rule): every menu icon is an inline SVG from MenuFlow's `ICON`
+  table (`cupIcon` tints the trophy per cup, `medalSvg` draws gold/silver/bronze); driver cards show
+  the name's initial; classes read "150cc / Truck"; locks are an SVG badge. The hidden `#legacyMenu`
+  still carries emoji — it is never rendered and must stay for its wiring (MENU OVERHAUL entry).
+- **INPUT**: one focus highlight shared by mouse (hover focuses), keys (arrows move spatially —
+  nearest item in that direction, `along + 2.2·across` — Enter/Space select, Esc/Backspace back) and
+  pad (d-pad / left stick with 380 ms hold-to-repeat, A select, B back, Start select). Keyboard and pad
+  users land focused on each new screen's first item (or its selected card); touch never shows a
+  ring. Esc / B never leave the MP lobby (that would drop the room). Synth sound cues for move /
+  select / back through masterGain (never create the AudioContext before a gesture).
+- **FONT**: Google Fonts Lilita One, loaded NON-blocking (`media="print" onload`), fallback Arial
+  Black — a slow font CDN must never delay first paint. Suites that block googleapis see the fallback.
+- **VERIFY**: `node tools/_verify-fk-menu.cjs` **56/56** (title on bare boot + flyover really moving
+  per sim-second, no emoji, Enter never starts a race, keyboard + pad navigation, crumbs/hints,
+  hand-computed camera projections 857.6 / 908.8 / (195, 675.2) px, sticky RACE on-screen, sound
+  toggle, race handoff: no view offset + chase FOV + chase distance, back to home not title,
+  `?notitle` + `?track=` skips, phone layout + touch release). Against HEAD it dies at the first check
+  (no title). Battery: `_verify-hud-defaults` PASS (restaged FOV read), audio 102/102, items 24/24,
+  minimap, modes 17/17, align-boost, editor, farmkart-mobile 119, fences, glbdrivers 65/65,
+  harvesthollow 70/70, midnightrun, ramp, tankbattle 75/75, driver / followterrain / grass-clear /
+  slope-conform / terrain-auth PASS. Pre-existing and identical on HEAD: loadout (expects 3 kart /
+  driver kinds — there are 4 / 7), proj-fx 14/16, gator3d, wall-drift, themepack's rainbow-road Y
+  check, turnpike's ribbon/curb colour checks, editor-bot's one blocked-resource console error, and
+  bots 142/145 — its MEASURED section fails 2-3 checks per run in this swiftshader sandbox on HEAD
+  too, and WHICH ones flips run to run (rival binding: normal one run, hard the next).
+- **SANDBOX GOTCHAS (cloud container)**: (1) suites that don't install request interception hang in
+  `networkidle0` on Firestore's Listen long-poll — run them with a `-r` preload that patches
+  `puppeteer.CdpBrowser.prototype.newPage` to abort googleapis|firestore|firebase|gstatic|playroom
+  (the ESM namespace's `launch` can't be reassigned). (2) A suite reuses ANY server already on its
+  port: a leftover http-server rooted at the working tree makes a "HEAD" run silently test the working
+  tree. Free the port (socket inode → pid) before every before/after run; the new suites spawn their
+  server `detached` and kill the process group.
+
+# 🏁 Farm Kart — review fixes (2026-10-12)
+- **Editor unsaved-work guards** (`farmkart-editor.html`): the Load picker and Import now confirm
+  before discarding unsaved edits (cancel restores the picker); the background cloud pull no longer
+  hot-swaps the open track while it is dirty (toast instead) and resets history when it does swap;
+  two bare `localStorage.getItem` boot reads are guarded (blocked storage killed the editor).
+  `node tools/_verify-fk-editor-guards.cjs` **11/11**; on HEAD the 5 guard checks fail and the
+  blocked-storage editor never boots.
+- **MP host heartbeat sub-steps** (hidden host tab, ~1 Hz): the whole ~1 s dt went into stepKart for
+  every bot in one step (the rAF path clamps 0.05). Now 0.05 steps + one snapshot publish per beat;
+  `net._hbLog` test hook. `node tools/_verify-fk-heartbeat.cjs` **5/5**.
+- **Touch input released on blur / hidden** (steer, drift, item latched after an app switch) and the
+  ♻ reset button respects pause. Checked in `_verify-fk-menu.cjs`'s phone pass.
+- **NOT fixed — needs a sync design** (reported): the editor's and game's cloud reconcile REPLACE the
+  local `fk_tracks_v1` map with the cloud one (a track saved offline is lost), and `doSave` writes the
+  whole local map over the cloud doc (another device's newer save can be wiped). Needs per-track
+  stamps or a read-merge-write; merging naively would re-upload stale shadows like the
+  toads-turnpike case above.
+
+# 🏁 Farm Kart — cloud track sync: merge, never replace (2026-10-12)
+
+Supersedes the "NOT fixed — needs a sync design" bullet above and the replace-the-map behaviour of
+the 2026-07-10 "cloud track sync" entry. User: "fix the farm kart sync".
+- **What was broken**: the game's `fkReconcileTracksCloud` and the editor's `fkEdPullCloud` REPLACED
+  localStorage `fk_tracks_v1` with the cloud map, so a track saved offline vanished on the next pull;
+  and the editor's `doSave` `setDoc`'d its WHOLE local map, so a device that hadn't pulled deleted
+  every track saved elsewhere since, and two simultaneous saves kept only the last.
+- **One shared rule** in `assets/farmkart-track.js` (both pages already load it):
+  `FK_TRACK.mergeTrackMaps` / `cloudSyncTracks` / `noteTrackSaved`. The cloud doc gains
+  `stamps: JSON({id: savedAtMs})` beside `tracks` (old readers ignore it; an old doc without it reads
+  as stamp 0). Locally, `fk_tracks_sync_v1 = {stamps, pending}` — pending = saves the cloud hasn't
+  confirmed. Merge: the cloud copy wins, EXCEPT a pending local save newer than the cloud's stamp for
+  that id. A local-only id that is NOT pending is dropped — that is what keeps a track renamed or
+  removed in the cloud (the toads-turnpike-old shadow above) from being re-uploaded by a stale device.
+- **Pushes are a Firestore transaction** (read → merge → write; the SDK retries if another device
+  wrote in between), so simultaneous saves both land. Adopting the result re-merges against the
+  CURRENT local state, so a save made while the network call was in flight survives.
+- **First run on a device** (no `fk_tracks_sync_v1` yet): every already-saved local track is treated
+  as pending at a LEGACY stamp (1) that only fills ids the cloud doesn't have and never overrides a
+  cloud copy — the old code could have left offline saves stranded on a device; this recovers them.
+- **Editor**: `doSave` writes locally + `noteTrackSaved`, then `cloudSyncTracks` (push). Toasts (no
+  emoji): saved to all devices / saved on this device, goes out next time it's online / another
+  device saved a NEWER copy of this id — the user's version stays open and dirty, saving again keeps
+  it (stamps are device clocks: the later save of the same id wins). The pull hot-reloads the open
+  track only when it changed and isn't dirty (unchanged from the guard batch).
+- **Game is READ-ONLY against the tracks doc** (`cloudSyncTracks(..., {push:false})`): it merges
+  (so an offline save is no longer wiped) and keeps the one-reload adopt of a changed active track,
+  but never writes — it never did, and a headless suite that seeds `fk_tracks_v1` with Firestore
+  unblocked would otherwise publish its test track to the family (`_verify-followterrain.cjs` did
+  exactly that shape; it now blocks Firebase like every other suite). Pending saves go out on the
+  next editor boot or save. GOTCHA hit building this: the read-only path must report the RAW cloud
+  map — returning the merge (cloud + our pending) made the cleanup think the cloud already had the
+  pending save and drop it, unpushed.
+- **GOTCHA**: an editor page that booted with NO connection can never reach Firebase that session —
+  the browser caches a failed module import for the page's life (Firebase's own internal imports
+  too), so a cache-busting retry can't work. Its saves stay pending and the next online editor or
+  game boot pushes them.
+- **VERIFY**: `node tools/_verify-fk-track-sync.cjs` **29/29** — A: the merge rules in node on the
+  shipped module (incl. a save landing mid-pull, offline leaves state untouched, legacy first run);
+  B: end to end, each browser context a family device over a FAKE Firestore SDK served in place of
+  the gstatic imports (the doc lives in the suite; a stale transaction read is refused like the real
+  service, a >1 MiB doc is refused, "offline" fails at the network): offline save survives the
+  game's pull with ZERO commits from the game and is pushed by the next editor boot, a stale
+  device's save doesn't delete another's track, a fully-offline-booted editor's save goes out on the
+  next boot, simultaneous saves both land after a refused commit, the game still adopts a changed
+  active track. Waits on "nothing pending", never fixed sleeps (the editor's scene rebuild on
+  loadTrack can hold a push for seconds under swiftshader — a 2 s sleep flaked). On the old code
+  **10/21** (offline track lost, the other device's track deleted, last writer only). Regression:
+  fk-editor-guards 11/11, fk-menu 56/56, hud-defaults, items, followterrain 12/12, tankbattle 75/75,
+  editor, fences.
+
 ---
 
 # 🎨 Farm Kart — ART STYLE PROTOTYPES (2026-10-12, branch only, NOT in the game)

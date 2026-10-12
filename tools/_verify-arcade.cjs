@@ -71,7 +71,10 @@ const EXPECTED = [
   ["Hayhem", "hayhem.html"],
   ["Pasture Panic", "pasturepanic.html?fam=arcade"],   // own lobby namespace — never the family hub's
   ["Baby Bucky", "goatcare.html"],
-  ["Castle Kruzer", "castlekruzer.html"],
+  // RESTAGED 2026-10-12: Castle Kruzer's co-op also registers a lobby in lobbies_<familyKey>
+  // (fs-net.js familyKey() honours ?fam=), so it gets its own namespace like Pasture Panic —
+  // otherwise a stranger hosting from the arcade showed up as a JOIN card on the family hub.
+  ["Castle Kruzer", "castlekruzer.html?fam=arcade"],
   ["Farm Life", "farmlife/dist/"],
 ];
 

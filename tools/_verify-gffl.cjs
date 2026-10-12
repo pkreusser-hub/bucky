@@ -7130,6 +7130,24 @@ async function openDetails(page, id) {
       await page.evaluate(() => window.__GFFL__.UI.show("bracket"));
       await page.waitForSelector(".bracketrounds", { timeout: 9000 });
       await sweep(page, "bracket (fully built — byes, play-in, semis, consolation rounds)");
+      // 2026-10-12: tapping a bracket game from ANOTHER week must browse it (UI._muWeek) and leave
+      // UI.week — the live week every roster write uses — alone. Move the clock to week 16, then
+      // tap a week-15 play-in game.
+      const bt = await page.evaluate(async () => {
+        const G = window.__GFFL__, LG = G.LG;
+        LG.nowOverride += 7 * 24 * 3600 * 1000;
+        G.UI.week = LG.currentWeek();
+        G.UI.show("bracket");
+        for (let i = 0; i < 60 && !document.querySelector('[data-mu][data-wk]'); i++) await new Promise((r) => setTimeout(r, 100));
+        const live = G.UI.week;
+        const card = [...document.querySelectorAll('[data-mu][data-wk]')].find((e) => Number(e.dataset.wk) !== live);
+        if (!card) return { live, none: true };
+        const wk = Number(card.dataset.wk);
+        card.click();
+        return { live, wk, weekAfter: G.UI.week, muWeek: G.UI._muWeek, view: G.UI.view };
+      });
+      ok(!bt.none && bt.weekAfter === bt.live && bt.muWeek === bt.wk && bt.wk !== bt.live,
+        "a bracket tap on another week's game browses that week (UI._muWeek) and leaves the live UI.week alone (" + JSON.stringify(bt) + ")");
       ok(errors.length === 0, "0 page errors sweeping the built bracket");
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_theme_bracket_390.png"), fullPage: true }); console.log("  📸 shots/gffl_theme_bracket_390.png"); }
       await ctx.close();
@@ -23029,6 +23047,7 @@ async function openDetails(page, id) {
         return {
           state: g.state, completed: g.completed, name: g.statusName,
           donePHI: D.gameDone("PHI"), doneKC: D.gameDone("KC"),
+          startedPHI: D.gameStarted("PHI"), startedKC: D.gameStarted("KC"),
           remPHI: D.remaining(["3915511"]), remKC: D.remaining(["111222"]),
         };
       }) || {};
@@ -23036,6 +23055,9 @@ async function openDetails(page, id) {
         "the postponement is recorded as ESPN actually sends it — state post, completed FALSE, STATUS_POSTPONED (" + JSON.stringify([r.state, r.completed, r.name]) + ")");
       ok(r.donePHI === false, "…so D.gameDone refuses it: the slate has passed the game, nobody played it (" + r.donePHI + ")");
       ok(r.doneKC === true, "CONTROL: the genuine final on the same board still reads done (" + r.doneKC + ")");
+      // 2026-10-12: gameStarted missed D-S6 — a postponed game read as UNDERWAY, locking its players
+      ok(r.startedPHI === false, "…and D.gameStarted does not call it underway: his lineup slot, drop and add stay open (" + r.startedPHI + ")");
+      ok(r.startedKC === true, "CONTROL: the genuine final still reads started (" + r.startedKC + ")");
       ok(r.remPHI && r.remPHI.left === 1 && r.remPHI.played === 0,
         "…and his starter still counts as TO PLAY, so the strip and the star cannot contradict each other (" + JSON.stringify(r.remPHI) + ")");
       ok(r.remKC && r.remKC.played === 1, "CONTROL: the real final's own starter counts as played (" + JSON.stringify(r.remKC) + ")");

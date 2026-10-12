@@ -2461,6 +2461,8 @@ document.addEventListener('click', (e) => {
 $('#week-next').addEventListener('click', () => stepWeek(1));
 $('#week-label').addEventListener('click', openWeekSheet);
 window.addEventListener('hashchange', () => { cameFromBoard = true; route(); });
+// Hidden: every poller stops. Back in front, the scoreboard poller restarts in BOTH cases — an open
+// game keeps it running too (it feeds the phone game strip + desktop sidebar, see openGame).
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     boardPoller.stop();
@@ -2468,7 +2470,8 @@ document.addEventListener('visibilitychange', () => {
     G?.sumPoller.stop();
   } else {
     // Back in front: show where the game is now rather than replaying what was missed.
-    if (G) { if (G.gate) gateOpen(); if (typeof sideArrive === 'function') sideArrive(); G.evPoller.start(); G.sumPoller.start(); requestWake(); } else boardPoller.start();
+    if (G) { if (G.gate) gateOpen(); if (typeof sideArrive === 'function') sideArrive(); G.evPoller.start(); G.sumPoller.start(); requestWake(); }
+    boardPoller.start();
   }
 });
 document.addEventListener('keydown', (e) => {

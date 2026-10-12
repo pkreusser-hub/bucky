@@ -2602,6 +2602,18 @@ async function main() {
         const wired = /visibilitychange[\s\S]{0,400}sideArrive\(\)/.test(fs.readFileSync(path.join(__dirname, "..", "assets", "sunday", "sd-app.js"), "utf8"));
         ok(settled(s5) && s5.id === NEW && wired, `the page back in front: the play it missed is put at its end, not played (${JSON.stringify(s5)}; called from visibilitychange: ${wired})`);
 
+        // 2026-10-12: hiding the tab stops the SCOREBOARD poller too; coming back with a game open
+        // restarted only the game's own pollers, so the phone game strip / desktop sidebar froze.
+        const vis = await page.evaluate(() => {
+          const set = (h) => { Object.defineProperty(document, "hidden", { configurable: true, get: () => h }); document.dispatchEvent(new Event("visibilitychange")); };
+          const open = !!G;
+          set(true); const hidden = boardPoller.active;
+          set(false); const back = boardPoller.active;
+          delete document.hidden;
+          return { open, hidden, back };
+        });
+        ok(vis.open && vis.hidden === false && vis.back === true, `with a game open, the scoreboard poller stops while hidden and runs again back in front (${JSON.stringify(vis)})`);
+
         // The exception (user: "if the last play was a touchdown it should shoe that").
         tdLast = true;
         await page.goto(BASE + "/sunday.html?arrive=2#g401872963", { waitUntil: "domcontentloaded" });

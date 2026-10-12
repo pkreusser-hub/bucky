@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Bucky — Farm Kart (feel prototype)</title>
+<title>Farm Kart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- display font for the title + menu; loaded NON-blocking (media swap) so a slow/blocked font CDN never
+     delays first paint — the menu falls back to Arial Black / system heavy type until it lands -->
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   :root{ --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px); --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px); }
@@ -403,153 +407,283 @@
   /* free the thumb zones on phones: keyboard hint off (stats #hud already hidden) */
   body.mobile #help{ display:none !important; }
 
-  /* ======================= MENU FLOW (2026-07-10 overhaul) ======================= */
-  #menuFlow{ margin-top:18px; width:100%; max-width:520px; display:flex; flex-direction:column;
-    align-items:center; gap:12px; padding:0 14px; box-sizing:border-box;
-    font-family:-apple-system,Segoe UI,Roboto,sans-serif; }
-  .mfScreen{ display:none; flex-direction:column; align-items:center; gap:12px; width:100%; }
-  .mfScreen.on{ display:flex; }
-  .mfHead{ font-size:20px; font-weight:900; color:#ffe27a; letter-spacing:.02em; text-shadow:0 2px 0 rgba(0,0,0,.35); }
-  .mfSub{ font-size:13px; color:#bfe0ff; margin-top:-6px; }
-  .mfBig{ display:flex; flex-direction:column; gap:14px; width:100%; max-width:340px; }
-  /* big primary option buttons (barn-sign flavored) */
-  .mfBtn{ width:100%; padding:18px 20px; border-radius:14px; border:3px solid #3d2812; cursor:pointer;
-    background-image:linear-gradient(180deg,#9a6737,#5f3b1c); color:#ffe9c2; font-family:inherit;
-    font-weight:900; font-size:22px; letter-spacing:.02em; text-shadow:0 2px 0 #3d2410,0 4px 7px rgba(0,0,0,.5);
-    box-shadow:0 6px 0 rgba(0,0,0,.32), inset 0 2px 6px rgba(255,255,255,.16); display:flex; align-items:center;
-    justify-content:center; gap:10px; transition:transform .06s, filter .1s; }
-  .mfBtn:hover{ filter:brightness(1.08); }
-  .mfBtn:active{ transform:translateY(3px); box-shadow:0 3px 0 rgba(0,0,0,.32), inset 0 2px 6px rgba(255,255,255,.16); }
-  .mfBtn .ic{ font-size:26px; }
-  .mfBtn small{ display:block; font-size:11px; font-weight:700; opacity:.82; letter-spacing:.04em; margin-top:2px; }
-  .mfBtn.blue{ background-image:linear-gradient(180deg,#2f74b0,#1c4a6e); border-color:#123449; color:#eaf5ff;
-    text-shadow:0 2px 0 #0d2a3d,0 4px 7px rgba(0,0,0,.5); }
-  .mfBtn.sm{ padding:13px 16px; font-size:17px; }
-  .mfBtn[disabled]{ opacity:.42; cursor:not-allowed; filter:grayscale(.5); }
-  .mfBtn[disabled]:active{ transform:none; }
-  /* quiet tertiary link on the home screen — the track editor for family level-builders */
-  .mfEditorLink{ margin-top:10px; padding:9px 16px; border-radius:11px; border:2px solid rgba(255,255,255,.28);
-    background:rgba(0,0,0,.30); color:#ffe9b8; font:800 13px/1.3 Consolas,monospace; cursor:pointer; text-align:center; }
-  .mfEditorLink small{ display:block; font-size:10px; font-weight:700; opacity:.75; margin-top:1px; }
-  .mfEditorLink:hover{ background:rgba(0,0,0,.45); }
-  .mfBar{ display:flex; gap:8px; align-items:center; width:100%; max-width:340px; justify-content:space-between; margin-top:2px; }
-  .mfBack{ background:rgba(6,16,26,.7); border:1px solid rgba(255,255,255,.22); color:#bfe0ff; border-radius:9px;
-    padding:8px 14px; font-family:inherit; font-weight:800; font-size:13px; cursor:pointer; }
-  .mfBack:hover{ background:rgba(20,40,60,.8); }
-  .mfRace{ background-image:linear-gradient(180deg,#4caf50,#2e7d32); border:3px solid #1c5220; color:#fff;
-    border-radius:14px; padding:15px 30px; font-family:inherit; font-weight:900; font-size:22px; cursor:pointer;
-    letter-spacing:.03em; text-shadow:0 2px 0 #163f18,0 4px 6px rgba(0,0,0,.4);
-    box-shadow:0 6px 0 rgba(0,0,0,.3), inset 0 2px 6px rgba(255,255,255,.2); }
-  .mfRace:hover{ filter:brightness(1.08); }
-  .mfRace[disabled]{ opacity:.42; cursor:not-allowed; filter:grayscale(.55); }
-  /* scrollable card grids (courses / cups / racers) */
-  .mfGrid{ display:grid; gap:10px; width:100%; max-height:52vh; overflow-y:auto; padding:4px 4px 8px;
-    -webkit-overflow-scrolling:touch; }
-  .mfGrid.courses{ grid-template-columns:repeat(3, 1fr); }
-  .mfGrid.cups{ grid-template-columns:repeat(2, 1fr); }
-  .mfGrid.racers{ grid-template-columns:repeat(4, 1fr); }
-  /* ---- LOADOUT v2 picker: driver + kart + color (racer / mp-wait screens) ---- */
-  .mfLoadout{ display:flex; flex-direction:column; gap:11px; width:100%; max-width:400px;
-    max-height:58vh; overflow-y:auto; padding:2px 2px 6px; -webkit-overflow-scrolling:touch; }
-  .mfLoadout .lsec{ display:flex; flex-direction:column; gap:6px; }
-  .mfLoadout .lsec .lh{ font-size:12px; font-weight:900; color:#ffe27a; letter-spacing:.05em; text-align:center; }
-  .mfPickGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-  .mfPickGrid .mfCard{ padding:9px 4px 7px; gap:3px; }
-  .mfPickGrid .mfCard .pico{ font-size:30px; line-height:1; }
-  .mfColors{ display:flex; flex-wrap:wrap; gap:9px; justify-content:center; }
-  .mfSwatch{ width:36px; height:36px; border-radius:9px; cursor:pointer; border:3px solid rgba(255,255,255,.22);
-    box-shadow:inset 0 2px 5px rgba(255,255,255,.25), 0 2px 5px rgba(0,0,0,.4); transition:transform .07s, border-color .1s; }
-  .mfSwatch:hover{ border-color:rgba(255,255,255,.6); }
-  .mfSwatch.on{ border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.55), inset 0 2px 5px rgba(255,255,255,.3); transform:scale(1.1); }
-  .mfCard{ background:rgba(10,22,34,.72); border:2px solid rgba(255,255,255,.16); border-radius:12px;
-    padding:8px 6px 7px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px;
-    transition:border-color .1s, background .1s; }
-  .mfCard:hover{ border-color:rgba(255,255,255,.4); background:rgba(18,34,50,.85); }
-  .mfCard.on{ border-color:#8fe08f; background:rgba(30,60,40,.85); box-shadow:0 0 0 2px rgba(143,224,143,.35); }
-  .mfCard canvas{ width:100%; height:auto; border-radius:7px; background:rgba(6,14,22,.6); display:block; }
-  .mfCard .cn{ font-size:12px; font-weight:800; color:#eaf3ff; text-align:center; line-height:1.15;
+  /* ======================= MENU v3 (2026-10-12): title screen + modern menu =======================
+     Replaces the 2026-07-10 barn-sign menu skin. Same MenuFlow screens + ids underneath; the look is
+     a left-hand nav panel over a cinematic camera (MenuCam), a top bar (brand / breadcrumb /
+     profile / sound), a bottom control-hint bar, and keyboard + gamepad focus navigation.
+     No emoji in this chrome (house rule) — icons are inline SVG from MenuFlow's ICON table. */
+  :root{ --fkDisplay:'Lilita One','Arial Black','Segoe UI Black',Impact,sans-serif;
+    --fkBody:-apple-system,'Segoe UI',Roboto,sans-serif;
+    --fkInk:#070d18; --fkGlass:rgba(12,20,34,.72); --fkGlassHi:rgba(22,34,54,.86); --fkLine:rgba(255,255,255,.12);
+    --fkText:#f3f6fb; --fkMuted:#a9b8cb; --fkAccent:#ffc93a; --fkAccent2:#ff9a1f; --fkHot:#ff5a36; --fkGood:#6ad46f;
+    --fkPadL:clamp(18px,5.5vw,88px); }
+  #startOverlay{ align-items:stretch; justify-content:flex-start; text-align:left; background:none;
+    font-family:var(--fkBody); padding:0; overflow:hidden; }
+  /* left-weighted scrim: dark under the panel, clear over the kart on the right */
+  #startOverlay::before{ content:''; position:absolute; inset:0; pointer-events:none; z-index:0;
+    background:linear-gradient(90deg, rgba(5,9,18,.90) 0%, rgba(5,9,18,.80) 30%, rgba(5,9,18,.32) 58%, rgba(5,9,18,0) 78%),
+               linear-gradient(0deg, rgba(5,9,18,.75) 0%, rgba(5,9,18,0) 26%),
+               linear-gradient(180deg, rgba(5,9,18,.6) 0%, rgba(5,9,18,0) 18%);
+    transition:opacity .6s; }
+  #startOverlay > *{ position:relative; z-index:1; }
+  body.fkMenu #muteBtn, body.fkMenu #musicBtn, body.fkMenu #help{ display:none; }   /* the menu top bar has its own */
+
+  /* ---- wordmark: stacked FARM / KART, outlined display type over a checker stripe ---- */
+  .fkWord{ display:inline-flex; flex-direction:column; align-items:flex-start; transform:skewX(-9deg);
+    font-family:var(--fkDisplay); font-weight:400; line-height:.86; letter-spacing:.01em; user-select:none; }
+  .fkWord > span[data-t]{ position:relative; display:block; color:transparent;
+    background:linear-gradient(180deg,#fff6cf 0%,#ffd84a 48%,#ffab1f 100%); -webkit-background-clip:text; background-clip:text; }
+  .fkWord > span.w2[data-t]{ background-image:linear-gradient(180deg,#ffb07a 0%,#ff6a2b 50%,#e0331f 100%); margin-left:.32em; }
+  /* outline + drop shadow live on a copy BEHIND the gradient fill (stroke on clipped text eats the fill) */
+  .fkWord > span[data-t]::before{ content:attr(data-t); position:absolute; left:0; top:0; z-index:-1; color:#1a0d05;
+    -webkit-text-stroke:.16em #1a0d05; text-shadow:0 .07em 0 #1a0d05, 0 .14em .16em rgba(0,0,0,.55); }
+  .fkWord > .flag{ display:block; width:100%; height:.2em; margin-top:.1em; border-radius:2px;
+    background:repeating-conic-gradient(#f3f6fb 0 25%, #121820 0 50%) 0 0/.1em .1em; box-shadow:0 .04em 0 rgba(0,0,0,.5); }
+  .fkWord.big{ font-size:clamp(64px,13vw,150px); }
+  .fkWord.hero{ font-size:clamp(46px,7vw,84px); }
+  .fkWord.sm{ font-size:19px; flex-direction:row; gap:.28em; }
+  .fkWord.sm > span.w2[data-t]{ margin-left:0; }
+
+  /* ---- TITLE SCREEN ---- */
+  #fkTitle{ position:absolute; inset:0; z-index:5; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; cursor:pointer; text-align:center;
+    background:radial-gradient(ellipse at 50% 45%, rgba(5,9,18,.05) 0%, rgba(5,9,18,.45) 70%, rgba(5,9,18,.8) 100%); }
+  #fkTitle[hidden]{ display:none; }
+  #startOverlay.title::before{ opacity:0; }
+  #startOverlay.title > :not(#fkTitle){ visibility:hidden; }
+  .ttlBars::before, .ttlBars::after{ content:''; position:absolute; left:0; right:0; height:7vh; background:#03060c;
+    animation:ttlBar .9s cubic-bezier(.2,.8,.2,1) both; }
+  .ttlBars::before{ top:0; transform-origin:top; } .ttlBars::after{ bottom:0; transform-origin:bottom; }
+  @keyframes ttlBar{ from{ transform:scaleY(0); } }
+  .ttlCenter{ display:flex; flex-direction:column; align-items:center; gap:18px; animation:ttlIn 1.1s .15s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes ttlIn{ from{ opacity:0; transform:translateY(24px) scale(.94); } }
+  .ttlTag{ font:800 clamp(13px,1.7vw,18px)/1 var(--fkBody); letter-spacing:.32em; text-transform:uppercase; color:#ffe7a8;
+    text-shadow:0 2px 8px rgba(0,0,0,.8); margin-top:6px; }
+  .ttlPrompt{ margin-top:clamp(28px,7vh,64px); font:400 clamp(22px,3vw,30px)/1 var(--fkDisplay); letter-spacing:.08em;
+    text-transform:uppercase; color:#fff; padding:12px 28px; border-radius:999px; background:rgba(5,9,18,.45);
+    border:2px solid rgba(255,255,255,.22); text-shadow:0 2px 0 rgba(0,0,0,.4); animation:ttlPulse 1.6s ease-in-out infinite; }
+  @keyframes ttlPulse{ 0%,100%{ opacity:1; transform:scale(1); } 50%{ opacity:.55; transform:scale(.97); } }
+  .ttlFoot{ position:absolute; left:var(--fkPadL); right:var(--fkPadL); bottom:calc(7vh + 14px + var(--sab));
+    display:flex; justify-content:space-between; font:700 12px/1 var(--fkBody); letter-spacing:.18em; text-transform:uppercase; color:rgba(255,255,255,.62); }
+  #fkTitle.out{ animation:ttlOut .45s cubic-bezier(.4,0,.2,1) both; pointer-events:none; }
+  @keyframes ttlOut{ to{ opacity:0; transform:scale(1.06); } }
+
+  /* ---- top bar ---- */
+  #mfTop{ display:flex; align-items:center; gap:18px; padding:calc(var(--sat) + 16px) var(--fkPadL) 6px; min-height:64px; flex:0 0 auto; }
+  .mfBrand{ flex:0 0 auto; transition:opacity .25s; }
+  #startOverlay.home .mfBrand{ opacity:0; pointer-events:none; }
+  #mfCrumbs{ flex:1; min-width:0; display:flex; align-items:center; gap:8px; overflow:hidden; white-space:nowrap;
+    font:800 12px/1 var(--fkBody); letter-spacing:.16em; text-transform:uppercase; color:var(--fkMuted); }
+  #mfCrumbs .sep{ width:6px; height:6px; border-top:2px solid currentColor; border-right:2px solid currentColor; transform:rotate(45deg); opacity:.6; }
+  #mfCrumbs .cur{ color:var(--fkText); }
+  .mfTopR{ display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+  #mfProfile{ display:flex; align-items:center; gap:8px; padding:5px 12px 5px 5px; border-radius:999px; background:var(--fkGlass);
+    border:1px solid var(--fkLine); font:800 13px/1 var(--fkBody); color:var(--fkText); }
+  #mfProfile .av{ width:24px; height:24px; border-radius:50%; background:#3d8b3d; box-shadow:inset 0 0 0 2px rgba(255,255,255,.35); }
+  .mfIcoBtn{ width:38px; height:38px; border-radius:50%; border:1px solid var(--fkLine); background:var(--fkGlass); color:var(--fkText);
+    display:grid; place-items:center; cursor:pointer; padding:0; }
+  .mfIcoBtn svg{ width:19px; height:19px; }
+  .mfIcoBtn.off{ color:#ff8f7a; }
+  .mfIcoBtn:hover, .mfIcoBtn:focus-visible{ background:var(--fkGlassHi); outline:none; box-shadow:0 0 0 2px var(--fkAccent); }
+
+  /* ---- hero (home only) ---- */
+  #menuLogo.hero{ margin:clamp(6px,3vh,34px) 0 0 calc(var(--fkPadL) + 6px); align-self:flex-start; }
+  #startOverlay .tagline{ margin:14px 0 0 var(--fkPadL); font:800 13px/1 var(--fkBody); letter-spacing:.3em; text-transform:uppercase;
+    color:#ffe7a8; opacity:.9; }
+
+  /* ---- content area + screens ---- */
+  #menuFlow{ flex:1 1 auto; min-height:0; width:100%; max-width:none; margin:0; display:block; overflow-y:auto; overflow-x:hidden;
+    padding:clamp(10px,2.4vh,26px) 16px 18px var(--fkPadL); font-family:var(--fkBody); -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+  .mfScreen{ display:none; flex-direction:column; align-items:stretch; gap:14px; width:min(470px,100%); }
+  .mfScreen.wide{ width:min(660px,100%); }
+  /* the Back / RACE bar stays reachable at the bottom of long grids + the loadout */
+  .mfScreen > .mfBar{ position:sticky; bottom:-18px; z-index:2; margin:0 -12px -18px; padding:14px 12px 18px; }
+  #menuFlow.scrolly .mfScreen > .mfBar{ background:linear-gradient(180deg, rgba(5,9,18,0) 0%, rgba(5,9,18,.75) 40%, rgba(5,9,18,.88) 100%); }
+  .mfScreen.on{ display:flex; animation:mfIn .3s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes mfIn{ from{ opacity:0; transform:translateX(-22px); } }
+  .mfScreen.on .mfBig > *{ animation:mfIn .34s cubic-bezier(.2,.8,.2,1) both; }
+  .mfScreen.on .mfBig > :nth-child(2){ animation-delay:.04s; } .mfScreen.on .mfBig > :nth-child(3){ animation-delay:.08s; }
+  .mfScreen.on .mfBig > :nth-child(4){ animation-delay:.12s; } .mfScreen.on .mfBig > :nth-child(5){ animation-delay:.16s; }
+  .mfHead{ font:400 clamp(30px,4.2vw,46px)/1 var(--fkDisplay); color:var(--fkText); letter-spacing:.01em; text-transform:uppercase;
+    text-shadow:0 3px 0 rgba(0,0,0,.35); display:flex; align-items:center; gap:14px; }
+  .mfHead::before{ content:''; width:6px; height:.85em; border-radius:3px; background:linear-gradient(180deg,var(--fkAccent),var(--fkAccent2)); transform:skewX(-9deg); }
+  .mfSub{ font-size:14px; color:var(--fkMuted); margin-top:-6px; }
+  .mfBig{ display:flex; flex-direction:column; gap:10px; width:100%; max-width:none; }
+
+  /* ---- primary nav slabs ---- */
+  .mfBtn{ position:relative; width:100%; display:flex; align-items:center; gap:16px; padding:13px 34px 13px 14px; border:0; border-radius:0;
+    background:linear-gradient(90deg, rgba(255,255,255,.11), rgba(255,255,255,.035)); color:var(--fkText); text-align:left; cursor:pointer;
+    clip-path:polygon(0 0,100% 0,calc(100% - 18px) 100%,0 100%); font:400 27px/1.02 var(--fkDisplay); letter-spacing:.02em;
+    text-transform:uppercase; text-shadow:none; box-shadow:none;
+    transition:transform .18s cubic-bezier(.2,.8,.2,1), background .15s, color .15s; }
+  .mfBtn::after{ content:''; position:absolute; right:34px; top:50%; width:11px; height:11px; margin-top:-6px; border-top:3px solid currentColor;
+    border-right:3px solid currentColor; transform:rotate(45deg) translate(-6px,6px); opacity:0; transition:opacity .15s, transform .18s; }
+  .mfBtn .ic{ width:48px; height:48px; flex:0 0 48px; display:grid; place-items:center; border-radius:12px; background:rgba(255,255,255,.08);
+    color:var(--fkAccent); transition:background .15s, color .15s; }
+  .mfBtn .ic svg{ width:28px; height:28px; }
+  .mfBtn > div{ min-width:0; }
+  .mfBtn small{ display:block; font:600 13px/1.3 var(--fkBody); color:var(--fkMuted); letter-spacing:.01em; margin-top:4px; text-transform:none; }
+  .mfBtn:hover, .mfBtn:focus-visible, .mfBtn.fkFocus{ background:linear-gradient(90deg,#ffd84a,#ffae1f); color:#1b1205; transform:translateX(10px); outline:none; }
+  .mfBtn:hover::after, .mfBtn:focus-visible::after, .mfBtn.fkFocus::after{ opacity:1; transform:rotate(45deg) translate(0,0); }
+  .mfBtn:hover small, .mfBtn:focus-visible small, .mfBtn.fkFocus small{ color:rgba(27,18,5,.72); }
+  .mfBtn:hover .ic, .mfBtn:focus-visible .ic, .mfBtn.fkFocus .ic{ background:rgba(27,18,5,.14); color:#1b1205; }
+  .mfBtn:active{ transform:translateX(10px) scale(.985); }
+  .mfBtn.sm{ padding:10px 30px 10px 12px; font-size:20px; } .mfBtn.sm .ic{ width:36px; height:36px; flex-basis:36px; }
+  .mfBtn.on{ background:linear-gradient(90deg,#3fae55,#2c8a3f); color:#fff; }
+  .mfBtn[disabled]{ opacity:.38; cursor:not-allowed; filter:grayscale(.6); transform:none; background:linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.02)); color:var(--fkText); }
+  .mfBtn[disabled] .ic{ background:rgba(255,255,255,.06); color:var(--fkMuted); }
+  .mfBtn[disabled]::after{ opacity:0; }
+  .mfEditorLink{ display:none; }
+
+  /* ---- action bar: back + primary CTA ---- */
+  .mfBar{ display:flex; gap:12px; align-items:center; width:100%; max-width:none; justify-content:space-between; margin-top:4px; }
+  .mfBack{ display:inline-flex; align-items:center; gap:8px; background:var(--fkGlass); border:1px solid var(--fkLine); color:var(--fkText);
+    border-radius:999px; padding:10px 18px 10px 14px; font:800 14px/1 var(--fkBody); letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
+  .mfBack svg{ width:16px; height:16px; }
+  .mfBack:hover, .mfBack:focus-visible, .mfBack.fkFocus{ background:var(--fkGlassHi); outline:none; box-shadow:0 0 0 2px var(--fkAccent); }
+  .mfRace{ display:inline-flex; align-items:center; gap:10px; border:0; border-radius:0; padding:14px 34px 14px 26px; cursor:pointer;
+    background:linear-gradient(90deg,var(--fkHot),#ff8a2b); color:#fff; font:400 26px/1 var(--fkDisplay); letter-spacing:.04em;
+    text-transform:uppercase; text-shadow:0 2px 0 rgba(0,0,0,.25); box-shadow:none; clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%);
+    transition:transform .15s, filter .15s; }
+  .mfRace svg{ width:22px; height:22px; }
+  .mfRace:hover, .mfRace:focus-visible, .mfRace.fkFocus{ filter:brightness(1.12); transform:scale(1.04); outline:none; }
+  .mfRace[disabled]{ opacity:.4; cursor:not-allowed; filter:grayscale(.6); transform:none; }
+
+  /* ---- card grids (courses / cups / arenas) ---- */
+  .mfGrid{ display:grid; gap:12px; width:100%; max-height:none; overflow:visible; padding:4px 2px 6px; }
+  .mfGrid.courses{ grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
+  .mfGrid.cups{ grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); }
+  .mfCard{ position:relative; background:var(--fkGlass); border:2px solid transparent; border-radius:14px; padding:8px 8px 10px; cursor:pointer;
+    display:flex; flex-direction:column; align-items:stretch; gap:6px; box-shadow:0 6px 18px rgba(0,0,0,.25);
+    transition:transform .16s cubic-bezier(.2,.8,.2,1), border-color .12s, background .12s; }
+  .mfCard:hover, .mfCard:focus-visible, .mfCard.fkFocus{ border-color:rgba(255,201,58,.85); background:var(--fkGlassHi); transform:translateY(-3px); outline:none; }
+  .mfCard.on{ border-color:var(--fkAccent); background:linear-gradient(180deg, rgba(255,201,58,.18), rgba(22,34,54,.9)); box-shadow:0 0 0 3px rgba(255,201,58,.22), 0 8px 22px rgba(0,0,0,.35); }
+  .mfCard.on::after{ content:''; position:absolute; top:-7px; right:-7px; width:22px; height:22px; border-radius:50%; background:var(--fkAccent) no-repeat center/13px
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231b1205' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+    box-shadow:0 2px 6px rgba(0,0,0,.4); }
+  .mfCard canvas{ width:100%; height:auto; border-radius:9px; background:radial-gradient(ellipse at 50% 40%, rgba(40,70,60,.55), rgba(6,12,20,.85)); display:block; }
+  .mfCard .cn{ font:400 17px/1.05 var(--fkDisplay); color:var(--fkText); text-align:left; letter-spacing:.01em;
     overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  .mfCard .cb{ font-size:10px; font-weight:700; color:#8effb0; font-family:'Consolas',monospace; }
-  .mfCard .ci{ font-size:30px; line-height:1; }
-  .mfCard .ct{ font-size:9px; color:#bfe0ff; text-align:center; line-height:1.25; opacity:.85; }
-  /* R1: kart stat bars (SPEED/ACCEL/TURN) — 3-dot kid-readable scale on each kart card */
-  .mfStats{ display:flex; flex-direction:column; gap:2px; width:100%; margin-top:3px; }
-  .mfStatRow{ display:flex; align-items:center; gap:4px; }
-  .mfStatRow .sl{ font-size:8px; font-weight:800; color:#bfe0ff; width:34px; text-align:right;
-    font-family:'Consolas',monospace; letter-spacing:.02em; }
-  .mfStatRow .sd{ display:flex; gap:2px; }
-  .mfStatRow .sd i{ width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,.18); display:block; }
-  .mfStatRow .sd i.on{ background:#ffd45e; }
-  /* cup card mini track list */
-  .mfCard.cupcard .ct{ font-size:9.5px; }
-  .mfCard .cmedal{ font-size:16px; line-height:1; margin-top:1px; }
-  .mfCard .cghost{ font-size:11px; }
-  /* R2 CLASS + MIRROR selector bar */
-  .mfClassBar{ display:flex; flex-direction:column; align-items:center; gap:5px; width:100%; max-width:340px; margin-top:2px; }
-  .mfClsHead{ font-size:10px; font-weight:800; color:#bfe0ff; letter-spacing:.08em; font-family:'Consolas',monospace; }
-  .mfClsRow{ display:flex; gap:7px; }
-  .mfCls{ display:flex; flex-direction:column; align-items:center; gap:1px; padding:6px 12px; border-radius:10px;
-    border:2px solid rgba(255,255,255,.18); background:rgba(10,22,34,.75); color:#eaf3ff; cursor:pointer; min-width:64px; }
-  .mfCls .ci{ font-size:22px; line-height:1; } .mfCls .cl{ font-size:10px; font-weight:800; font-family:'Consolas',monospace; color:#bfe0ff; }
-  .mfCls.on{ border-color:#8fe08f; background:rgba(30,60,40,.85); box-shadow:0 0 0 2px rgba(143,224,143,.35); }
-  .mfMirror{ padding:6px 16px; border-radius:10px; border:2px solid rgba(255,255,255,.18);
-    background:rgba(10,22,34,.75); color:#eaf3ff; font-weight:800; font-size:13px; cursor:pointer; }
-  .mfMirror.on{ border-color:#ffd45e; background:rgba(70,58,20,.8); color:#ffe27a; box-shadow:0 0 0 2px rgba(255,212,94,.3); }
-  /* bots stepper on SP course/cup select */
-  .mfOpt{ display:flex; gap:8px; align-items:center; font-size:13px; color:#bfe0ff; font-family:'Consolas',monospace; }
-  .mfOpt button{ width:30px; height:28px; border-radius:7px; border:1px solid rgba(255,255,255,.25);
-    background:rgba(12,22,32,.92); color:#fff; font-weight:800; cursor:pointer; font-family:monospace; }
-  .mfOpt .v{ min-width:1.4em; text-align:center; color:#ffe27a; font-weight:800; }
-  /* MP waiting-room roster */
-  #mfPickList{ width:100%; max-width:360px; display:flex; flex-direction:column; gap:6px; }
-  .mfPickRow{ display:flex; align-items:center; gap:9px; background:rgba(10,22,34,.7);
-    border:1px solid rgba(255,255,255,.14); border-radius:9px; padding:7px 11px; font-size:14px; color:#eaf3ff; }
-  .mfPickRow .sw{ width:16px; height:16px; border-radius:4px; flex:0 0 auto; box-shadow:0 0 0 1px rgba(0,0,0,.4); }
-  .mfPickRow .nm{ flex:1; font-weight:800; }
-  .mfPickRow .rc{ font-size:12px; color:#bfe0ff; }
-  .mfPickRow .rd{ font-weight:900; font-size:13px; }
-  .mfPickRow .rd.ok{ color:#8effa0; }
-  .mfPickRow .rd.no{ color:#ffb27a; }
-  #mfMpNote{ font-size:12px; color:#ffe27a; text-align:center; max-width:360px; }
-  #mfJoinNote{ font-size:12px; color:#9fb4c8; text-align:center; }
-  /* R4: DIFFICULTY selector (SP screen) */
-  .mfDiffBar{ display:flex; flex-direction:column; align-items:center; gap:5px; margin-top:4px; }
-  .mfDiffHead{ font-size:10px; font-weight:800; color:#bfe0ff; letter-spacing:.08em; font-family:'Consolas',monospace; }
-  .mfDiffRow{ display:flex; gap:7px; }
-  .mfDiff{ padding:6px 15px; border-radius:10px; border:2px solid rgba(255,255,255,.18);
-    background:rgba(10,22,34,.75); color:#eaf3ff; font-weight:800; font-size:13px; cursor:pointer; font-family:'Consolas',monospace; }
-  .mfDiff.on{ border-color:#8fe08f; background:rgba(30,60,40,.85); box-shadow:0 0 0 2px rgba(143,224,143,.35); color:#c9ffcf; }
-  /* R4: RECORDS screen */
-  #mfRecords{ width:100%; max-width:400px; display:flex; flex-direction:column; gap:10px; align-items:center; }
-  .mfRecName{ font:900 22px/1 -apple-system,Segoe UI,Roboto,sans-serif; color:#ffe27a; text-shadow:0 2px 0 rgba(0,0,0,.35); }
+  .mfCard .cb{ font:700 12px/1 var(--fkBody); color:var(--fkMuted); display:flex; gap:6px; align-items:center; }
+  .mfCard .cb b{ color:#ffe08a; font-family:'Consolas',monospace; }
+  .mfCard .cb .tag{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:2px 6px; border-radius:5px; background:rgba(160,200,255,.16); color:#cfe2ff; }
+  .mfCard.cupcard{ padding:14px 14px 12px; gap:8px; }
+  .mfCard .ci{ width:46px; height:46px; display:grid; place-items:center; border-radius:12px; background:rgba(255,255,255,.07); }
+  .mfCard .ci svg{ width:30px; height:30px; }
+  .mfCard.cupcard .cn{ font-size:22px; }
+  .mfCard .ct{ font-size:12px; color:var(--fkMuted); text-align:left; line-height:1.35; }
+  .mfCard .cmedal{ position:absolute; top:12px; right:12px; } .mfCard .cmedal svg{ width:26px; height:26px; }
+
+  /* ---- option rows: speed class / mirror / difficulty ---- */
+  .mfClassBar, .mfDiffBar{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; width:100%; max-width:none; margin-top:2px; }
+  .mfClsHead, .mfDiffHead{ font:800 11px/1 var(--fkBody); letter-spacing:.18em; color:var(--fkMuted); text-transform:uppercase; min-width:96px; }
+  .mfClsRow, .mfDiffRow{ display:flex; gap:6px; padding:4px; border-radius:12px; background:var(--fkGlass); border:1px solid var(--fkLine); }
+  .mfCls, .mfDiff, .mfMirror{ display:flex; flex-direction:column; align-items:center; gap:2px; padding:8px 14px; border-radius:9px; border:0;
+    background:transparent; color:var(--fkText); cursor:pointer; min-width:0; font:800 13px/1 var(--fkBody); letter-spacing:.04em; }
+  .mfCls .ci{ font:400 18px/1 var(--fkDisplay); letter-spacing:.02em; } .mfCls .cl{ font:700 10px/1 var(--fkBody); color:var(--fkMuted); letter-spacing:.08em; text-transform:uppercase; }
+  .mfCls.on, .mfDiff.on{ background:linear-gradient(180deg,#ffd84a,#ffae1f); color:#1b1205; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+  .mfCls.on .cl{ color:rgba(27,18,5,.7); }
+  .mfMirror{ flex-direction:row; gap:9px; padding:9px 14px; background:var(--fkGlass); border:1px solid var(--fkLine); border-radius:12px; }
+  .mfMirror .tg{ width:30px; height:17px; border-radius:999px; background:rgba(255,255,255,.18); position:relative; transition:background .15s; }
+  .mfMirror .tg::after{ content:''; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:#fff; transition:transform .15s; }
+  .mfMirror.on .tg{ background:var(--fkGood); } .mfMirror.on .tg::after{ transform:translateX(13px); }
+  .mfCls:hover, .mfDiff:hover, .mfMirror:hover, .mfCls:focus-visible, .mfDiff:focus-visible, .mfMirror:focus-visible,
+  .mfCls.fkFocus, .mfDiff.fkFocus, .mfMirror.fkFocus{ outline:none; box-shadow:0 0 0 2px var(--fkAccent); }
+
+  /* ---- loadout (racer select + MP lobby) ---- */
+  .mfLoadout{ display:flex; flex-direction:column; gap:16px; width:100%; max-width:none; max-height:none; overflow:visible; padding:2px; }
+  .mfLoadout .lsec{ display:flex; flex-direction:column; gap:8px; }
+  .mfLoadout .lsec .lh{ font:800 11px/1 var(--fkBody); color:var(--fkMuted); letter-spacing:.18em; text-transform:uppercase; text-align:left; }
+  .mfPickGrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:8px; }
+  .mfPickGrid .mfCard{ padding:10px 8px 9px; gap:5px; align-items:center; }
+  .mfPickGrid .mfCard .cn{ font-size:16px; text-align:center; }
+  .mfPickGrid .mfCard .pico{ width:40px; height:40px; display:grid; place-items:center; border-radius:50%;
+    background:rgba(255,255,255,.08); color:var(--fkAccent); font:400 20px/1 var(--fkDisplay); }
+  .mfPickGrid .mfCard .pico svg{ width:26px; height:26px; }
+  .mfPickGrid .mfCard.on::after{ width:18px; height:18px; background-size:11px; top:-5px; right:-5px; }
+  .mfColors{ display:flex; flex-wrap:wrap; gap:9px; justify-content:flex-start; }
+  .mfSwatch{ position:relative; width:36px; height:36px; border-radius:50%; cursor:pointer; border:3px solid rgba(255,255,255,.18);
+    box-shadow:inset 0 3px 6px rgba(255,255,255,.3), inset 0 -3px 6px rgba(0,0,0,.25), 0 2px 5px rgba(0,0,0,.4); transition:transform .1s, border-color .1s; }
+  .mfSwatch:hover, .mfSwatch:focus-visible, .mfSwatch.fkFocus{ border-color:rgba(255,255,255,.7); outline:none; transform:scale(1.08); }
+  .mfSwatch.on{ border-color:#fff; box-shadow:0 0 0 3px var(--fkAccent), inset 0 3px 6px rgba(255,255,255,.3); transform:scale(1.1); }
+  .mfStats{ display:flex; flex-direction:column; gap:3px; width:100%; margin-top:3px; }
+  .mfStatRow{ display:flex; align-items:center; gap:6px; }
+  .mfStatRow .sl{ font:800 9px/1 var(--fkBody); color:var(--fkMuted); width:40px; text-align:right; letter-spacing:.06em; }
+  .mfStatRow .sd{ display:flex; gap:2px; flex:1; }
+  .mfStatRow .sd i{ height:6px; flex:1; border-radius:2px; background:rgba(255,255,255,.14); display:block; transform:skewX(-14deg); }
+  .mfStatRow .sd i.on{ background:linear-gradient(90deg,var(--fkAccent),var(--fkAccent2)); }
+  .mfHats{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-start; }
+  .mfHat{ display:flex; align-items:center; gap:2px; padding:9px 14px; border-radius:999px; border:2px solid transparent;
+    background:var(--fkGlass); color:var(--fkText); cursor:pointer; min-width:0; position:relative; }
+  .mfHat .hico{ display:none; } .mfHat .hn{ font:800 13px/1 var(--fkBody); font-family:var(--fkBody); }
+  .mfHat.on{ border-color:var(--fkAccent); background:rgba(255,201,58,.16); }
+  .mfHat:hover, .mfHat:focus-visible, .mfHat.fkFocus{ outline:none; border-color:rgba(255,201,58,.7); }
+  /* locked unlockables: dimmed with a padlock badge (SVG, not emoji) */
+  .mfSwatch.locked, .mfCard.locked, .mfHat.locked{ opacity:.55; cursor:not-allowed; filter:grayscale(.55); }
+  .mfSwatch.locked::after, .mfHat.locked::after{ content:''; position:absolute; inset:0; margin:auto; width:16px; height:16px;
+    background:no-repeat center/16px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='10' width='16' height='12' rx='3' fill='%23fff'/%3E%3Cpath d='M8 10V7a4 4 0 0 1 8 0v3' fill='none' stroke='%23fff' stroke-width='2.6'/%3E%3C/svg%3E"); filter:drop-shadow(0 1px 1px rgba(0,0,0,.7)); }
+  .mfHat.locked{ padding-right:34px; } .mfHat.locked::after{ inset:0 10px 0 auto; }
+  .mfHint{ font-size:13px; color:#ffc49a; text-align:left; min-height:16px; margin-top:0; }
+
+  /* ---- MP lobby roster + notes ---- */
+  #mfPickList{ width:100%; max-width:none; display:flex; flex-direction:column; gap:6px; }
+  .mfPickRow{ display:flex; align-items:center; gap:10px; background:var(--fkGlass); border:1px solid var(--fkLine); border-radius:12px;
+    padding:9px 12px; font-size:14px; color:var(--fkText); }
+  .mfPickRow .sw{ width:18px; height:18px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 0 2px rgba(255,255,255,.25); }
+  .mfPickRow .nm{ flex:1; font-weight:800; } .mfPickRow .rc{ font-size:12px; color:var(--fkMuted); }
+  .mfPickRow .rd{ font:800 11px/1 var(--fkBody); letter-spacing:.12em; padding:5px 8px; border-radius:6px; }
+  .mfPickRow .rd.ok{ color:#0d2b10; background:var(--fkGood); } .mfPickRow .rd.no{ color:#ffd2a6; background:rgba(255,154,31,.16); }
+  #mfMpNote, #mfJoinNote, #mfJoinCardNote{ font-size:14px; color:#ffe08a; text-align:left; max-width:none; }
+  #mfJoinNote, #mfJoinCardNote{ color:var(--fkMuted); }
+
+  /* ---- records ---- */
+  #mfRecords{ width:100%; max-width:none; display:flex; flex-direction:column; gap:12px; align-items:stretch; }
+  .mfRecName{ display:flex; align-items:center; gap:10px; font:400 26px/1 var(--fkDisplay); color:var(--fkText); }
+  .mfRecName .av{ width:30px; height:30px; border-radius:50%; box-shadow:inset 0 0 0 2px rgba(255,255,255,.35); }
   .mfRecStats{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; width:100%; }
-  .mfRecStat{ background:rgba(10,22,34,.75); border:1px solid rgba(255,255,255,.14); border-radius:10px;
-    padding:9px 4px; text-align:center; }
-  .mfRecStat .v{ font:900 22px/1 'Consolas',monospace; color:#fff; } .mfRecStat .l{ font-size:9.5px; color:#bfe0ff; margin-top:3px; letter-spacing:.03em; }
-  .mfRecSub{ font-size:12px; font-weight:800; color:#bfe0ff; letter-spacing:.05em; align-self:flex-start; margin-top:2px; }
+  .mfRecStat{ background:var(--fkGlass); border:1px solid var(--fkLine); border-radius:12px; padding:12px 6px; text-align:center; }
+  .mfRecStat .v{ font:400 30px/1 var(--fkDisplay); color:#fff; } .mfRecStat .l{ font:800 10px/1.2 var(--fkBody); color:var(--fkMuted); margin-top:5px; letter-spacing:.1em; }
+  .mfRecSub{ font:800 11px/1 var(--fkBody); color:var(--fkMuted); letter-spacing:.18em; text-transform:uppercase; align-self:flex-start; margin-top:6px; }
   .mfMedalShelf{ display:flex; flex-wrap:wrap; gap:8px; width:100%; }
-  .mfMedalItem{ display:flex; align-items:center; gap:5px; background:rgba(10,22,34,.65); border-radius:8px;
-    padding:5px 9px; font-size:13px; color:#eaf3ff; } .mfMedalItem .mm{ font-size:19px; }
-  .mfBestList{ width:100%; display:flex; flex-direction:column; gap:3px; max-height:24vh; overflow-y:auto; }
-  .mfBestRow{ display:flex; justify-content:space-between; background:rgba(10,22,34,.55); border-radius:6px;
-    padding:4px 10px; font-size:13px; color:#eaf3ff; } .mfBestRow .bt{ color:#ffd45e; font-family:'Consolas',monospace; font-weight:800; }
-  /* R4: locked/unlockable swatches + hat cards on racer-select */
-  .mfSwatch.locked, .mfCard.locked{ opacity:.5; cursor:not-allowed; position:relative; filter:grayscale(.6); }
-  .mfSwatch.locked::after{ content:'🔒'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:14px; }
-  .mfCard.locked .lockhint, .mfSwatch.locked .lockhint{ display:none; }
-  .mfHint{ font-size:11px; color:#ffb27a; text-align:center; min-height:14px; margin-top:3px; }
-  .mfHats{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
-  .mfHat{ display:flex; flex-direction:column; align-items:center; gap:2px; padding:7px 11px; border-radius:10px;
-    border:2px solid rgba(255,255,255,.18); background:rgba(10,22,34,.75); color:#eaf3ff; cursor:pointer; min-width:62px; position:relative; }
-  .mfHat .hico{ font-size:22px; line-height:1; } .mfHat .hn{ font-size:9.5px; font-weight:800; font-family:'Consolas',monospace; }
-  .mfHat.on{ border-color:#8fe08f; background:rgba(30,60,40,.85); box-shadow:0 0 0 2px rgba(143,224,143,.35); }
-  .mfHat.locked{ opacity:.5; cursor:not-allowed; } .mfHat.locked::after{ content:'🔒'; position:absolute; top:3px; right:5px; font-size:12px; }
-  body.mobile #menuFlow{ margin-top:12px; }
-  body.mobile .mfBtn{ font-size:19px; padding:15px 16px; }
-  body.mobile .mfGrid.racers{ grid-template-columns:repeat(3, 1fr); }
-  body.mobile .mfGrid{ max-height:46vh; }
-  body.mobile #menuLogo.barnsign{ font-size:40px; padding:12px 26px 16px; }
-  body.mobile #menuTagline{ font-size:12px; }
+  .mfMedalItem{ display:flex; align-items:center; gap:8px; background:var(--fkGlass); border-radius:10px; padding:7px 12px; font-size:14px; color:var(--fkText); }
+  .mfMedalItem .mm svg{ width:22px; height:22px; display:block; }
+  .mfBestList{ width:100%; display:flex; flex-direction:column; gap:4px; max-height:none; overflow:visible; }
+  .mfBestRow{ display:flex; justify-content:space-between; background:var(--fkGlass); border-radius:9px; padding:8px 12px; font-size:14px; color:var(--fkText); }
+  .mfBestRow .bt{ color:#ffe08a; font-family:'Consolas',monospace; font-weight:800; }
+
+  /* ---- bottom control hints (keyboard / gamepad; hidden on touch) ---- */
+  #mfHints{ flex:0 0 auto; display:flex; gap:22px; align-items:center; padding:10px var(--fkPadL) calc(14px + var(--sab));
+    font:700 12px/1 var(--fkBody); letter-spacing:.08em; text-transform:uppercase; color:var(--fkMuted); }
+  #mfHints .h{ display:flex; align-items:center; gap:8px; }
+  #mfHints kbd{ display:inline-grid; place-items:center; min-width:24px; height:24px; padding:0 7px; border-radius:6px; background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.2); border-bottom-width:3px; font:800 11px/1 var(--fkBody); color:var(--fkText); letter-spacing:0; }
+  #mfHints kbd.pad{ border-radius:50%; width:24px; padding:0; border-bottom-width:1px; }
+  #mfHints kbd.pa{ background:#3fae55; } #mfHints kbd.pb{ background:#d9473a; }
+  body.mobile #mfHints{ display:none; }
+
+  /* ---- phones / narrow: full-width panel, compact chrome ---- */
+  @media (max-width:819px){
+    :root{ --fkPadL:16px; }
+    /* the kart is parked in the lower third on phones (MenuCam shiftY), so the scrim lightens there */
+    #startOverlay::before{ background:linear-gradient(180deg, rgba(5,9,18,.62) 0%, rgba(5,9,18,.82) 30%, rgba(5,9,18,.78) 58%, rgba(5,9,18,.2) 82%, rgba(5,9,18,.45) 100%); }
+    .mfScreen, .mfScreen.wide{ width:100%; }
+    #mfTop{ gap:10px; min-height:56px; padding-top:calc(var(--sat) + 10px); }
+    #mfProfile .pn{ display:none; } #mfProfile{ padding:5px; }
+    .mfBtn{ font-size:23px; padding:11px 30px 11px 12px; } .mfBtn .ic{ width:42px; height:42px; flex-basis:42px; }
+    .mfBtn:hover, .mfBtn:focus-visible, .mfBtn.fkFocus{ transform:translateX(4px); }
+    .mfGrid.courses{ grid-template-columns:repeat(2,1fr); }
+    .mfRecStats{ grid-template-columns:repeat(2,1fr); }
+    #menuLogo.hero{ margin-top:2vh; }
+    #menuFlow{ padding-right:16px; }
+  }
+  @media (max-height:560px){
+    .fkWord.hero{ font-size:40px; } #menuLogo.hero{ margin-top:0; } #startOverlay .tagline{ display:none; }
+    .mfBtn{ padding-top:8px; padding-bottom:8px; } .mfBtn .ic{ width:36px; height:36px; flex-basis:36px; }
+  }
+  @media (prefers-reduced-motion:reduce){
+    .mfScreen.on, .mfScreen.on .mfBig > *, .ttlCenter, .ttlBars::before, .ttlBars::after{ animation:none; }
+    .ttlPrompt{ animation:none; }
+  }
   /* cup points standings (reuses #rStandings styling; adds a points column) */
   #rStandings .srow .spts{ width:52px; text-align:right; color:#ffd45e; font-weight:800; }
   /* explicit continue button on the results / GP-interstitial card (tap/ENTER still work) */
@@ -616,10 +750,32 @@
   </div>
 
   <div id="startOverlay">
-    <div class="logo barnsign" id="menuLogo">🏁 FARM KART</div>
-    <div class="tagline" id="menuTagline">CO-OP KART RACING ON THE FARM</div>
+    <!-- TITLE SCREEN (2026-10-12): attract mode over a track flyover; any key / tap / pad button
+         dismisses it into the main menu. Only shown on a bare boot (never on resume / deep links). -->
+    <div id="fkTitle" hidden>
+      <div class="ttlBars"></div>
+      <div class="ttlCenter">
+        <div class="fkWord big" aria-label="Farm Kart"><span class="w1" data-t="FARM">FARM</span><span class="w2" data-t="KART">KART</span><span class="flag"></span></div>
+        <div class="ttlTag">Co-op kart racing on the farm</div>
+        <div class="ttlPrompt" id="fkTitlePrompt">Press any button</div>
+      </div>
+      <div class="ttlFoot"><span>Amen Farms</span><span id="fkTitleCtl"></span></div>
+    </div>
+    <!-- menu chrome: top bar (brand + breadcrumb + profile/sound) and bottom control hints -->
+    <div id="mfTop">
+      <div class="mfBrand"><div class="fkWord sm" aria-hidden="true"><span class="w1" data-t="FARM">FARM</span><span class="w2" data-t="KART">KART</span></div></div>
+      <div id="mfCrumbs"></div>
+      <div class="mfTopR">
+        <div id="mfProfile"><span class="av"></span><span class="pn"></span></div>
+        <button type="button" class="mfIcoBtn" id="mfSoundBtn" title="Sound on / off"></button>
+        <button type="button" class="mfIcoBtn" id="mfMusicBtn" title="Music on / off"></button>
+      </div>
+    </div>
+    <div class="fkWord hero" id="menuLogo" aria-label="Farm Kart"><span class="w1" data-t="FARM">FARM</span><span class="w2" data-t="KART">KART</span><span class="flag"></span></div>
+    <div class="tagline" id="menuTagline">Co-op kart racing on the farm</div>
     <!-- NEW multi-screen menu flow (2026-07-10). Screens are toggled by MenuFlow.show(). -->
     <div id="menuFlow"></div>
+    <div id="mfHints"></div>
     <!-- LEGACY controls kept in the DOM (hidden) so the existing JS wiring stays valid:
          trackSel / modeBtns / kartPick / drvPick / familyRaceBtn / mpBox are still queried
          and driven by the original handlers; the new flow calls those same functions. -->
@@ -2814,14 +2970,26 @@
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
     zone.addEventListener('lostpointercapture', end);
+    return end;
+  }
+  // Losing the page (app switch, notification shade, lock) does not always deliver pointercancel,
+  // so a held steer / drift / item could stay latched until the next touch. The keyboard already
+  // clears on blur; touch does the same (2026-10-12 review fix).
+  let _endSteer = null;
+  function releaseTouch(){
+    if (_endSteer) _endSteer(null);
+    touch.steer = 0; touch.drift = false; touch.item = false;
+    for (const id of ['tcDrift', 'tcItem']){ const b = document.getElementById(id); if (b) b.classList.remove('press'); }
   }
   if (IS_MOBILE){
     document.body.classList.add('mobile');
-    setupDragSteer();
+    _endSteer = setupDragSteer();
+    addEventListener('blur', releaseTouch);
+    document.addEventListener('visibilitychange', ()=>{ if (document.hidden) releaseTouch(); });
     bindHold('tcDrift', v => touch.drift = v);
     bindHold('tcItem',  v => touch.item  = v);
     const rb = document.getElementById('tcReset');
-    if (rb) rb.addEventListener('pointerdown', e => { e.preventDefault(); if (G.phase === 'racing') resetKart(); });
+    if (rb) rb.addEventListener('pointerdown', e => { e.preventDefault(); if (G.phase === 'racing' && !paused) resetKart(); });
     const hb = document.getElementById('tcHorn');   // R4: mobile horn button (bottom-left, clear of other controls)
     if (hb) hb.addEventListener('pointerdown', e => { e.preventDefault(); if (G.phase === 'racing' && !paused) localHonk(); });
   }
@@ -6793,9 +6961,84 @@
     syncEntityMeshes(dt);
   }
 
+  // ---------- MENU CAMERA (2026-10-12 title + menu overhaul) ----------
+  //  While the start overlay is up the chase camera is replaced by a cinematic one:
+  //    'title'    — slow flyover along the track centerline (attract mode behind the title screen)
+  //    'garage'   — gentle orbit around the parked local kart (every other menu screen)
+  //    'showroom' — closer, quicker orbit while you build your racer (loadout changes show live)
+  //  It writes camera.position directly and never touches camPos/camHeading, so the chase camera
+  //  resumes exactly where placeAtGrid() snapped it. On wide screens the projection is shifted
+  //  (setViewOffset) so the kart sits to the right of the left-hand menu panel. MenuFlow sets the
+  //  mode on every screen change; leaving the menu phase hands control back to the chase camera.
+  const MenuCam = { mode:null, s:0, ang:0, init:false, shift:0, shiftY:0, pos:new THREE.Vector3(), look:new THREE.Vector3() };
+  const _mcTP = new THREE.Vector3(), _mcTL = new THREE.Vector3();
+  function _mcCenterAt(s){
+    s = ((s % TRACK_LEN) + TRACK_LEN) % TRACK_LEN;
+    let lo = 0, hi = arcS.length - 1;
+    while (lo < hi){ const m = (lo + hi + 1) >> 1; if (arcS[m] <= s) lo = m; else hi = m - 1; }
+    const a = centerPts[lo], b = centerPts[(lo + 1) % centerPts.length];
+    const seg = (lo + 1 < arcS.length ? arcS[lo + 1] : TRACK_LEN) - arcS[lo];
+    const t = seg > 1e-6 ? Math.min(1, (s - arcS[lo]) / seg) : 0;
+    return { x:a.x + (b.x - a.x)*t, y:a.y + (b.y - a.y)*t, z:a.z + (b.z - a.z)*t };
+  }
+  function setMenuCamMode(mode){
+    if (mode === MenuCam.mode) return;
+    if (mode === 'title'){ const p = G.players.local; MenuCam.s = (p.progressS || 0) - 30; }
+    if (mode && !MenuCam.mode){ MenuCam.init = false; const p = G.players.local; MenuCam.ang = p.theta + 0.75; }
+    MenuCam.mode = mode;
+  }
+  function updateMenuCamera(dt){
+    const p = G.players.local;
+    const W = stage.clientWidth || innerWidth, H = stage.clientHeight || innerHeight;
+    let k = 2.4, fov = 50, shiftTarget = 0, shiftYTarget = 0;
+    if (MenuCam.mode === 'title' && centerPts.length > 3 && TRACK_LEN > 50){
+      // fly the racing line ~9u up and offset to the outside, looking 34u down the road
+      MenuCam.s += dt * 12;
+      const c = _mcCenterAt(MenuCam.s), a = _mcCenterAt(MenuCam.s + 6), ahead = _mcCenterAt(MenuCam.s + 34);
+      let tx = a.x - c.x, tz = a.z - c.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+      _mcTP.set(c.x + tz*7, c.y + 8.5, c.z - tx*7);
+      _mcTL.set(ahead.x, ahead.y + 1.2, ahead.z);
+      fov = 58; k = 1.6;
+    } else {
+      // orbit the parked kart; the showroom is closer and turns faster so the build reads
+      const show = MenuCam.mode === 'showroom';
+      MenuCam.ang += dt * (show ? 0.32 : 0.12);
+      const R = (show ? 5.2 : 8.2) * (W < 820 ? 1.3 : 1), hgt = show ? 1.9 : 2.9;
+      _mcTP.set(p.pos.x + Math.sin(MenuCam.ang)*R, p.y + hgt, p.pos.z + Math.cos(MenuCam.ang)*R);
+      _mcTL.set(p.pos.x, p.y + (show ? 0.75 : 0.9), p.pos.z);
+      fov = show ? 42 : 48;
+      if (W >= 820) shiftTarget = W * (show ? 0.21 : 0.17);   // push the kart right of the menu panel
+      else shiftYTarget = H * 0.3;                              // phones: park it in the lower third
+    }
+    // never below the ground mesh (pits beside elevated roads, hills in the orbit ring)
+    const gy = groundSampleHeight(_mcTP.x, _mcTP.z);
+    if (isFinite(gy) && _mcTP.y < gy + 1.4) _mcTP.y = gy + 1.4;
+    if (!MenuCam.init){ MenuCam.pos.copy(_mcTP); MenuCam.look.copy(_mcTL); MenuCam.shift = shiftTarget; MenuCam.shiftY = shiftYTarget; MenuCam.init = true; }
+    const f = 1 - Math.exp(-k * dt);
+    MenuCam.pos.lerp(_mcTP, f); MenuCam.look.lerp(_mcTL, f);
+    MenuCam.shift += (shiftTarget - MenuCam.shift) * (1 - Math.exp(-4 * dt));
+    MenuCam.shiftY += (shiftYTarget - MenuCam.shiftY) * (1 - Math.exp(-4 * dt));
+    camera.up.set(0, 1, 0);
+    camera.position.copy(MenuCam.pos);
+    camera.lookAt(MenuCam.look);
+    if (Math.abs(camera.fov - fov) > 0.01) camera.fov += (fov - camera.fov) * f;
+    if (Math.abs(MenuCam.shift) > 0.5 || Math.abs(MenuCam.shiftY) > 0.5) camera.setViewOffset(W, H, -MenuCam.shift, -MenuCam.shiftY, W, H);
+    else if (camera.view && camera.view.enabled) camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+  }
+
   // ---------- camera ----------
   // (chase-camera state vars are declared above resetKart, which snaps them on reset)
   function updateCamera(dt){
+    // MENU: cinematic menu camera while the start overlay is up (see MenuCam above)
+    const onMenu = G.phase === 'menu' && MenuCam.mode && !window.__freeCam;
+    document.body.classList.toggle('fkMenu', G.phase === 'menu');
+    if (onMenu){ updateMenuCamera(dt); return; }
+    if (MenuCam.init){   // just left the menu: drop the projection shift + restore the chase FOV
+      MenuCam.init = false; MenuCam.shift = 0; MenuCam.shiftY = 0;
+      if (camera.view && camera.view.enabled) camera.clearViewOffset();
+      camera.fov = camFov; camera.updateProjectionMatrix();
+    }
     // debug/screenshot override: window.__freeCam = {x,y,z, lx,ly,lz, fov?} pins the camera
     if (window.__freeCam){
       const f = window.__freeCam;
@@ -8581,38 +8824,26 @@
   async function fkReconcileTracksCloud(){
     await fkLobbyBackendReady;
     if (!Lobby.available) return;
-    try{
-      const snap = await Promise.race([
-        Lobby.fs.getDoc(fkTracksDocRef()),
-        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 3000))
-      ]);
-      const raw = snap.exists() ? snap.data().tracks : null;
-      if (typeof raw !== 'string') return;
-      const oldRaw = localStorage.getItem('fk_tracks_v1') || '{}';
-      if (raw === oldRaw) return;
-      let oldMap = {}, newMap = {};
-      try{ oldMap = JSON.parse(oldRaw) || {}; }catch(e){}
-      try{ newMap = JSON.parse(raw) || {}; }catch(e){}
-      localStorage.setItem('fk_tracks_v1', raw);
-      // "changed" MUST include the fresh-device case where there was no local entry at all
-      // (oldEntry === undefined) — that's exactly how a family device first learns of the
-      // cloud-decorated override and needs a one-time reload to adopt it.
-      const oldEntry = oldMap[ACTIVE_TRACK_ID], newEntry = newMap[ACTIVE_TRACK_ID];
-      const activeChanged = !!ACTIVE_TRACK_ID && !!newEntry &&
-        (oldEntry === undefined || JSON.stringify(oldEntry) !== JSON.stringify(newEntry));
-      const onMenuSolo = G.phase === 'menu' && !net.mp;
-      if (activeChanged && onMenuSolo){
-        let adopted = false;
-        try{ adopted = sessionStorage.getItem(FK_TRACKS_ADOPT_GUARD) === '1'; }catch(e){}
-        if (!adopted){
-          try{ sessionStorage.setItem(FK_TRACKS_ADOPT_GUARD, '1'); }catch(e){}
-          location.reload();
-          return;
-        }
+    // 2026-10-12: merge, never replace — FK_TRACK.cloudSyncTracks (assets/farmkart-track.js) keeps
+    // a track saved offline on this device instead of wiping it. READ-ONLY here (push:false): the
+    // game never writes the tracks doc; the editor pushes pending saves on its next boot or save.
+    const r = await FK_TRACK.cloudSyncTracks(Lobby.fs, Lobby.db, fkTracksDocRef(), { timeoutMs:4000, push:false });
+    if (!r.ok || !r.changed.length) return;   // offline/timeout — keep the local copy
+    // the active track changed (incl. a fresh device first learning of a cloud-decorated override)
+    // AND we're still on the start menu solo → reload ONCE so it takes effect
+    const activeChanged = !!ACTIVE_TRACK_ID && r.changed.indexOf(ACTIVE_TRACK_ID) >= 0 && !!r.map[ACTIVE_TRACK_ID];
+    const onMenuSolo = G.phase === 'menu' && !net.mp;
+    if (activeChanged && onMenuSolo){
+      let adopted = false;
+      try{ adopted = sessionStorage.getItem(FK_TRACKS_ADOPT_GUARD) === '1'; }catch(e){}
+      if (!adopted){
+        try{ sessionStorage.setItem(FK_TRACKS_ADOPT_GUARD, '1'); }catch(e){}
+        location.reload();
+        return;
       }
-      // mid-race / MP / already adopted this session: localStorage is updated, applies next load.
-      try{ populateTrackPicker(); }catch(e){}
-    }catch(err){ /* offline/timeout — keep the local copy */ }
+    }
+    // mid-race / MP / already adopted this session: localStorage is updated, applies next load.
+    try{ populateTrackPicker(); }catch(e){}
   }
   fkReconcileTracksCloud();
   window.__fkTrackSync = { fkReconcileTracksCloud, ADOPT_GUARD:FK_TRACKS_ADOPT_GUARD };
@@ -9157,11 +9388,18 @@
     const dt = Math.min(1.1, (now - lastBgTick)/1000);
     lastBgTick = now;
     if (!document.hidden || !net.mp || !net.isHost) return;
-    hostMpTick(dt, { steer:0, throttle:0, brake:0, drift:false, item:false });
+    // Hidden tabs are throttled to ~1 Hz, so dt here can be ~1s. Never feed that to stepKart in
+    // one go (the rAF path clamps to 0.05): a bot at 25 u/s would jump ~25u per step — through
+    // walls, checkpoints and item boxes. Sub-step at the rAF clamp; publish once at the end.
+    const idle = { steer:0, throttle:0, brake:0, drift:false, item:false };
+    let rem = dt, maxStep = 0;
+    while (rem > 1e-4){ const st = Math.min(rem, 0.05); hostMpTick(st, idle, false); rem -= st; if (st > maxStep) maxStep = st; }
+    (net._hbLog = net._hbLog || []).push({ dt, maxStep }); if (net._hbLog.length > 16) net._hbLog.shift();   // test hook
+    hostPublishTick(dt);
   }, 250);
 
   // ---- host authoritative tick (shared by rAF + heartbeat) ----
-  function hostMpTick(dt, inp){
+  function hostMpTick(dt, inp, publish){
     updatePhase(dt, inp);
     if (dt > 0 && (G.phase === 'racing')){
       net._grantDt = dt;
@@ -9198,6 +9436,9 @@
         updateLobbyDoc({ status:'open' });   // family lobby: race over, next race hasn't started — reopen for joins
       }
     }
+    if (publish !== false) hostPublishTick(dt);
+  }
+  function hostPublishTick(dt){
     net.snapCd -= dt;
     if (net.snapCd <= 0){ publishNetSnapshotNow(); net.snapCd = 1/12; }
   }
@@ -9870,6 +10111,54 @@
                  mpKind:null /* 'race'|'cup' */, mpFromHost:false };
     let cup = null;   // active cup session { cupId, raceIdx, points, racerId }
 
+    // ---- MENU v3 (2026-10-12): inline SVG icon set — the menu chrome carries no emoji ----
+    const _sv = (body, fill)=> '<svg viewBox="0 0 24 24" fill="'+(fill||'none')+'" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+body+'</svg>';
+    const ICON = {
+      flag:   _sv('<path d="M5 21V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>'),
+      people: _sv('<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.2c3 .2 5.5 2.6 5.5 5.8"/>'),
+      trophy: _sv('<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v1.5A3.5 3.5 0 0 0 7.5 11M17 6h3v1.5a3.5 3.5 0 0 1-3.5 3.5"/><path d="M12 14v3M8.5 21h7M9.5 21l.5-4h4l.5 4"/>'),
+      wrench: _sv('<path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17l3 3 5.5-5.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z"/>'),
+      clock:  _sv('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M10 2h4"/>'),
+      burst:  _sv('<path d="M12 2l2.2 5.5L20 6l-3.2 5L21 15l-5.8.6L14 21l-3-4.6L6 19l1.2-5.6L2.5 10l5.6-1.5z"/>'),
+      shield: _sv('<path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>'),
+      antenna:_sv('<path d="M12 12v9M8 21h8"/><circle cx="12" cy="10" r="2"/><path d="M7.8 5.8a6 6 0 0 0 0 8.4M16.2 5.8a6 6 0 0 1 0 8.4M5 3a10 10 0 0 0 0 14M19 3a10 10 0 0 1 0 14"/>'),
+      pad:    _sv('<path d="M6.5 7h11a4.5 4.5 0 0 1 4.3 5.8l-1.3 4.4a2.6 2.6 0 0 1-4.5.9L14 16h-4l-2 2.1a2.6 2.6 0 0 1-4.5-.9l-1.3-4.4A4.5 4.5 0 0 1 6.5 7z"/><path d="M8 10v3M6.5 11.5h3"/><circle cx="16" cy="10.5" r=".6" fill="currentColor"/><circle cx="17.5" cy="12.5" r=".6" fill="currentColor"/>'),
+      kart:   _sv('<path d="M3 15h18l-1.5-4.5a2 2 0 0 0-1.9-1.5H13l-1.5-3H9l1 3H6.5a2 2 0 0 0-1.9 1.4z"/><circle cx="7" cy="17" r="2.2"/><circle cx="17" cy="17" r="2.2"/>'),
+      cup:    _sv('<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v1.5A3.5 3.5 0 0 0 7.5 11M17 6h3v1.5a3.5 3.5 0 0 1-3.5 3.5"/><path d="M12 14v3M8.5 21h7M9.5 21l.5-4h4l.5 4"/>'),
+      back:   _sv('<path d="M15 5l-7 7 7 7"/>'),
+      go:     _sv('<path d="M7 4l12 8-12 8z"/>','currentColor'),
+      check:  _sv('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+      sound:  _sv('<path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18.2 6.5a7.5 7.5 0 0 1 0 11"/>'),
+      soundOff:_sv('<path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>'),
+      music:  _sv('<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'),
+      musicOff:_sv('<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/><path d="M3 3l18 18"/>'),
+    };
+    const CUP_TINT = { corn:'#ffd447', goat:'#e9e2d0', tractor:'#ff6a3a', star:'#8fd8ff' };
+    function cupIcon(id){ return '<span style="color:'+(CUP_TINT[id]||'#ffd447')+';display:grid">'+ICON.cup+'</span>'; }
+    // medal: 1 gold / 2 silver / 3 bronze, as an SVG disc on a ribbon
+    function medalSvg(m){
+      const c = ['', '#ffd447', '#d9e1ea', '#d58a4a'][m]; if (!c) return '';
+      return '<svg viewBox="0 0 24 24" aria-label="'+['','gold','silver','bronze'][m]+' medal"><path d="M7 2h4l2 6H9zM13 2h4l-2 6h-4z" fill="#d9473a"/>'+
+             '<circle cx="12" cy="15" r="6.5" fill="'+c+'" stroke="rgba(0,0,0,.35)" stroke-width="1.2"/>'+
+             '<text x="12" y="18.2" text-anchor="middle" font-size="8.5" font-weight="900" font-family="Arial" fill="rgba(0,0,0,.55)">'+m+'</text></svg>';
+    }
+    // breadcrumb labels per screen (top bar)
+    const CRUMB = { sp:'Single Player', 'tt-course':'Time Trial', 'gp-cup':'Grand Prix', racer:'Your Racer', 'battle-course':'Battle',
+      records:'Records', 'mp-home':'Multiplayer', 'mp-host':'Host', 'mp-race':'Host a Race', 'mp-cup':'Grand Prix',
+      'mp-course':'Course', 'mp-wait':'Lobby', join:'Join' };
+    // wide screens (card grids / loadout) get a wider panel
+    const WIDE = { 'tt-course':1, 'gp-cup':1, 'battle-course':1, 'mp-cup':1, 'mp-course':1, records:1 };
+    const overlayEl = document.getElementById('startOverlay');
+    // menu sound cues (synth, through masterGain so the mute button covers them)
+    function menuSfx(kind){
+      if (!audioCtx) return;   // never create the AudioContext before a real gesture
+      if (kind==='move') tone(1320, 0.035, { type:'triangle', vol:0.035 });
+      else if (kind==='select'){ tone(784, 0.06, { type:'square', vol:0.05 }); setTimeout(()=>tone(1175, 0.08, { type:'square', vol:0.05 }), 45); }
+      else if (kind==='back') tone(620, 0.08, { type:'triangle', vol:0.06, slideTo:420 });
+      else if (kind==='start'){ noiseBurst(0.45, { filter:'bandpass', freq:500, freqTo:3200, vol:0.07 });
+        [523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f, 0.16, { type:'square', vol:0.06 }), 60+i*70)); }
+    }
+
     // ---- track catalog (amen-farms + builtins + saved extras) ----
     function trackInfo(id){
       let map=null; try{ map=JSON.parse(localStorage.getItem('fk_tracks_v1')||'null'); }catch(e){}
@@ -9915,18 +10204,18 @@
       const clsBtns={};
       for (const cid of ['tractor','truck','rocket']){
         const c=SPEED_CLASSES[cid];
-        const b=btn('mfCls','<span class="ci">'+c.ico+'</span><span class="cl">'+c.cc+'</span>', ()=>{
+        const b=btn('mfCls','<span class="ci">'+c.cc+'</span><span class="cl">'+c.name+'</span>', ()=>{
           SPEED_CLASS=cid; try{ localStorage.setItem('fk_class',cid); }catch(e){} sync(); if(onChange)onChange(); });
         clsRow.appendChild(b); clsBtns[cid]=b;
       }
       bar.appendChild(el('div','mfClsHead','SPEED CLASS')); bar.appendChild(clsRow);
-      const mir=btn('mfMirror','🔁 MIRROR', ()=>{
+      const mir=btn('mfMirror','<span class="tg"></span>Mirror', ()=>{
         MIRROR=!MIRROR; try{ localStorage.setItem('fk_mirror', MIRROR?'1':'0'); }catch(e){} sync(); if(onChange)onChange(); });
       bar.appendChild(mir);
       function sync(){
         for (const cid in clsBtns) clsBtns[cid].classList.toggle('on', cid===SPEED_CLASS);
         mir.classList.toggle('on', MIRROR);
-        mir.innerHTML = MIRROR ? '🔁 MIRROR ✓' : '🔁 MIRROR';
+        mir.setAttribute('aria-pressed', MIRROR ? 'true' : 'false');
       }
       sync();
       bar._sync = sync;
@@ -9956,12 +10245,12 @@
       ctx.beginPath(); ctx.moveTo(X(C[0].x),Y(C[0].z));
       for (let i=1;i<C.length;i++) ctx.lineTo(X(C[i].x),Y(C[i].z));
       ctx.closePath(); ctx.stroke();
-      ctx.strokeStyle='#8fd0ff'; ctx.lineWidth=Math.max(1.5, tw*0.34);
+      ctx.strokeStyle='#ffd447'; ctx.lineWidth=Math.max(1.5, tw*0.34);
       ctx.beginPath(); ctx.moveTo(X(C[0].x),Y(C[0].z));
       for (let i=1;i<C.length;i++) ctx.lineTo(X(C[i].x),Y(C[i].z));
       ctx.closePath(); ctx.stroke();
       // start dot
-      ctx.fillStyle='#ffe27a'; ctx.beginPath(); ctx.arc(X(C[0].x),Y(C[0].z),3.2,0,7); ctx.fill();
+      ctx.fillStyle='#ffffff'; ctx.beginPath(); ctx.arc(X(C[0].x),Y(C[0].z),3.4,0,7); ctx.fill();
     }
     function drawRacerSwatch(canvas, racer){
       const W=canvas.width,H=canvas.height,ctx=canvas.getContext('2d');
@@ -9988,29 +10277,219 @@
       const home = name==='home';
       if (logoEl) logoEl.style.display = home ? '' : 'none';
       if (taglineEl) taglineEl.style.display = home ? '' : 'none';
+      // MENU v3: chrome + camera follow the screen
+      overlayEl.classList.toggle('home', home);
+      if (screens[name]) screens[name].classList.toggle('wide', !!WIDE[name]);
+      if (!Title.active) setMenuCamMode((name==='racer' || name==='mp-wait') ? 'showroom' : 'garage');
+      renderCrumbs(name); renderTopBar(); renderHints();
+      root.scrollTop = 0;
+      Nav.onShow(name);
       if (name.indexOf('mp-')===0) startMpPoll(); else stopMpPoll();
       if (name==='join') refreshJoin();
       if (name==='mp-wait') renderWaiting();
     }
     function back(){ if (histStack.length>1){ histStack.pop(); const prev=histStack[histStack.length-1]; show(prev,false); } else show('home',false); }
     function stop(e){ e.stopPropagation(); }
-    function btn(cls, html, on){ const b=document.createElement('button'); b.className=cls; b.innerHTML=html;
-      b.addEventListener('pointerdown', stop); b.addEventListener('click', e=>{ stop(e); on(e,b); }); return b; }
+    function btn(cls, html, on){ const b=document.createElement('button'); b.type='button'; b.className=cls; b.innerHTML=html;
+      b.addEventListener('pointerdown', stop); b.addEventListener('click', e=>{ stop(e); menuSfx(/mfBack/.test(cls)?'back':'select'); on(e,b); }); return b; }
+    const BACK_HTML = ICON.back+'<span>Back</span>';
+    const GO = (label)=> '<span>'+label+'</span>'+ICON.go;
     function backBar(target){ const bar=document.createElement('div'); bar.className='mfBar';
-      bar.appendChild(btn('mfBack','‹ Back', ()=>back()));
+      bar.appendChild(btn('mfBack',BACK_HTML, ()=>back()));
       const sp=document.createElement('span'); sp.style.flex='1'; bar.appendChild(sp);
       return bar; }
 
+    // ================= MENU v3 CHROME: top bar, breadcrumb, control hints =================
+    function curScreen(){ for (const k in screens) if (screens[k].classList.contains('on')) return k; return null; }
+    function renderCrumbs(name){
+      const box=document.getElementById('mfCrumbs'); if (!box) return;
+      box.innerHTML='';
+      const trail = histStack.filter(n=>CRUMB[n]);
+      if (CRUMB[name] && trail[trail.length-1]!==name) trail.push(name);
+      trail.forEach((n,i)=>{
+        if (i){ box.appendChild(el('span','sep')); }
+        box.appendChild(el('span', i===trail.length-1 ? 'cur' : '', CRUMB[n]));
+      });
+    }
+    function renderTopBar(){
+      const pr=document.getElementById('mfProfile');
+      if (pr){ pr.querySelector('.pn').textContent = profileName();
+        pr.querySelector('.av').style.background = '#'+normalizeLoadout(st.loadout).color.toString(16).padStart(6,'0'); }
+      const sb=document.getElementById('mfSoundBtn'), mb=document.getElementById('mfMusicBtn');
+      if (sb){ sb.innerHTML = audioMuted ? ICON.soundOff : ICON.sound; sb.classList.toggle('off', audioMuted); sb.setAttribute('aria-pressed', audioMuted?'false':'true'); }
+      if (mb){ mb.innerHTML = musicOff ? ICON.musicOff : ICON.music; mb.classList.toggle('off', musicOff); mb.setAttribute('aria-pressed', musicOff?'false':'true'); }
+    }
+    (function(){
+      const sb=document.getElementById('mfSoundBtn'), mb=document.getElementById('mfMusicBtn');
+      if (sb) sb.addEventListener('click', e=>{ e.stopPropagation(); ensureAudio(); setMuted(!audioMuted); renderTopBar(); menuSfx('select'); });
+      if (mb) mb.addEventListener('click', e=>{ e.stopPropagation(); ensureAudio(); toggleMusicOff(); renderTopBar(); menuSfx('select'); });
+    })();
+    function padConnected(){ try{ const ps=navigator.getGamepads?navigator.getGamepads():[]; for (const p of ps) if (p) return true; }catch(e){} return false; }
+    function renderHints(){
+      const h=document.getElementById('mfHints'); if (!h) return;
+      const name=curScreen(); const canBack = name && name!=='home' && name!=='mp-wait';
+      const item=(keys,label)=>'<span class="h">'+keys+'<span>'+label+'</span></span>';
+      if (padConnected()){
+        h.innerHTML = item('<kbd class="pad">+</kbd>','Move') + item('<kbd class="pad pa">A</kbd>','Select') + (canBack ? item('<kbd class="pad pb">B</kbd>','Back') : '');
+      } else {
+        h.innerHTML = item('<kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd>','Move') + item('<kbd>Enter</kbd>','Select') + (canBack ? item('<kbd>Esc</kbd>','Back') : '');
+      }
+    }
+
+    // ================= MENU v3: keyboard + gamepad focus navigation =================
+    //  One highlight shared by mouse, keys and pad: hovering with a mouse focuses the item, arrows /
+    //  d-pad / left stick move focus spatially (nearest item in that direction), Enter / Space / A
+    //  activate it, Esc / Backspace / B go back. Touch never shows a focus ring.
+    const FOCUSABLE = 'button:not([disabled]), .mfCard, .mfSwatch, .mfHat';
+    // shade the sticky action bar only when the screen actually scrolls under it
+    function markScrolly(){ root.classList.toggle('scrolly', root.scrollHeight > root.clientHeight + 4); }
+    addEventListener('resize', markScrolly);
+    const Nav = (function(){
+      let lastInput = 'pointer';   // 'pointer' | 'key' | 'pad'
+      function items(){
+        const scr = screens[curScreen()]; const out=[];
+        if (scr) for (const e of scr.querySelectorAll(FOCUSABLE)) if (e.offsetParent!==null) out.push(e);
+        return out;
+      }
+      function makeFocusable(scr){
+        for (const e of scr.querySelectorAll('.mfCard, .mfSwatch, .mfHat')){
+          if (!e.hasAttribute('tabindex')){ e.tabIndex=0; e.setAttribute('role','button'); }
+        }
+      }
+      function focusEl(e, sfx){
+        if (!e) return;
+        const prev=document.activeElement;
+        e.focus({ preventScroll:true });
+        e.scrollIntoView({ block:'nearest', inline:'nearest' });
+        if (sfx && prev!==e) menuSfx('move');
+      }
+      function current(){ const a=document.activeElement; return (a && root.contains(a) && a.matches(FOCUSABLE) && a.offsetParent!==null) ? a : null; }
+      function move(dx, dy){
+        const list=items(); if (!list.length) return;
+        const cur=current();
+        if (!cur){ focusEl(defaultItem(list), true); return; }
+        const r=cur.getBoundingClientRect(), cx=r.left+r.width/2, cy=r.top+r.height/2;
+        let best=null, bestScore=Infinity;
+        for (const e of list){ if (e===cur) continue;
+          const q=e.getBoundingClientRect(), ex=q.left+q.width/2, ey=q.top+q.height/2;
+          const ax=ex-cx, ay=ey-cy;
+          const along = dx ? ax*dx : ay*dy;            // distance in the pressed direction
+          if (along <= 4) continue;
+          const across = dx ? Math.abs(ay) : Math.abs(ax);
+          const score = along + across*2.2;
+          if (score < bestScore){ bestScore=score; best=e; }
+        }
+        if (best) focusEl(best, true);
+      }
+      function defaultItem(list){
+        list = list || items();
+        const scr = screens[curScreen()];
+        const sel = scr && scr.querySelector('.mfCard.on');
+        if (sel && sel.offsetParent!==null) return sel;
+        return list.find(e=>!e.classList.contains('mfBack')) || list[0];
+      }
+      function activate(){
+        const cur=current();
+        if (!cur){ focusEl(defaultItem(), true); return; }
+        cur.click();
+      }
+      function onShow(){
+        const scr=screens[curScreen()]; if (scr) makeFocusable(scr);
+        requestAnimationFrame(markScrolly);
+        if (lastInput==='pointer'){ const a=document.activeElement; if (a && root.contains(a)) a.blur(); return; }
+        setTimeout(()=>focusEl(defaultItem(), false), 0);
+      }
+      // mouse hover = focus (so keys continue from where the pointer is)
+      root.addEventListener('pointerover', e=>{
+        if (e.pointerType!=='mouse') return;
+        const t=e.target.closest && e.target.closest(FOCUSABLE);
+        if (t && root.contains(t) && t!==document.activeElement){ lastInput='pointer'; focusEl(t, true); }
+      });
+      root.addEventListener('pointerdown', e=>{ lastInput='pointer'; });
+      // div-based items (cards / swatches / hats) click sound; real buttons sound inside btn()
+      root.addEventListener('click', e=>{ const t=e.target.closest && e.target.closest('.mfCard, .mfSwatch, .mfHat'); if (t) menuSfx('select'); }, true);
+      function menuUp(){ return G.phase==='menu' && overlayEl.style.display!=='none' && !paused; }
+      // CAPTURE on window so Enter here never also reaches advance() (which would MP-start)
+      addEventListener('keydown', e=>{
+        if (!menuUp()) return;
+        if (Title.active){ if (!['Shift','Control','Alt','Meta','Tab'].includes(e.key)){ e.preventDefault(); e.stopImmediatePropagation(); Title.dismiss(); } return; }
+        const tag=(e.target && e.target.tagName)||''; if (tag==='INPUT' || tag==='SELECT' || tag==='TEXTAREA') return;
+        const k=e.key;
+        const dir = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0] }[k];
+        if (dir){ e.preventDefault(); lastInput='key'; move(dir[0], dir[1]); return; }
+        if (k==='Enter' || k===' '){
+          const cur=current();
+          if (cur || k===' '){ e.preventDefault(); e.stopImmediatePropagation(); lastInput='key'; activate(); }
+          return;   // nothing focused + Enter → fall through to the old advance() (MP host start)
+        }
+        if (k==='Escape' || k==='Backspace'){ const n=curScreen(); if (n && n!=='home' && n!=='mp-wait'){ e.preventDefault(); lastInput='key'; menuSfx('back'); back(); } }
+      }, true);
+      // ---- gamepad: polled only while the menu is up; edge-triggered with hold-to-repeat ----
+      const padPrev = {}; let repT=0, repDir=null, padWasConnected=false;
+      function pollPad(now){
+        requestAnimationFrame(pollPad);
+        const pc=padConnected(); if (pc!==padWasConnected){ padWasConnected=pc; renderHints(); }
+        if (!menuUp()) return;
+        let pad=null; try{ for (const p of (navigator.getGamepads?navigator.getGamepads():[])) if (p){ pad=p; break; } }catch(e){}
+        if (!pad) return;
+        const b=i=>!!(pad.buttons[i] && pad.buttons[i].pressed);
+        const ax=pad.axes[0]||0, ay=pad.axes[1]||0;
+        const dir = (b(12)||ay<-0.6) ? 'u' : (b(13)||ay>0.6) ? 'd' : (b(14)||ax<-0.6) ? 'l' : (b(15)||ax>0.6) ? 'r' : null;
+        if (dir){
+          if (dir!==repDir){ repDir=dir; repT=now+380; stepDir(dir); }
+          else if (now>=repT){ repT=now+130; stepDir(dir); }
+        } else repDir=null;
+        for (const i of [0,1,9]){
+          const down=b(i), was=!!padPrev[i]; padPrev[i]=down;
+          if (!down || was) continue;
+          lastInput='pad';
+          if (Title.active){ Title.dismiss(); continue; }
+          if (i===0 || i===9) activate();
+          else if (i===1){ const n=curScreen(); if (n && n!=='home' && n!=='mp-wait'){ menuSfx('back'); back(); } }
+        }
+      }
+      function stepDir(d){ lastInput='pad'; if (Title.active){ return; } move(d==='l'?-1:d==='r'?1:0, d==='u'?-1:d==='d'?1:0); }
+      requestAnimationFrame(pollPad);
+      return { onShow, move, activate, get lastInput(){ return lastInput; }, set lastInput(v){ lastInput=v; } };
+    })();
+
+    // ================= MENU v3: TITLE SCREEN (attract mode) =================
+    //  Shown only on a bare boot (init path 5). The camera flies the course behind it; any key /
+    //  click / tap / pad button plays the start sting and drops into the main menu.
+    const Title = (function(){
+      const elT=document.getElementById('fkTitle'); let active=false, leaving=false;
+      function prompt(){
+        const p=document.getElementById('fkTitlePrompt'), c=document.getElementById('fkTitleCtl');
+        if (p) p.textContent = IS_MOBILE ? 'Tap to start' : (padConnected() ? 'Press A' : 'Press any button');
+        if (c) c.textContent = IS_MOBILE ? '' : 'Keyboard and gamepad ready';
+      }
+      function open(){
+        active=true; leaving=false; elT.hidden=false; elT.classList.remove('out');
+        overlayEl.classList.add('title'); prompt();
+        setMenuCamMode('title');
+      }
+      function dismiss(){
+        if (!active || leaving) return;
+        leaving=true; ensureAudio(); menuSfx('start');
+        elT.classList.add('out');
+        setTimeout(()=>{ active=false; leaving=false; elT.hidden=true; overlayEl.classList.remove('title');
+          setMenuCamMode('garage'); histStack=['home']; show('home',false); }, 420);
+      }
+      elT.addEventListener('click', e=>{ e.stopPropagation(); Nav.lastInput='pointer'; dismiss(); });
+      return { open, dismiss, get active(){ return active; } };
+    })();
+
     // ================= HOME =================
     (function(){ const s=makeScreen('home'); const w=document.createElement('div'); w.className='mfBig';
-      w.appendChild(btn('mfBtn','<span class="ic">🏁</span><div>SINGLE PLAYER<small>Time Trial · Grand Prix</small></div>', ()=>show('sp')));
-      w.appendChild(btn('mfBtn blue','<span class="ic">🌐</span><div>MULTIPLAYER<small>Host or join a family race</small></div>', ()=>show('mp-home')));
-      w.appendChild(btn('mfBtn','<span class="ic">🏅</span><div>RECORDS<small>your wins, medals &amp; best laps</small></div>', ()=>openRecords()));   // R4
-      s.appendChild(w);
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.flag+'</span><div>Single Player<small>Time Trial, Grand Prix and Battle</small></div>', ()=>show('sp')));
+      w.appendChild(btn('mfBtn blue','<span class="ic">'+ICON.people+'</span><div>Multiplayer<small>Host or join a family race</small></div>', ()=>show('mp-home')));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.trophy+'</span><div>Records<small>Your wins, medals and best laps</small></div>', ()=>openRecords()));   // R4
       // Track Editor entry (2026-07-10, user: family members build levels from the live site).
       // Saved tracks cloud-sync to everyone (settings_<fam>/fkTracks), so editing is collaborative.
-      const ed = btn('mfEditorLink','🛠 Track Editor <small>build your own course — best on a computer with a mouse</small>', ()=>{ location.href='farmkart-editor.html'; });
-      s.appendChild(ed);
+      // MENU v3: now a regular slab in the nav list (was a small link under it).
+      const ed = btn('mfBtn','<span class="ic">'+ICON.wrench+'</span><div>Track Editor<small>Build your own course. Best with a mouse.</small></div>', ()=>{ location.href='farmkart-editor.html'; });
+      ed.id='mfEditorBtn'; w.appendChild(ed);
+      s.appendChild(w);
     })();
 
     // ================= R4: RECORDS (per family-member profile) =================
@@ -10026,7 +10505,8 @@
       if (!recordsBox) return;
       const name=profileName(); const p=loadProfile();
       recordsBox.innerHTML='';
-      recordsBox.appendChild(el('div','mfRecName','🐐 '+name));
+      const rn=el('div','mfRecName'); const rav=el('span','av'); rav.style.background='#'+normalizeLoadout(st.loadout).color.toString(16).padStart(6,'0');
+      rn.appendChild(rav); rn.appendChild(document.createTextNode(name)); recordsBox.appendChild(rn);
       const stats=document.createElement('div'); stats.className='mfRecStats';
       const stat=(v,l)=>{ const d=el('div','mfRecStat'); d.appendChild(el('div','v',String(v))); d.appendChild(el('div','l',l)); return d; };
       stats.appendChild(stat(p.races,'RACES'));
@@ -10039,7 +10519,7 @@
       stats2.appendChild(stat(p.balloonsWon,'BALLOONS'));
       recordsBox.appendChild(stats2);
       // medal shelf — best medal per cup across all classes
-      recordsBox.appendChild(el('div','mfRecSub','🏆 CUP MEDALS'));
+      recordsBox.appendChild(el('div','mfRecSub','Cup medals'));
       let cups={}; try{ cups=JSON.parse(localStorage.getItem('fk_cups')||'{}')||{}; }catch(e){}
       const cupBest={};
       for (const key in cups){ const base=key.split('_')[0]; const m=cups[key];
@@ -10047,11 +10527,11 @@
       const shelf=document.createElement('div'); shelf.className='mfMedalShelf';
       let any=false;
       for (const c of FK_CUPS){ const m=cupBest[c.id]; if (m){ any=true;
-        const it=el('div','mfMedalItem'); it.innerHTML='<span class="mm">'+(MEDAL_ICO[m]||'')+'</span>'+c.ico+' '+c.name; shelf.appendChild(it); } }
+        const it=el('div','mfMedalItem'); it.innerHTML='<span class="mm">'+medalSvg(m)+'</span>'+c.name; shelf.appendChild(it); } }
       if (!any) shelf.appendChild(el('div','mfMedalItem','No cup medals yet — win a Grand Prix!'));
       recordsBox.appendChild(shelf);
       // best-lap list — device best laps for tracks with a record (profile ledger + fk_best_* keys)
-      recordsBox.appendChild(el('div','mfRecSub','⏱ BEST LAPS'));
+      recordsBox.appendChild(el('div','mfRecSub','Best laps'));
       const list=document.createElement('div'); list.className='mfBestList';
       const seen={}; let anyLap=false;
       for (const id of courseIds()){
@@ -10067,10 +10547,10 @@
     (function(){ const s=makeScreen('sp');
       s.appendChild(el('div','mfHead','SINGLE PLAYER'));
       const w=document.createElement('div'); w.className='mfBig';
-      w.appendChild(btn('mfBtn','<span class="ic">⏱</span><div>TIME TRIAL<small>solo · beat your best lap</small></div>', ()=>{ st.spMode='trial'; openCourseGrid('tt'); }));
-      w.appendChild(btn('mfBtn','<span class="ic">🏆</span><div>GRAND PRIX<small>12 racers · 4-track cups</small></div>', ()=>{ st.spMode='prix'; openCups(); }));
-      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle vs 3 bots</small></div>', ()=>{ st.spMode='battle'; startBattleFlow('battle'); }));
-      w.appendChild(btn('mfBtn','<span class="ic">🛡</span><div>TANK BATTLE<small>2P co-op · drive + gun vs 2 tanks</small></div>', ()=>{ st.spMode='tank'; launchTank(); }));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.clock+'</span><div>Time Trial<small>Solo. Beat your best lap.</small></div>', ()=>{ st.spMode='trial'; openCourseGrid('tt'); }));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.trophy+'</span><div>Grand Prix<small>12 racers, four-track cups</small></div>', ()=>{ st.spMode='prix'; openCups(); }));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.burst+'</span><div>Battle<small>Balloon battle against 3 bots</small></div>', ()=>{ st.spMode='battle'; startBattleFlow('battle'); }));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.shield+'</span><div>Tank Battle<small>Two-player co-op: one drives, one aims</small></div>', ()=>{ st.spMode='tank'; launchTank(); }));
       s.appendChild(w);
       s.appendChild(diffBar());   // R4: Easy / Normal / Hard difficulty (persisted fk_difficulty)
       s.appendChild(backBar());
@@ -10080,7 +10560,7 @@
       const bar=el('div','mfDiffBar'); bar.addEventListener('pointerdown',stop);
       bar.appendChild(el('div','mfDiffHead','DIFFICULTY'));
       const row=el('div','mfDiffRow'); const btns={};
-      for (const d of [['easy','😊 Easy'],['normal','🙂 Normal'],['hard','😤 Hard']]){
+      for (const d of [['easy','Easy'],['normal','Normal'],['hard','Hard']]){
         const b=btn('mfDiff', d[1], ()=>{ saveDifficulty(d[0]); sync(); });
         row.appendChild(b); btns[d[0]]=b;
       }
@@ -10095,9 +10575,9 @@
       const grid=document.createElement('div'); grid.className='mfGrid courses'; grid.addEventListener('pointerdown',stop);
       s.appendChild(grid);
       s.appendChild(classBar(()=>repaintCourseCards()));
-      const race=btn('mfRace','RACE ▶', ()=>startTrial());
+      const race=btn('mfRace',GO('Race'), ()=>startTrial());
       const bar=document.createElement('div'); bar.className='mfBar';
-      bar.appendChild(btn('mfBack','‹ Back', ()=>back()));
+      bar.appendChild(btn('mfBack',BACK_HTML, ()=>back()));
       bar.appendChild(race); s.appendChild(bar);
       return { grid, race };
     })();
@@ -10121,7 +10601,7 @@
         const cv=document.createElement('canvas'); cv.width=104; cv.height=66; card.appendChild(cv);
         drawTrackPreview(cv, info.track);
         card.appendChild(el('div','cn', info.name));
-        card.appendChild(el('div','cb', '💥 balloon battle'));
+        card.appendChild(el('div','cb', 'Balloon battle'));
         card.addEventListener('pointerdown',stop);
         card.addEventListener('click', ()=>{ st.selBattle=id; if (battleGridMode==='mphost') hostBattle(); else openRacerSelect('battle'); });
         battleGrid.grid.appendChild(card);
@@ -10137,8 +10617,8 @@
       if (mode==='mphost') hostBattle(); else openRacerSelect('battle');
     }
     let courseCards = {};
-    function courseBestLine(id){ const b=bestFor(id); return (b?('⏱ '+fmtTime(b)):'—') + (ghostFor(id)?' 👻':''); }
-    function repaintCourseCards(){ for (const id in courseCards){ const cb=courseCards[id].querySelector('.cb'); if (cb) cb.textContent=courseBestLine(id); } }
+    function courseBestLine(id){ const b=bestFor(id); return (b?('Best <b>'+fmtTime(b)+'</b>'):'No time yet') + (ghostFor(id)?' <span class="tag">Ghost</span>':''); }
+    function repaintCourseCards(){ for (const id in courseCards){ const cb=courseCards[id].querySelector('.cb'); if (cb) cb.innerHTML=courseBestLine(id); } }
     function openCourseGrid(kind){
       ttGrid.grid.innerHTML=''; courseCards={};
       for (const id of courseIds()){
@@ -10147,7 +10627,7 @@
         const cv=document.createElement('canvas'); cv.width=104; cv.height=66; card.appendChild(cv);
         drawTrackPreview(cv, info.track);
         card.appendChild(el('div','cn', info.name));
-        card.appendChild(el('div','cb', courseBestLine(id)));
+        const cbl=el('div','cb'); cbl.innerHTML=courseBestLine(id); card.appendChild(cbl);
         card.addEventListener('pointerdown',stop);
         card.addEventListener('click', ()=>{ st.selCourse=id; markCourse(); });
         ttGrid.grid.appendChild(card); courseCards[id]=card;
@@ -10171,7 +10651,7 @@
       const grid=document.createElement('div'); grid.className='mfGrid cups'; grid.addEventListener('pointerdown',stop);
       for (const c of FK_CUPS){
         const card=document.createElement('div'); card.className='mfCard cupcard'; card.dataset.id=c.id;
-        card.appendChild(el('div','ci', c.ico));
+        const ci=el('div','ci'); ci.innerHTML=cupIcon(c.id); card.appendChild(ci);
         card.appendChild(el('div','cn', c.name));
         const names=c.trackIds.map(id=>{ const i=trackInfo(id); return i?i.name:id; });
         card.appendChild(el('div','ct', names.join(' · ')));
@@ -10184,8 +10664,7 @@
       s.appendChild(classBar(()=>repaintCupCards()));
       s.appendChild(backBar());
     })();
-    const MEDAL_ICO=['','🥇','🥈','🥉'];
-    function repaintCupCards(){ for (const id in cupCards){ const m=cupMedal(id); const el2=cupCards[id].querySelector('.cmedal'); if (el2) el2.textContent = MEDAL_ICO[m]||''; } }
+    function repaintCupCards(){ for (const id in cupCards){ const m=cupMedal(id); const el2=cupCards[id].querySelector('.cmedal'); if (el2) el2.innerHTML = medalSvg(m); } }
     function openCups(){ repaintCupCards(); show('gp-cup'); }
 
     // ================= LOADOUT v2: driver + kart + color picker (shared builder) =================
@@ -10200,7 +10679,8 @@
         const grid=document.createElement('div'); grid.className='mfPickGrid';
         for (const k of kinds){
           const c=document.createElement('div'); c.className='mfCard'; c.dataset.id=k.id;
-          c.appendChild(el('div','pico', k.ico)); c.appendChild(el('div','cn', k.name));
+          const pic=el('div','pico'); if (pickKey==='kartId') pic.innerHTML=ICON.kart; else pic.textContent=(k.name||'?').charAt(0);
+          c.appendChild(pic); c.appendChild(el('div','cn', k.name));
           if (withStats) c.appendChild(buildStatBars(k.id));   // R1: kart cards show SPEED/ACCEL/TURN
           c.addEventListener('pointerdown',stop);
           c.addEventListener('click', ()=>{ st.loadout[pickKey]=k.id; apply(); });
@@ -10240,7 +10720,7 @@
         sw.style.background='#'+uc.hex.toString(16).padStart(6,'0'); sw.title=uc.name;
         sw.addEventListener('pointerdown',stop);
         sw.addEventListener('click', ()=>{ if (isColorUnlocked(uc.id)){ st.loadout.color=uc.hex; apply(); showHint(''); }
-          else showHint('🔒 '+uc.name+' — '+uc.hint); });
+          else showHint('Locked: '+uc.name+'. '+uc.hint); });
         crow.appendChild(sw); colSwatches['u:'+uc.id]=sw; unlockSw[uc.id]=sw;
       }
       csec.appendChild(crow); host.appendChild(csec);
@@ -10248,15 +10728,15 @@
       const hsec=el('div','lsec'); hsec.appendChild(el('div','lh','HAT'));
       const hrow=el('div','mfHats'); const hatCards={};
       const noneCard=el('div','mfHat'); noneCard.dataset.hat='none';
-      noneCard.innerHTML='<span class="hico">🚫</span><span class="hn">No Hat</span>';
+      noneCard.innerHTML='<span class="hn">No Hat</span>';
       noneCard.addEventListener('pointerdown',stop); noneCard.addEventListener('click',()=>{ st.loadout.hatId='none'; apply(); showHint(''); });
       hrow.appendChild(noneCard); hatCards['none']=noneCard;
       for (const uh of UNLOCK_HATS){
         const c=el('div','mfHat'); c.dataset.hat=uh.id;
-        c.innerHTML='<span class="hico">'+uh.ico+'</span><span class="hn">'+uh.name+'</span>';
+        c.innerHTML='<span class="hn">'+uh.name+'</span>';
         c.addEventListener('pointerdown',stop);
         c.addEventListener('click',()=>{ if (isHatUnlocked(uh.id)){ st.loadout.hatId=uh.id; apply(); showHint(''); }
-          else showHint('🔒 '+uh.name+' — '+uh.hint); });
+          else showHint('Locked: '+uh.name+'. '+uh.hint); });
         hrow.appendChild(c); hatCards[uh.id]=c;
       }
       hsec.appendChild(hrow); host.appendChild(hsec);
@@ -10281,9 +10761,9 @@
       const head=el('div','mfHead','BUILD YOUR RACER'); s.appendChild(head);
       const host=document.createElement('div'); s.appendChild(host);
       const picker=buildLoadoutSections(host, null);
-      const race=btn('mfRace','RACE ▶', ()=>onRacerConfirm());
+      const race=btn('mfRace',GO('Race'), ()=>onRacerConfirm());
       const bar=document.createElement('div'); bar.className='mfBar';
-      bar.appendChild(btn('mfBack','‹ Back', ()=>back()));
+      bar.appendChild(btn('mfBack',BACK_HTML, ()=>back()));
       bar.appendChild(race); s.appendChild(bar);
       return { race, head, sync:picker.sync };
     })();
@@ -10409,7 +10889,7 @@
     function renderCupStandings(c, rows){
       const final = cup.raceIdx >= 4;
       document.getElementById('rPlace').textContent = '';
-      document.querySelector('#results .rtitle').textContent = final ? (c.ico+' '+c.name.toUpperCase()+' — FINAL') : (c.ico+' '+c.name+' — Race '+cup.raceIdx+'/4');
+      document.querySelector('#results .rtitle').textContent = final ? (c.name.toUpperCase()+' — FINAL') : (c.name+' — Race '+cup.raceIdx+'/4');
       document.getElementById('rTime').parentElement.style.display='none';
       document.getElementById('rBest').parentElement.style.display='none';
       // cumulative table (12 rows), sorted by total points desc
@@ -10427,7 +10907,7 @@
       });
       sEl.style.display='block';
       document.querySelector('#results .rsub').textContent = final ? 'Tap / ENTER for the menu' : 'Tap / ENTER for the next race';
-      setResultsContinue(final ? '🏁 FINISH →' : 'NEXT RACE →', true);
+      setResultsContinue(final ? 'FINISH →' : 'NEXT RACE →', true);
       resultsEl.style.display='flex'; countdownEl.style.display='none';
     }
     function raceAgain(){
@@ -10451,8 +10931,8 @@
     (function(){ const s=makeScreen('mp-home');
       s.appendChild(el('div','mfHead','MULTIPLAYER'));
       const w=document.createElement('div'); w.className='mfBig';
-      w.appendChild(btn('mfBtn blue','<span class="ic">📡</span><div>HOST<small>start a race for the family</small></div>', ()=>show('mp-host')));
-      const join=btn('mfBtn blue','<span class="ic">🎮</span><div id="mfJoinLabel">JOIN<small>find a live family race</small></div>', ()=>doJoin());
+      w.appendChild(btn('mfBtn blue','<span class="ic">'+ICON.antenna+'</span><div>Host<small>Start a race for the family</small></div>', ()=>show('mp-host')));
+      const join=btn('mfBtn blue','<span class="ic">'+ICON.pad+'</span><div id="mfJoinLabel">Join<small>Find a live family race</small></div>', ()=>doJoin());
       join.id='mfJoinBtn'; w.appendChild(join);
       s.appendChild(w);
       s.appendChild(el('div','','',{id:'mfJoinNote'}));
@@ -10461,18 +10941,18 @@
     (function(){ const s=makeScreen('mp-host');
       s.appendChild(el('div','mfHead','HOST'));
       const w=document.createElement('div'); w.className='mfBig';
-      w.appendChild(btn('mfBtn','<span class="ic">🏁</span><div>RACE<small>single race or cup</small></div>', ()=>show('mp-race')));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.flag+'</span><div>Race<small>Single race or a cup</small></div>', ()=>show('mp-race')));
       // BATTLE (R3): host a balloon battle on the arena. Reuses the mphost waiting-room flow; the arena
       // track being a battle:true course is what flips the shared race into battle for everyone.
-      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle · up to 4 players</small></div>', ()=>startBattleFlow('mphost')));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.burst+'</span><div>Battle<small>Balloon battle for up to 4 players</small></div>', ()=>startBattleFlow('mphost')));
       s.appendChild(w); s.appendChild(backBar());
     })();
     (function(){ const s=makeScreen('mp-race');
       s.appendChild(el('div','mfHead','HOST A RACE'));
       const w=document.createElement('div'); w.className='mfBig';
-      w.appendChild(btn('mfBtn','<span class="ic">🏎</span><div>SINGLE RACE<small>one course, everyone races</small></div>', ()=>{ st.mpKind='race'; openMpCourse(); }));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.kart+'</span><div>Single Race<small>One course, everyone races</small></div>', ()=>{ st.mpKind='race'; openMpCourse(); }));
       // R2: MULTIPLAYER GRAND PRIX — 4-track cup with synced reloads between races.
-      w.appendChild(btn('mfBtn','<span class="ic">🏆</span><div>GRAND PRIX<small>4-track cup · everyone reloads together</small></div>', ()=>{ st.mpKind='cup'; openMpCup(); }));
+      w.appendChild(btn('mfBtn','<span class="ic">'+ICON.trophy+'</span><div>Grand Prix<small>Four-track cup, raced together</small></div>', ()=>{ st.mpKind='cup'; openMpCup(); }));
       s.appendChild(w); s.appendChild(backBar());
     })();
     // ---- MP GRAND PRIX cup select (host) ----
@@ -10481,7 +10961,7 @@
       const grid=document.createElement('div'); grid.className='mfGrid cups'; grid.addEventListener('pointerdown',stop);
       for (const c of FK_CUPS){
         const card=document.createElement('div'); card.className='mfCard cupcard'; card.dataset.id=c.id;
-        card.appendChild(el('div','ci', c.ico));
+        const ci=el('div','ci'); ci.innerHTML=cupIcon(c.id); card.appendChild(ci);
         card.appendChild(el('div','cn', c.name));
         const names=c.trackIds.map(id=>{ const i=trackInfo(id); return i?i.name:id; });
         card.appendChild(el('div','ct', names.join(' · ')));
@@ -10499,9 +10979,9 @@
       s.appendChild(el('div','mfHead','CHOOSE THE COURSE'));
       const grid=document.createElement('div'); grid.className='mfGrid courses'; grid.addEventListener('pointerdown',stop);
       s.appendChild(grid);
-      const go=btn('mfRace','HOST ▶', ()=>hostChosenCourse());
+      const go=btn('mfRace',GO('Host'), ()=>hostChosenCourse());
       const bar=document.createElement('div'); bar.className='mfBar';
-      bar.appendChild(btn('mfBack','‹ Back', ()=>back())); bar.appendChild(go);
+      bar.appendChild(btn('mfBack',BACK_HTML, ()=>back())); bar.appendChild(go);
       s.appendChild(bar);
       return { grid, go };
     })();
@@ -10559,15 +11039,15 @@
       const list=document.createElement('div'); list.id='mfPickList'; s.appendChild(list);
       const note=el('div','','',{id:'mfMpNote'}); s.appendChild(note);
       const bar=document.createElement('div'); bar.className='mfBar';
-      bar.appendChild(btn('mfBack','‹ Leave', ()=>{ location.href='farmkart.html'; }));
-      const ready=btn('mfBtn sm blue','✔ READY', ()=>{ myReady=!myReady; markW(); publishPick(); });
+      bar.appendChild(btn('mfBack',ICON.back+'<span>Leave</span>', ()=>{ location.href='farmkart.html'; }));
+      const ready=btn('mfBtn sm blue','<span class="ic">'+ICON.check+'</span><div>Ready up</div>', ()=>{ myReady=!myReady; markW(); publishPick(); });
       ready.style.flex='1'; ready.id='mfReadyBtn';
-      const start=btn('mfRace','START RACE ▶', ()=>mpTryStart());
+      const start=btn('mfRace',GO('Start'), ()=>mpTryStart());
       start.id='mfStartBtn'; start.disabled=true; start.style.display='none';
       bar.appendChild(ready); bar.appendChild(start);
       s.appendChild(bar);
       function markW(){ picker.sync();
-        ready.textContent = myReady ? '✔ READY ✓' : '✔ READY'; ready.classList.toggle('on', myReady); }
+        ready.innerHTML = '<span class="ic">'+ICON.check+'</span><div>'+(myReady ? 'Ready!' : 'Ready up')+'</div>'; ready.classList.toggle('on', myReady); }
       return { list, note, ready, start, markW, sync:picker.sync };
     })();
     let myReady=false;
@@ -10609,14 +11089,16 @@
           '<span class="rd '+(p.ready?'ok':'no')+'">'+(p.ready?'READY':'…')+'</span>';
         waitScreen.list.appendChild(row);
       }
+      markScrolly();
       const allReady = picks.length>0 && picks.every(p=>p.ready);
       const inCup = !!mpCup;
       if (net.isHost){
         waitScreen.start.style.display='';
         waitScreen.start.disabled = !allReady;
-        waitScreen.start.textContent = inCup ? (mpCup.raceIdx>0 ? 'RACE '+(mpCup.raceIdx+1)+'/4 ▶' : 'START CUP ▶') : 'START RACE ▶';
+        const stLbl = inCup ? (mpCup.raceIdx>0 ? 'Race '+(mpCup.raceIdx+1)+'/4' : 'Start cup') : 'Start';
+        if (waitScreen.start.dataset.lbl !== stLbl){ waitScreen.start.dataset.lbl = stLbl; waitScreen.start.innerHTML = GO(stLbl); }
         waitScreen.note.textContent = inCup
-          ? (allReady ? '🏆 '+(FK_CUP_BY_ID[mpCup.cupId]||{}).name+' — everyone ready! Auto-starting…' : 'Grand Prix — waiting for all racers to ready up…')
+          ? (allReady ? (FK_CUP_BY_ID[mpCup.cupId]||{}).name+': everyone is ready. Starting…' : 'Grand Prix — waiting for all racers to ready up…')
           : (allReady ? 'Everyone is ready — START when you are!' : 'Waiting for all racers to ready up…');
         // R2 CUP: auto-start once everyone present is ready (kids don't re-tap), or after a 45s
         // straggler timeout since entering the waiting room.
@@ -10627,7 +11109,7 @@
       } else {
         waitScreen.start.style.display='none';
         waitScreen.note.textContent = inCup
-          ? (allReady ? '🏆 All ready — the race will start together…' : 'Grand Prix — pick a racer and ready up.')
+          ? (allReady ? 'Everyone is ready. The race will start together…' : 'Grand Prix — pick a racer and ready up.')
           : (allReady ? 'All ready — waiting for the host to start…' : 'Pick a racer and ready up.');
       }
     }
@@ -10743,7 +11225,7 @@
       const c = FK_CUP_BY_ID[mpCup.cupId];
       const totals = mpCupTotalsSorted(info.points||mpCup.points);
       document.getElementById('rPlace').textContent='';
-      document.querySelector('#results .rtitle').textContent = c.ico+' '+c.name+' — Race '+(mpCup.raceIdx)+'/4 done';
+      document.querySelector('#results .rtitle').textContent = c.name+' — Race '+(mpCup.raceIdx)+'/4 done';
       document.getElementById('rTime').parentElement.style.display='none';
       document.getElementById('rBest').parentElement.style.display='none';
       const localName = net.myName||'You';
@@ -10784,7 +11266,7 @@
     function renderMpCupFinalStandings(c, totals){
       const localName = net.myName||'You';
       document.getElementById('rPlace').textContent='';
-      document.querySelector('#results .rtitle').textContent = c.ico+' '+c.name.toUpperCase()+' — FINAL';
+      document.querySelector('#results .rtitle').textContent = c.name.toUpperCase()+' — FINAL';
       document.getElementById('rTime').parentElement.style.display='none';
       document.getElementById('rBest').parentElement.style.display='none';
       const sEl=document.getElementById('rStandings'); sEl.innerHTML='';
@@ -10795,7 +11277,7 @@
         sEl.appendChild(div); });
       sEl.style.display='block';
       document.querySelector('#results .rsub').textContent='Tap / ENTER for the menu';
-      setResultsContinue('🏁 FINISH →', true);
+      setResultsContinue('FINISH →', true);
       resultsEl.style.display='flex'; countdownEl.style.display='none';
     }
     // GLOBAL cup poller: watches room state; drives guest reloads + finale; runs whenever MP is live.
@@ -10833,7 +11315,7 @@
     const joinScreen = (function(){ const s=makeScreen('join');
       s.appendChild(el('div','mfHead','JOIN A RACE'));
       const w=document.createElement('div'); w.className='mfBig';
-      const b=btn('mfBtn blue','<span class="ic">🎮</span><div id="mfJoinCardLabel">Looking for races…</div>', ()=>joinLobby());
+      const b=btn('mfBtn blue','<span class="ic">'+ICON.pad+'</span><div id="mfJoinCardLabel">Looking for races…</div>', ()=>joinLobby());
       b.id='mfJoinCardBtn'; b.disabled=true; w.appendChild(b);
       s.appendChild(w);
       s.appendChild(el('div','','',{id:'mfJoinCardNote'}));
@@ -10920,8 +11402,11 @@
       // 4) generic ?track= deep-link (editor test buttons) → boot straight into a race
       const qtrack = new URLSearchParams(location.search).get('track');
       if (qtrack){ st.loadout=loadLoadout(); applyLocalLoadout(st.loadout); startCountdown(); return; }
-      // 5) normal boot → home
-      histStack=['home']; show('home',false);
+      // 5) normal boot → TITLE SCREEN (attract mode), then home on the first button press.
+      //    ?notitle=1 skips straight to home (tests / quick dev loops).
+      histStack=['home'];
+      if (new URLSearchParams(location.search).get('notitle')){ show('home',false); return; }
+      Title.open();
     }
 
     // tiny DOM helper
@@ -10950,7 +11435,9 @@
              // R4 test/UI hooks
              _openRecords:openRecords, _renderRecords:renderRecords, get _recordsBox(){ return recordsBox; },
              _refreshRacer:()=>{ if(racerScreen&&racerScreen.sync) racerScreen.sync(); },
-             _openSp:()=>show('sp'), _openHome:()=>show('home') };
+             _openSp:()=>show('sp'), _openHome:()=>show('home'),
+             // MENU v3 hooks
+             Title, Nav, get _cur(){ return curScreen(); } };
   })();
   window.MenuFlow = MenuFlow;
 
@@ -10977,7 +11464,7 @@
   }
 
   // ---------- TEST / TUNING HOOK (leave in — prototype) ----------
-  window.__KART__ = {
+  window.__KART__ = { MenuCam, setMenuCamMode, touch,
     G, resetKart, centerPts, tangents, nearestSampleIdxFull, FINISH, scene, camera, renderer,
     arcS, TRACK_LEN, FINISH_S, gridSlotPose,
     sampleHeight, sampleHeightAtY, groundSampleHeight, nearestCenterInfo, TRACK_WIDTH,

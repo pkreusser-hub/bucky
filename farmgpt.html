@@ -4384,9 +4384,18 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       .replace(/\$\$[\s\S]+?\$\$/g, stash)
       .replace(/\\\[[\s\S]+?\\\]/g, stash)
       .replace(/\\\([\s\S]+?\\\)/g, stash)
-      .replace(/\$[^$\n]+?\$/g, stash);
+      // inline $…$ only when it hugs its content (Pandoc's rule): "$x+1$" is math, but
+      // "She had $5 and spent $3" is money — the old /\$[^$\n]+?\$/ italicised "5 and spent ".
+      .replace(/\$(?=\S)[^$\n]*?\S\$(?!\d)|\$[^\s$]\$(?!\d)/g, stash)
+      // a dollar left over in front of a number is currency: mark it so it can be isolated below
+      .replace(/\$(?=\d)/g, "❣");
     let html = DOMPurify.sanitize(marked.parse(t));
-    html = html.replace(/❢(\d+)❢/g, (_, i) => escapeHtml(math[+i]));
+    // math[+i] can be missing when the text itself contains a literal "❢7❢" — keep it as text
+    // instead of throwing (that throw blanked the whole research history on reload)
+    html = html.replace(/❢(\d+)❢/g, (m, i) => (math[+i] != null ? escapeHtml(math[+i]) : m));
+    // each currency $ gets its own element: KaTeX auto-render pairs delimiters only inside one
+    // text node, so an isolated "$" can never open or close a formula
+    html = html.replace(/❣/g, '<span class="cur">$</span>');
     return html;
   }
   // Renders an AI reply into a bubble: markdown first, then KaTeX over the result.

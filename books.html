@@ -655,7 +655,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   importDadSeed();
 
   function coverHtml(book) {
-    if (book.cover) return '<img src="' + book.cover + '" alt="">';
+    // cover URLs come from Open Library / Goodreads / model output and sync to every device:
+    // escape them like movies.html does, so a stray quote can't break out of the attribute
+    if (book.cover) return '<img src="' + String(book.cover).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;") + '" alt="">';
     return '<div class="cover">No cover</div>';
   }
   function communityScore(book, isHit) {
