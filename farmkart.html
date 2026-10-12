@@ -1174,7 +1174,6 @@
     bucky:   { top:1.00, accel:1.00, steer:1.00 },
     tractor: { top:1.08, accel:0.88, steer:0.96 },
     mower:   { top:0.95, accel:1.10, steer:1.08 },
-    gator3d: { top:1.05, accel:0.94, steer:1.00 },   // chunky green gator — a touch faster, slightly heavier launch
   };
   function kartStats(p){ return KART_STATS[normalizeKartId(p && p.kartId)] || KART_STATS.bucky; }
   // Kid-readable 3-dot stat scale for the racer-select kart cards (SPEED / ACCEL / TURN). Derived from
@@ -1183,7 +1182,6 @@
     bucky:   { SPEED:2, ACCEL:2, TURN:2 },
     tractor: { SPEED:3, ACCEL:1, TURN:2 },
     mower:   { SPEED:1, ACCEL:3, TURN:3 },
-    gator3d: { SPEED:3, ACCEL:2, TURN:2 },
   };
   try {
     // fk_tune_v2 (bumped from v1 — semantics changed with the MKW rewrite).
@@ -2017,25 +2015,19 @@
     { id:'bucky',   name:'Bucky',   ico:'🛻' },
     { id:'tractor', name:'Tractor', ico:'🚜' },
     { id:'mower',   name:'Mower',   ico:'🌿' },
-    // Tripo-generated GLB kart (assets/farmkart/farmkart-gator3d.glb) — chunky green John-Deere-style
-    // gator w/ SPINNING GLB tires + a TURNING GLB steering wheel. Body color is FIXED green (the
-    // baked texture; racer/slot color is ignored for paint, like the Tractor's red). Auto-joins the
-    // picker, fk_kart persistence, and the bot random pool. buildKartBody returns an EMPTY root for
-    // this id and the GLB clone attaches async (fillKartModel → _attachGator3d).
-    { id:'gator3d', name:'Gator 3D', ico:'🐊' },
+    // RETIRED 2026-10-12 (family playtest): the Tripo GLB 'gator3d' kart. Under the toon renderer it made
+    // racers vanish on the family's devices, so it is out of the picker, fk_kart persistence and the bot
+    // pool — normalizeKartId() turns a saved/remote 'gator3d' into 'bucky'. Its builder code below is now
+    // unreachable from the game (kept for kartviewer.html-style tooling).
   ];
   const DRIVER_KINDS = [
     { id:'bucky', name:'Bucky', ico:'🐐' },
     { id:'otis',  name:'Otis',  ico:'🐶' },
     { id:'boots', name:'Boots', ico:'🐱' },
-    // Tripo-generated skinned GLB cast (assets/cast/<name>/<name>.glb). Each auto-joins the picker,
-    // fk_driver persistence, and the bot random pool via DRIVER_IDS below. 'bucky' (procedural)
-    // stays the default. buildDriver() returns a DIFFERENT contract for these ids (glb:true) — all
-    // driven by the GLB_DRIVER_DEFS registry (same 54-bone Tripo skeleton, per-char targetH/yaw/pose).
-    { id:'bucky3d', name:'Bucky 3D', ico:'🐐' },
-    { id:'otis3d',  name:'Otis 3D',  ico:'🐶' },
-    { id:'boots3d', name:'Boots 3D', ico:'🐱' },
-    { id:'huey3d',  name:'Huey 3D',  ico:'🦆' },
+    // RETIRED 2026-10-12 (family playtest): the four Tripo skinned-GLB drivers (Bucky 3D, Otis 3D,
+    // Boots 3D, Huey 3D — ~47k triangles and 54 bones each). Karts carrying them went invisible on the
+    // family's devices, so they are gone from the picker, fk_driver persistence and the bot pool;
+    // normalizeDriverId() turns a saved/remote '*3d' id into 'bucky', and GLB_DRIVER_DEFS is empty.
   ];
   const KART_IDS = KART_KINDS.map(k=>k.id);
   const DRIVER_IDS = DRIVER_KINDS.map(k=>k.id);
@@ -2240,21 +2232,9 @@
   //  (skinning:true is REQUIRED in r128 or the skinned mesh freezes in bind pose) + an emissive lift.
   //  The rest pose is STANDING; we fold it into a seated driving pose ONCE (bone-quat = rest*delta)
   //  and the steer-lean is a small per-frame delta on spine/head (no limb stretch — the rig deforms).
-  const GLB_DRIVER_DEFS = {
-    bucky3d: { url:'assets/cast/bucky/bucky.glb', name:'Bucky 3D', ico:'🐐', targetH:1.52, baseYaw:-Math.PI/2, pose:BUCKY3D_SEATED_POSE },
-    otis3d:  { url:'assets/cast/otis/otis.glb',   name:'Otis 3D',  ico:'🐶', targetH:1.52, baseYaw:-Math.PI/2, pose:_poseWith({}) },
-    boots3d: { url:'assets/cast/boots/boots.glb', name:'Boots 3D', ico:'🐱', targetH:1.52, baseYaw:-Math.PI/2, pose:_poseWith({}) },
-    // Goose ("Huey", user naming): long neck raises the STANDING bbox, so targetH is bumped so the
-    // seated body reads at kart scale rather than shrinking the whole bird to fit the neck into 1.52u.
-    // Pose = base seated table + the user's pose-tool wing/feet refinements (2026-07-18): forearm
-    // entries are QUATERNION-COMPOSED (base×user, re-extracted as XYZ euler), the rest are additions.
-    huey3d:  { url:'assets/cast/goose/goose.glb', name:'Huey 3D',  ico:'🦆', targetH:1.72, baseYaw:-Math.PI/2,
-               pose:_poseWith({ R_Hand:[0.227,-1.449,-0.192], L_Hand:[0,1.571,0.105],
-                                L_UpperarmTwist01:[0,0,0.262], R_Foot:[0,0,-0.541], L_Foot:[0,0,0.489],
-                                L_Forearm:[-0.292,0.253,0.767], R_Forearm:[0.033,-0.689,-0.911],
-                                // long neck dips toward the wheel from the chase cam — raise the head
-                                NeckTwist01:[-0.4,0,0], NeckTwist02:[-0.35,0,0], Head:[-0.3,0,0] }) },
-  };
+  // RETIRED 2026-10-12: the registry is empty (see DRIVER_KINDS). With no entries, buildDriver() never takes
+  // the glb:true branch and no Tripo cast GLB is ever requested.
+  const GLB_DRIVER_DEFS = {};
   function _prepGlbDriverTemplate(sceneRoot, def){
     sceneRoot.traverse(o=>{
       if (!(o.isMesh || o.isSkinnedMesh) || !o.material) return;
@@ -11565,8 +11545,6 @@
     // GLB (Tripo cast) drivers — test + pose-tuning hooks. bucky3d aliases kept for the old suite.
     GLB_DRIVER_DEFS, loadGlbDriverTemplate, reposeGlbDriverLocal,
     loadBucky3dTemplate, reposeBucky3dLocal, BUCKY3D_SEATED_POSE, randomDriverId, DRIVER_IDS,
-    get bucky3dNativeH(){ return GLB_DRIVER_DEFS.bucky3d._nativeH || 0; },
-    set _bucky3dYaw(v){ GLB_DRIVER_DEFS.bucky3d.baseYaw = v; reposeGlbDriverLocal(); }, get _bucky3dYaw(){ return GLB_DRIVER_DEFS.bucky3d.baseYaw; },
     KART_KINDS, DRIVER_KINDS, normalizeKartId, normalizeDriverId,
     MAX_RACERS, MAX_MP_PLAYERS, TRACTOR_RED, accentColorFor, paintKartAccent,
     sampleHeight, groundSampleHeight, maxHeightUnderKart, sampleKartPlane, rideHeight,

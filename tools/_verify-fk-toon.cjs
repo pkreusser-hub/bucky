@@ -212,7 +212,9 @@ async function boot(browser, base, track, opts) {
   check("C wheel mounts unchanged (KART_WHEEL_POS)", JSON.stringify(fp.mounts) === JSON.stringify(WANT), JSON.stringify(fp.mounts));
   check("C tire outer radius = 0.26 (_TIRE_ROUT: tread planting stays exact)", Math.abs(fp.tireR - 0.26) < 0.003, `${fp.tireR}`);
   check("C KART_RIDER_H = 1.57 (the pre-toon measured kart+rider height; water depths unchanged)", Math.abs(fp.H - 1.57) < 1e-6 /* the pre-toon value was a float32 bbox read (1.5700000059604644) */, `${fp.H}`);
-  check("C kart roster unchanged", JSON.stringify(fp.kartIds) === JSON.stringify(["bucky", "tractor", "mower", "gator3d"]), JSON.stringify(fp.kartIds));
+  // RESTAGED 2026-10-12: the Tripo GLB 'gator3d' kart was retired after the family playtest (racers on it went
+  // invisible on their devices), so the roster is the three procedural toon karts.
+  check("C kart roster = the three toon karts (gator3d retired)", JSON.stringify(fp.kartIds) === JSON.stringify(["bucky", "tractor", "mower"]), JSON.stringify(fp.kartIds));
 
   // ---- D: hand IK in a real race
   const isToon = await hasToon(page);
@@ -292,22 +294,27 @@ async function boot(browser, base, track, opts) {
   });
   check("E loadout swap: tractor + Otis rebuilt (paint mesh uses the view's bodyMat)", menu.kart === "tractor" && menu.root === "tractorKart" && menu.drv === "otis" && menu.toon && menu.paint >= 1, JSON.stringify(menu));
 
-  // ---- F: GLB driver + Gator toon + ink; ghost has no ink
+  // ---- F: retired GLB cast stays out; ghost has no ink
+  // RESTAGED 2026-10-12: section F used to prove the Tripo GLB drivers + Gator 3D were toon + inked. Those models
+  // were retired after the family playtest (the karts carrying them went invisible on the family's devices), so F
+  // now proves they cannot come back through a saved loadout, a bot roll or a remote player's stale id.
   const glb = await page.evaluate(async () => {
     const K = __KART__, v = K.kartViews.local;
-    K.applyKartLoadout(v, "gator3d", "bucky3d");
-    const t0 = Date.now();
-    while (Date.now() - t0 < 20000) { if (v.goat && v.goat._ready && v._gatorReady) break; await new Promise((r) => setTimeout(r, 200)); }
-    let skin = 0, skinToon = 0, skinInk = 0, gatorMesh = 0, gatorToon = 0, gatorInk = 0;
-    v.goat.root.traverse((o) => { if (o.isSkinnedMesh && !o.userData.fkOutline) { skin++; if (o.material.isMeshToonMaterial && o.material.skinning) skinToon++; if (o.userData.fkOutlined) skinInk++; } });
-    v.kartRoot.traverse((o) => { if (o.isMesh && !o.userData.fkOutline && o.material && o.material.map) { gatorMesh++; if (o.material.isMeshToonMaterial) gatorToon++; if (o.userData.fkOutlined) gatorInk++; } });
+    K.applyKartLoadout(v, "gator3d", "bucky3d");      // what a stale fk_racer / remote 'kd'+'dd' would ask for
+    await new Promise((r) => setTimeout(r, 1500));
+    let bigSkin = 0; v.group.traverse((o) => { if (o.isSkinnedMesh && o.skeleton && o.skeleton.bones.length > 21) bigSkin++; });
+    const res = { kart: v.kartId, drv: v.goat && v.goat.kind, glb: !!(v.goat && v.goat.glb), bigSkin,
+      kartIds: K.KART_IDS, driverIds: K.DRIVER_IDS, defs: Object.keys(K.GLB_DRIVER_DEFS),
+      norm: [K.normalizeKartId("gator3d"), K.normalizeDriverId("huey3d"), K.normalizeDriverId("otis3d")] };
+    K.applyKartLoadout(v, "bucky", "bucky");
     const gv = K.buildKartView("__ghost", 0x3f7fe0, false, null, { kartId: "bucky", driverId: "bucky", noName: true });
     let ghostInk = 0; gv.group.traverse((o) => { if (o.userData.fkOutline) ghostInk++; });
     K.removeKartView("__ghost");
-    return { ready: !!(v.goat._ready && v._gatorReady), skin, skinToon, skinInk, gatorMesh, gatorToon, gatorInk, ghostInk };
+    res.ghostInk = ghostInk;
+    return res;
   });
-  check("F GLB driver (bucky3d): every skinned mesh MeshToon + skinning, inked", glb.ready && glb.skin > 0 && glb.skinToon === glb.skin && glb.skinInk === glb.skin, JSON.stringify(glb));
-  check("F Gator 3D kart: textured meshes toon + inked", glb.gatorMesh > 0 && glb.gatorToon === glb.gatorMesh && glb.gatorInk === glb.gatorMesh, JSON.stringify(glb));
+  check("F retired GLB cast: no '*3d' driver or gator3d kart in the rosters, registry empty", !glb.driverIds.some((d) => /3d$/.test(d)) && !glb.kartIds.includes("gator3d") && glb.defs.length === 0, JSON.stringify(glb));
+  check("F a stale gator3d + bucky3d loadout builds the toon Bucky kart + skinned toon Bucky (no 54-bone GLB)", glb.kart === "bucky" && glb.drv === "bucky" && !glb.glb && glb.bigSkin === 0 && glb.norm.join() === "bucky,bucky,bucky", JSON.stringify(glb));
   check("F the translucent time-trial ghost carries no ink hulls", glb.ghostInk === 0, `${glb.ghostInk}`);
   check("B-F 0 pageerrors", page._errs.length === 0, page._errs.slice(0, 3).join(" | "));
   allErrs.push(...page._errs);

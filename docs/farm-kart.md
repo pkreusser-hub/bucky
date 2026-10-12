@@ -1595,3 +1595,18 @@ and one `FK_HH_ART.update` line in the frame loop. Track data is untouched (_ver
   (half the scatter, no ink hull on small props, fewer clouds). Further cut available: skip the crop rows on phones.
 - VERIFY: `node tools/_verify-fk-hh.cjs` 39/39 (isolation on moo-moo-farm, landmarks, every vertex vs the centreline, toon/basic
   materials, animation, perf budget, phone profile, 0 pageerrors); against the pre-change app it is 4 pass / 35 fail.
+
+# 🏁 Farm Kart — 3D cast + Gator 3D RETIRED (2026-10-12, family playtest)
+
+After the Storybook toon release the family found that racers on the Tripo GLB models went
+invisible on their devices: the four skinned 3D drivers (Bucky 3D, Otis 3D, Boots 3D, Huey 3D —
+~47k triangles, 54 bones each) and the GLB **Gator 3D** kart. Headless swiftshader never showed it
+(every view stayed visible and seated in 12-kart probes) — a real-GPU-only failure, so the fix is
+removal, at the user's call. KART_KINDS / DRIVER_KINDS lost the entries (picker, fk_kart/fk_driver/
+fk_racer persistence and the bot pools all derive from them), `GLB_DRIVER_DEFS` is `{}`, and
+normalizeKartId/normalizeDriverId turn any stale or remote `gator3d`/`*3d` id into `bucky`. The
+loader/builder code is unreachable from the game but kept (kartviewer.html / characterdemo.html still
+read the cast GLBs). Retired suites: `_verify-glbdrivers.cjs`, `_verify-gator3d.cjs`,
+`_verify-bucky3d.cjs`. `_verify-fk-toon.cjs` restaged (roster = 3 karts; section F now proves a stale
+gator3d+bucky3d loadout builds the toon Bucky kart + skinned toon Bucky, no 54-bone skeleton).
+Huey the goose has no procedural version yet — a toon Huey on the shared 21-bone rig is the way back.

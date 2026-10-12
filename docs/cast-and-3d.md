@@ -165,3 +165,8 @@ them; only `<name>.glb` + `<name>-*.glb` + the presets txt ship.
 ACTION WEIGHT, not sleep(600) (see scratchpad castdemo_verify.cjs `settle()`; 25/25).
 
 ---
+
+> **2026-10-12:** the Tripo cast drivers (bucky3d/otis3d/boots3d/huey3d) and the Gator 3D GLB kart are
+> RETIRED from Farm Kart — racers on them went invisible on the family's devices under the toon
+> renderer. See the matching entry at the bottom of docs/farm-kart.md. The suites cited above
+> (`_verify-bucky3d`, `_verify-gator3d`, `_verify-glbdrivers`) were deleted with them.
