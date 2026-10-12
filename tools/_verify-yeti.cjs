@@ -9,6 +9,9 @@
  *   D  jumps: scripted line-following driver at 4 entry speeds launches off BOTH ramps, the ski jump peaks >= 12 u and
  *      the gorge jump >= 6 u above the road, flight + 1.5 s after landing stays over the road
  *   E  a CPU racer laps the course (synchronous sim) with no rescue and never leaves the walled corridor
+ *   G  playtest 2026-10-12: nothing solid at kart height over ANY road (scene-wide vertex scan: bridge walls, props,
+ *      lift towers, the lake sheet), walls line both sides (Yeti + Harvest Hollow) without crossing another lane, the
+ *      overpass has no pillar in the road below, and the sky is overcast with a dense, moving snowfall
  *   F  art: built only on this track, toon/basic materials, nothing solid in the road corridor, gantry + ski lift clear
  *      the road by >= 6 u, landmarks exist, animated parts move, grass tufts hidden, draw-call budget
  * Physics is stepped through __KART__.soloRaceTick so results don't depend on headless frame rate.
@@ -42,6 +45,9 @@ async function open(browser, base, track, viewport){
 
 (async () => {
   // ---------------- A: data ----------------
+  const N = 500;   // replica centreline resolution (sections A + B)
+  const cat = (pts) => { const n = pts.length, Pp = (i) => pts[((i % n) + n) % n], out = []; for (let i = 0; i < N; i++){ const t = i / N * n, sg = Math.floor(t), u = t - sg, p0 = Pp(sg-1), p1 = Pp(sg), p2 = Pp(sg+1), p3 = Pp(sg+2), u2 = u*u, u3 = u2*u;
+    const c = (a0,a1,a2,a3) => { const t1 = (a2-a0)*.5, t2 = (a3-a1)*.5; return (2*a1-2*a2+t1+t2)*u3 + (-3*a1+3*a2-2*t1-t2)*u2 + t1*u + a1; }; out.push({ x:c(p0.x,p1.x,p2.x,p3.x), y:c(p0.y||0,p1.y||0,p2.y||0,p3.y||0), z:c(p0.z,p1.z,p2.z,p3.z) }); } return out; };
   console.log("\n[A] track data");
   const FK = loadFK(fs.readFileSync(path.join(ROOT, "assets/farmkart-track.js"), "utf8"));
   const T = FK.BUILTIN_TRACKS["yeti-ridge"];
@@ -52,15 +58,27 @@ async function open(browser, base, track, viewport){
   check("sanitize keeps every feature key", S && want.every((k) => S[k] != null), want.filter((k) => !S || S[k] == null).join(","));
   let OLD = null; try { OLD = loadFK(execSync("git show HEAD:assets/farmkart-track.js", { cwd: ROOT, maxBuffer: 1 << 26 }).toString()); } catch (_) {}
   if (OLD){
-    const changed = Object.keys(OLD.BUILTIN_TRACKS).filter((id) => id !== "yeti-ridge" && JSON.stringify(OLD.BUILTIN_TRACKS[id]) !== JSON.stringify(FK.BUILTIN_TRACKS[id]));
+    // RESTAGED 2026-10-12: Harvest Hollow is no longer frozen - the playtest asked for road-edge walls there too
+    // (tools/_hh_build.cjs + tools/_fk_walls.cjs). It may differ from HEAD in exactly: fences (walls added), objects (the
+    // decorative GLB fence rows the walls replace) and wallStyle (wooden fence). Every other builtin stays byte-identical.
+    const HH_OK = ["fences", "objects", "wallStyle"];
+    const changed = Object.keys(OLD.BUILTIN_TRACKS).filter((id) => id !== "yeti-ridge" && id !== "harvest-hollow" && JSON.stringify(OLD.BUILTIN_TRACKS[id]) !== JSON.stringify(FK.BUILTIN_TRACKS[id]));
     check("every other builtin track is byte-identical to git HEAD", changed.length === 0, changed.join(","));
+    const a = OLD.BUILTIN_TRACKS["harvest-hollow"], b = FK.BUILTIN_TRACKS["harvest-hollow"];
+    const hhKeys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+    check(`harvest-hollow differs from HEAD only in ${HH_OK.join("/")} (${hhKeys.join(",")})`, hhKeys.every((k) => HH_OK.includes(k)), hhKeys.join(","));
+    const noId = (o) => { const c = Object.assign({}, o); delete c.id; return JSON.stringify(c); };   // ids renumber once rows go
+    const bSet = new Set(b.objects.map(noId)), lost = a.objects.filter((o) => !bSet.has(noId(o)));
+    // ...plus untagged props whose footprint reached into the road (the same road-clearance rule as Yeti: a crate by the coop)
+    const hhC = cat(a.points), hhNear = (x, z) => Math.min(...hhC.map((c) => Math.hypot(c.x - x, c.z - z)));
+    const odd = lost.filter((o) => o.model !== "farm_fence" && !(!o.tag && hhNear(o.x, o.z) < a.width / 2 + 0.5 + o.sx * 0.45 + 0.3));
+    check(`harvest-hollow: objects removed = the decorative farm_fence rows + road-intruding props (${lost.length})`, lost.some((o) => o.model === "farm_fence") && odd.length === 0, odd.map((o) => o.model + "@" + o.x + "," + o.z).join(" "));
   }
 
   // ---------------- B: geometry (pure, from the data) ----------------
   console.log("\n[B] geometry");
-  const P = T.points, N = 500;
-  const cat = (pts) => { const n = pts.length, Pp = (i) => pts[((i % n) + n) % n], out = []; for (let i = 0; i < N; i++){ const t = i / N * n, sg = Math.floor(t), u = t - sg, p0 = Pp(sg-1), p1 = Pp(sg), p2 = Pp(sg+1), p3 = Pp(sg+2), u2 = u*u, u3 = u2*u;
-    const c = (a0,a1,a2,a3) => { const t1 = (a2-a0)*.5, t2 = (a3-a1)*.5; return (2*a1-2*a2+t1+t2)*u3 + (-3*a1+3*a2-2*t1-t2)*u2 + t1*u + a1; }; out.push({ x:c(p0.x,p1.x,p2.x,p3.x), y:c(p0.y||0,p1.y||0,p2.y||0,p3.y||0), z:c(p0.z,p1.z,p2.z,p3.z) }); } return out; };
+  const P = T.points;
+
   const C = cat(P), arc = [0]; for (let i = 1; i <= N; i++){ const a = C[i-1], b = C[i % N]; arc[i] = arc[i-1] + Math.hypot(b.x-a.x, b.z-a.z); } const L = arc[N];
   const hd = (i) => { const a = C[(i-1+N)%N], b = C[(i+1)%N]; return Math.atan2(b.x-a.x, b.z-a.z); };
   const wrap = (a) => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
@@ -199,6 +217,109 @@ async function open(browser, base, track, viewport){
     check("moo-moo-farm: no Yeti Ridge art built", !r.art && r.yr === 0, JSON.stringify(r));
     check("moo-moo-farm: 0 pageerrors", e2.length === 0, e2.slice(0, 2).join(" | "));
     await p2.close();
+  }
+
+  // ---------------- G: 2026-10-12 playtest ----------------
+  // "the bridge wall clips down into the road below", "candy canes and a pillar for the chair lift in the middle of the
+  // road", "need a fence here to prevent falling over", "fully cloudy with a snowfall effect".
+  console.log("\n[G] playtest: road obstructions, walls, overcast + snowfall");
+  // every vertex of every visible mesh (instances included) that sits laterally inside a road (half-width - 0.3) and
+  // 0.7..2.6 u above THAT road (the branch directly beneath it) is something a kart drives into. Intentional road
+  // furniture is excluded by identity: karts, item boxes, ramps (jumps), water (the ford), trains + their crossing gates
+  // (within 10 u of a rail/road crossing), crossing critters, the natural tunnel's own wall foot (tunnel span), particles.
+  const SCAN = () => {
+    const K = __KART__, C = K.centerPts, N = C.length, hw = K.TRACK_WIDTH / 2, TR = K.ACTIVE_TRACK;
+    const under = (x, z, vy) => { let best = null; for (let i = 0; i < N; i++){ const c = C[i], dx = x - c.x, dz = z - c.z; if (dx * dx + dz * dz > (hw - 0.3) ** 2 || c.y > vy + 0.3) continue; if (!best || c.y > best.y) best = { y: c.y, i }; } return best; };
+    const near = (x, z) => K.nearestCenterInfo(x, z).dist;
+    const ramps = TR.objects.filter((o) => o.type === "ramp"), inRamp = (x, z) => ramps.some((r) => Math.hypot(x - r.x, z - r.z) < Math.max(r.sx, r.sz) * 0.75);
+    const xings = []; for (const tr of (TR.trains || [])){ const P = tr.points; for (let k = 0; k < P.length; k++){ const a = P[k], b = P[(k + 1) % P.length], len = Math.hypot(b.x - a.x, b.z - a.z); for (let u = 0; u <= len; u += 2){ const x = a.x + (b.x - a.x) * u / len, z = a.z + (b.z - a.z) * u / len; if (near(x, z) < hw) xings.push({ x, z }); } } }
+    const atXing = (x, z) => xings.some((q) => Math.hypot(x - q.x, z - q.z) < 10);
+    const critters = (K.G.chickens || []).map((c) => ({ x: c.x, z: c.z })), atCritter = (x, z) => critters.some((c) => Math.hypot(x - c.x, z - c.z) < 3);   // crossing animals (hazards)
+    const tunS = (TR.tunnels || []).map((t) => [t.s * K.TRACK_LEN - t.len / 2 - 2, t.s * K.TRACK_LEN + t.len / 2 + 2]);
+    const skipObj = (o) => { for (let q = o; q; q = q.parent){ const u = q.userData || {}; if (u.isItemBox || u.trains || u.fkToonKart || u.waterId || q.name === "fkParticles" || q.isPoints) return true; } return false; };
+    const tunnelShell = new Set(); if (K.scene) K.scene.traverse((o) => { if (o.userData && (o.userData.tunnelId || o.userData.isTunnel)) o.traverse((c) => tunnelShell.add(c)); });
+    const hits = {}; const v = new THREE.Vector3(), M = new THREE.Matrix4(), W = new THREE.Matrix4();
+    K.scene.updateMatrixWorld(true);
+    K.scene.traverse((o) => {
+      if (!o.isMesh || skipObj(o)) return; for (let q = o; q; q = q.parent) if (!q.visible) return;
+      const g = o.geometry, pos = g && g.attributes.position; if (!pos) return; if (!g.boundingSphere) g.computeBoundingSphere();
+      for (let k = 0; k < (o.isInstancedMesh ? o.count : 1); k++){
+        if (o.isInstancedMesh){ o.getMatrixAt(k, M); W.multiplyMatrices(o.matrixWorld, M); } else W.copy(o.matrixWorld);
+        const cs = g.boundingSphere.center.clone().applyMatrix4(W), rad = g.boundingSphere.radius * W.getMaxScaleOnAxis();
+        if (near(cs.x, cs.z) > hw + rad) continue;
+        if (rad < 0.4) continue;   // butterflies / leaves / birds flitting over the road: smaller than a kart wheel, no collision
+        for (let i = 0; i < pos.count; i++){
+          v.fromBufferAttribute(pos, i).applyMatrix4(W); if (near(v.x, v.z) > hw - 0.3) continue;
+          const u = under(v.x, v.z, v.y); if (!u) continue; const h = v.y - u.y; if (h <= 0.7 || h >= 2.6) continue;
+          if (inRamp(v.x, v.z) || atXing(v.x, v.z) || atCritter(v.x, v.z)) continue;
+          if (tunS.some(([a0, a1]) => K.arcS[u.i] > a0 && K.arcS[u.i] < a1) && near(v.x, v.z) > hw - 1.5) continue;   // tunnel wall foot at the edge
+          const key = (o.name || (o.parent && o.parent.name) || o.type) + (o.userData.bridgeWall ? "[bridgeWall]" : "") + " @" + Math.round(v.x / 8) * 8 + "," + Math.round(v.z / 8) * 8;
+          hits[key] = Math.max(hits[key] || 0, +h.toFixed(1));
+        }
+      }
+    });
+    return Object.entries(hits).map(([k, h]) => k + " h" + h);
+  };
+  // walls: each side of the road has a wall within half+6 on >= minCov of the centreline; no wall segment passes within
+  // half+0.3 of ANY centreline sample (fence collision is 2D: a wall over another road would stop karts on it)
+  const WALLS = () => {
+    const K = __KART__, C = K.centerPts, N = C.length, hw = K.TRACK_WIDTH / 2, walls = K.raceFences.filter((f) => f.tag === "corridor");
+    const segD = (x, z, a, b) => { const dx = b.x - a.x, dz = b.z - a.z, l = dx * dx + dz * dz || 1; const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l)); return Math.hypot(x - a.x - dx * t, z - a.z - dz * t); };
+    const cov = [0, 0]; let intrude = [];
+    for (let i = 0; i < N; i++){ const t = K.tangents[i]; [-1, 1].forEach((side, si) => { const nx = -t.z * side, nz = t.x * side; let hit = false;
+      for (let d = hw; d <= hw + 6 && !hit; d += 0.5){ const x = C[i].x + nx * d, z = C[i].z + nz * d; for (const w of walls){ for (let k = 0; k + 1 < w.points.length; k++) if (segD(x, z, w.points[k], w.points[k + 1]) < 0.5){ hit = true; break; } if (hit) break; } }
+      if (hit) cov[si]++; }); }
+    for (const w of walls) for (let k = 0; k + 1 < w.points.length; k++) for (let i = 0; i < N; i += 2){ const d = segD(C[i].x, C[i].z, w.points[k], w.points[k + 1]); if (d < hw + 0.3) intrude.push(w.id + "@" + C[i].x.toFixed(0) + "," + C[i].z.toFixed(0) + " d" + d.toFixed(1)); }
+    return { walls: walls.length, cov: cov.map((c) => +(c / N).toFixed(3)), intrude: intrude.slice(0, 6) };
+  };
+  {
+    const { page: pg, errors: eg } = await open(browser, base, "yeti-ridge");
+    await pg.waitForFunction(() => { let n = 0; __KART__.scene.traverse((o) => { if (o.isInstancedMesh) n++; }); return n > 30; }, null, { timeout: 90000 });
+    await pg.waitForTimeout(4000);
+    const hits = await pg.evaluate(SCAN);
+    check("Yeti: nothing solid at kart height over any road (scene-wide vertex scan)", hits.length === 0, hits.slice(0, 8).join(" | "));
+    const w = await pg.evaluate(WALLS);
+    // measured 0.900 / 0.905: the gaps are the overpass span (own walls), the glacier cave (tunnel walls), the low road
+    // under the overpass (a 2D wall there would block the bridge above), the rail crossings and the critter crossings
+    check(`Yeti: road-edge walls on both sides for >= 88% of the lap (${w.cov.join(" / ")}, ${w.walls} walls)`, w.cov[0] >= 0.88 && w.cov[1] >= 0.88, JSON.stringify(w));
+    check("Yeti: no wall crosses another road's lane (2D fence collision)", w.intrude.length === 0, w.intrude.join(" | "));
+    const b = await pg.evaluate(() => {
+      const K = __KART__, br = K.ACTIVE_TRACK.bridges[0], C = K.centerPts, N = C.length, hw = K.TRACK_WIDTH / 2, out = { pillarsInRoad: 0, wallDip: 0 };
+      const M = new THREE.Matrix4(), v = new THREE.Vector3(); K.scene.updateMatrixWorld(true);
+      K.scene.traverse((o) => {
+        if (o.isInstancedMesh && o.geometry && o.geometry.parameters && o.geometry.parameters.width === 0.6 && o.geometry.parameters.depth === 0.6){   // bridge pillars (0.6 x 1 x 0.6)
+          for (let k = 0; k < o.count; k++){ o.getMatrixAt(k, M); v.setFromMatrixPosition(M); const n = FK_TRACK.nearestOnCenterAtY({ centerPts: C, samples: N }, v.x, v.z, v.y - M.elements[5] / 2, K.TRACK_WIDTH); if (n.dist < hw) out.pillarsInRoad++; } }
+        if (o.userData && o.userData.bridgeWall){ const p = o.geometry.attributes.position; let lo = 1e9; for (let i = 0; i < p.count; i++) lo = Math.min(lo, p.getY(i)); out.wallDip = Math.max(out.wallDip, +(9 - lo).toFixed(1)); out.wallLo = +lo.toFixed(1); }
+      });
+      return out;
+    });
+    check("Yeti overpass: no support pillar stands in the road below", b.pillarsInRoad === 0, JSON.stringify(b));
+    check(`Yeti overpass: the side walls stay at deck height (lowest wall vertex ${b.wallLo} u, the deck is ~9 u up)`, b.wallLo > 6, JSON.stringify(b));
+    const sky = await pg.evaluate(async () => {
+      const A = FK_YETI_ART.art, st = A.stats, L = A.snowfall && A.snowfall.layers[0], p0 = L ? L.P.slice(0, 30) : null;
+      A.update(0.25, 4.2); const moved = !!L && L.P.slice(0, 30).some((v, i) => Math.abs(v - p0[i]) > 1e-4);
+      let presetFlakesVisible = 0; const sk = __KART__.skyObj || null;
+      __KART__.scene.traverse((o) => { if (o.isInstancedMesh && o.material && o.material.map && o.geometry.type === "PlaneGeometry" && o.count >= 400){ let vis = true; for (let q = o; q; q = q.parent) if (!q.visible) vis = false; if (vis) presetFlakesVisible++; } });
+      const dome = A.dome.material.uniforms; const top = dome.uCols.value[dome.uCols.value.length - 1];
+      return { overcast: !!st.overcast, clouds: st.clouds || 0, flakes: st.snowflakes || 0, moved, presetFlakesVisible, sunSize: dome.uSunSize.value, topSat: +(Math.max(top.r, top.g, top.b) - Math.min(top.r, top.g, top.b)).toFixed(3) };
+    });
+    check(`overcast sky: no sun disc, a grey zenith (saturation ${sky.topSat} < 0.15), a full cloud deck (${sky.clouds} >= 40)`, sky.overcast && sky.sunSize === 0 && sky.topSat < 0.15 && sky.clouds >= 40, JSON.stringify(sky));
+    check(`snowfall: >= 3000 camera-facing flakes that fall (${sky.flakes}), the preset's flat quads hidden`, sky.flakes >= 3000 && sky.moved && sky.presetFlakesVisible === 0, JSON.stringify(sky));
+    check("G (yeti): 0 pageerrors", eg.length === 0, eg.slice(0, 2).join(" | "));
+    await pg.close();
+  }
+  {
+    const { page: pg, errors: eg } = await open(browser, base, "harvest-hollow");
+    await pg.waitForFunction(() => { let n = 0; __KART__.scene.traverse((o) => { if (o.isInstancedMesh) n++; }); return n > 30; }, null, { timeout: 90000 });
+    await pg.waitForTimeout(4000);
+    const w = await pg.evaluate(WALLS);
+    // measured 0.950 / 0.948: gaps at the rail crossing, the critter step-outs and the ford pool
+    check(`Harvest Hollow: road-edge walls on both sides for >= 92% of the lap (${w.cov.join(" / ")})`, w.cov[0] >= 0.92 && w.cov[1] >= 0.92, JSON.stringify(w));
+    check("Harvest Hollow: no wall crosses another road's lane", w.intrude.length === 0, w.intrude.join(" | "));
+    const hits = await pg.evaluate(SCAN);
+    check("Harvest Hollow: nothing solid at kart height over the road (scene-wide vertex scan)", hits.length === 0, hits.slice(0, 8).join(" | "));
+    check("G (harvest-hollow): 0 pageerrors", eg.length === 0, eg.slice(0, 2).join(" | "));
+    await pg.close();
   }
   await browser.close(); srv.close();
   console.log(`\n${pass}/${pass + fail} passed`);

@@ -1641,3 +1641,40 @@ designed and art-directed here rather than built from Tripo assets. Lap ~1493 u,
   every feature, both jumps at 4 entry speeds with a scripted driver, a bot lap inside the walls, and the art pass (toon
   materials, nothing in the road corridor, overhead clearance >= 6, animation, draw calls 451 <= 700, isolation on
   moo-moo-farm). Bite: old paint plus old portal-crystal spacing gives 49/51, with exactly the two new checks failing.
+
+# Farm Kart — Yeti Ridge playtest fixes: road obstructions, walls everywhere, overcast snowfall (2026-10-12)
+
+The family playtest of Yeti Ridge found a bridge wall clipping into the road below, candy canes and a ski-lift pillar in
+the road, and a stretch where you could fall off the course. It also asked for a fully cloudy sky with snowfall.
+- OBSTRUCTIONS: `_verify-yeti.cjs [G]` scans every vertex of every visible mesh (instances included) for anything sitting
+  inside a road's lane and 0.7..2.6 u above THAT road. The tallest kart with its driver measures 1.87 u. Intentional furniture
+  is excluded by identity: karts, item boxes, ramps, water, trains and crossing gates, crossing critters, the tunnel wall
+  foot, and specks under 0.4 u (butterflies). On the version previously on main it found:
+  - **Bridge side walls:** `buildBridgeMesh` took deck height from `sampleHeight`, which picks the NEAREST branch. At a
+    figure-8 crossing that is the road underneath, so the walls dipped into a V. New opt-in `heightAtYFn` (the game passes
+    `sampleHeightAtY`) follows the bridge's own branch. Pillars that would land on another road are skipped.
+  - **Lake ice sheet:** a flat ellipse that overlapped the sweep 1.4 u above the road. It is now clipped per angle to stop
+    2.5 u short of the road edge.
+  - **Glacier-cave portal boulders:** at hw*1.02 and hw*0.86 they reached 1-2 u into the lane on EVERY natural tunnel.
+    Centres are now at hw + radius.
+  - **Village GLB props:** lanterns and candy canes stood in the overpass road. Both generators now drop any untagged prop
+    whose footprint reaches a road (2D, every branch). On Harvest Hollow that caught a crate by the coop.
+  - **Ski-lift towers:** a tower with no clear spot fell back to its raw position, in the road. There is no fallback now;
+    a tower is skipped and the cable spans further.
+- WALLS: `tools/_fk_walls.cjs`, shared by both generators. It is a close barrier at half+2.5, tightening to half+1.2 where
+  another branch crowds it. It stops at bridges and natural tunnels (they have their own walls), opens 5 u either side of
+  rail crossings, and steps out to half+4.8 at critter crossings (they walk to half+4). The old FK.corridorFences at half+7
+  was height-blind, cut through hedgerows, gantry posts and village props, and left Yeti 13% walled. Coverage is now
+  Yeti 90% and Harvest Hollow 95% per side. Fence collision is 2D, so a wall must never cross another lane: no wall runs
+  under the overpass, and the suite checks this.
+- HARVEST HOLLOW: it gets the same walls (`wallStyle:"fence"`, wooden). The decorative GLB fence rows on the home lane
+  were removed because they doubled the new fence. The walls open across the ford pool (measured water x 200..228,
+  z -94..-68) so the footbridge keeps its spot beside the road. HH art now needs only footprint clearance from a road wall
+  (r+0.3, against 2.2+r for pasture fences). Its chevrons, warning signs and barn lanterns moved just behind the wall.
+  Without that, the windmill found no spot, and the static GLB windmill, which partly stands in the road, came back.
+- SKY: Yeti Ridge is overcast. A grey dome has no sun disc, a cloud deck of 68 puffs follows the camera, the light is
+  softer, and haze fogs from 120 to 560. The 'snow' preset's 800 flat quads (edge-on from half the view directions,
+  invisible on white) are hidden. In their place are two camera-following `THREE.Points` layers (5000 flakes desktop,
+  2600 phone), with a cool rim on the flake so it reads against snow.
+- VERIFY: `node tools/_verify-yeti.cjs` 65/65. Bite against cf8d422 (the first Yeti push): 56/65, exactly the 9 new
+  checks failing.

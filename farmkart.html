@@ -1574,7 +1574,7 @@
   // influence — stays on the LOWEST branch under a true multi-level overlap, e.g. the raised half
   // of a figure-8), so pillars land on the ground below rather than floating at the deck's own level.
   const BRIDGE_GROUP = FK_TRACK.buildBridgeMesh(_sampled, ACTIVE_TRACK.bridges || [], TRACK_WIDTH, THREE, {
-    heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z)
+    heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z), heightAtYFn:(x,z,cy)=>sampleHeightAtY(x,z,cy)
   });
   scene.add(BRIDGE_GROUP);
 

@@ -298,39 +298,65 @@
     const PAL = { red: 0xe5392f, redD: 0xb02a22, cream: 0xfff1d0, wood: 0xa8703a, woodD: 0x7a4e28, woodL: 0xd29a5a, snow: 0xf4f8ff, snowS: 0xd6e4f5,
       ice: 0x9fdcf5, iceD: 0x5fb8e6, iceL: 0xd8f4ff, rock: 0x8d9ab0, rockD: 0x67738a, pine: 0x2f7f5a, white: 0xffffff, yellow: 0xffd23d, orange: 0xff8a2a,
       teal: 0x2ec4b6, plum: 0x8a5bd6, pink: 0xff7aa8, blue: 0x3f7fe0, navy: 0x2d3e6e, cocoa: 0x6b3f26, gold: 0xf2b630 };
-    const skyBlue = 0x8fc8f2, HAZE = 0xe7eef8;
+    const skyBlue = 0x8fc8f2, HAZE = 0xdde3ec;
 
     // ------------------------------------------------------------------------------------------
-    //  SKY + LIGHT: crisp winter blue to a pale pink horizon; the 'snow' preset keeps falling
+    //  SKY + LIGHT (2026-10-12, family ask "fully cloudy with a snowfall effect"): a low overcast deck, no sun disc,
+    //  soft flat light, snowy haze, and our own dense camera-following snowfall (the 'snow' preset's 800 flat quads in
+    //  a 260 u box were near-invisible against white snow and edge-on from half the view directions).
     // ------------------------------------------------------------------------------------------
-    const SUNDIR = V3(-0.45, 0.46, -0.76).normalize();
+    const SUNDIR = V3(-0.45, 0.62, -0.62).normalize();
     let hemiL = null, sunL = null;
     scene.traverse(o => { if (o.isHemisphereLight && !hemiL) hemiL = o; else if (o.isDirectionalLight && !sunL) sunL = o; });
-    // snow is near-white: keep the lit band at ~1.0 so it reads white, and tint the shadow band cold blue
-    if (hemiL){ hemiL.color.setHex(0xeaf3ff); hemiL.groundColor.setHex(0x8fa6c8); hemiL.intensity = 0.5; }
-    if (sunL){ sunL.color.setHex(0xfff6e8); sunL.intensity = 0.62; sunL.position.set(SUNDIR.x * 120, SUNDIR.y * 120, SUNDIR.z * 120); }
-    scene.fog = new THREE.Fog(HAZE, 200, 820);
+    // overcast: more sky fill, a weak diffuse "sun" so the toon bands still read, snow stays white in the lit band
+    if (hemiL){ hemiL.color.setHex(0xf1f4f9); hemiL.groundColor.setHex(0x9aa8bd); hemiL.intensity = 0.72; }
+    if (sunL){ sunL.color.setHex(0xf2f4f8); sunL.intensity = 0.42; sunL.position.set(SUNDIR.x * 120, SUNDIR.y * 120, SUNDIR.z * 120); }
+    scene.fog = new THREE.Fog(HAZE, 120, 560);
     const prevSky = ctx.getSkyObj ? ctx.getSkyObj() : null;
-    // keep the snowfall from the 'snow' preset; hide only its grey toon dome + generic clouds
-    if (prevSky) prevSky.traverse(o => { if (o.name === 'fkToonSky' || o.name === 'fkSkyDome') o.visible = false; });
-    const dome = T.skyDome([[-1, HAZE], [0.0, HAZE], [0.05, 0xfbe3ea], [0.16, 0xe3eefb], [0.38, 0xa9d6f7], [0.72, 0x6fb5ee], [1, 0x4c9be6]],
-      { sunDir: SUNDIR, sunColor: 0xfffaf0, sunSize: 0.0028, glow: 0.45, radius: 700 });
+    // hide the preset's grey toon dome, generic clouds AND its flat-quad snowfall (replaced below)
+    if (prevSky) prevSky.traverse(o => { if (o.name === 'fkToonSky' || o.name === 'fkSkyDome' || o.isInstancedMesh) o.visible = false; });
+    const dome = T.skyDome([[-1, HAZE], [0.0, HAZE], [0.08, 0xd6dce6], [0.25, 0xc3cbd8], [0.55, 0xb0bacb], [1, 0xa3aec1]], { radius: 700 });
     dome.userData.yrFar = true; root.add(dome);
+    ART_STATS.overcast = true;
     const cloudRoot = new THREE.Group(); root.add(cloudRoot);
     {
+      // the deck: big flattened puffs over a disc around the camera (cloudRoot follows it) + a dense horizon band,
+      // so every view direction above the mountains is cloud. Light ink only (a full deck of heavy lines is noise).
       const ck = new Kit(); const crng = T.rng(1717);
-      const n = MOBILE ? 8 : 14;
-      for (let i = 0; i < n; i++){
-        const a = (i / n) * TAU + crng() * 0.3, rad = 380 + crng() * 200, y = 110 + crng() * 110, s = 0.5 + crng() * 0.7;
-        const cx = Math.cos(a) * rad, cz = Math.sin(a) * rad, dir = a + Math.PI / 2, puffs = 5 + Math.floor(crng() * 4);
+      const nDeck = MOBILE ? 22 : 40, nBand = MOBILE ? 16 : 28;
+      const puff = (cx, y, cz, s, dir) => {
+        const puffs = 5 + Math.floor(crng() * 4);
         for (let j = 0; j < puffs; j++){
-          const u = (j / (puffs - 1) - 0.5) * 2, r = (14 + crng() * 9) * s * (1 - 0.4 * Math.abs(u));
-          ck.sph(r, r * 0.85, r, cx + Math.cos(dir) * u * 30 * s, y + (1 - Math.abs(u)) * 8 * s, cz + Math.sin(dir) * u * 30 * s, j % 2 ? 0xffffff : 0xf3f0ff, 0.55, { ws: 8, hs: 5 });
+          const u = (j / (puffs - 1) - 0.5) * 2, r = (16 + crng() * 10) * s * (1 - 0.35 * Math.abs(u));
+          ck.sph(r, r * 0.6, r, cx + Math.cos(dir) * u * 34 * s, y + (1 - Math.abs(u)) * 6 * s, cz + Math.sin(dir) * u * 34 * s, j % 2 ? 0xeef1f6 : 0xe2e7ef, 0.22, { ws: 8, hs: 5 });
         }
-        ck.sph(32 * s, 10 * s, 14 * s, cx, y - 5 * s, cz, 0xe6ecff, 0.55, { ws: 10, hs: 5, ry: -dir });
-      }
+        ck.sph(40 * s, 9 * s, 22 * s, cx, y - 5 * s, cz, 0xc6cedb, 0.22, { ws: 10, hs: 5, ry: -dir });   // grey underside
+      };
+      for (let i = 0; i < nDeck; i++){ const a = crng() * TAU, rad = Math.sqrt(crng()) * 420; puff(Math.cos(a) * rad, 150 + crng() * 40, Math.sin(a) * rad, 1.1 + crng() * 0.8, crng() * TAU); }
+      for (let i = 0; i < nBand; i++){ const a = (i / nBand) * TAU + crng() * 0.15, rad = 430 + crng() * 160; puff(Math.cos(a) * rad, 95 + crng() * 60, Math.sin(a) * rad, 1.0 + crng() * 0.7, a + Math.PI / 2); }
+      ART_STATS.clouds = nDeck + nBand;
       CH_OVERRIDE = 1e7; ck.finish(cloudRoot, { mat: MAT.cloud }); CH_OVERRIDE = 0;
       cloudRoot.traverse(o => { if (o.isMesh){ o.frustumCulled = false; o.renderOrder = -5; o.userData.yrFar = true; } });
+    }
+    // SNOWFALL: two Points layers riding with the camera (one draw call each). Points are always camera-facing, and a
+    // faint cool rim on the flake texture keeps them visible against white snow.
+    const snowfall = { layers: [] };
+    {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g2 = cv.getContext('2d');
+      const gr = g2.createRadialGradient(32, 32, 0, 32, 32, 31); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.55, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.8, 'rgba(176,192,214,0.55)'); gr.addColorStop(1, 'rgba(176,192,214,0)');
+      g2.fillStyle = gr; g2.fillRect(0, 0, 64, 64);
+      const tex = new THREE.CanvasTexture(cv);
+      const mk = (n, box, top, size, fall) => {
+        const P = new Float32Array(n * 3), V = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++){ P[i*3] = (rng() - 0.5) * box; P[i*3+1] = (rng() - 0.3) * top; P[i*3+2] = (rng() - 0.5) * box; V[i*3] = fall * (0.7 + rng() * 0.6); V[i*3+1] = rng() * TAU; V[i*3+2] = 0.6 + rng() * 1.2; }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+        const m = new THREE.Points(g, new THREE.PointsMaterial({ map: tex, size, sizeAttenuation: true, transparent: true, depthWrite: false, opacity: 0.95, fog: true }));
+        m.frustumCulled = false; m.userData.noToon = true; m.userData.noOutline = true; m.name = 'yrSnowfall'; root.add(m);
+        snowfall.layers.push({ m, P, V, n, box, top });
+      };
+      mk(MOBILE ? 1400 : 2600, 70, 40, 0.32, 3.2);    // near: big soft flakes around the kart
+      mk(MOBILE ? 1200 : 2400, 240, 90, 0.7, 4.5);    // far: fills the view into the haze
+      ART_STATS.snowflakes = snowfall.layers.reduce((a, l) => a + l.n, 0);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -815,14 +841,16 @@
       const nT = 7, towers = [];
       for (let i = 0; i < nT; i++){
         let x = lerp(A0.x, A1.x, i / (nT - 1)), z = lerp(A0.z, A1.z, i / (nT - 1));
-        const sp = findSpot(x, z, 1.5, 14, { noOwn: false }) || { x, z };
-        towers.push({ x: sp.x, z: sp.z });
+        // no raw-position fallback: when no clear spot was found the tower used to stand IN the road (playtest)
+        const sp = findSpot(x, z, 1.5, 14, { noOwn: false }) || findSpot(x, z, 1.5, 30, { noOwn: false });
+        if (sp) towers.push({ x: sp.x, z: sp.z });
       }
       // cable height: high enough everywhere along each span (sample ground + road under it)
-      for (let i = 0; i < nT; i++){ const t = towers[i]; t.y0 = H(t.x, t.z); }
+      const nTP = towers.length;
+      for (let i = 0; i < nTP; i++){ const t = towers[i]; t.y0 = H(t.x, t.z); }
       const CLEAR = 9;
-      for (let i = 0; i < nT; i++){ towers[i].top = towers[i].y0 + 11; }
-      for (let pass = 0; pass < 3; pass++) for (let i = 0; i + 1 < nT; i++){
+      for (let i = 0; i < nTP; i++){ towers[i].top = towers[i].y0 + 11; }
+      for (let pass = 0; pass < 3; pass++) for (let i = 0; i + 1 < nTP; i++){
         const a = towers[i], b = towers[i + 1];
         for (let u = 0; u <= 1; u += 0.05){ const x = lerp(a.x, b.x, u), z = lerp(a.z, b.z, u), cy = lerp(a.top, b.top, u), need = H(x, z) + (roadD(x, z) < hw + 2 ? CLEAR + 2 : CLEAR);
           if (cy < need){ const d = need - cy; a.top += d; b.top += d; } }
@@ -830,7 +858,7 @@
       for (const t of towers){ claim(t.x, t.z, 1.6, 'lift-tower', { overhead: true });
         kit.place(t.x, t.y0, t.z, Math.atan2(A1.x - A0.x, A1.z - A0.z), k => { const h = t.top - t.y0; k.box(0.7, h, 0.7, 0, h / 2, 0, 0x2d3e6e, 0.06); k.box(4.2, 0.45, 0.5, 0, h, 0, 0x2d3e6e, 0.05); k.sph(0.5, 0.5, 0.5, -1.9, h + 0.1, 0, PAL.yellow, 0.04); k.sph(0.5, 0.5, 0.5, 1.9, h + 0.1, 0, PAL.yellow, 0.04); k.box(1.4, 0.4, 1.4, 0, 0.2, 0, PAL.rockD, 0.05); }); }
       // two cables (up + down line) as thin boxes per span
-      for (let i = 0; i + 1 < nT; i++) for (const off of [-1.9, 1.9]){
+      for (let i = 0; i + 1 < nTP; i++) for (const off of [-1.9, 1.9]){
         const a = towers[i], b = towers[i + 1], yaw = Math.atan2(b.x - a.x, b.z - a.z), cx = Math.cos(yaw), sx = Math.sin(yaw);
         const ax = a.x + cx * off, az = a.z - sx * off, bx = b.x + cx * off, bz = b.z - sx * off;
         const d = Math.hypot(bx - ax, bz - az, b.top - a.top), pitch = -Math.atan2(b.top - a.top, Math.hypot(bx - ax, bz - az));
@@ -846,9 +874,9 @@
       const mkI = (g, c) => { const m = new THREE.InstancedMesh(g, T.mat(c), nChairs); m.frustumCulled = false; root.add(m); T.outline(m, 0.04); return m; };
       lift.mesh = [mkI(gSeat, PAL.red), mkI(gBack, PAL.red), mkI(gBar, 0x2d3e6e)];
       for (let i = 0; i < nChairs; i++) lift.chairs.push({ u: i / nChairs });
-      ART_STATS.liftTowers = nT;
+      ART_STATS.liftTowers = nTP;
       // record the lowest clearance of a chair over the road (chairs hang 2.4 + 0.5 under the cable)
-      for (let i = 0; i + 1 < nT; i++){ const a = towers[i], b = towers[i + 1];
+      for (let i = 0; i + 1 < nTP; i++){ const a = towers[i], b = towers[i + 1];
         for (let u = 0; u <= 1; u += 0.02){ const x = lerp(a.x, b.x, u), z = lerp(a.z, b.z, u); const rn = roadNear(x, z);
           if (rn.d < hw + 1){ const cy = lerp(a.top, b.top, u) - 3.0; lift.minRoadClear = Math.min(lift.minRoadClear, cy - C[rn.i].y); } } }
       ART_STATS.liftRoadClear = +lift.minRoadClear.toFixed(2);
@@ -935,8 +963,15 @@
       const yL = Math.min(H(c0.x, c0.z), H(c0.x + 15, c0.z), H(c0.x - 15, c0.z)) + 0.12;
       // draped ellipse (follows the snow gently so it never floats)
       const pos = [], cl = [], idx = [], R = 18, A = 36;
+      // per-angle reach: the ellipse stops 2.5 u short of the road edge (it overlapped the sweep and stood 1.4 u
+      // above the road there - a flat sheet slicing through passing karts; playtest 2026-10-12)
+      const reach = [];
+      for (let a = 0; a < A; a++){ const ang = a / A * TAU; let sc = 1;
+        for (; sc > 0.1; sc -= 0.02){ const lx = Math.cos(ang) * RX * sc, lz = Math.sin(ang) * RZ * sc, x = c0.x + Math.cos(yaw) * lx + Math.sin(yaw) * lz, z = c0.z - Math.sin(yaw) * lx + Math.cos(yaw) * lz; if (roadD(x, z) >= hw + 2.5) break; }
+        reach.push(sc); }
+      ART_STATS.lakeReachMin = +Math.min(...reach).toFixed(2);
       for (let r = 0; r <= R; r++) for (let a = 0; a < A; a++){
-        const rr2 = r / R, ang = a / A * TAU, lx = Math.cos(ang) * RX * rr2, lz = Math.sin(ang) * RZ * rr2;
+        const rr2 = r / R * reach[a], ang = a / A * TAU, lx = Math.cos(ang) * RX * rr2, lz = Math.sin(ang) * RZ * rr2;
         const x = c0.x + Math.cos(yaw) * lx + Math.sin(yaw) * lz, z = c0.z - Math.sin(yaw) * lx + Math.cos(yaw) * lz;
         const y = Math.max(yL, GH(x, z) + 0.1) + (r === R ? 0 : 0.02);
         pos.push(x, y, z); const c = col(0x6cc6ee).lerp(col(0xbfeaff), 0.35 + 0.35 * Math.sin(lx * 0.2 + lz * 0.31)).lerp(col(0xffffff), r === R ? 0.6 : 0); cl.push(c.r, c.g, c.b);
@@ -948,7 +983,7 @@
       lm.userData.yrKit = true; lm.userData.noOutline = true; lm.name = 'yrLake'; root.add(lm);
       registry.push({ kind: 'lake', x: c0.x, y: yL, z: c0.z, r: RX, decal: true });
       // snowbank rim
-      for (let a = 0; a < 40; a++){ const ang = a / 40 * TAU, lx = Math.cos(ang) * (RX + 1.5), lz = Math.sin(ang) * (RZ + 1.5);
+      for (let a = 0; a < 40; a++){ const ang = a / 40 * TAU, rc = reach[Math.round(a / 40 * A) % A], lx = Math.cos(ang) * (RX * rc + 1.5), lz = Math.sin(ang) * (RZ * rc + 1.5);
         const x = c0.x + Math.cos(yaw) * lx + Math.sin(yaw) * lz, z = c0.z - Math.sin(yaw) * lx + Math.cos(yaw) * lz; if (roadD(x, z) < hw + 2.5) continue;
         kit.sph(2.4, 0.7, 2.0, x, GH(x, z) + 0.1, z, PAL.snow, 0.05, { ry: ang }); }
       // ice-fishing huts with little stovepipes
@@ -960,7 +995,7 @@
       }
       // penguins skating loops on the ice (instanced; body / belly / beak / feet)
       const nP = MOBILE ? 4 : 7;
-      for (let i = 0; i < nP; i++) penguins.list.push({ r: 6 + rng() * (RZ * 0.6), ph: rng() * TAU, w: (rng() < 0.5 ? 1 : -1) * (0.35 + rng() * 0.3), s: 0.9 + rng() * 0.3 });
+      for (let i = 0; i < nP; i++) penguins.list.push({ r: Math.min(6 + rng() * (RZ * 0.6), RZ * Math.min(...reach) * 0.7), ph: rng() * TAU, w: (rng() < 0.5 ? 1 : -1) * (0.35 + rng() * 0.3), s: 0.9 + rng() * 0.3 });
       const mkP = (geo, c) => { const m = new THREE.InstancedMesh(geo, T.mat(c), nP); m.frustumCulled = false; root.add(m); T.outline(m, 0.03); return m; };
       penguins.meshes = [mkP(new THREE.SphereGeometry(0.55, 10, 8), 0x1f2433), mkP(new THREE.SphereGeometry(0.4, 10, 8), 0xffffff), mkP(new THREE.ConeGeometry(0.12, 0.35, 6).rotateX(Math.PI / 2), PAL.orange)];
       penguins.c0 = c0; penguins.yL = yL; penguins.rx = RX / RZ; penguins.yaw = yaw;
@@ -1096,6 +1131,17 @@
       clock = t; U.uHT.value = t;
       if (crowd.update) crowd.update(t);
       cloudRoot.rotation.y += dt * 0.004;
+      if (camera) for (const L of snowfall.layers){
+        const P = L.P, V = L.V, cx = camera.position.x, cy = camera.position.y, cz = camera.position.z, hb = L.box / 2;
+        for (let i = 0; i < L.n; i++){
+          const k = i * 3; P[k+1] -= V[k] * dt; P[k] += Math.sin(t * V[k+2] + V[k+1]) * dt * 0.9 + dt * 0.6; P[k+2] += Math.cos(t * V[k+2] * 0.8 + V[k+1]) * dt * 0.7;
+          if (P[k+1] < cy - 12){ P[k+1] += L.top + 12; P[k] = cx + (rng() - 0.5) * L.box; P[k+2] = cz + (rng() - 0.5) * L.box; }
+          else if (P[k+1] > cy + L.top) P[k+1] -= L.top + 12;
+          if (P[k] > cx + hb) P[k] -= L.box; else if (P[k] < cx - hb) P[k] += L.box;
+          if (P[k+2] > cz + hb) P[k+2] -= L.box; else if (P[k+2] < cz - hb) P[k+2] += L.box;
+        }
+        L.m.geometry.attributes.position.needsUpdate = true;
+      }
       if (camera){ dome.position.copy(camera.position); cloudRoot.position.set(camera.position.x, 0, camera.position.z); }
       // ski-lift chairs
       if (lift.mesh){ const [seat, back, bar] = lift.mesh, o = {};
@@ -1144,7 +1190,7 @@
         yeti.root.scale.y = 1 + Math.sin(t * 4.4) * 0.015;
       }
     }
-    const art = { root, registry, stats: ART_STATS, update, crowd, lift, penguins, bunnies, birds, smoke, yeti, signMeshes, dome, cloudRoot, hw, roadD, ok, uniforms: U, kitMeshes, MOBILE,
+    const art = { root, registry, stats: ART_STATS, update, crowd, lift, penguins, bunnies, birds, smoke, yeti, signMeshes, dome, cloudRoot, snowfall, hw, roadD, ok, uniforms: U, kitMeshes, MOBILE,
       get clock(){ return clock; },
       dispose(){ scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); } };
     return art;

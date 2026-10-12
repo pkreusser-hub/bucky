@@ -109,6 +109,14 @@ for (let i = Math.floor(BB.x0/CELL); i <= Math.ceil(BB.x1/CELL); i++) for (let j
   // ring of jagged peaks far out (backdrop)
   const cx = (BB.x0+BB.x1)/2, cz = (BB.z0+BB.z1)/2, rr = Math.hypot(x-cx, z-cz), R0 = Math.min(BB.x1-BB.x0, BB.z1-BB.z0)/2;
   target += 18 * smooth(40, 90, dmin) * smooth(R0-30, R0+20, rr) * (0.7 + 0.3*Math.sin(Math.atan2(z-cz, x-cx)*7));   // eased in: a hard 'dmin > 40' cut made a cliff
+  // ROAD-EDGE BANK CAP (2026-10-12 playtest scan): on the steep summit descent the blend lifted the snow 0.5 u over the
+  // road edge (bilinear between 6 u cells). Within half+8 of a road the ground may rise at most 0.9 per u past edge+1,
+  // measured from the LOWEST branch there. Not inside the glacier cave span: that hill IS the tunnel's cover.
+  if (dmin < HALF + 8){
+    const nn = nearest(x, z), caveS = F.cave*L, inCave = Math.abs(arcS[nn.i] - caveS) < 22 - 6;   // the tunnel span (len 44) less one 6 u cell: an uncapped cell at the portal blended a 1.2 u lump onto the road outside it
+    if (!inCave){ const near = branchesNear(x, z, HALF + 8); const lo = near.length ? Math.min(...near.map(b => b.y)) : nn.y;
+      target = Math.min(target, lo - 0.25 + Math.max(0, dmin - (HALF + 1)) * 0.9); }
+  }
   const v = Math.round((target - groundHills(x, z))*100)/100;
   if (Math.abs(v) >= 0.05){ cells[i+","+j] = v; ntc++; }
 }
@@ -136,7 +144,12 @@ const paint = { cell:PCELL, cells:pcells };
 
 // =================== OBJECTS ===================
 let oi = 0; const objects = [];
+// ROAD CLEARANCE (2026-10-12 playtest): hand-placed village props (lanterns, candy canes) stood in the overpass road and
+// the train-stretch edge. Every GLB prop now keeps its footprint off EVERY road branch (2D, whatever the height: a prop
+// under the overpass still reads as standing in the road below it); offenders are dropped and counted.
+let propsDropped = 0;
 function obj(model, x, z, size, rotY, extra){ extra = extra || {}; const sy = extra.sy != null ? extra.sy : size;
+  if (nearest(x, z).d < HALF + 1.5 + size * 0.45){ propsDropped++; return; }
   objects.push({ id:"yr_o"+(++oi), tag:extra.tag || "", type:"glb", x:+x.toFixed(2), y:+((extra.y != null ? extra.y : seat(x,z) + sy*0.5)).toFixed(2), z:+z.toFixed(2),
     rotY:+(rotY||0).toFixed(3), sx:extra.sx != null ? extra.sx : size, sy, sz:extra.sz != null ? extra.sz : size, color:0, model }); }
 // RAMPS (physics jumps): seat the base on the road; alignRampsToTrack aims them down the road at load
@@ -161,7 +174,7 @@ scatter(230, 300, 45, 16, (x,z) => obj(PINES[(rnd()*4)|0], x, z, 7 + rnd()*4, rn
 scatter(205, 220, 40, 14, (x,z) => obj(["snow_ice_rocks_large","snow_ice_rocks_medium","snow_pile"][(rnd()*3)|0], x, z, 4 + rnd()*4, rnd()*6));
 scatter(-54, 226, 40, 10, (x,z) => obj(["snow_ice_rocks_medium","snow_ice_rocks_small","snow_pile"][(rnd()*3)|0], x, z, 3 + rnd()*3, rnd()*6), HALF+4);
 // village dressing beside the start straight: lanterns both sides, presents, candy canes, benches, sleds, a snow fort
-for (let z = -24; z <= 76; z += 12){ obj("snow_lantern", -HALF-3.5, z, 3.2, 0); obj("snow_lantern", HALF+3.5, z+6, 3.2, Math.PI); }
+for (let z = -24; z <= 76; z += 12){ obj("snow_lantern", -HALF-4.2, z, 3.2, 0); obj("snow_lantern", HALF+4.2, z+6, 3.2, Math.PI); }   // 4.2: clear of the half+2.5 barrier
 [[-16,6],[16,30],[-18,50],[17,-8]].forEach(([x,z],k) => obj(k%2 ? "snow_bench" : "snow_sled", x, z, 3.4, k*1.3));
 [[-15,-20],[14,64],[-14,70]].forEach(([x,z]) => obj("snow_candycane", x, z, 3.5, 0.4));
 [[-20,24],[20,12],[21,46],[-21,40],[-19,-6]].forEach(([x,z],k) => obj(k%2 ? "snow_present" : "snow_present_round", x, z, 2.2, k));
@@ -179,7 +192,8 @@ function ring(cx, cz, r, n){ const pts = []; for (let k = 0; k <= n; k++){ const
 // ROAD-EDGE WALLS: a track that defines ANY fence gets no automatic corridor walls from the game (RACE_FENCES uses
 // the drawn fences instead), so generate the corridor walls here and keep them with the paddock ring. Without them
 // bots running wide on the mountain climbed the glacier and the summit massif and launched 40 u off the road.
-for (const f of FK.corridorFences(sampled, WIDTH, 7)) fences.push(Object.assign({}, f, { id:"yr_wall_" + fences.length }));
+// height-blind FK.corridorFences left wall-less stretches here; tools/_fk_walls.cjs explains. The overpass span has its own walls.
+// (built after the track object below: the gates need its trains + crossings)
 fences.push({ id:"yr_fence_paddock", tag:"paddock", style:"rail", points:ring(PAST.x, PAST.z, PAST.r+2, 14), height:1.6, postGap:6 });
 const r3 = (v) => +v.toFixed(3);
 const track = {
@@ -206,6 +220,12 @@ const track = {
   trains:[{ id:"yr_train", points:[{x:-118,z:190},{x:-14,z:190},{x:-4,z:166},{x:-14,z:140},{x:-118,z:140},{x:-128,z:166}], speed:9, cars:4 }],
 };
 delete track.ramps;
+// walls: close barrier (half+2.5), open at the rail crossings, stepped out at the critter crossings, none on the overpass
+// or inside the glacier cave (both carry their own walls)
+const FKW = require("./_fk_walls.cjs"), G8 = FKW.gates(track, { C, N }, HALF);
+const WALLS = FKW.walls({ C, T, arcS, L, N }, HALF, { margin:2.5, tight:1.2, skipArc:[[F.overpass*L - 27, F.overpass*L + 27], [F.cave*L - 28, F.cave*L + 28]], skipNear:G8.skipNear, wideNear:G8.wideNear, prefix:"yr_wall_" });
+fences.splice(0, 0, ...WALLS);
+{ const kept = FKW.clearOfWalls(objects, WALLS); console.log("props under a wall dropped:", objects.length - kept.length); objects.length = 0; objects.push(...kept); }
 
 // =================== ASSEMBLE + PATCH ===================
 const j = (o) => JSON.stringify(o);
@@ -218,5 +238,6 @@ const si = src.indexOf(START), ei = src.indexOf(END);
 if (si < 0 || ei < 0){ console.error("YR markers not found in farmkart-track.js"); process.exit(1); }
 src = src.slice(0, src.indexOf("\n", si) + 1) + block + src.slice(ei);
 fs.writeFileSync(TRACK_JS, src);
+console.log("props dropped (road clearance)", propsDropped, "walls", WALLS.length, "wall pts", WALLS.reduce((a,w)=>a+w.points.length,0));
 console.log("patched yeti-ridge. len", L.toFixed(0), "terrain cells", ntc, "paint cells", Object.keys(pcells).length, "objects", objects.length,
   "fracs", JSON.stringify(Object.fromEntries(Object.entries(F).map(([k,v]) => [k, +v.toFixed(3)]))), "creek level", waters[0].y);

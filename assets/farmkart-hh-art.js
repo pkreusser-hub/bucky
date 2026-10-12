@@ -101,8 +101,11 @@
       if (o.type === 'ramp') r = 11;
       if (r > 0) obst.push({ x: o.x, z: o.z, r });
     }
-    const fenceSegs = [];       // polylines of the pasture fences
-    for (const f of (TR.fences || [])){ for (let i = 0; i + 1 < f.points.length; i++) fenceSegs.push([f.points[i], f.points[i + 1]]); }
+    const fenceSegs = [], wallSegs = [];       // polylines of the pasture fences / of the road-edge walls
+    // ROAD-EDGE WALLS (2026-10-12): tools/_hh_build.cjs now writes close barriers at half+2.5 ('corridor' tag). Dressing
+    // keeps the pasture fences' 2.2 u breathing room, but a road wall only needs the footprint clear of it - with the
+    // pasture rule nothing fit between the walls and the hedgerows (chevrons, ford dressing, barn lanterns, the windmill).
+    for (const f of (TR.fences || [])){ const into = f.tag === 'corridor' ? wallSegs : fenceSegs; for (let i = 0; i + 1 < f.points.length; i++) into.push([f.points[i], f.points[i + 1]]); }
     for (const p of (TR.pastures || [])) obst.push({ x: p.x, z: p.z, r: p.r + 2.5 });
     // train loop: same closed Catmull-Rom the game uses
     const railPts = [];
@@ -113,6 +116,7 @@
     function segDist(px, pz, a, b){ const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1e-9; let u = ((px - a.x) * dx + (pz - a.z) * dz) / l2; u = u < 0 ? 0 : u > 1 ? 1 : u; return Math.hypot(px - (a.x + dx * u), pz - (a.z + dz * u)); }
     function railD(x, z){ let m = 1e9; for (let i = 0; i < railPts.length; i++){ const d = Math.hypot(x - railPts[i].x, z - railPts[i].z); if (d < m) m = d; } return m; }
     function fenceD(x, z){ let m = 1e9; for (const s of fenceSegs){ const d = segDist(x, z, s[0], s[1]); if (d < m) m = d; } return m; }
+    function wallD(x, z){ let m = 1e9; for (const s of wallSegs){ const d = segDist(x, z, s[0], s[1]); if (d < m) m = d; } return m; }
     const wet = (x, z) => ctx.waterSurfaceAt ? ctx.waterSurfaceAt(x, z) != null : false;
     // spatial hash for own claimed circles
     const OH = 14, ohash = new Map();
@@ -133,6 +137,7 @@
       if (roadD(x, z) < hw + MARGIN + r) return false;
       if (!o.noRail && railPts.length && railD(x, z) < 5.5 + r) return false;
       if (!o.noFence && fenceSegs.length && fenceD(x, z) < 2.2 + r) return false;
+      if (!o.noFence && wallSegs.length && wallD(x, z) < 0.3 + r) return false;
       if (!o.noObj) for (const b of obst){ if (Math.hypot(b.x - x, b.z - z) < b.r + r + 1.2) return false; }
       if (!o.wet && (wet(x, z) || wet(x + r, z) || wet(x - r, z) || wet(x, z + r) || wet(x, z - r))) return false;
       if (!o.noOwn && !ownFree(x, z, r)) return false;
@@ -853,7 +858,7 @@
         if (Math.abs(cv) < 0.015 || s - lastS < 12) continue;
         // inside of a bend is the n-side with sign(cv) (matches the curb code); boards stand on the OUTSIDE
         const side = -(cv > 0 ? 1 : -1);
-        const q = atS(s, side * (hw + 4.3));
+        const q = atS(s, side * (hw + 5.2));        // 5.2 (was 4.3): just behind the half+2.5 road wall
         if (!ok(q.x, q.z, 1.7)) continue;
         const dir = cv > 0 ? 1 : -1;               // +1: bend toward +n side
         // driver looks along +t; panel faces the driver (local +z = -t); local +x = driver's right = -n side
@@ -951,13 +956,13 @@
         if (sMax - sMin > 80) { sMin = 1e9; sMax = -1e9; for (let i = 0; i < N; i++) if (inb(i)){ const a = AS[i] > TLEN / 2 ? AS[i] - TLEN : AS[i]; sMin = Math.min(sMin, a); sMax = Math.max(sMax, a); } }
         // warning boards on approach
         for (const [ds, side, lines] of [[-30, 1, ['BARNYARD', 'AHEAD']], [-30, -1, ['SLOW', 'COWS']]]){
-          const q = atS(sMin + ds, side * (hw + 4.6));
+          const q = atS(sMin + ds, side * (hw + 5.2));   // behind the road wall (was 4.6)
           if (ok(q.x, q.z, 2.0)){ addSign(q.x, q.z, Math.atan2(-q.tx, -q.tz), 3.2, 1.8, lines, '#fff1d0', '#c9362b'); claim(q.x, q.z, 2.2, 'sign'); }
         }
         // lantern posts on both edges across the barn span
         let nL = 0;
         for (let s = sMin - 4; s <= sMax + 4; s += 11) for (const side of [1, -1]){
-          const q = atS(s, side * (hw + 3.4));
+          const q = atS(s, side * (hw + 3.9));      // behind the road wall (was 3.4)
           if (!ok(q.x, q.z, 0.8)) continue;
           const y0 = H(q.x, q.z);
           kit.place(q.x, y0, q.z, 0, k => { k.cyl(0.13, 3.6, 0, 0, 0, PAL.woodD, 0.04, 6); k.box(0.9, 0.12, 0.12, 0.35, 3.4, 0, PAL.woodD, 0.03); k.cyl(0.02, 0.25, 0.7, 3.2, 0, 0x2b1a12, 0, 4); k.box(0.34, 0.1, 0.34, 0.7, 3.2, 0, 0x2b1a12, 0.02); k.box(0.34, 0.1, 0.34, 0.7, 3.62, 0, 0x2b1a12, 0.02); });

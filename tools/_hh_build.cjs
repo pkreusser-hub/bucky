@@ -65,7 +65,11 @@ const waters=[ {id:"hh_ford",x:213,z:-79,y:-0.35}, {id:"hh_pond",x:POND.x,z:POND
 
 // =================== OBJECTS (props) ===================
 let oi=0; const objects=[];
+// ROAD CLEARANCE (2026-10-12, Yeti Ridge playtest scan): an untagged prop whose footprint reaches the road is dropped
+// (a crate by the coop stood 0.1 u inside the lane at kart height). Tagged set pieces are placed deliberately.
+let propsDropped=0;
 function obj(model,x,z,size,rotY,extra){ const sy=(extra&&extra.sy!=null)?extra.sy:size;
+  if(!(extra&&extra.tag) && nearestDist(x,z) < HALF + 0.5 + size*0.45){ propsDropped++; return null; }
   const o={ id:"hh_o"+(++oi), tag:(extra&&extra.tag)||"", type:"glb", x:+x.toFixed(2),
     y:+((extra&&extra.y!=null?extra.y:(seat(x,z)+sy*0.5))).toFixed(2), z:+z.toFixed(2),
     rotY:+(rotY||0).toFixed(3), sx:(extra&&extra.sx!=null)?extra.sx:size, sy:sy, sz:(extra&&extra.sz!=null)?extra.sz:size, color:0, model };
@@ -102,8 +106,8 @@ obj("west_haystack", 30, -4, 3.2, 0.3, {tag:"hay"});
 obj("surv_box", 26, 14, 2.2, 0.6);
 
 // ---- HOME-LANE FENCES (wooden ranch fence both sides; glb = visual only) ----
-lineAlong(0.965, 0.06, +1, 12.5, 7, (x,z)=>obj("farm_fence",x,z,5.2,0));
-lineAlong(0.965, 0.06, -1, 12.5, 7, (x,z)=>obj("farm_fence",x,z,5.2,0));
+// (2026-10-12) the home lane's decorative GLB fence rows at 12.5 u are gone: the real road-edge walls below now run
+// along it as a wooden fence (wallStyle "fence"), and the two rows side by side read as a double fence.
 
 // ---- PASTURE fences (procedural rings) + a few gate/props ----
 function ring(cx,cz,r,nseg){ const pts=[]; for(let k=0;k<=nseg;k++){ const a=k/nseg*Math.PI*2; const x=cx+Math.cos(a)*r, z=cz+Math.sin(a)*r; pts.push({x:+x.toFixed(1),z:+z.toFixed(1)}); } return pts; }
@@ -111,6 +115,13 @@ const fences=[
   { id:"hh_fence_pn", tag:"pasture", style:"rail", points:ring(95,170,17,14), height:1.6, postGap:6 },
   { id:"hh_fence_ps", tag:"pasture", style:"rail", points:ring(140,80,18,14), height:1.6, postGap:6 },
 ];
+// ROAD-EDGE WALLS (2026-10-12): the two pasture rings above are drawn fences, so the game built NO corridor walls for
+// Harvest Hollow (RACE_FENCES only auto-walls a fence-less track). Same fix as Yeti Ridge (tools/_fk_walls.cjs): a close
+// barrier at half+2.5 (inside the hedgerows and gantry posts), open at the rail crossing, stepped out at critter crossings,
+// and open across the ford pool (a fence does not run through a stream; the footbridge stands beside the road there).
+{ const HHT = FK.BUILTIN_TRACKS["harvest-hollow"], FKW = require("./_fk_walls.cjs"), G8 = FKW.gates(HHT, { C, N }, HALF);
+  for (const f of FKW.walls({ C, T, arcS, L, N }, HALF, { margin:2.5, tight:1.2, skipNear:G8.skipNear.concat([{ x:214, z:-81, r:18 }])   /* the measured off-road ford water spans x 200..228, z -94..-68 */, wideNear:G8.wideNear, prefix:"hh_wall_" })) fences.push(f);
+  const kept = FKW.clearOfWalls(objects, fences.filter((f) => /_wall_/.test(f.id))); console.log("props under a wall dropped:", objects.length - kept.length); objects.length = 0; objects.push(...kept); }
 
 // ---- CROP FIELDS (gold) beside the crop esses (right side ~s 0.36..0.55) ----
 const cropModels=["crops_cornStageD","crops_cornStageC","crops_wheatStageB","crops_cornStageD","crop_pumpkin"];
@@ -137,7 +148,10 @@ obj("rock_largeB", -30, -132, 5.5, 0.7); obj("rock_smallA", 6, -132, 4, 1.2);
 (function(){ const a=atFrac(0.883); const off=-25;
   const bx=a.x + a.nx*off, bz=a.z + a.nz*off;
   objects.push({ id:"hh_barn_open", tag:"open barn", type:"glb", model:"farm_open_barn",
-    x:+bx.toFixed(2), z:+bz.toFixed(2), y:+(seat(bx,bz)+8).toFixed(2), rotY:1.44, sx:16, sy:16, sz:16, color:0 }); })();
+    x:+bx.toFixed(2), z:+bz.toFixed(2), y:+(seat(bx,bz)+8).toFixed(2), rotY:1.44, sx:16, sy:16, sz:16, color:0 });
+  // the shipped barn (verified by _verify-fk-playtest) sits at -10.39,-73.17; this run computes 0.01 u off by rounding,
+  // so pin the shipped spot rather than churn the data
+  const b = objects[objects.length-1]; if (Math.abs(b.x+10.39) < 0.05 && Math.abs(b.z+73.17) < 0.05){ b.x = -10.39; b.z = -73.17; } })();
 obj("farm_silo", -58, -66, 13, 0, {tag:"silo"});
 obj("farm_chickencoop", -54, -44, 6, 0.8, {tag:"coop"});
 obj("west_haystack", -50, -78, 3, 0.4); obj("surv_barrel", -52, -54, 2.4, 0);
@@ -198,4 +212,5 @@ if(si<0||ei<0){ console.error("markers not found"); process.exit(1); }
 const startLineEnd=src.indexOf("\n",si)+1;   // keep the START comment line
 src=src.slice(0,startLineEnd)+block+src.slice(ei);
 fs.writeFileSync(TRACK_JS,src);
+console.log("props dropped (road clearance):",propsDropped);
 console.log("patched. terrain cells:",ntc,"objects:",objects.length,"paint cells:",Object.keys(pcells).length,"tuft cells:",Object.keys(tuftCells).length,"fences:",fences.length);
