@@ -146,7 +146,7 @@
     // texel = 2*half/size: desktop 56/2048 = 2.7 cm, phone 36/1024 = 3.5 cm (28 on a 1024 map read blocky)
     const sc = sun.shadow.camera, half = MOBILE ? 18 : 28;
     sc.left = sc.bottom = -half; sc.right = sc.top = half; sc.near = 1; sc.far = 220; sc.updateProjectionMatrix();
-    sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.05;
+    sun.shadow.bias = -0.0012; sun.shadow.normalBias = 0.12;   // 0.05 left speckle acne on the cream seat back + hay bale at chase distance (plate m-moo)
     TG.shadowHalf = half;
     scene.add(sun.target);
     // Every add anywhere toonifies the incoming subtree (track builders, async GLB props, entities,

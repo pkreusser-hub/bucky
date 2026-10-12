@@ -1437,3 +1437,31 @@ restaged: body mats MeshToon+skinning, ink hulls excluded from the body count (r
   their port. In this environment stale `http-server`s rooted at the MAIN checkout held all of them, so
   running the battery from a worktree silently tested main. Run port-shifted copies from the worktree's
   own tools/ dir (same ROOT) — the toon battery above was verified that way.
+
+# Farm Kart - HARVEST HOLLOW storybook art pass (2026-10-12)
+
+`assets/farmkart-hh-art.js` (`window.FK_HH_ART.build(scene, ctx)` + `update(dt, t)`) dresses `?track=harvest-hollow` and nothing
+else. farmkart.html carries two hooks: one `if (ACTIVE_TRACK_ID === 'harvest-hollow')` block right after the start-line strip,
+and one `FK_HH_ART.update` line in the frame loop. Track data is untouched (_verify-harvesthollow stays 70/70). Scenery only.
+- LOOK: golden-afternoon sky dome (+ sun disc), haze fog 0xf3dfba, outlined cumulus ring that follows the camera and drifts,
+  a skirt mesh that continues the ground past its edge into rolling far hills + three gumdrop-hill layers + far farm silhouettes.
+  Ground vertex colours are rewritten (mown verge stripes, soft meadow patches, tilled fields where the track paints gold, yard,
+  ford sand). Road = canvas texture (ruts, pebbles, mottling) on a rebuilt ribbon with UVs; candy-stripe prism curbs on bends;
+  cream centre dashes on straights. Lights are retuned for this track only (hemi .52 / sun .68) so the toon lit band lands on the
+  picked colour (the generic sun preset over-exposed it).
+- LANDMARKS: start gantry (checker strip, banner, bunting, flags; beam bottom >= 6u over the road), hay-bale grandstand + 20
+  cheering critters, corner chevron boards, working windmill (the static GLB windmill is hidden by position once it loads),
+  barn lanterns/signs/clutter, ford footbridge + stepping stones + reeds/lily pads/sparkles, pond ducks, scarecrows, tractor +
+  wagon, mailbox, beehives, laundry line, picket fence, fruit orchard, hedgerows, stone walls, flowers, boulders, crop rows.
+- HOW: a Kit bakes primitives into 110u spatial chunks with vertex colours + per-vertex ink + per-vertex sway weight; the ink
+  hull is extruded in the vertex shader (hull normal = ellipsoid-radial, so any convex primitive is watertight) and the wind
+  wobble is a vertex-shader sin driven by one uniform. Pieces with ink 0 get NO hull (a BackSide hull over a double-wound leaf
+  paints it black - that bug cost an hour). Animated things (crowd, ducks, birds, butterflies, leaves, sparkles) are instanced.
+- PLACEMENT RULE: `ok(x,z,r)` = road edge + 2u + r, 5.5u off the rail loop, off fences/objects/water/own claims. First pass put
+  signs at hw+3.6 with r 1.7 and every one was rejected - offsets must be >= hw + 2 + r. Flat roads build the bed as ONE span
+  (N*2 verts, not 9 columns), so "find the road mesh" must take the first N*2 mesh, not N*9.
+- PERF (swiftshader chase poses, calls / tris, art blocked -> on): start 311->450 / 100k->201k; crops 70->220 / 101k->242k;
+  ford 49->179 / 92k->191k; barn 49->151 / 92k->163k. Phone profile (pointer:coarse) builds 128k art tris vs 199k desktop
+  (half the scatter, no ink hull on small props, fewer clouds). Further cut available: skip the crop rows on phones.
+- VERIFY: `node tools/_verify-fk-hh.cjs` 39/39 (isolation on moo-moo-farm, landmarks, every vertex vs the centreline, toon/basic
+  materials, animation, perf budget, phone profile, 0 pageerrors); against the pre-change app it is 4 pass / 35 fail.

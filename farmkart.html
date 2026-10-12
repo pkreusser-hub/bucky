@@ -715,6 +715,8 @@
   <script src="assets/farmkart-styles/fks-rig.js"></script>
   <script src="assets/farmkart-toon-game.js"></script>
   <script src="assets/farmkart-items.js"></script>
+  <!-- HARVEST HOLLOW hero-course art pass (only runs on ?track=harvest-hollow) -->
+  <script src="assets/farmkart-hh-art.js"></script>
   <script>
   "use strict";
   /* ============================================================================
@@ -1708,6 +1710,19 @@
       grp.add(m);
     }
     scene.add(grp);
+  }
+
+  // HARVEST HOLLOW ART PASS (FK_HH_ART, assets/farmkart-hh-art.js): sky dome, clouds, hills, re-coloured ground + road,
+  // curbs, landmarks, crops, critters. Scenery only (no physics); built ONLY on this track. Updated per frame below.
+  let HH_ART = null;
+  if (ACTIVE_TRACK_ID === 'harvest-hollow' && window.FK_HH_ART && window.FK_TOON){
+    HH_ART = FK_HH_ART.build(scene, {
+      camera, renderer, sampleHeight, groundSampleHeight, centerPts, tangents, arcS, TRACK_WIDTH, TRACK_LEN, nearestCenterInfo, ACTIVE_TRACK,
+      FINISH, waterSurfaceAt, getSkyObj:()=>SKY_OBJ, IS_MOBILE:(typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches)
+    });
+    // the course brings its own golden-afternoon dome + cumulus, so the generic toon sky (setSky's
+    // fkToonSky group: dome + inked cloud ring) would double up behind it — hide it on this track only
+    if (HH_ART && SKY_OBJ) SKY_OBJ.traverse(o => { if (o.name === 'fkToonSky') o.visible = false; });
   }
 
   // ---------- kart meshes (K3.5: one VIEW per player id, built from shared geometry) ----------
@@ -9803,6 +9818,7 @@
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SEA_GROUP.userData.animate) SEA_GROUP.userData.animate(now*0.001);       // global-sea ripple
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
+    if (HH_ART) FK_HH_ART.update(dt, now*0.001);   // HARVEST HOLLOW art: windmill sails, crowd, birds, wind sway, water sparkle
     if (SKYWAY_GROUP && SKYWAY_GROUP.userData.update) SKYWAY_GROUP.userData.update(dt, camera);  // wave-2 skyway star twinkle
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
     if (TRAFFIC_GROUP.userData.update) TRAFFIC_GROUP.userData.update(dt);         // civilian traffic (Toad's Turnpike) — drives at all times
