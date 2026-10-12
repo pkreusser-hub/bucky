@@ -1387,3 +1387,53 @@ updateLightningBolts` (delegates), the pool (`spawnParticle`/`updateParticles` d
 - Lathe profiles must run bottom -> top or the faces point inward and only the ink hull renders (hay bale showed as a black disc).
   Colour lathe bands by ROW (thresholds exactly on profile ring values) or the triangle centroids zig-zag the band edge.
 VERIFY: `node tools/_verify-fk-itemfx.cjs` (110 checks). Regressions: items 24/24, hud-defaults PASS, mobile 119, tankbattle 75/75.
+
+# 🎨 Farm Kart — STORYBOOK TOON is the game's look (2026-10-12, branch, fk-toon workstream)
+
+`assets/farmkart-toon-game.js` (loaded after `farmkart-toon.js` + `farmkart-styles/fks-rig.js`) turns the
+prototype's Storybook Toon into farmkart.html on every track. Hooks in farmkart.html are one-liners:
+`FK_TOON_GAME.install` (scene setup), `buildSky`/`frame` (setSky), `retuneLights` + `decorateMovers`
+(after the per-track light overrides), `decorateProps` (async GLB props), `worldBuilt` (after the local
+kart view), `inkLod` + driver sync (syncKartView), `podiumCheer` (Podium.update).
+- **Live toonify, not a rebuild of every builder.** `Object3D.prototype.add` is wrapped: every subtree
+  added anywhere has its lit materials swapped for `MeshToon` via `FK_TOON.convertMaterial`, plus a
+  1.5 s sweep for runtime `mesh.material = ...` swaps. GOTCHA that shaped it: a swapped material breaks
+  every reference game code still holds (ghost fade, boost/star glow, balloon pops, tank lifts). The toon
+  copy is therefore LIVE-LINKED: it shares the source's `color`/`emissive` Color objects and forwards
+  opacity/transparent/visible/maps/depth flags/`version` (so `src.needsUpdate = true` recompiles it).
+- **Entities get ink by rule:** scene-level adds after `worldBuilt()` (critters, cows, crows, item boxes,
+  turrets, gates, balloons) are inked if 0.12–4.5 u in radius and cast shadows; trains + traffic are
+  inked at boot (minR 0.35 — the dozen tiny bits per car were a draw call each); instanced GLB props get
+  ink scaled per instance, tiny submeshes skipped. Hulls follow the source material's visible/opacity.
+- **Ink LOD (measured):** ink px = t·514/d at 720p. 2 cm kart ink is 0.37 px at 28 u, 1.2 cm GLB-driver /
+  Gator ink 0.39 px at 16 u — hulls switch off past those (a GLB driver's hull is 47k skinned tris).
+- **Lights:** presets stay Lambert-era numbers; ONE rescale after setSky + overrides: hemi ×0.53, then
+  both scaled so the lit band = min(1.18, old hemi+sun) (day → 0.44 / 0.74, the prototype's numbers),
+  hemi ground 35% toward warm tan. Sun shadow: PCF 2048 (phone 1024, smaller box), box follows the view,
+  texel-snapped. GLB Tripo drivers do NOT cast (47k tris re-skinned per shadow pass).
+- **Sky:** every preset (incl. default 'day', which now goes through setSky — preset values = the boot
+  defaults) gets a gradient dome + one merged mesh of puffy inked clouds (2 calls); the 'clouds' preset's
+  alpha sprites are hidden, stars/moon/snow/sun-disc stay.
+- **Karts:** 3 merged meshes (paint/vertex-coloured body/lamps) + ink, fat toon wheels (outer r 0.26 =
+  `_TIRE_ROUT`, so tread planting is untouched), toon steering wheel (grips 58° off top), pennant flair.
+  Footprint unchanged. Seat surface at kart (0, 0.60, 0.10) = the prototype's wheel-to-seat relation for
+  the TUNE wheel at (0, 1.00, 0.36). **KART_RIDER_H is pinned to 1.57** (the old boot bbox measure, the
+  same for every procedural combo) — the toque + pennant must not move wading/drowning depths.
+- **Drivers:** bucky/otis/boots are skinned on the 21-bone rig, ONE vertex-coloured material + one ink
+  hull each (skinBuilder groups → vertex colours). `FKS.RacerAnimator` per driver; base/steer/drift from
+  the kart, one-shots on rising edges (spinT → hit, boostT → boost, airborne > 0.3 s → trick), cheer on
+  `p.finished`; hand IK to the grips. syncKartDriver now runs AFTER the hop/squash/bull transforms so the
+  IK solves against the frame's final pose. Bucky's toque is a separate head-bone mesh hidden by hats.
+  Full lock reach: the far grip is 0.412 from the shoulder vs 0.409 of arm → 0.3 cm miss (budget 2 cm).
+- GOTCHA: `FKS.geo.taperTube` winds inward (normals point in) — exhausts/horns/roll bar read as dark
+  hollow pipes with a pale rim. `tube()` in the toon-game file flips the winding.
+- Perf (probe, 12-kart pile-up at the start, seeded roster): calls wario 1220→216, harvest 394→314,
+  amen 566→294, moo 952→157. Tris rise (e.g. amen 532k→~0.86–1.1M) almost entirely from GLB-driver /
+  Gator ink + kart shadow pass while the whole field is within 16 u; it falls as the pack spreads.
+VERIFY: `node tools/_verify-fk-toon.cjs` 72/72 (pre-toon app: 18 pass / 54 fail). `_verify-glbdrivers`
+restaged: body mats MeshToon+skinning, ink hulls excluded from the body count (reason at the check).
+- GOTCHA (battery): the fixed-port suites (`_verify-items` 8851, `-glbdrivers` 8851, `-hud-defaults` 8853,
+  `-minimap` 8848, `-harvesthollow` 8877, `-farmkart-mobile` 8871) REUSE whatever server is already on
+  their port. In this environment stale `http-server`s rooted at the MAIN checkout held all of them, so
+  running the battery from a worktree silently tested main. Run port-shifted copies from the worktree's
+  own tools/ dir (same ROOT) — the toon battery above was verified that way.
