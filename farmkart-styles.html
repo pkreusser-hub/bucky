@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Farm Kart — Art Styles</title>
+  <style>
+    :root { --ink:#f6f1e7; --dim:#c9c1b2; --panel:rgba(22,18,14,.78); --line:rgba(255,255,255,.14); --hot:#ffb23f; }
+    * { box-sizing:border-box; }
+    html, body { margin:0; height:100%; background:#1b1611; color:var(--ink); font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
+    canvas#view { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+    [hidden] { display:none !important; }
+    .bar { position:fixed; left:12px; right:12px; top:max(10px, env(safe-area-inset-top)); display:flex; gap:8px; flex-wrap:wrap; align-items:center; pointer-events:none; }
+    .bar > * { pointer-events:auto; }
+    .title { font-weight:800; letter-spacing:.02em; background:var(--panel); border:1px solid var(--line); padding:7px 12px; border-radius:10px; }
+    .title small { font-weight:500; color:var(--dim); margin-left:6px; }
+    .seg { display:flex; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:3px; gap:3px; }
+    .seg button, .btns button { appearance:none; border:0; background:transparent; color:var(--ink); font:inherit; padding:6px 11px; border-radius:7px; cursor:pointer; white-space:nowrap; }
+    .seg button:hover, .btns button:hover { background:rgba(255,255,255,.08); }
+    .seg button.on { background:var(--hot); color:#2a1a05; font-weight:700; }
+    .side { position:fixed; right:12px; top:62px; width:236px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 10px 12px; max-height:calc(100% - 80px); overflow:auto; }
+    .side h3 { margin:6px 2px 6px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); font-weight:700; }
+    .btns { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+    .btns button { background:rgba(255,255,255,.06); padding:7px 8px; text-align:left; }
+    .btns button.on { background:var(--hot); color:#2a1a05; font-weight:700; }
+    .swatches { display:flex; gap:6px; flex-wrap:wrap; }
+    .swatches button { width:26px; height:26px; border-radius:50%; border:2px solid rgba(255,255,255,.25); cursor:pointer; }
+    .swatches button.on { border-color:#fff; box-shadow:0 0 0 2px var(--hot); }
+    label.chk { display:flex; gap:8px; align-items:center; padding:4px 2px; cursor:pointer; }
+    .wide { width:100%; margin-top:6px; appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.08); color:var(--ink); font:inherit; padding:8px; border-radius:8px; cursor:pointer; }
+    .wide:hover { background:rgba(255,255,255,.14); }
+    .card { position:fixed; left:12px; bottom:max(12px, env(safe-area-inset-bottom)); max-width:420px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 14px; }
+    .card b { font-size:16px; }
+    .card p { margin:4px 0 0; color:var(--dim); }
+    .labels { position:fixed; inset:0; pointer-events:none; }
+    .labels div { position:absolute; top:62px; font-weight:800; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:4px 10px; transform:translateX(-50%); white-space:nowrap; }
+    #note { position:fixed; left:50%; top:62px; transform:translateX(-50%); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; }
+    @media (max-width: 760px) {
+      .side { top:auto; bottom:max(10px, env(safe-area-inset-bottom)); left:10px; right:10px; width:auto; max-height:42%; }
+      .card { display:none; }
+      .title small { display:none; }
+      .labels div { top:auto; bottom:calc(42% + 18px); font-size:12px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div class="labels" id="labels"></div>
+  <div class="bar">
+    <div class="title">Farm Kart<small>art style prototypes</small></div>
+    <div class="seg" id="styleSeg"></div>
+    <div class="seg" id="viewSeg">
+      <button data-view="race">Race</button>
+      <button data-view="show">Showroom</button>
+      <button data-view="compare">Compare all</button>
+    </div>
+  </div>
+  <div class="side" id="side">
+    <h3>Racer animation</h3>
+    <div class="btns" id="animBtns">
+      <button data-anim="idle">Idle</button>
+      <button data-anim="drive">Drive</button>
+      <button data-anim="steerL">Steer left</button>
+      <button data-anim="steerR">Steer right</button>
+      <button data-anim="drift">Drift</button>
+      <button data-anim="boost">Boost</button>
+      <button data-anim="hit">Hit</button>
+      <button data-anim="trick">Trick</button>
+      <button data-anim="wave">Wave</button>
+      <button data-anim="cheer">Cheer</button>
+    </div>
+    <h3>Kart paint</h3>
+    <div class="swatches" id="paint"></div>
+    <h3>Options</h3>
+    <label class="chk"><input type="checkbox" id="turntable"> Turntable (showroom)</label>
+    <label class="chk" id="stepRow"><input type="checkbox" id="stepAnim" checked> Stop-motion timing</label>
+    <label class="chk"><input type="checkbox" id="slowmo"> Slow motion</label>
+    <button class="wide" id="exportBtn">Download kart + racer (.glb)</button>
+  </div>
+  <div class="card" id="card"><b id="cardName"></b><p id="cardBlurb"></p></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+  <script src="assets/farmkart-styles/fks-rig.js"></script>
+  <script src="assets/farmkart-styles/fks-toon.js"></script>
+  <script src="assets/farmkart-styles/fks-lowpoly.js"></script>
+  <script src="assets/farmkart-styles/fks-clay.js"></script>
+  <script>
+  (function(){
+    'use strict';
+    const STYLE_ORDER = ['toon','lowpoly','clay'].filter(id => FKS.styles[id]);
+    const PAINTS = [0xe5392f, 0xf2c53d, 0x3f7fe0, 0x4caf50, 0xff8ab0, 0x9c6b3f];
+    const qs = new URLSearchParams(location.search);
+
+    const canvas = document.getElementById('view');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.outputEncoding = THREE.LinearEncoding; // match farmkart.html: hex colours render as picked
+    renderer.shadowMap.enabled = true;
+    renderer.setScissorTest(false);
+
+    const track = FKS.makeTrack();
+    const UI = {
+      style: qs.get('style') && FKS.styles[qs.get('style')] ? qs.get('style') : STYLE_ORDER[0],
+      view: ['race','show','compare'].includes(qs.get('view')) ? qs.get('view') : 'race',
+      paint: PAINTS[0], turntable: false, stepAnim: true, slow: false, held: null,
+    };
+
+    // ---------------- one "stage" per style: its own scene, world, kart, racer, sim ----------------
+    const stages = {};
+    function makeStage(id){
+      const S = FKS.styles[id];
+      const scene = new THREE.Scene();
+      const world = S.buildWorld(scene, track);
+      const kart = S.buildKart(UI.paint);
+      const racer = S.buildRacer();
+      kart.seat.add(racer.group);
+      scene.add(kart.root);
+      const clips = FKS.buildClips();
+      const anim = FKS.RacerAnimator(racer, clips);
+      anim.grips = kart.grips;
+      const camera = new THREE.PerspectiveCamera(S.fov || 62, 1, 0.1, 900);
+      const puffs = [];
+      for (let i=0;i<28;i++){ const p = S.makePuff(); p.visible = false; scene.add(p); puffs.push({ m:p, life:0, max:1, v:new THREE.Vector3(), boost:false }); }
+      const st = {
+        id, S, scene, world, kart, racer, clips, anim, camera, puffs,
+        u: 0.0, speed: 0, lat: 0, yawFx: 0, spinFx: 0, boostT: 0, driftT: 0, squash: 0, t: 0,
+        stepAcc: 0, stepDt: 0, lastPad: -1, puffAcc: 0,
+        camPos: new THREE.Vector3(), camLook: new THREE.Vector3(), camInit: false,
+        orbit: null, steerHold: 0,
+      };
+      placeOnTrack(st, 0, true);
+      return st;
+    }
+    function stage(id){ return stages[id] || (stages[id] = makeStage(id)); }
+
+    function placeOnTrack(st, dt, snap){
+      const f = track.at(st.u);
+      const k = st.kart.root;
+      const pos = f.p.clone().addScaledVector(f.side, st.lat);
+      k.position.copy(pos); k.position.y += 0.02;
+      const yaw = Math.atan2(f.tan.x, f.tan.z);
+      const pitch = -Math.asin(Math.max(-1, Math.min(1, f.tan.y)));
+      k.rotation.set(pitch, yaw + st.yawFx + st.spinFx, 0, 'YXZ');
+      return f;
+    }
+
+    // ---------------- per-stage simulation ----------------
+    const SHOW_U = 0.955;
+    function simulate(st, dt, mode){
+      st.t += dt;
+      const A = st.anim, sim = { steer:0, drift:false, speed:0, accel:0, boost:0, squash:0, t:st.t };
+      if (mode === 'show'){
+        st.u = SHOW_U; st.lat = 0; st.speed = 0;
+        const driving = A.state.base === 'drive';
+        sim.speed = driving ? 12 : 0;
+        sim.steer = st.steerHold;
+        sim.drift = A.state.overlay === 'drift';
+        if (UI.turntable) st.yawFx += dt*0.5; else st.yawFx *= Math.exp(-dt*3);
+        if (sim.drift) sim.steer = 0.8;
+      } else {
+        // auto-driver: follows the loop, steers from curvature, drifts the tight bends, hits the pads
+        const f0 = track.at(st.u);
+        const want = st.boostT > 0 ? 27 : 18;
+        st.speed += (want - st.speed) * (1 - Math.exp(-dt*1.6));
+        if (st.spinFx !== 0){ st.speed *= Math.exp(-dt*1.5); }
+        st.u = (st.u + st.speed*dt/track.length) % 1;
+        const ahead = track.at(st.u + 6/track.length);
+        let steer = Math.max(-1, Math.min(1, ahead.curv * 14));
+        if (st.steerHold) steer = st.steerHold;
+        sim.steer = steer;
+        const drifting = Math.abs(ahead.curv) > 0.045 && st.spinFx === 0;
+        st.driftT += ((drifting?1:0) - st.driftT) * (1 - Math.exp(-dt*5));
+        sim.drift = st.driftT > 0.5;
+        st.yawFx = Math.sign(steer) * st.driftT * 0.32;
+        st.lat += ((-Math.sign(steer) * st.driftT * 1.2 + Math.sin(st.t*0.35)*1.4) - st.lat) * (1 - Math.exp(-dt*1.5));
+        // boost pads
+        for (let i=0;i<track.boostPads.length;i++){
+          const pu = track.boostPads[i], d = ((st.u - pu) % 1 + 1) % 1;
+          if (d < 0.004 && st.lastPad !== i){ st.lastPad = i; triggerBoost(st); }
+        }
+        if (A.state.base !== 'drive') A.setBase('drive');
+        sim.speed = st.speed;
+        sim.accel = (want - st.speed) / 10;
+        if (A.state.overlay === null && sim.drift) { /* drift layer is driven by input below */ }
+      }
+      // spin-out after a hit
+      if (st.spinFx !== 0){ st.spinFx += dt * 9; if (st.spinFx >= Math.PI*2) st.spinFx = 0; }
+      st.boostT = Math.max(0, st.boostT - dt);
+      sim.boost = st.boostT > 0 ? 1 : 0;
+      st.squash *= Math.exp(-dt*7); sim.squash = st.squash;
+      placeOnTrack(st, dt);
+
+      // racer + kart rig (stepped for stop-motion styles)
+      const step = st.S.stepFps && UI.stepAnim ? 1/st.S.stepFps : 0;
+      const input = { steer: sim.steer, drift: sim.drift || A.state.overlay === 'drift' };
+      if (step){
+        st.stepAcc += dt;
+        if (st.stepAcc >= step){
+          const d = st.stepAcc; st.stepAcc = 0;
+          st.kart.update(d, sim); A.update(d, input);
+        }
+      } else { st.kart.update(dt, sim); A.update(dt, input); }
+
+      // exhaust puffs / boost flames
+      st.puffAcc += dt * (sim.boost ? 32 : (sim.speed > 1 ? 7 : 4));
+      while (st.puffAcc >= 1){ st.puffAcc -= 1; emitPuff(st, !!sim.boost); }
+      for (const p of st.puffs){
+        if (p.life <= 0) continue;
+        p.life -= dt; if (p.life <= 0){ p.m.visible = false; continue; }
+        p.m.position.addScaledVector(p.v, dt);
+        const a = 1 - p.life/p.max;
+        st.S.animPuff(p.m, a, p.boost);
+      }
+      if (st.world.update) st.world.update(dt, st.t, st);
+    }
+    const _v = new THREE.Vector3();
+    function emitPuff(st, boost){
+      const ex = st.kart.exhausts; if (!ex.length) return;
+      const p = st.puffs.find(p=>p.life<=0); if (!p) return;
+      const o = ex[(Math.random()*ex.length)|0];
+      o.getWorldPosition(p.m.position);
+      st.kart.root.getWorldDirection(_v);
+      // puffs inherit most of the kart's velocity so the trail stays short behind it
+      p.v.copy(_v).multiplyScalar(st.speed*0.75 - (boost?4:1.2)).add(new THREE.Vector3((Math.random()-0.5)*0.6, 0.8+Math.random()*0.6, (Math.random()-0.5)*0.6));
+      p.max = p.life = boost ? 0.35 : (st.speed > 1 ? 0.5 : 0.9); p.boost = boost; p.m.visible = true;
+      st.S.animPuff(p.m, 0, boost);
+    }
+    function triggerBoost(st){ st.boostT = 1.3; st.anim.play('boost'); st.squash = 0.6; }
+
+    // ---------------- cameras ----------------
+    function chaseCam(st, dt, cam){
+      const k = st.kart.root;
+      const f = track.at(st.u);
+      const back = f.tan.clone().multiplyScalar(-5.4); back.y = 0;
+      const want = k.position.clone().add(back).add(new THREE.Vector3(0, 2.3, 0));
+      const look = k.position.clone().addScaledVector(f.tan, 3).add(new THREE.Vector3(0, 1.1, 0));
+      if (!st.camInit){ st.camPos.copy(want); st.camLook.copy(look); st.camInit = true; }
+      const a = 1 - Math.exp(-dt*6);
+      st.camPos.lerp(want, a); st.camLook.lerp(look, a);
+      const gy = track.groundY(st.camPos.x, st.camPos.z, st.world.hills||0) + 0.8;
+      if (st.camPos.y < gy) st.camPos.y = gy;
+      cam.position.copy(st.camPos); cam.lookAt(st.camLook);
+    }
+    let orbit = null;
+    function ensureOrbit(st){
+      if (!orbit){ orbit = new THREE.OrbitControls(st.camera, canvas); orbit.enableDamping = true; orbit.dampingFactor = 0.08; orbit.minDistance = 2.2; orbit.maxDistance = 14; orbit.maxPolarAngle = Math.PI*0.49; }
+      if (orbit.object !== st.camera){ orbit.object = st.camera; }
+      const kp = st.kart.root.position;
+      if (!st.orbitInit){
+        const f = track.at(SHOW_U);
+        st.camera.position.copy(kp).addScaledVector(f.tan, 4.2).addScaledVector(f.side, 2.6).add(new THREE.Vector3(0,1.9,0));
+        st.orbitInit = true;
+      }
+      orbit.target.set(kp.x, kp.y + 0.95, kp.z);
+      orbit.enabled = true;
+      return orbit;
+    }
+    function showCam(st, dt, cam, interactive){
+      if (interactive){ ensureOrbit(st).update(); return; }
+      const kp = st.kart.root.position, f = track.at(SHOW_U);
+      cam.position.copy(kp).addScaledVector(f.tan, 4.2).addScaledVector(f.side, 2.6).add(new THREE.Vector3(0,1.9,0));
+      cam.lookAt(kp.x, kp.y+0.95, kp.z);
+    }
+    function aimSun(st){
+      const sun = st.world.sun; if (!sun) return;
+      const kp = st.kart.root.position;
+      sun.target.position.copy(kp); sun.position.copy(kp).add(st.world.sunOffset);
+      sun.target.updateMatrixWorld();
+    }
+
+    // ---------------- render loop ----------------
+    const labels = document.getElementById('labels');
+    let last = performance.now(), frozen = false;
+    function size(){
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, true);
+      return { w, h };
+    }
+    let dims = size();
+    window.addEventListener('resize', ()=>{ dims = size(); });
+
+    function applyRenderer(S){
+      renderer.toneMapping = S.toneMapping != null ? S.toneMapping : THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = S.exposure || 1;
+      const type = S.shadowType != null ? S.shadowType : THREE.PCFSoftShadowMap;
+      if (renderer.shadowMap.type !== type){ renderer.shadowMap.type = type; renderer.shadowMap.needsUpdate = true; }
+    }
+    function renderStage(st, x, y, w, h){
+      st.camera.aspect = w / h; st.camera.updateProjectionMatrix();
+      applyRenderer(st.S);
+      if (st.S.lowRes){ /* reserved */ }
+      renderer.setViewport(x, y, w, h); renderer.setScissor(x, y, w, h);
+      renderer.render(st.scene, st.camera);
+    }
+
+    function frame(now){
+      requestAnimationFrame(frame);
+      let dt = Math.min(0.05, (now - last)/1000); last = now;
+      if (frozen) dt = 0;
+      if (UI.slow) dt *= 0.25;
+      const ids = UI.view === 'compare' ? STYLE_ORDER : [UI.style];
+      const mode = UI.view === 'show' ? 'show' : 'race';
+      for (const id of ids){
+        const st = stage(id);
+        simulate(st, dt, UI.view === 'compare' ? 'race' : mode);
+        if (UI.view === 'show') showCam(st, dt, st.camera, true);
+        else chaseCam(st, dt, st.camera);
+        aimSun(st);
+      }
+      if (orbit) orbit.enabled = UI.view === 'show';
+      if (UI.view === 'compare'){
+        renderer.setScissorTest(true);
+        const n = ids.length, portrait = dims.h > dims.w;
+        const html = [];
+        ids.forEach((id, i)=>{
+          let x, y, w, h;
+          if (portrait){ w = dims.w; h = Math.floor(dims.h/n); x = 0; y = dims.h - (i+1)*h; }
+          else { w = Math.floor(dims.w/n); h = dims.h; x = i*w; y = 0; }
+          renderStage(stages[id], x, y, w, h);
+          if (portrait) html.push(`<div style="left:50%;top:${i*h + 8 + (i===0?52:0)}px">${FKS.styles[id].name}</div>`);
+          else html.push(`<div style="left:${x + w/2}px">${FKS.styles[id].name}</div>`);
+        });
+        if (labels.dataset.k !== html.join('')){ labels.innerHTML = html.join(''); labels.dataset.k = html.join(''); }
+        renderer.setScissorTest(false);
+      } else {
+        if (labels.dataset.k){ labels.innerHTML = ''; labels.dataset.k = ''; }
+        renderStage(stage(UI.style), 0, 0, dims.w, dims.h);
+      }
+    }
+
+    // ---------------- UI wiring ----------------
+    const styleSeg = document.getElementById('styleSeg');
+    STYLE_ORDER.forEach(id => { const b = document.createElement('button'); b.dataset.style = id; b.textContent = FKS.styles[id].name; styleSeg.appendChild(b); });
+    const paintRow = document.getElementById('paint');
+    PAINTS.forEach(c => { const b = document.createElement('button'); b.style.background = '#'+c.toString(16).padStart(6,'0'); b.dataset.c = c; b.title = 'Paint'; paintRow.appendChild(b); });
+
+    function syncUI(){
+      styleSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', UI.view !== 'compare' && b.dataset.style === UI.style));
+      document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.view === UI.view));
+      paintRow.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.c === UI.paint));
+      const S = FKS.styles[UI.style];
+      document.getElementById('cardName').textContent = UI.view === 'compare' ? 'All three, same lap' : S.name;
+      document.getElementById('cardBlurb').textContent = UI.view === 'compare' ? 'Same skeleton, same clips, same kart rig. Only the geometry, materials, light and sky change.' : S.blurb;
+      document.getElementById('stepRow').hidden = !S.stepFps || UI.view === 'compare';
+      const st = stages[UI.style];
+      document.querySelectorAll('#animBtns button').forEach(b => {
+        const a = b.dataset.anim; let on = false;
+        if (st){
+          if (a === 'idle' || a === 'drive') on = st.anim.state.base === a && !st.anim.state.overlay;
+          else if (a === 'steerL') on = st.steerHold > 0; else if (a === 'steerR') on = st.steerHold < 0;
+          else on = st.anim.state.overlay === a;
+        }
+        b.classList.toggle('on', on);
+      });
+    }
+    styleSeg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; UI.style = b.dataset.style; if (UI.view === 'compare') UI.view = 'race'; syncUI(); });
+    document.getElementById('viewSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; setView(b.dataset.view); });
+    function setView(v){
+      UI.view = v;
+      for (const id in stages){ stages[id].camInit = false; stages[id].steerHold = 0; stages[id].anim.stop(); }
+      const st = stage(UI.style);
+      if (v === 'show'){ st.anim.setBase('idle'); st.orbitInit = false; st.spinFx = 0; }
+      syncUI();
+    }
+    paintRow.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; UI.paint = +b.dataset.c; for (const id in stages) stages[id].kart.setColor(UI.paint); syncUI(); });
+    document.getElementById('animBtns').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; play(b.dataset.anim); });
+    function play(a, id){
+      const ids = id ? [id] : (UI.view === 'compare' ? STYLE_ORDER : [UI.style]);
+      for (const sid of ids){
+        const st = stage(sid), A = st.anim;
+        if (a === 'idle' || a === 'drive'){ A.stop(); A.setBase(a); st.steerHold = 0; }
+        else if (a === 'steerL' || a === 'steerR'){ const s = a === 'steerL' ? 1 : -1; st.steerHold = st.steerHold === s ? 0 : s; if (UI.view === 'show') A.setBase('drive'); }
+        else if (a === 'boost'){ triggerBoost(st); }
+        else if (a === 'hit'){ A.play('hit'); st.spinFx = 0.0001; st.squash = 0.8; }
+        else if (a === 'trick'){ A.play('trick'); st.squash = 0.5; }
+        else if (A.state.overlay === a){ A.stop(); }
+        else { A.play(a); if (a === 'drift' && UI.view === 'show') A.setBase('drive'); }
+      }
+      syncUI();
+    }
+    document.getElementById('turntable').addEventListener('change', e => { UI.turntable = e.target.checked; });
+    document.getElementById('stepAnim').addEventListener('change', e => { UI.stepAnim = e.target.checked; });
+    document.getElementById('slowmo').addEventListener('change', e => { UI.slow = e.target.checked; });
+    setInterval(syncUI, 400);
+
+    // ---------------- GLB export: kart + seated racer + all clips ----------------
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const st = stage(UI.style);
+      const hidden = [];
+      st.kart.root.traverse(o => { if (o.userData.noExport && o.visible){ o.visible = false; hidden.push(o); } });
+      const save = { pos: st.kart.root.position.clone(), rot: st.kart.root.rotation.clone() };
+      st.kart.root.position.set(0,0,0); st.kart.root.rotation.set(0,0,0);
+      st.kart.root.updateMatrixWorld(true);
+      const clips = Object.values(st.clips).concat(FKS.kartClips(st.kart));
+      new THREE.GLTFExporter().parse(st.kart.root, (glb) => {
+        hidden.forEach(o => o.visible = true);
+        st.kart.root.position.copy(save.pos); st.kart.root.rotation.copy(save.rot);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([glb], { type:'model/gltf-binary' }));
+        a.download = 'farmkart-' + st.id + '.glb'; a.click();
+        setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+      }, { binary:true, animations: clips, onlyVisible:true });
+    });
+
+    // test + screenshot hook
+    window.__FKS__ = {
+      UI, stages, stage, track, setView, play, syncUI,
+      setStyle(id){ if (FKS.styles[id]) UI.style = id; syncUI(); },
+      freeze(v){ frozen = !!v; },
+      step(n, dt){ for (let i=0;i<n;i++){ const ids = UI.view === 'compare' ? STYLE_ORDER : [UI.style]; for (const id of ids){ const st = stage(id); simulate(st, dt||1/60, UI.view === 'show' ? 'show' : 'race'); if (UI.view === 'show') showCam(st, dt||1/60, st.camera, true); else chaseCam(st, dt||1/60, st.camera); aimSun(st); } } },
+      // put the active camera at an offset in the KART's local frame (screenshots / close-ups)
+      camAt(x, y, z, look){ const st = stage(UI.style), k = st.kart.root; k.updateMatrixWorld(true);
+        const p = k.localToWorld(new THREE.Vector3(x, y, z)), t = k.localToWorld(new THREE.Vector3(0, look == null ? 1.0 : look, 0));
+        st.camera.position.copy(p); if (orbit && UI.view === 'show'){ orbit.target.copy(t); orbit.update(); } st.camera.lookAt(t); st.orbitInit = true; },
+      setU(u){ for (const id in stages){ stages[id].u = u; stages[id].camInit = false; } },
+    };
+
+    stage(UI.style);
+    if (UI.view === 'show') setView('show');
+    syncUI();
+    requestAnimationFrame(frame);
+  })();
+  </script>
+</body>
+</html>
