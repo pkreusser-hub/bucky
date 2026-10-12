@@ -9267,38 +9267,26 @@
   async function fkReconcileTracksCloud(){
     await fkLobbyBackendReady;
     if (!Lobby.available) return;
-    try{
-      const snap = await Promise.race([
-        Lobby.fs.getDoc(fkTracksDocRef()),
-        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 3000))
-      ]);
-      const raw = snap.exists() ? snap.data().tracks : null;
-      if (typeof raw !== 'string') return;
-      const oldRaw = localStorage.getItem('fk_tracks_v1') || '{}';
-      if (raw === oldRaw) return;
-      let oldMap = {}, newMap = {};
-      try{ oldMap = JSON.parse(oldRaw) || {}; }catch(e){}
-      try{ newMap = JSON.parse(raw) || {}; }catch(e){}
-      localStorage.setItem('fk_tracks_v1', raw);
-      // "changed" MUST include the fresh-device case where there was no local entry at all
-      // (oldEntry === undefined) — that's exactly how a family device first learns of the
-      // cloud-decorated override and needs a one-time reload to adopt it.
-      const oldEntry = oldMap[ACTIVE_TRACK_ID], newEntry = newMap[ACTIVE_TRACK_ID];
-      const activeChanged = !!ACTIVE_TRACK_ID && !!newEntry &&
-        (oldEntry === undefined || JSON.stringify(oldEntry) !== JSON.stringify(newEntry));
-      const onMenuSolo = G.phase === 'menu' && !net.mp;
-      if (activeChanged && onMenuSolo){
-        let adopted = false;
-        try{ adopted = sessionStorage.getItem(FK_TRACKS_ADOPT_GUARD) === '1'; }catch(e){}
-        if (!adopted){
-          try{ sessionStorage.setItem(FK_TRACKS_ADOPT_GUARD, '1'); }catch(e){}
-          location.reload();
-          return;
-        }
+    // 2026-10-12: merge, never replace — FK_TRACK.cloudSyncTracks (assets/farmkart-track.js) keeps
+    // a track saved offline on this device instead of wiping it. READ-ONLY here (push:false): the
+    // game never writes the tracks doc; the editor pushes pending saves on its next boot or save.
+    const r = await FK_TRACK.cloudSyncTracks(Lobby.fs, Lobby.db, fkTracksDocRef(), { timeoutMs:4000, push:false });
+    if (!r.ok || !r.changed.length) return;   // offline/timeout — keep the local copy
+    // the active track changed (incl. a fresh device first learning of a cloud-decorated override)
+    // AND we're still on the start menu solo → reload ONCE so it takes effect
+    const activeChanged = !!ACTIVE_TRACK_ID && r.changed.indexOf(ACTIVE_TRACK_ID) >= 0 && !!r.map[ACTIVE_TRACK_ID];
+    const onMenuSolo = G.phase === 'menu' && !net.mp;
+    if (activeChanged && onMenuSolo){
+      let adopted = false;
+      try{ adopted = sessionStorage.getItem(FK_TRACKS_ADOPT_GUARD) === '1'; }catch(e){}
+      if (!adopted){
+        try{ sessionStorage.setItem(FK_TRACKS_ADOPT_GUARD, '1'); }catch(e){}
+        location.reload();
+        return;
       }
-      // mid-race / MP / already adopted this session: localStorage is updated, applies next load.
-      try{ populateTrackPicker(); }catch(e){}
-    }catch(err){ /* offline/timeout — keep the local copy */ }
+    }
+    // mid-race / MP / already adopted this session: localStorage is updated, applies next load.
+    try{ populateTrackPicker(); }catch(e){}
   }
   fkReconcileTracksCloud();
   window.__fkTrackSync = { fkReconcileTracksCloud, ADOPT_GUARD:FK_TRACKS_ADOPT_GUARD };

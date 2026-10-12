@@ -3312,8 +3312,128 @@
     return grp;
   }
 
+  // ============================================================================
+  //  CLOUD TRACK SYNC (2026-10-12). Saved tracks live in localStorage `fk_tracks_v1` (a map
+  //  id -> track) and in ONE Firestore doc settings_<familyKey>/fkTracks
+  //  { tracks: JSON(map), stamps: JSON({id: savedAtMs}), updatedAt }. Shared by the game and the
+  //  editor so both follow exactly one rule. What it replaces: both pages REPLACED the local map
+  //  with the cloud one (a track saved offline vanished on the next pull) and the editor wrote its
+  //  WHOLE local map over the cloud doc (a stale device deleted every track saved elsewhere since).
+  //
+  //  THE RULE: the cloud copy wins, EXCEPT a local save the cloud has not confirmed yet ("pending",
+  //  kept in `fk_tracks_sync_v1`) whose save time is newer than the cloud's stamp for that id. Ids
+  //  that are only local and NOT pending are dropped — that is how a track renamed/removed in the
+  //  cloud stays gone (the toads-turnpike-old shadow in docs/farm-kart.md) instead of a stale device
+  //  re-uploading it. A push is a Firestore TRANSACTION (read → merge → write, retried if another
+  //  device wrote in between), so two devices saving at once both land.
+  //  Stamps are device clocks: for the SAME track saved on two devices, the later clock wins.
+  // ============================================================================
+  const TRACK_MAP_KEY = 'fk_tracks_v1', SYNC_META_KEY = 'fk_tracks_sync_v1';
+  const LEGACY_STAMP = 1;   // "saved by pre-sync code": kept only if the cloud has no copy at all
+  function _readJSON(k){ try{ const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; }catch(e){ return null; } }
+  function _obj(o){ return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; }
+  function loadTrackMap(){ return _readJSON(TRACK_MAP_KEY) || {}; }
+  function loadSyncMeta(){
+    const m = _readJSON(SYNC_META_KEY);
+    if (!m){
+      // FIRST RUN of the sync code on this device: every track already saved here may never have
+      // reached the cloud (the old code dropped offline saves on the next pull). Treat them as
+      // pending at LEGACY_STAMP, which only fills ids the cloud doesn't have — never overrides one.
+      const pending = {};
+      for (const id in loadTrackMap()) pending[id] = LEGACY_STAMP;
+      return { stamps:{}, pending };
+    }
+    return { stamps:_obj(m.stamps), pending:_obj(m.pending) };
+  }
+  function saveSyncMeta(m){ try{ localStorage.setItem(SYNC_META_KEY, JSON.stringify({ stamps:_obj(m.stamps), pending:_obj(m.pending) })); }catch(e){} }
+  // Record a local save of `id` (call right after writing the track into fk_tracks_v1).
+  function noteTrackSaved(id, ms){
+    const m = loadSyncMeta(); const t = ms || Date.now();
+    m.stamps[id] = t; m.pending[id] = t; saveSyncMeta(m); return t;
+  }
+  // Pure: what the map should be after combining this device's local state with the cloud doc.
+  //   -> { map, stamps, pending }  where pending = the local saves that won and must be pushed.
+  function mergeTrackMaps(local, meta, cloudMap, cloudStamps){
+    local = _obj(local); meta = meta || {}; cloudMap = _obj(cloudMap); cloudStamps = _obj(cloudStamps);
+    const map = Object.assign({}, cloudMap), stamps = Object.assign({}, cloudStamps), pending = {};
+    const mp = _obj(meta.pending);
+    for (const id in mp){
+      const ms = +mp[id] || 0;
+      if (!local[id]) continue;                                   // nothing local to push
+      if (ms <= LEGACY_STAMP && cloudMap[id] !== undefined) continue;   // legacy entry: the cloud's copy wins
+      if ((+stamps[id] || 0) >= ms && cloudMap[id] !== undefined) continue;   // the cloud has this save or a newer one
+      map[id] = local[id]; stamps[id] = ms; pending[id] = ms;
+    }
+    return { map, stamps, pending };
+  }
+  function _parseCloud(snap){
+    if (!snap || !snap.exists()) return { exists:false, map:{}, stamps:{} };
+    const d = snap.data() || {};
+    let map = {}, stamps = {};
+    try{ map = _obj(JSON.parse(d.tracks || '{}')); }catch(e){}
+    try{ stamps = _obj(JSON.parse(d.stamps || '{}')); }catch(e){}
+    return { exists:true, map, stamps };
+  }
+  // Pull the cloud doc, merge, push any pending local saves (transaction), adopt the result locally.
+  //   fs = the Firestore module, db = the Firestore instance, ref = the fkTracks doc ref.
+  //   opts.push === false → READ-ONLY: merge + adopt, pending saves stay local (and pending) for
+  //   the editor to push. The GAME passes this: it never wrote to the cloud before and must not
+  //   start (a headless suite seeding fk_tracks_v1 without blocking Firestore would otherwise
+  //   publish its test track to the family on a machine with network).
+  //   -> { ok, changed:[ids whose local track changed], pushed:[ids written to the cloud], map }
+  //   Never throws; { ok:false, reason } offline / timeout (local state is left exactly as it was).
+  async function cloudSyncTracks(fs, db, ref, opts){
+    opts = opts || {};
+    const timeoutMs = opts.timeoutMs || 4000;
+    const before = loadTrackMap();
+    const work = (async ()=>{
+      const meta = loadSyncMeta();
+      const wantPush = opts.push !== false && Object.keys(meta.pending).length > 0;
+      let merged;
+      if (wantPush && fs.runTransaction){
+        merged = await fs.runTransaction(db, async (tx)=>{
+          const c = _parseCloud(await tx.get(ref));
+          const m = mergeTrackMaps(loadTrackMap(), loadSyncMeta(), c.map, c.stamps);
+          if (Object.keys(m.pending).length) tx.set(ref, { tracks:JSON.stringify(m.map), stamps:JSON.stringify(m.stamps), updatedAt:Date.now() });
+          return m;
+        });
+      } else {
+        const c = _parseCloud(await fs.getDoc(ref));
+        if (!c.exists) return { pushed:{}, cloudMap:null, cloudStamps:null };
+        // read-only: report what the CLOUD holds — not a merge with our pending saves, or the
+        // cleanup below would think the cloud already has them and drop them from pending
+        return { pushed:{}, cloudMap:c.map, cloudStamps:c.stamps };
+      }
+      // after a transaction, the merged result IS what the cloud now holds (or already held)
+      return { pushed:merged.pending, cloudMap:merged.map, cloudStamps:merged.stamps };
+    })();
+    let r;
+    try{
+      r = await Promise.race([work, new Promise((_, rej)=>setTimeout(()=>rej(new Error('timeout')), timeoutMs))]);
+    }catch(err){ return { ok:false, reason:(err && err.message) || 'error', changed:[], pushed:[] }; }
+    if (!r.cloudMap) return { ok:true, changed:[], pushed:[], map:before };
+    // Adopt — re-merged against the CURRENT local state, so a save made while we were waiting on
+    // the network (newer pending stamp) survives instead of being overwritten by what we fetched.
+    const nowLocal = loadTrackMap(), nowMeta = loadSyncMeta();
+    const fin = mergeTrackMaps(nowLocal, nowMeta, r.cloudMap, r.cloudStamps);
+    try{ localStorage.setItem(TRACK_MAP_KEY, JSON.stringify(fin.map)); }catch(e){ return { ok:false, reason:'storage', changed:[], pushed:[] }; }
+    // pending saves the cloud now holds (pushed, or superseded by a newer save elsewhere) are done
+    for (const id in nowMeta.pending){ if ((+r.cloudStamps[id] || 0) >= (+nowMeta.pending[id] || 0) && r.cloudMap[id] !== undefined) delete nowMeta.pending[id]; }
+    nowMeta.stamps = Object.assign({}, r.cloudStamps, fin.pending);
+    saveSyncMeta(nowMeta);
+    const changed = [];
+    for (const id of new Set(Object.keys(before).concat(Object.keys(fin.map)))){
+      if (JSON.stringify(before[id]) !== JSON.stringify(fin.map[id])) changed.push(id);
+    }
+    return { ok:true, changed, pushed:Object.keys(r.pushed), map:fin.map };
+  }
+  function pendingTrackIds(){ return Object.keys(loadSyncMeta().pending); }
+
   window.FK_TRACK = {
     VERSION:1, SAMPLES,
+    // cloud track sync (2026-10-12)
+    loadTrackMap, loadSyncMeta, saveSyncMeta, noteTrackSaved, mergeTrackMaps, cloudSyncTracks, pendingTrackIds,
+    TRACK_MAP_KEY, SYNC_META_KEY,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
     groundHills, sampleHeight, groundSampleHeight, naturalTunnelCoverAt, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, buildPaintedTufts, sampleField, sampleColor,

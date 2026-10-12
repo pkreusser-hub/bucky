@@ -1400,4 +1400,56 @@ camera and input layer are new. All in `farmkart.html`.
   stamps or a read-merge-write; merging naively would re-upload stale shadows like the
   toads-turnpike case above.
 
+# 🏁 Farm Kart — cloud track sync: merge, never replace (2026-10-12)
+
+Supersedes the "NOT fixed — needs a sync design" bullet above and the replace-the-map behaviour of
+the 2026-07-10 "cloud track sync" entry. User: "fix the farm kart sync".
+- **What was broken**: the game's `fkReconcileTracksCloud` and the editor's `fkEdPullCloud` REPLACED
+  localStorage `fk_tracks_v1` with the cloud map, so a track saved offline vanished on the next pull;
+  and the editor's `doSave` `setDoc`'d its WHOLE local map, so a device that hadn't pulled deleted
+  every track saved elsewhere since, and two simultaneous saves kept only the last.
+- **One shared rule** in `assets/farmkart-track.js` (both pages already load it):
+  `FK_TRACK.mergeTrackMaps` / `cloudSyncTracks` / `noteTrackSaved`. The cloud doc gains
+  `stamps: JSON({id: savedAtMs})` beside `tracks` (old readers ignore it; an old doc without it reads
+  as stamp 0). Locally, `fk_tracks_sync_v1 = {stamps, pending}` — pending = saves the cloud hasn't
+  confirmed. Merge: the cloud copy wins, EXCEPT a pending local save newer than the cloud's stamp for
+  that id. A local-only id that is NOT pending is dropped — that is what keeps a track renamed or
+  removed in the cloud (the toads-turnpike-old shadow above) from being re-uploaded by a stale device.
+- **Pushes are a Firestore transaction** (read → merge → write; the SDK retries if another device
+  wrote in between), so simultaneous saves both land. Adopting the result re-merges against the
+  CURRENT local state, so a save made while the network call was in flight survives.
+- **First run on a device** (no `fk_tracks_sync_v1` yet): every already-saved local track is treated
+  as pending at a LEGACY stamp (1) that only fills ids the cloud doesn't have and never overrides a
+  cloud copy — the old code could have left offline saves stranded on a device; this recovers them.
+- **Editor**: `doSave` writes locally + `noteTrackSaved`, then `cloudSyncTracks` (push). Toasts (no
+  emoji): saved to all devices / saved on this device, goes out next time it's online / another
+  device saved a NEWER copy of this id — the user's version stays open and dirty, saving again keeps
+  it (stamps are device clocks: the later save of the same id wins). The pull hot-reloads the open
+  track only when it changed and isn't dirty (unchanged from the guard batch).
+- **Game is READ-ONLY against the tracks doc** (`cloudSyncTracks(..., {push:false})`): it merges
+  (so an offline save is no longer wiped) and keeps the one-reload adopt of a changed active track,
+  but never writes — it never did, and a headless suite that seeds `fk_tracks_v1` with Firestore
+  unblocked would otherwise publish its test track to the family (`_verify-followterrain.cjs` did
+  exactly that shape; it now blocks Firebase like every other suite). Pending saves go out on the
+  next editor boot or save. GOTCHA hit building this: the read-only path must report the RAW cloud
+  map — returning the merge (cloud + our pending) made the cleanup think the cloud already had the
+  pending save and drop it, unpushed.
+- **GOTCHA**: an editor page that booted with NO connection can never reach Firebase that session —
+  the browser caches a failed module import for the page's life (Firebase's own internal imports
+  too), so a cache-busting retry can't work. Its saves stay pending and the next online editor or
+  game boot pushes them.
+- **VERIFY**: `node tools/_verify-fk-track-sync.cjs` **29/29** — A: the merge rules in node on the
+  shipped module (incl. a save landing mid-pull, offline leaves state untouched, legacy first run);
+  B: end to end, each browser context a family device over a FAKE Firestore SDK served in place of
+  the gstatic imports (the doc lives in the suite; a stale transaction read is refused like the real
+  service, a >1 MiB doc is refused, "offline" fails at the network): offline save survives the
+  game's pull with ZERO commits from the game and is pushed by the next editor boot, a stale
+  device's save doesn't delete another's track, a fully-offline-booted editor's save goes out on the
+  next boot, simultaneous saves both land after a refused commit, the game still adopts a changed
+  active track. Waits on "nothing pending", never fixed sleeps (the editor's scene rebuild on
+  loadTrack can hold a push for seconds under swiftshader — a 2 s sleep flaked). On the old code
+  **10/21** (offline track lost, the other device's track deleted, last writer only). Regression:
+  fk-editor-guards 11/11, fk-menu 56/56, hud-defaults, items, followterrain 12/12, tankbattle 75/75,
+  editor, fences.
+
 ---

@@ -27,11 +27,19 @@ async function main() {
   });
   const results = [];
   const ok = (name, cond, extra) => { results.push({ name, pass: !!cond, extra }); };
+  // 2026-10-12: block Firebase / Firestore / Playroom (CLAUDE.md "things that bite" #1). This suite
+  // seeds a test track into fk_tracks_v1 and, unblocked, the editor's cloud sync would publish it to
+  // the family's real track doc (it pushes local saves the cloud hasn't seen).
+  const blockCloud = async (pg) => {
+    await pg.setRequestInterception(true);
+    pg.on("request", (r) => (/playroom|googleapis|firestore|firebase|gstatic/i.test(r.url()) ? r.abort() : r.continue()));
+  };
   let allErrors = [];
 
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1.5 });
+    await blockCloud(page);
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e.message || e)));
 
@@ -155,6 +163,7 @@ async function main() {
     // ---------- Test 4: Editor ----------
     const epage = await browser.newPage();
     await epage.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+    await blockCloud(epage);
     const eerrors = [];
     epage.on("pageerror", (e) => eerrors.push(String(e.message || e)));
     await epage.goto(`${BASE}/farmkart-editor.html?track=wario-stadium`, { waitUntil: "networkidle0", timeout: 60000 });
