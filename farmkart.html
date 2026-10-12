@@ -873,6 +873,8 @@
   <script src="assets/farmkart-items.js"></script>
   <!-- HARVEST HOLLOW hero-course art pass (only runs on ?track=harvest-hollow) -->
   <script src="assets/farmkart-hh-art.js"></script>
+  <!-- YETI RIDGE course art pass (only runs on ?track=yeti-ridge) -->
+  <script src="assets/farmkart-yeti-art.js"></script>
   <script>
   "use strict";
   /* ============================================================================
@@ -1878,6 +1880,16 @@
     // fkToonSky group: dome + inked cloud ring) would double up behind it — hide it on this track only
     if (HH_ART && SKY_OBJ) SKY_OBJ.traverse(o => { if (o.name === 'fkToonSky') o.visible = false; });
   }
+  // YETI RIDGE ART PASS (FK_YETI_ART, assets/farmkart-yeti-art.js): winter sky + mountain ring, snow ground, packed-snow
+  // + ice road, candy-cane curbs, lodge village + start gantry, ski lift, glacier-cave ice, ski-jump tower, frozen lake with
+  // penguins, frozen falls, the waving yeti. Scenery only; built ONLY on this track. Updated per frame below.
+  let YR_ART = null;
+  if (ACTIVE_TRACK_ID === 'yeti-ridge' && window.FK_YETI_ART && window.FK_TOON){
+    YR_ART = FK_YETI_ART.build(scene, {
+      camera, renderer, sampleHeight, groundSampleHeight, centerPts, tangents, arcS, TRACK_WIDTH, TRACK_LEN, nearestCenterInfo, ACTIVE_TRACK,
+      FINISH, waterSurfaceAt, getSkyObj:()=>SKY_OBJ, getPlayers:()=>G.players, tunnelGroup:TUNNEL_GROUP, IS_MOBILE:(typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches)
+    });
+  }
 
   // ---------- kart meshes (K3.5: one VIEW per player id, built from shared geometry) ----------
   // Views are LOCAL-only render state (outside G), keyed by player id like G.players. The local
@@ -2109,7 +2121,8 @@
     { id:'corn',    name:'Corn Cup',    ico:'🌽', trackIds:['moo-moo-farm','luigi-raceway','mario-raceway','kalimari-desert'] },
     { id:'goat',    name:'Goat Cup',    ico:'🐐', trackIds:['amen-farms','koopa-troopa-beach','frappe-snowland','choco-mountain'] },
     { id:'tractor', name:'Tractor Cup', ico:'🚜', trackIds:['toads-turnpike','sherbet-land','dks-jungle-parkway','wario-stadium'] },
-    { id:'star',    name:'Star Cup',    ico:'🌟', trackIds:['royal-raceway','rainbow-road','choco-mountain','amen-farms'] },
+    // 2026-10-12: Yeti Ridge (new snow course) takes the Star Cup slot Choco Mountain held twice (it stays in the Goat Cup)
+    { id:'star',    name:'Star Cup',    ico:'🌟', trackIds:['royal-raceway','rainbow-road','yeti-ridge','amen-farms'] },
   ];
   const FK_CUP_BY_ID = {}; for (const c of FK_CUPS) FK_CUP_BY_ID[c.id] = c;
   // Mario-Kart-ish points-by-place for a 12-kart field (1st..12th).
@@ -10068,7 +10081,8 @@
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SEA_GROUP.userData.animate) SEA_GROUP.userData.animate(now*0.001);       // global-sea ripple
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
-    if (HH_ART) FK_HH_ART.update(dt, now*0.001);   // HARVEST HOLLOW art: windmill sails, crowd, birds, wind sway, water sparkle
+    if (HH_ART) FK_HH_ART.update(dt, now*0.001);
+    if (YR_ART) FK_YETI_ART.update(dt, now*0.001);   // YETI RIDGE art: lift chairs, penguins, bunnies, chimney smoke, the waving yeti   // HARVEST HOLLOW art: windmill sails, crowd, birds, wind sway, water sparkle
     if (SKYWAY_GROUP && SKYWAY_GROUP.userData.update) SKYWAY_GROUP.userData.update(dt, camera);  // wave-2 skyway star twinkle
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
     if (TRAFFIC_GROUP.userData.update) TRAFFIC_GROUP.userData.update(dt);         // civilian traffic (Toad's Turnpike) — drives at all times

@@ -1610,3 +1610,34 @@ read the cast GLBs). Retired suites: `_verify-glbdrivers.cjs`, `_verify-gator3d.
 `_verify-bucky3d.cjs`. `_verify-fk-toon.cjs` restaged (roster = 3 karts; section F now proves a stale
 gator3d+bucky3d loadout builds the toon Bucky kart + skinned toon Bucky, no 54-bone skeleton).
 Huey the goose has no procedural version yet — a toon Huey on the shared 21-bone rig is the way back.
+
+# Farm Kart — YETI RIDGE, the lead-designed snow course (2026-10-12)
+
+A new builtin, `yeti-ridge`, in the Star Cup (choco-mountain stays in the Goat Cup). It is a figure-8 with an overpass,
+designed and art-directed here rather than built from Tripo assets. Lap ~1493 u, width 16, 3 laps, bot lap ~62 s.
+- ROUTE: start village -> hairpin A (heading change 152 deg over 45 u) -> glacier ice cave (natural tunnel on a STRAIGHT) ->
+  summit climb under the ski lift -> SKI JUMP over a crevasse (peak 17.6 u above the road) -> frozen-lake sweep on painted ICE
+  with snowman crossings -> pine forest S with a goat crossing and slush -> GORGE JUMP over the frozen creek (peak ~10 u) ->
+  steam-train loop -> overpass back over the start straight (9 u clearance) -> the Yeti's hairpin home. Sharp turns
+  152/149/136/112.
+- DATA: `tools/_yr_build.cjs` generates the whole entry between the `YR_GEN_START/END` markers in `assets/farmkart-track.js`
+  (centreline, terrain sculpt, paint, objects, fences, crossings, pasture, train, water). Edit the generator and re-run it; never
+  hand-edit the generated block.
+- ART: `assets/farmkart-yeti-art.js` (`FK_YETI_ART`, built only when `ACTIVE_TRACK_ID === 'yeti-ridge'`) reuses the Harvest
+  Hollow Kit engine. It adds a winter sky dome, snow ground recolour, packed-snow road with a glassy ice overlay on the ICE span,
+  candy-cane curbs, an ice-crystal gantry, cabins with chimney smoke, a cocoa stand, a ski lift with moving chairs, ice-cave
+  portals, a frozen lake with fishing huts and skating penguins, frozen falls in the gorge, and a waving yeti.
+- LESSON, CORRIDOR WALLS: `RACE_FENCES` falls back to auto corridor walls ONLY when a track has no drawn fences. Yeti's
+  paddock fence silently removed every road wall. A bot then climbed the glacier dome and was thrown 41 u off the course.
+  The generator now writes `corridorFences()` walls itself. Harvest Hollow has the same gap.
+- LESSON, TERRAIN: a wide Gaussian average and then a nearest-road Voronoi split of road heights both made cliffs between
+  road branches at different heights. An inverse-distance blend (`w = (d^2+16)^-1.5`) plus a clamp under the overpass made it
+  smooth. Hard radius cut-offs on scenery terms (the mountain ring) make cliffs too, so ease them with `smooth()`.
+- LESSON, PAINT: `atFrac()` snaps to centreline samples ~3.7 u apart. Painting a band from it left comb-shaped holes in 4 u
+  paint cells on diagonals, and a kart read ICE on only 8 of 30 frames. `paintBand` now interpolates between samples (25/30).
+- LESSON, JUMPS: a boost pad right before a sharp kink makes karts miss the ramp that follows. The gorge got a straight
+  run-in instead. Ramps sit on straights, with entry speeds 10..28 m/s all launching and landing within 2.6 u of the centreline.
+- VERIFY: `node tools/_verify-yeti.cjs` 51/51. It covers data and sanitize (other builtins byte-identical to HEAD), geometry,
+  every feature, both jumps at 4 entry speeds with a scripted driver, a bot lap inside the walls, and the art pass (toon
+  materials, nothing in the road corridor, overhead clearance >= 6, animation, draw calls 451 <= 700, isolation on
+  moo-moo-farm). Bite: old paint plus old portal-crystal spacing gives 49/51, with exactly the two new checks failing.
