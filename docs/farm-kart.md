@@ -1323,3 +1323,33 @@ Battle MVP; name Cursor's concurrent Farm Party work in the commit).
   card-count assertions updated 3→4 cards / 1→2 playable for the new registry reality.
 
 ---
+
+# 🎨 Farm Kart — ART STYLE PROTOTYPES (2026-10-12, branch only, NOT in the game)
+
+`farmkart-styles.html` + `assets/farmkart-styles/fks-{rig,toon,lowpoly,clay}.js`. Three candidate
+replacements for the blocky box look, each with a kart, Bucky as racer, a course and a sky:
+**Storybook Toon** (3-band MeshToon ramp, inverted-hull ink outlines incl. on the skinned racer,
+chibi proportions), **Golden-Hour Low-Poly** (flatShading + per-triangle vertex colour, 21° sun,
+dusk sky + mountain rings), **Clay Toybox** (lumpy MeshStandard + thumbprint bump, PCFSoft,
+`stepFps:12` stop-motion stepping of the racer + kart rig, toggleable). Views: Race (auto-driver
+on a shared loop with boost pads + drift), Showroom (orbit), Compare all (3 scissor viewports).
+Download button exports kart + seated racer + every clip as a GLB.
+- **One rig for all styles** (`fks-rig.js`): 21-bone `THREE.Skeleton`, bind pose = the seated
+  driving pose with identity bind rotations, so clip keys are plain euler offsets. Styles only
+  author geometry via `FKS.skinBuilder()` (`rigid` / `limb` blends into child+parent at joints /
+  `along` for the torso). Clips: idle, drive, steerL/R, drift, boost, hit, trick, wave, cheer;
+  `clip.ik = {L,R}` says how much two-bone hand IK owns each arm. Kart contract: root → chassis
+  (roll/pitch/bob/squash) → seat / steerColumn → steerWheel → grip_L/R, wheelPivot_n → wheelSpin_n.
+- **Measured, not guessed:** the steering wheel must sit at kart **(0, 1.25, 0.16)** with
+  `wheelLock` 1.2 rad — at z 0.28 / lock 1.5 the left wrist missed its grip by 12.7 cm at full
+  lock (the suite's "hands follow the turned wheel" check failed at 0.123 before the move).
+- **Clip gotcha:** the upper arm's bind direction is 41° *below* forward, so an X offset θ aims
+  it at (−41° − θ). The first cheer used −150° and put the fists behind the head; −125° is overhead.
+- **Clay gotcha:** three's `bumpScale` is screen-space — 0.32 with a speckled canvas read as
+  knitted carpet at chase distance. Blurred map + ×0.025 scale reads as pressed clay.
+- r128 needs `material.skinning = true` on every skinned material (skinBuilder sets it); renderer
+  stays `LinearEncoding` like farmkart.html so hex colours render as picked.
+VERIFY: `node tools/_verify-fk-styles.cjs` **81/81** — per style: kart contract, 21 shared bones,
+skin weights sum to 1, every clip track binds, wrists < 2 cm from grips at rest and full lock,
+cheer fists above head, wave = left on / right off, hit → hands back, wheels roll, GLB has 1 skin
+× 21 joints + all 13 clips. Racer tris: toon 11.7k, low-poly 1.9k, clay 15.2k.
