@@ -129,13 +129,15 @@ lineAlong(0.575, 0.69, -1, 27, 15, (x,z,a,s)=>obj(orchardTrees[(s+1)%orchardTree
 obj("farm_tower_windmill", -6, -128, 17, 0.4, {tag:"windmill"});
 obj("rock_largeB", -30, -132, 5.5, 0.7); obj("rock_smallA", 6, -132, 4, 1.2);
 
-// ---- BARNYARD: open barn straddling the road + silo + coop + clutter (~s 0.87..0.93) ----
-// open barn over the chicane; shifted ~half a bay off the racing line so the mid support post
-// clears the driving line (the wide opening still spans the 18u road). Big + tall for camera clearance.
-(function(){ const a=atFrac(0.883); const yaw=Math.atan2(a.tx,a.tz); const off=5.5;
+// ---- BARNYARD: open barn BESIDE the road + silo + coop + clutter (~s 0.87..0.93) ----
+// 2026-10-12 family playtest: the barn used to straddle the road at scale 30 (a 43 x 33 x 25 u model
+// 5.5 u off the line) — one of its walls crossed the road with no collision, so karts and the camera
+// drove straight through solid planks. It now stands 25 u to the right of the line at scale 16 (near wall
+// ~16 u from centre vs the 9 u half-width), open side turned toward the road.
+(function(){ const a=atFrac(0.883); const off=-25;
   const bx=a.x + a.nx*off, bz=a.z + a.nz*off;
   objects.push({ id:"hh_barn_open", tag:"open barn", type:"glb", model:"farm_open_barn",
-    x:+bx.toFixed(2), z:+bz.toFixed(2), y:+(seat(bx,bz)+15).toFixed(2), rotY:+yaw.toFixed(3), sx:30, sy:30, sz:30, color:0 }); })();
+    x:+bx.toFixed(2), z:+bz.toFixed(2), y:+(seat(bx,bz)+8).toFixed(2), rotY:1.44, sx:16, sy:16, sz:16, color:0 }); })();
 obj("farm_silo", -58, -66, 13, 0, {tag:"silo"});
 obj("farm_chickencoop", -54, -44, 6, 0.8, {tag:"coop"});
 obj("west_haystack", -50, -78, 3, 0.4); obj("surv_barrel", -52, -54, 2.4, 0);

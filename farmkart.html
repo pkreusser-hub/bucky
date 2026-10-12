@@ -1941,6 +1941,8 @@
   // a bot — pops well, independent of how much it decelerated climbing) plus a speed bonus, scaled by
   // ramp height (small bump = small hop, tall ramp = big air), capped so it never flings absurdly.
   const RAMP_LAUNCH_BASE = 3.0, RAMP_LAUNCH_SPEEDF = 0.35, RAMP_LAUNCH_MAX = 16, RAMP_FULL_HEIGHT = 3;
+  const RAMP_AIR_GUIDE = 1.5;   // rad/s cap on the in-flight steer toward the road (see RAMP-JUMP GUIDANCE in stepKart)
+  const RAMP_AIR_LOOK = 16;     // m along the centreline the guidance aims at
   function rideHeight(sx, sz, seedY){
     return Math.max(sampleHeightAtY(sx, sz, seedY), groundSampleHeight(sx, sz), rampLift(sx, sz, seedY));
   }
@@ -3412,11 +3414,35 @@
         p.y = Math.max(p.y, p._rampY);   // seat at the ramp TOP — undo the nose-off-the-edge pitch drop
         p.vy = Math.min(RAMP_LAUNCH_MAX, RAMP_LAUNCH_BASE*steepF + spd*RAMP_LAUNCH_SPEEDF);
         p.rampJumped = true;       // one-shot for the whoosh + FX
+        p._rampAir = true;         // this flight came off a ramp -> guided (below) until touchdown
       }
+      if (!p.airborne) p._rampAir = false;
       // Airborne touchdown uses center; grounded ride uses the wheel-plane average.
       const groundYnew = p.airborne ? groundYcenter : plane.y;
       if (p.airborne){
         p.airT += dt;                        // accumulate airtime (gates landing effects)
+        // RAMP-JUMP GUIDANCE (2026-10-12 playtest: "the boost ramp shoots you off the course"). A ramp
+        // only adds lift, so a kart flies straight along whatever heading it had at the lip. Off Harvest
+        // Hollow's hay ramp that is ~36 m/s for ~1.7 s = ~60 m while the road keeps bending — measured
+        // landings 15-16 u off the centreline (road half-width 9) for the bot AI and the old build alike.
+        // While a RAMP flight lasts, ease heading + velocity toward the centreline ~16 m ahead at a capped
+        // turn rate. Crest hops and drives off ledges are untouched, and the driver's own air steering
+        // still applies on top. Wrong-way karts (velocity against the track) are left alone.
+        if (p._rampAir){
+          const nOn = FK_TRACK.nearestOnCenterAtY(_sampled, p.pos.x, p.pos.z, p.y, TRACK_WIDTH);
+          const tn = tangents[nOn.idx], vS = Math.hypot(p.v.x, p.v.z);
+          if (tn && vS > 1 && (p.v.x*tn.x + p.v.z*tn.z) > 0.5*vS){
+            const look = Math.max(3, Math.round(RAMP_AIR_LOOK / (TRACK_LEN / SAMPLES)));
+            const tg = centerPts[(nOn.idx + look) % SAMPLES];
+            let dA = Math.atan2(tg.x - p.pos.x, tg.z - p.pos.z) - Math.atan2(p.v.x, p.v.z);
+            while (dA > Math.PI) dA -= Math.PI*2;
+            while (dA < -Math.PI) dA += Math.PI*2;
+            const st = Math.sign(dA) * Math.min(Math.abs(dA), RAMP_AIR_GUIDE * dt);
+            const na = Math.atan2(p.v.x, p.v.z) + st;
+            p.v.x = Math.sin(na) * vS; p.v.z = Math.cos(na) * vS;
+            p.theta += st;
+          }
+        }
         p.vy -= TUNE.gravity * dt;
         p.y += p.vy * dt;
         if (p.y <= groundYnew){
@@ -6175,7 +6201,10 @@
       m.rotation.order = 'YXZ';
       m.rotation.y = Math.atan2(pad.tx||0, pad.tz||1);
       m.rotation.x = -Math.PI/2;
-      m.rotation.z = 0;
+      // 2026-10-12 playtest: the canvas draws the chevron apex at the TOP (texture v=1 = plane local +Y),
+      // and laying the plane flat with x=-90° sends local +Y to world -Z — i.e. BACKWARD along the
+      // tangent. It always pointed the wrong way; the toon ink rim just made it obvious. Half-turn it.
+      m.rotation.z = Math.PI;
       m.position.set(pad.x, sampleHeight(pad.x, pad.z) + 0.16, pad.z);
       m.renderOrder = 3;
       scene.add(m); _padMeshes.push(m);

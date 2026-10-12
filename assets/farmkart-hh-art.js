@@ -943,12 +943,14 @@
       const bo = (TR.objects || []).find(o => o.model === 'farm_open_barn');
       if (bo){
         // road samples inside the barn footprint
-        const inb = (i) => Math.hypot(C[i].x - bo.x, C[i].z - bo.z) < 22;
+        // 2026-10-12: the barn now stands ~25 u BESIDE the road (it used to straddle it), so the barnyard stretch
+        // is the road within 34 u of it (22 u found no samples at all once it moved -> no lanterns or signs)
+        const inb = (i) => Math.hypot(C[i].x - bo.x, C[i].z - bo.z) < 34;
         let sMin = 1e9, sMax = -1e9;
         for (let i = 0; i < N; i++) if (inb(i)){ sMin = Math.min(sMin, AS[i]); sMax = Math.max(sMax, AS[i]); }
         if (sMax - sMin > 80) { sMin = 1e9; sMax = -1e9; for (let i = 0; i < N; i++) if (inb(i)){ const a = AS[i] > TLEN / 2 ? AS[i] - TLEN : AS[i]; sMin = Math.min(sMin, a); sMax = Math.max(sMax, a); } }
         // warning boards on approach
-        for (const [ds, side, lines] of [[-30, 1, ['BARN', 'CHICANE']], [-30, -1, ['SLOW', 'COWS']]]){
+        for (const [ds, side, lines] of [[-30, 1, ['BARNYARD', 'AHEAD']], [-30, -1, ['SLOW', 'COWS']]]){
           const q = atS(sMin + ds, side * (hw + 4.6));
           if (ok(q.x, q.z, 2.0)){ addSign(q.x, q.z, Math.atan2(-q.tx, -q.tz), 3.2, 1.8, lines, '#fff1d0', '#c9362b'); claim(q.x, q.z, 2.2, 'sign'); }
         }
