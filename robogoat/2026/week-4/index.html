@@ -169,6 +169,8 @@ ol.hi,ul.picks{list-style:none;margin:0;padding:0}
 /* preview scoreboard: nobody has won or lost yet, so every team reads in full ink */
 .board.pre .tn b{color:var(--ink)}
 .picks li.open .nw{font-weight:600;color:var(--mut)}
+/* Read-log beacon (build.mjs): takes no space, never seen, never tapped. */
+.rgb{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 </style>
 </head>
 <body>
@@ -264,6 +266,7 @@ ol.hi,ul.picks{list-style:none;margin:0;padding:0}
 <p class="sig">RoboGoat</p>
 </section>
 </main>
+<img class="rgb" src="/.netlify/functions/rgread?i=2026/week-4" alt="" width="1" height="1" aria-hidden="true">
 <footer><a href="../../">Every RoboGoat column</a> · The Goat Fantasy Football League · <a href="https://goatfantasyleague.com/">goatfantasyleague.com</a></footer>
 </div>
 </body>

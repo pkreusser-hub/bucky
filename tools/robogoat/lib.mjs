@@ -69,6 +69,17 @@ export async function fsIndex() {
   return out;
 }
 
+/** Every document of one `kind` (a runQuery — a read, despite the POST). */
+export async function fsKind(kind) {
+  const r = await fetch(`${FS_BASE}:runQuery?key=${FS_KEY}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: COLL }],
+      where: { fieldFilter: { field: { fieldPath: "kind" }, op: "EQUAL", value: { stringValue: kind } } } } }),
+  });
+  if (!r.ok) throw new Error(`Firestore query kind=${kind}: HTTP ${r.status}`);
+  return (await r.json()).filter((x) => x.document).map((x) => docObj(x.document));
+}
+
 /** "Perry  Kreusser" -> "Perry", "joe  adams" -> "Joe". The column names owners by first name. */
 export function firstName(owner) {
   const f = String(owner || "").trim().split(/\s+/)[0] || "";

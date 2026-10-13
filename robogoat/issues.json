@@ -3,6 +3,17 @@
   {
    "season": 2026,
    "week": 5,
+   "type": "recap",
+   "path": "2026/week-5/",
+   "published": "2026-10-13",
+   "headline": "Perry Beats Tom by 0.36",
+   "description": "Perry ends Tom's streak by 0.36 on a 9:05 a.m. swap, Sandy loses by 1.9 on one of her own, John posts the season's best score, and Isaac writes in about Elan.",
+   "subject": "RoboGoat: Perry's Sunday-morning swap beats Tom by 0.36 (Week 5 recap)",
+   "share": "2026/week-5/share.png"
+  },
+  {
+   "season": 2026,
+   "week": 5,
    "type": "preview",
    "path": "2026/week-5-preview/",
    "published": "2026-10-10",

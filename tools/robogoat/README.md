@@ -14,10 +14,22 @@ Everything that turns a week of GFFL into a RoboGoat column page at
 | `share.mjs` | the 1200×630 `share.png` link preview | repo files only; bundled fonts in `fonts/` |
 | `archive.mjs` | `robogoat/index.html` (the archive page) + `robogoat/issues.json` | repo files only |
 | `announce.mjs` | the league push for a new issue; **dry run unless `--send`** | `--send` wakes every league phone |
+| `reads.mjs` | the private read log report: per issue, which teams read it (app or push), when, and how many untagged reads | reads Firestore |
 | `lib.mjs` | Firestore read helpers, names, browser launch | — |
 | `page.css` | the issue page's stylesheet, inlined by `build.mjs` | — |
 
 Nothing in this kit writes league data. The only outbound write is `announce.mjs --send`.
+
+**The read log** (Perry, 2026-10-10: "I want to log who actually reads the columns"; private, pulled
+on request). `build.mjs` puts an invisible 1x1 beacon on every issue page that points at
+`netlify/functions/rgread.mjs` with the issue's own path. That function, not this kit, writes one
+`kind: "rgread"` doc per read: issue, via, team, time. It stores no IP and no user agent. The page has no
+script, so the reader's team arrives in the Referer. The GFFL card links to the issue with
+`?r=app<team>`, and `announce.mjs` sends `readTag: true` so notify.mjs gives each phone's link
+`?r=push<team>`. The email link and the archive carry no tag; those reads count as untagged. When
+Perry asks who read a column, run `node tools/robogoat/reads.mjs [robogoat/<season>/<issue>]` and
+report it in plain words. Reads are logged only from the deploy that shipped this (2026-10-10);
+earlier opens left no trace.
 
 `.claude/settings.json` allows `node tools/robogoat/announce.mjs …` to run without a permission
 prompt (Perry, 2026-09-30), so a session can send the push once he says so. The allow rule
@@ -85,6 +97,11 @@ robogoat/
    `node tools/robogoat/share.mjs robogoat/2026/week-N`, then `node tools/robogoat/archive.mjs`.
 6. `node tools/_verify-robogoat.cjs` must be green. Look at a 390px screenshot of every panel.
 7. Commit on the working branch with the suite count, push the branch, open a PR, ask Perry to merge.
+   **Paste the transcript for approval** (Perry, 2026-10-13: "Drop in the transcript, each week
+   thats what you should provide me for approval"). The message asking him to merge carries the
+   subject line and `column.md`'s text from "RoboGoat here." to the sign-off, without the header
+   or `[IMAGE: …]` lines. He approves the transcript, not the page; make his edits before he
+   merges. Same for a Saturday preview.
 8. Gmail draft to the league: subject = `issue.json` subject, a two-line teaser and the link.
 9. After Perry merges and Netlify deploys: `node tools/robogoat/announce.mjs robogoat/2026/week-N`
    shows the push; send it with `--send` only when Perry says so.
@@ -127,6 +144,14 @@ rules.
 - **Length.** Aim for about 1,000 words in a preview and 1,300 in a recap. These are read on
   phones; Weeks 3 to 5 ran 2,000 to 2,900, nine to thirteen minutes. The suite caps the body at
   1,600 words (preview) and 1,900 (recap) for issues from 2026-10-10 on.
+  **Recap revised (Perry, 2026-10-13, on the Week 5 recap: "It feels a little thin now, give
+  yourself 400 more words"):** a recap aims for about 1,700 words, spent on the matchups (each
+  game's other starters, the matchups inside the matchup, the preview's setups paid off). The
+  recap cap is now 2,200.
+- **Letters to the Editor** (Perry, 2026-10-13). A recap has its own `## Letters to the Editor`
+  section, after the games. It summarizes the week's public league chat, team by team, with a
+  short quote where the wording is the joke, and answers anything addressed to RoboGoat. The
+  game sections stay on the games.
 - **Open with the best story.** Not the picks record. Week 5's lede was Calvin's 103 points of
   starters on bye; the first draft had it 1,100 words in.
 - **One voice.** "I" all the way through. "RoboGoat here." opens and "RoboGoat" signs off; no

@@ -18,5 +18,10 @@
     "lg-core.js": "2fad1a5fc2ed3c2ec94f364566595b8367e9f81c07225955295a3840b7e05bd4",
     "lg-data.js": "80fc5c25cf6badc80ae9c0dfec1a4f7dea377f470920517ea7560dd5739d15b3",
     "lg-ui.js": "d2d6638b22b22eca9835d3de64394f8134538a15717d4cc8ba8d109b8f3e8836"
+  },
+  "20261013b": {
+    "lg-core.js": "2fad1a5fc2ed3c2ec94f364566595b8367e9f81c07225955295a3840b7e05bd4",
+    "lg-data.js": "80fc5c25cf6badc80ae9c0dfec1a4f7dea377f470920517ea7560dd5739d15b3",
+    "lg-ui.js": "09be31d770bad771765f9262ba75648c197cdf774fc8e4f9a5e84a093bca4bcb"
   }
 }

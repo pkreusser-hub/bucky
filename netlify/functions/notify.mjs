@@ -93,6 +93,19 @@ function resolveUrl(url) {
   return DEFAULT_URL;
 }
 
+// RoboGoat read log (2026-10-10). With the opt-in `readTag`, each league device's link carries its
+// own team as ?r=push<team>, so a column page's read beacon (rgread.mjs) can tell who opened it;
+// only tools/robogoat/announce.mjs sets it. The tag goes before any #hash, and the result still
+// goes through resolveUrl. A url that is not a string, or a team outside 1..20, passes untouched.
+function tagReadUrl(url, team) {
+  if (typeof url !== "string" || !url) return url;
+  const n = Number(team);
+  if (!Number.isInteger(n) || n < 1 || n > 20) return url;
+  const hash = url.indexOf("#");
+  const head = hash < 0 ? url : url.slice(0, hash);
+  return head + (head.includes("?") ? "&" : "?") + "r=push" + n + (hash < 0 ? "" : url.slice(hash));
+}
+
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
   return {
@@ -355,7 +368,7 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers });
   }
 
-  const { secret, familyKey, targetUser, title, body, url, gfflTeam, gfflAll, excludeTeam, kind } = payload || {};
+  const { secret, familyKey, targetUser, title, body, url, gfflTeam, gfflAll, excludeTeam, kind, readTag } = payload || {};
 
   if (!process.env.BUCKY_NOTIFY_SECRET || secret !== process.env.BUCKY_NOTIFY_SECRET) {
     return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers });
@@ -418,7 +431,8 @@ export default async (req) => {
     // (2026-09-23 — leaguecron.mjs got the same guard): every upstream call has a timeout, and
     // a throw here skips just that token.
     await forEachBounded([...byToken.values()], SEND_CONCURRENCY, async ({ token, docIds, team }) => {
-      const result = await sendFcmMessage(accessToken, token, title, body || "", url, tag);
+      const link = readTag === true && team != null && !Number.isNaN(team) ? tagReadUrl(url, team) : url;
+      const result = await sendFcmMessage(accessToken, token, title, body || "", link, tag);
       if (result.ok) {
         sent += 1;
         if (tag && team != null && !Number.isNaN(team)) logEntries.push({ t: Date.now(), kind: sel.kind, team });

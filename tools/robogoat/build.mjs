@@ -87,6 +87,16 @@ export function buildIssue(dir) {
   const pp = picksProblems(season, issue, pairings);
   if (pp.length) throw new Error(`${dir}: picks do not agree with the scores:\n  ` + pp.join("\n  "));
   const rootRel = relative(D, join(ROOT, "robogoat")).split("\\").join("/") || ".";
+  // Read log (Perry, 2026-10-10; private, report on request via tools/robogoat/reads.mjs). An
+  // invisible 1x1 image whose `i` is this issue's own path; netlify/functions/rgread.mjs logs the
+  // read, taking the reader's team from the Referer's ?r=app<n> / ?r=push<n>. The page stays
+  // script-free. The path is the directory's own .../robogoat/<season>/<issue> tail, so a copy built
+  // elsewhere (the suite's temp tree) carries the same beacon; anything else gets none.
+  const tail = D.split(/[\\/]+/).slice(-3);
+  const issuePath = tail[0] === "robogoat" ? tail[1] + "/" + tail[2] : "";
+  const beacon = /^\d{4}\/week-\d{1,2}(?:-preview)?$/.test(issuePath)
+    ? `<img class="rgb" src="/.netlify/functions/rgread?i=${issuePath}" alt="" width="1" height="1" aria-hidden="true">\n`
+    : "";
 
   const TEAMS = issue.teams; // id -> { name, owner, color, short }
   const tm = (id) => TEAMS[String(id)];
@@ -420,7 +430,7 @@ ${css}</style>
 <main>
 ${out.join("\n")}
 </main>
-<footer>${issue.footerLinks === false ? "" : `<a href="${rootRel}/">Every RoboGoat column</a> · `}The Goat Fantasy Football League · <a href="https://goatfantasyleague.com/">goatfantasyleague.com</a></footer>
+${beacon}<footer>${issue.footerLinks === false ? "" : `<a href="${rootRel}/">Every RoboGoat column</a> · `}The Goat Fantasy Football League · <a href="https://goatfantasyleague.com/">goatfantasyleague.com</a></footer>
 </div>
 </body>
 </html>

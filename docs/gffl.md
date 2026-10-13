@@ -11306,3 +11306,85 @@ Two holes, both fixed:
 - Version **20261013a**, recorded. **VERIFY:** full battery **4469/4471**, where the 2 were AVG's
   version-record checks, then `--only BF,AVG` **118/118** after the bump. Bite (`origin/main`
   lg-core/lg-ui, new suite): `--only M` **62/65**, the 3 failures exactly the new checks; 65/65 with the fix.
+
+## RoboGoat read log: who actually reads the columns (2026-10-10)
+
+Perry: "I want to log who actually reads the columns." His choices: identify readers from the app
+and the push only, show nothing on the pages, and pull the report by asking RoboGoat.
+
+- **How a read is logged.** Each issue page carries one invisible 1x1 `<img class="rgb">` (built
+  by `tools/robogoat/build.mjs`) pointing at `/.netlify/functions/rgread?i=<season>/<issue>`. The
+  function (`netlify/functions/rgread.mjs`) writes one `kind: "rgread"` doc into `gffl_<fam>`:
+  `{ kind, issue, via, team, t }`. It always answers with the pixel, even when the write fails. It
+  stores no IP and no user agent, and it skips link-preview bots.
+- **Who it can name.** The pages stay script-free, so the team comes from the Referer. No
+  Referrer-Policy is set anywhere on the site, so the browser default sends the full same-origin
+  URL, query included.
+  - The GFFL RoboGoat card links to the issue with `?r=app<LG.myTeamId()>`. A phone with no team
+    claimed gets the bare link. The archive fallback has no tag.
+  - `announce.mjs` sends `readTag: true`. notify.mjs then adds `?r=push<team>` to each device's
+    link, using that device's own `gfflTeam`. A device with no team gets the untagged link. A send
+    without `readTag` is unchanged, so every other push is untouched.
+  - The email link, the archive and a forwarded link log as `via: "direct"` with no team. They are
+    counted, never guessed at.
+  - A tag counts only on its own issue's URL, on the site's own hosts.
+  - A team means a phone's claimed team, not a person.
+- **Reading it.** `node tools/robogoat/reads.mjs [robogoat/<season>/<issue>] [--json]` runs one
+  Firestore query (read-only) and prints, per issue: who read it (app or push, how many times, the
+  first read in Chicago time), who has not been seen, and the untagged count. Opens before this
+  deploy left no trace.
+- **If the site ever sets a Referrer-Policy.** A policy that still sends the full URL to the same
+  origin keeps working: the default, `same-origin`, or `no-referrer-when-downgrade`. With
+  `no-referrer`, `origin` or `strict-origin`, every read turns "direct". The
+  robogoat suite's Referer round trip would not catch that, because its server sets no headers.
+  Check `netlify.toml` if the report suddenly shows only untagged reads.
+
+**Restaged:** GFFL RGL1. The card's href was the bare issue path; it is now the path plus
+`?r=app1`, because fullSeed claims team 1. The tap lands on the same path with that query. A new
+check confirms a phone with no team still gets the bare link. Cache-bust is now `20261013b` (after merging main's `20261013a`).
+
+**VERIFY:**
+- `node tools/_verify-robogoat.cjs` **275/275**. New checks:
+  - one beacon per issue, naming its own path;
+  - its inline rule is present;
+  - no beacon on the archive;
+  - at 360, 390 and 1280 px it loads 1x1, transparent, absolute and untappable;
+  - the Referer round trip. The suite's server answers the beacon with the real rgread handler and
+    records the Referer. Opening `?r=app5`, `?r=push12` and the bare email link reads as app 5,
+    push 12 and direct.
+- `node tools/_verify-rgread.mjs` **36/36**, against the strict fake Firestore. It includes the
+  `reads.mjs` report computed from the docs the handler wrote.
+- `node tools/_verify-notify-url.mjs` **50/50**, including 7 readTag checks.
+- `node tools/_verify-gffl.cjs --only RGL` **22/22**.
+
+**Bite**, in a worktree at HEAD with only the test files and the new function copied in:
+- robogoat: **252 pass / 23 fail**, all 23 of them the new checks;
+- RGL: **20 / 2**, the two tag checks;
+- notify-url: stops at the first readTag check, because `tagReadUrl` does not exist at HEAD.
+
+## RoboGoat Week 5 recap: two restages and a headshot key (2026-10-13)
+
+- **Archive thumbnails, restaged.** `archive.mjs` lazy-loads every thumbnail after the second. With
+  a fifth issue, the Week 3 card sits below the fold at 1280px, so it never loaded and read as
+  broken. The check now scrolls each image into view and waits for it to settle before asking
+  whether every thumbnail loaded. A missing `share.png` still fails: hiding Week 3's gave
+  **319/324**, with all three archive widths failing on that file.
+- **New check: star headshot keys are ESPN ids.** `build.mjs` fetches each star card's headshot by
+  key. The facts file carries a Sleeper key (`slp_11564`) for players missing from ESPN's feed, and
+  that key builds a URL that 404s. The first build of the Week 5 recap had one for Drake Maye
+  (ESPN `4431452`). Bite: the Sleeper key fails that one check, and every other check passes
+  (**328/329**).
+- **Headings and one voice.** The one-voice check reads section headings too, so "Letters to
+  RoboGoat" and "RoboGoat's Power Rankings" both fail it. Use `## Letters` and `## Power Rankings`.
+  The build's rankings layout matches any heading containing "power rankings".
+- **Charting a week whose series starts before `t0`.** The `"first"` annotation anchors on the
+  series' first reading, not the first reading inside the window. Pin it to a `{t, p}` point
+  instead, or the label is drawn off the chart.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **329/329**.
+- **Week 5 recap, second pass (Perry, same day):** "It feels a little thin now, give yourself 400
+  more words, move the letters to its own section called letters to the editor and you can
+  summarize the comments from the teams." The column went from 1,444 to 1,863 words. The recap
+  word cap was **RESTAGED** from 1,900 to 2,200, with the reason at the check, and the target is
+  now about 1,700. `## Letters to the Editor` comes after the games and summarizes the league chat.
+  README and the Tuesday routine prompt both say so. **VERIFY:** robogoat **329/329**.
