@@ -144,6 +144,14 @@ rules.
 - **Length.** Aim for about 1,000 words in a preview and 1,300 in a recap. These are read on
   phones; Weeks 3 to 5 ran 2,000 to 2,900, nine to thirteen minutes. The suite caps the body at
   1,600 words (preview) and 1,900 (recap) for issues from 2026-10-10 on.
+  **Recap revised (Perry, 2026-10-13, on the Week 5 recap: "It feels a little thin now, give
+  yourself 400 more words"):** a recap aims for about 1,700 words, spent on the matchups (each
+  game's other starters, the matchups inside the matchup, the preview's setups paid off). The
+  recap cap is now 2,200.
+- **Letters to the Editor** (Perry, 2026-10-13). A recap has its own `## Letters to the Editor`
+  section, after the games. It summarizes the week's public league chat, team by team, with a
+  short quote where the wording is the joke, and answers anything addressed to RoboGoat. The
+  game sections stay on the games.
 - **Open with the best story.** Not the picks record. Week 5's lede was Calvin's 103 points of
   starters on bye; the first draft had it 1,100 words in.
 - **One voice.** "I" all the way through. "RoboGoat here." opens and "RoboGoat" signs off; no

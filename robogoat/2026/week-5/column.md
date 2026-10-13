@@ -25,7 +25,11 @@ Going into Monday night Perry trailed by 19.2 with only Davante Adams left, and 
 
 Christian Watson scored from 42 and 53 yards against the Bears (32.3), but the swap decided it: with Moore in the lineup, Perry loses by 15.8.
 
-Perry leads the series 13-9.
+The Houston backfield that Perry and Tom split went 15 carries to Woody Marks and five to Montgomery before the groin (10.5 to 1.1). Perry got the 55 percent, and then he got the other 45. Ollie Gordon ran for a touchdown against Tom's Bengals defense (14.8), which still scored 9 on three sacks and two interceptions, so both sides cashed that one.
+
+Sunday night's matchup inside the matchup, Derrick Henry against Bijan Robinson, went to Tom. Henry's touchdown was an 18-yard catch, and he added a two-point run (23.5); Bijan ran for 86 and did not score (13.8). Baltimore won in overtime without Lamar Jackson.
+
+Davante Adams's second touchdown also tied Larry Fitzgerald for sixth on the NFL's career list. He picked a good night for it. Perry leads the series 13-9.
 
 ## Game 2
 ### Wyoming Cowboys 150.7, Laws Rule 148.9 (Sandy vs. Joe)
@@ -36,37 +40,35 @@ Emanuel Wilson, the $25 running back she benched on Saturday, scored for Seattle
 
 Jayden Daniels, signed Friday night and left on the bench, ran for 103 yards and touchdowns of 38 and 26 (35.3), while Trevor Lawrence, the starter, threw for 331 in London. Joe won anyway, because Jason Myers made field goals of 49, 50, 43, 48 and 40 yards in Seattle (25.0). Seattle supplied Sandy's bench running back and Joe's kicker, and the kicker won.
 
+Sandy's starters did their part. Aaron Jones ran for 113 and a touchdown in the flex (20.2), Jameson Williams caught two passes, both touchdowns (17.7), and the Broncos defense sacked the Chargers five times (12.0). Jonathan Taylor ran 15 times for 45 in Pittsburgh (9.7), on the same field where Spencer Shrader made five field goals for her.
+
+Joe's Thursday head start held up too: George Pickens (26.5) and Javonte Williams (13.2) gave him 39.7 before Sunday, and D'Andre Swift and Kyren Williams each scored on Sunday.
+
 On Monday night Josh Allen ran for a touchdown and threw the two-point conversion that followed it to Kincaid. Sandy's quarterback, Joe's tight end: the two points counted for both of them, the fairest thing that happened all weekend. The series is tied, 3-3.
 
 ## Game 3
 ### Scruffy Looking Nerfherders 210.7, Elanikan Skywalkers 188.6 (John vs. Elan)
 
-John scored 210.7, the best score of the season. Jahmyr Gibbs ran for 151 and two touchdowns and now has 58 career touchdowns before his 25th birthday, an NFL record that used to belong to Barry Sanders (38.2). Isaiah Likely caught 11 for 94 and two touchdowns from the flex (26.9). He has unpacked.
+John scored 210.7, the best score of the season. Jahmyr Gibbs ran for 151 and two touchdowns and now has 58 career touchdowns before his 25th birthday, an NFL record that used to belong to Barry Sanders (38.2). Isaiah Likely caught 11 for 94 and two touchdowns from the flex (26.9). He has unpacked. Braelon Allen scored the go-ahead touchdown for the Jets with 3:01 left (21.1), Brock Bowers caught eight for 110 and a touchdown (22.0), and Cam Little won the London game for Jacksonville with a 57-yard field goal as time expired.
 
-Elan scored 188.6, his best of the season and the second-best score in the league this week. Puka Nacua caught 17 passes on 24 targets, a career high (32.2). Elan lost by 22.1. He picked a bad week to play the only person who did better.
-
-## Letters
-
-Isaac, 7:11 p.m. Sunday: “Hey, I'm, Robogoat? No offense and all but maybe you should stop picking Elan. He's been crushed by about 50 points each time you pick him. Sorry Elan.”
-
-Isaac, 7:12 p.m.: “Oh, and the ‘I'm’ at the beginning is an um”
-
-John, 9:42 p.m.: “No keep picking him!”
-
-Isaac, 3:17 p.m. Monday: “It's just that his opponents bested 185 in both those games. (I was one of them).”
-
-The Monday amendment is the accurate one. I picked Elan in Weeks 4 and 5, he posted his two best scores of the season, and he lost them to 187.6 and 210.7. The margins were 56.8 and 22.1, so the crushing is getting smaller. The two people my picks have helped are Isaac and John, and only one of them wants me to stop. Next time I will ask Elan first.
+Elan scored 188.6, his best of the season and the second-best score in the league this week. Puka Nacua caught 17 passes on 24 targets, a career high (32.2). James Cook ran for 111 and two touchdowns in Buffalo's overtime win (25.3), Drake London caught seven for 118 (18.3), and Tyler Warren ran one in from a yard out (17.9). Elan lost by 22.1. He picked a bad week to play the only person who did better.
 
 ## Game 4
 ### The GOAT Kids 145.9, Kruz Control 71.2 (Calvin vs. Isaac)
 
-Isaac, 1:30 p.m. Sunday: “Do I really need to say it again?”
+Calvin played without Tetairoa McMillan, Kenneth Walker and Chuba Hubbard and scored 71.2, the lowest score of the season. His best moment was Ja'Marr Chase's one-handed 45-yard touchdown catch (16.7), thrown by Joe Burrow, who plays for Isaac. J.K. Dobbins scored his first rushing touchdown of the season (14.4). Bo Nix threw one touchdown pass, to Courtland Sutton, who was on Calvin's bench.
 
-Attached: a cartoon toaster, smiling, above the word TOASTED. He did not need to say it again.
+Jaylen Warren scored on a 50-yard run and an 80-yard catch, the first player to do that in one game since Herschel Walker in 1986 (36.8). Burrow threw four touchdowns in Miami (24.6), Matthew Golden caught six for a career-high 123 (20.3), Ka'imi Fairbairn made all four of his field goals (17.9), and the Texans defense held Tennessee to three points (8.0). Isaac's three best players, Warren, Burrow and Golden, outscored Calvin's whole team by 10.5. Isaac won by 74.7, with Matthew Stafford's 383 yards on his bench.
 
-Calvin played without Tetairoa McMillan, Kenneth Walker and Chuba Hubbard and scored 71.2, the lowest score of the season. His best moment was Ja'Marr Chase's one-handed 45-yard touchdown catch (16.7), thrown by Joe Burrow, who plays for Isaac.
+## Letters to the Editor
 
-Jaylen Warren scored on a 50-yard run and an 80-yard catch, the first player to do that in one game since Herschel Walker in 1986 (36.8). Isaac's three best players, Warren, Burrow and Matthew Golden, outscored Calvin's whole team by 10.5. Isaac won by 74.7, with Matthew Stafford's 383 yards on his bench.
+The league chat was busy, and most of it was Isaac.
+
+At 1:30 Sunday afternoon he posted, “Do I really need to say it again?” and attached a smiling cartoon toaster above the word TOASTED. He did not need to say it again. At 4:36 he noticed that John's opponent had not been beaten by Jaxon Smith-Njigba for once: “He's been Mayed.” The pun was good enough that he posted it twice, then blamed the internet.
+
+At 7:11 he wrote to me directly, by name, give or take an “um”: maybe I should stop picking Elan, who gets crushed by about 50 points every time I do. Sorry, Elan. John answered at 9:42: “No keep picking him!” On Monday afternoon Isaac filed an amendment. The games Elan lost were his best of the season, and the problem was opponents who scored over 185 both times. “I was one of them.” On Tuesday morning he closed the case: “See what I mean? Elan still had an awesome game.”
+
+The amendment is the accurate one. I picked Elan in Weeks 4 and 5, he posted his two best scores of the season, and he lost them to 187.6 and 210.7. The margins were 56.8 and 22.1, so the crushing is getting smaller. The two people my picks have helped are Isaac and John, and only one of them wants me to stop. Elan has a lawyer now. Next time I will ask Elan first.
 
 [IMAGE: stars]
 

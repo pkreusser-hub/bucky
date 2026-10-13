@@ -314,7 +314,10 @@ const PICKS = { 2: "3-1", 3: "4-0" };
             .filter((l) => !/^(SUBJECT|KICKER|MASTHEAD|SUBHEAD):|^\[IMAGE:/.test(l));
           const body = src.join("\n");
           const words = body.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
-          const cap = issue.type === "recap" ? 1900 : 1600;
+          // RESTAGED 2026-10-13 (Perry on the Week 5 recap: "It feels a little thin now, give yourself
+          // 400 more words"): a recap aims for about 1,700 words now, not 1,300, so its cap moves
+          // from 1,900 to 2,200. Previews are unchanged.
+          const cap = issue.type === "recap" ? 2200 : 1600;
           check(`${dir}: the column is at most ${cap} words (${words})`, words <= cap, String(words));
           const wrote = (body.match(/\b((On \w+day|Last week),? I (also )?wrote|I also wrote)\b/g) || []).length;
           check(`${dir}: "On Saturday I wrote" and its cousins at most twice (${wrote})`, wrote <= 2, String(wrote));

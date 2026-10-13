@@ -11382,3 +11382,9 @@ check confirms a phone with no team still gets the bare link. Cache-bust is now 
   instead, or the label is drawn off the chart.
 
 **VERIFY:** `node tools/_verify-robogoat.cjs` **329/329**.
+- **Week 5 recap, second pass (Perry, same day):** "It feels a little thin now, give yourself 400
+  more words, move the letters to its own section called letters to the editor and you can
+  summarize the comments from the teams." The column went from 1,444 to 1,863 words. The recap
+  word cap was **RESTAGED** from 1,900 to 2,200, with the reason at the check, and the target is
+  now about 1,700. `## Letters to the Editor` comes after the games and summarizes the league chat.
+  README and the Tuesday routine prompt both say so. **VERIFY:** robogoat **329/329**.
