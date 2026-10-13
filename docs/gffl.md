@@ -11299,3 +11299,10 @@ Two holes, both fixed:
   play 0-0 pairings among themselves.
 - Not found: why that device had lineups and a final slate but no player rows. The new guard
   makes that state refuse instead of write; the next boot after rows load finalizes normally.
+- **Repair (done 2026-10-13, at the commissioner's request):** the zero doc was backed up
+  (scratchpad `weekly_2026_w5_zero_backup.json`) and replaced by the app's own
+  `LG.finalizeWeek(5, {backfill:true})` against production with this code: `source:"archived"`,
+  `replacedVoid:true`, 4-1 163.10-162.74, 3-5 150.74-148.88, 9-2 210.66-188.56, 12-11 145.90-71.22.
+- Version **20261013a**, recorded. **VERIFY:** full battery **4469/4471**, where the 2 were AVG's
+  version-record checks, then `--only BF,AVG` **118/118** after the bump. Bite (`origin/main`
+  lg-core/lg-ui, new suite): `--only M` **62/65**, the 3 failures exactly the new checks; 65/65 with the fix.
