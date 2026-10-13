@@ -3248,9 +3248,12 @@ logged nothing to `farmgpt_usage`, so its Opus 5.5 spend was on no row.
   feature is retired: no page calls it, and `farmgpt_ffrecap` has never held a doc. Its row would
   always read $0.
 
-**Rough spend before the logging existed** (read off the docs, not billed figures): 20 scripts
-(15 postgame, 3 demo, 2 model trials, no live halftime yet) at about 5 cents each, about $1 in all.
-Only 7 of them recorded usage.
+**Spend before the logging existed** (token counts read off the stored scripts and priced at
+the rates above; not billed figures): `sunday_desk3`, the live collection, held 41 scripts
+(10 halftime, 31 postgame) for $2.16, every one with its usage recorded. `sunday_desk2` held 3
+postgame scripts ($0.18), and the older `sunday_halftime` held 20 (about $1, of which only 7
+recorded usage). That comes to about $3.35 through week 5. The live collection is `COLL` in
+halftime.mjs; reading an older one by mistake under-counts by more than half.
 
 **VERIFY:** halftime **83/83** (was 77: 6 new). The fake's `:commit` now applies
 `fieldTransforms.increment` the way real Firestore does and logs those writes apart from
