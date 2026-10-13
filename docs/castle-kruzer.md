@@ -2263,4 +2263,12 @@ builder's meter was painting two real training days amber for being what Dad wro
 Battery green: chore-care 49 · news 200 · fitness 253 · activity 147 · health 208 ·
 beacon-safety 90. Shots: `shots/skin_*.png` (six pages, phone + desktop).
 
+# Review fixes (2026-10-12)
+- **XSS from the network**: `netNote()` writes innerHTML, and the host's status note interpolated the
+  guest's join-message name (`cleanName` only slices to 40 chars — `<img src=x onerror=…>` fits) plus
+  the room code/link; the deep-link note interpolated `#r=` straight from the URL. All go through
+  `noteEsc()` now.
+- **arcade.html** lists Castle Kruzer as `castlekruzer.html?fam=arcade` (same reason as Pasture
+  Panic: its co-op lobby would otherwise show as a JOIN card on the family games page).
+
 ---

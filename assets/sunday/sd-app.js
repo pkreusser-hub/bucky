@@ -585,6 +585,8 @@ function saveLines() {
 async function fetchMissingLines() {
   const need = S.events.filter((e) => e.state !== 'pre' && !S.lines.has(e.id) && !S.lineTried.has(e.id));
   if (!need.length) { if (!S.linesReady) { S.linesReady = true; renderBoard(); } return; }
+  // Marked tried up front so two polls don't fetch the same game at once; a fetch that fails is
+  // un-marked below and tried again on the next poll (it used to be given up for the session).
   need.forEach((e) => S.lineTried.add(e.id));
   let got = 0;
   const work = async () => {
@@ -593,7 +595,7 @@ async function fetchMissingLines() {
         const d = await getJSON(`${API}/summary?event=${ev.id}`);
         const ln = lineFrom(d.pickcenter?.[0], ev.home, ev.away);
         if (ln) { S.lines.set(ev.id, ln); got++; }
-      } catch {}
+      } catch { S.lineTried.delete(ev.id); }
     }
   };
   await Promise.all([work(), work(), work()]);
@@ -646,18 +648,24 @@ function upsetLine(u) {
 }
 
 /* ───────────── pollers ───────────── */
+// A tick asked for while one is in flight (now(), or stop() + start() for a new week) is not dropped:
+// it runs as soon as the in-flight one returns. Dropping it used to leave a new week's games, or a
+// play the scoreboard had already seen, waiting a whole interval (up to 120 s) for the next timer.
 function makePoller(fn, nextMs) {
-  let t = null, running = false, stopped = true, fails = 0;
+  let t = null, running = false, stopped = true, fails = 0, again = false;
   const p = {
     onSchedule: null,
     async tick() {
       clearTimeout(t);
-      if (stopped || running) return;
+      if (stopped) return;
+      if (running) { again = true; return; }
       running = true;
+      again = false;
       let ok = true;
       try { await fn(); fails = 0; } catch (e) { ok = false; fails++; console.warn(e); }
       running = false;
       if (stopped) return;
+      if (again) { again = false; p.tick(); return; }
       const ms = ok ? nextMs() : Math.min(60000, 4000 * 2 ** (fails - 1));
       if (ms != null) { t = setTimeout(() => p.tick(), ms); p.onSchedule?.(ms, ok); }
     },
@@ -674,8 +682,12 @@ async function loadBoard() {
   const sync = $('#sync');
   sync.classList.add('busy');
   try {
-    const q = S.week ? `?seasontype=${S.week.st}&week=${S.week.wk}` : '';
+    const wk = S.week;
+    const q = wk ? `?seasontype=${wk.st}&week=${wk.wk}` : '';
     const d = await getJSON(`${API}/scoreboard${q}`);
+    // The week was changed while this was in flight: this answer is for the old week. Drop it;
+    // the poller runs again at once for the new one.
+    if (S.week !== wk) return;
     if (!S.week) S.cur = { st: +d.season?.type, wk: +d.week?.number };
     const cal = d.leagues?.[0]?.calendar;
     if (Array.isArray(cal) && cal.length && typeof cal[0] === 'object') {
@@ -1106,7 +1118,9 @@ function renderBoard() {
   }
   const sections = buildSections(filterEvents(S.events, S.filter));
   if (!sections.length) {
-    board.innerHTML = `<div class="empty"><h3>No games here</h3><p>Nothing in this filter for the selected week.</p><button class="btn ghost" data-goto="all">Show all games</button></div>`;
+    // (The filter chips were removed on 2026-09-27; "Nothing in this filter" and a "Show all games"
+    // button that changed nothing were left behind.)
+    board.innerHTML = `<div class="empty"><h3>No games this week</h3><p>Pick another week from the menu above.</p></div>`;
   } else applySections(board, sections);
   if (G) { renderSide(); renderStrip(); }
   if (typeof afterBoard === 'function') afterBoard();
@@ -1286,6 +1300,7 @@ function closeGameView(immediate, swapping) {
   G.sumPoller?.stop();
   G.io?.disconnect();
   stopReplay();
+  clearTimeout(G.tabT);           // a replay step's tab refresh, due after G is gone, threw on G.sum
   releaseWake();
   G = null;
   const v = $('#game-view');
@@ -1977,7 +1992,10 @@ function renderWPStrip() {
   el.hidden = false;
   if (G.ev.state === 'post' && G.cursor == null && G.sum?.wp?.length) {
     // A finished game is 100–0; the interesting number is how close the winner came to losing.
-    const homeWon = (G.ev.home.score || 0) > (G.ev.away.score || 0);
+    const hs = G.ev.home.score || 0, as = G.ev.away.score || 0;
+    // A tie has no winner to describe; this used to credit the away team with a comeback win.
+    if (hs === as) { setHTML(el, `<div class="lbl">Win probability</div><div class="note">The game ended in a tie, <b>${hs}–${as}</b>.</div>`); return; }
+    const homeWon = hs > as;
     const w = homeWon ? G.ev.home : G.ev.away;
     const low = Math.min(...G.sum.wp.map((x) => (homeWon ? x.homeWinPercentage : 1 - x.homeWinPercentage)));
     const pct = Math.round(low * 100);
@@ -2443,6 +2461,8 @@ document.addEventListener('click', (e) => {
 $('#week-next').addEventListener('click', () => stepWeek(1));
 $('#week-label').addEventListener('click', openWeekSheet);
 window.addEventListener('hashchange', () => { cameFromBoard = true; route(); });
+// Hidden: every poller stops. Back in front, the scoreboard poller restarts in BOTH cases — an open
+// game keeps it running too (it feeds the phone game strip + desktop sidebar, see openGame).
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     boardPoller.stop();
@@ -2450,7 +2470,8 @@ document.addEventListener('visibilitychange', () => {
     G?.sumPoller.stop();
   } else {
     // Back in front: show where the game is now rather than replaying what was missed.
-    if (G) { if (G.gate) gateOpen(); if (typeof sideArrive === 'function') sideArrive(); G.evPoller.start(); G.sumPoller.start(); requestWake(); } else boardPoller.start();
+    if (G) { if (G.gate) gateOpen(); if (typeof sideArrive === 'function') sideArrive(); G.evPoller.start(); G.sumPoller.start(); requestWake(); }
+    boardPoller.start();
   }
 });
 document.addEventListener('keydown', (e) => {

@@ -439,7 +439,11 @@ async function main() {
       R.laneHeightFnIndependent = (laneSane.length === laneWrong.length) && laneSane.every((y, i) => Math.abs(y - laneWrong[i]) < 0.01);
       R.laneOnBranch = laneSane.every(y => Math.abs(y) < 1.6 || Math.abs(y - 8) < 1.6);
       R.laneLowPresent = laneSane.some(y => Math.abs(y) < 1.6); R.laneHighPresent = laneSane.some(y => Math.abs(y - 8) < 1.6);
-      function lampBasesNear(hf) { const cg = FK_TRACK.buildCityscape(_sampled, K.TRACK_WIDTH, THREE, { heightFn: hf, groundFn: (x, z) => K.groundSampleHeight(x, z), wallMargin: 6 }); const m = new THREE.Matrix4(), bases = []; cg.traverse(o => { if (o.isInstancedMesh && o.userData && o.userData.cityRole === "lamp" && o.geometry && o.geometry.parameters && o.geometry.parameters.height > 5) { for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); const x = m.elements[12], y = m.elements[13], z = m.elements[14]; if (Math.hypot(x - CX, z - CZ) <= 40) bases.push(+(y - 3.5).toFixed(2)); } } }); return bases; }
+      // RESTAGED 2026-10-12: lamp poles now stand behind the corridor wall and reach down to the real ground (they
+      // stood in the drivable runoff / hung in mid-air beside the viaduct), so a pole's base is no longer its road. The
+      // branch a lamp belongs to is 7 u below its TOP (pole top = road y + poleH); lamps left out at crossings are
+      // zero-scaled and skipped.
+      function lampBasesNear(hf) { const cg = FK_TRACK.buildCityscape(_sampled, K.TRACK_WIDTH, THREE, { heightFn: hf, groundFn: (x, z) => K.groundSampleHeight(x, z), wallMargin: 6 }); const m = new THREE.Matrix4(), bases = []; cg.traverse(o => { if (o.isInstancedMesh && o.userData && o.userData.cityRole === "lamp" && o.geometry && o.geometry.parameters && o.geometry.parameters.height > 5) { for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); const x = m.elements[12], y = m.elements[13], z = m.elements[14]; if (m.elements[5] === 0) continue; if (Math.hypot(x - CX, z - CZ) <= 40) bases.push(+(y + 3.5 * m.elements[5] - 7).toFixed(2)); } } }); return bases; }
       const lampWrong = lampBasesNear(() => 999);
       R.lampNearN = lampWrong.length;
       R.lampsOnBranch = lampWrong.length > 0 && lampWrong.every(b => Math.abs(b) < 1.6 || Math.abs(b - 8) < 1.6);

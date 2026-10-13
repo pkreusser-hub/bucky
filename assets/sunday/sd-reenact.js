@@ -73,6 +73,12 @@ function raParse(p, ev) {
     return tm ? (tm.id === ev.home.id ? +n : 100 - +n) : null;
   };
   const dm = /\b(?:pass(?: complete| incomplete)?|rush|run|scramble)\s+(?:(short|deep)\s+)?(left|middle|right|up the middle)?(?:\s+(end|tackle|guard))?/.exec(t) || [];
+  // NFL run text has no verb: the direction follows the runner's name ("T.Pollard left tackle to
+  // TEN 42"). Without this every NFL run read no direction and was given a random hole.
+  if (!dm[2] && p.kind === 'run') {
+    const rm = new RegExp(RA_PL + '\\s+(left|right|up the middle)(?:\\s+(end|tackle|guard))?\\b').exec(t);
+    if (rm) { dm[2] = rm[3]; dm[3] = rm[4]; }
+  }
   const tacklers = [];
   for (const g of t.matchAll(/\(([^()]*)\)/g)) {
     // A formation tag is not a tackler list: "(No Huddle, Shotgun) J.Love pass …" used to name two
@@ -84,8 +90,10 @@ function raParse(p, ev) {
   // NFL: "PENALTY on GB-J.Burton, False Start, 5 yards, enforced at ATL 49 - No Play." (or, with
   // no named player, "PENALTY on GB, Delay of Game, 5 yards, ..."). The team code is followed by
   // "-Name" or a comma directly, then the foul name up to the next comma.
-  const pen = /PENALTY (?:on )?([A-Z&]{2,5})(?:-[A-Za-z.'’-]+)?,\s*([^,]+?),\s*-?\d+\s*yards?/i.exec(t)
-    || /PENALTY ([A-Z&]{2,5})\s+(.+?)(?:\s\(|\s\d+ yards?|\sdeclined|\.|,|$)/i.exec(t);
+  // A name can run to more than one word ("BUF-A.St. Brown", "CHI-D.Smith Jr."); the fallback must
+  // never read "on" as the team, which /i would otherwise let it.
+  const pen = /PENALTY (?:on )?([A-Z&]{2,5})(?:-[A-Za-z.'’-]+(?:\s(?:[A-Z][A-Za-z.'’-]*|III|II|IV))*)?,\s*([^,]+?),\s*-?\d+\s*yards?/i.exec(t)
+    || /PENALTY (?:on )?(?!on\b)([A-Z&]{2,5})\s+(.+?)(?:\s\(|\s\d+ yards?|\sdeclined|\.|,|$)/i.exec(t);
   const recBy = /(?:recovered|RECOVERED) by (?:[A-Z&]{2,5}-)?([A-Z&]{2,5})\b/.exec(t) || /RECOVERED by ([A-Z&]{2,5})-/.exec(t);
   const tt = p.typeText || '';
   const hasFumble = /\bfumble[sd]?\b/i.test(t);
@@ -3614,7 +3622,7 @@ function fieldViewToggle() {
   const on = bigTecmo();
   return `<button class="fv-tog" data-fview aria-pressed="${on}" title="${on ? 'Show the field view' : 'Show the 8-bit view'}">${on ? 'Field' : '8-bit'}</button>`;
 }
-function sideStop() { cancelAnimationFrame(SIDE.raf); clearTimeout(SIDE.idle); SIDE.idle = 0; SIDE.running = false; }
+function sideStop() { cancelAnimationFrame(SIDE.raf); SIDE.loopN = (SIDE.loopN || 0) + 1; clearTimeout(SIDE.idle); SIDE.idle = 0; SIDE.running = false; }
 function sideUpdate() {
   const el = sideEl(), big = bigTecmo(), tgt = sideTarget();
   const ok = !!(tgt.cv && G?.ev && G.sum && G.ev.state !== 'pre' && (big || isWide()));
@@ -3772,6 +3780,13 @@ function raReviewed(p, rv, from) {
   return sc;
 }
 function sidePlay(p) {
+  // In RedZone a kickoff or punt is put up as it ended, not run (2026-10-11, user: "we never want to
+  // watch kickoffs or punts on redzone"; rzSkipKick in sd-redzone.js). sideSettle stages it through here.
+  if (!SIDE.settling && typeof rzSkipKick === 'function' && rzSkipKick(p)) {
+    SIDE.settling = true;
+    try { sideSettle(p); } finally { SIDE.settling = false; }
+    return;
+  }
   clearTimeout(SIDE.idle); SIDE.idle = 0;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
   if (typeof rzMarkPlayed === 'function' && G) rzMarkPlayed(G.id, p.id);   // RedZone shows each play once
@@ -3970,7 +3985,15 @@ function sideSet() {
 // Continue the current scene's clock on whatever stage SIDE points at.
 function sideResume() {
   SIDE.last = performance.now();
+  // One loop at a time. A scene's onEnd can start the next scene from inside this loop's own frame
+  // (the try after a touchdown, the ruling after a review); that started a second loop, and this one
+  // then overwrote SIDE.raf, so neither sideStop nor the next scene could cancel it. Loops piled up
+  // one per chained scene for the rest of the game. Each loop now carries a number, and a loop that
+  // is no longer the newest stops.
+  cancelAnimationFrame(SIDE.raf);
+  const me = (SIDE.loopN = (SIDE.loopN || 0) + 1);
   const tick = (now) => {
+    if (me !== SIDE.loopN) return;
     if (!SIDE.cv?.isConnected || SIDE.cv.closest('[hidden]') || !SIDE.sc) { SIDE.running = false; return; }   // (a loop left over from a cleared stage stops)
     const dt = Math.min(0.05, (now - SIDE.last) / 1000) * (SIDE.rp?.speed || 1);
     SIDE.last = now;
@@ -3984,6 +4007,7 @@ function sideResume() {
       try { if (typeof gameGateRelease === 'function') gameGateRelease(id); } catch (err) { console.error(err); }   // (a page render that throws must not stop the stage)
     }
     if (SIDE.running && SIDE.t >= SIDE.sc.T) { SIDE.running = false; SIDE.onEnd?.(); }
+    if (me !== SIDE.loopN) return;                                  // onEnd started the next scene's loop
     SIDE.raf = requestAnimationFrame(tick);                         // keep drawing: the players idle, the sidelines move
   };
   SIDE.raf = requestAnimationFrame(tick);

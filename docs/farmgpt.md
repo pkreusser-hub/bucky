@@ -3196,3 +3196,36 @@ another idea. Every refusal, whoever made it, now shows the reader exactly:
 - The narrator's plain no is now the marker plus ONE sentence naming the kind, written for Dad's
   Story Log. The page never shows it; it shows the fixed message instead.
 - story-reminder **201/201**, story-plainno **22/22**, storyledger **938/938**.
+
+## 2026-10-10 — the first day's read, and the dashboard line that could not appear
+**Fixed:** `usageRow` passed every story counter back to the dashboard except the plain no's.
+`s_refuse*` were written from 2026-10-09 but never read, so "N requests turned down" stayed blank
+while the Story Log held five refusals. storyledger **939/939** (new readback check; 938/939 with
+the function at origin/main, the new check the only failure).
+
+**The first day on Sonnet 5.5 (one reader, about 20 scenes after the deploy), every scene read:**
+- 5 turns refused: 3 by the app's check (arms chained behind the back, wrists cuffed, chained to the
+  bottom of a tank), 2 by the narrator ("pushes the lid down so there is only a tiny slit of air";
+  "I use water to pin her against the wall"). The second is the reader's own power used on a
+  villain, read as restraint: on the line, worth watching.
+- The reader rephrased after each no. One rephrasing got through both halves ("the lid falls
+  slightly, so the opening is not as big") and was written well: plenty of air, no distress, and
+  the captive planning her way out. The tank scenes before it were the same: "there is air, and
+  there is water, and there is no one to hurt you." Nothing in the day broke the rules.
+- 1 scene of about 20 ended with no choices and no chapter end (#80); the page's repair pass is
+  what rescues those, and the log keeps the original.
+
+# Review fixes (2026-10-12)
+- **Money read as math**: `mdToHtml` stashed any `$…$` on a line as inline LaTeX, so "She had $5 and
+  spent $3" italicised "5 and spent " — the common case for a homework tutor. Inline `$…$` now needs
+  to hug its content (Pandoc's rule) and not be followed by a digit; a leftover `$` before a number is
+  currency and is wrapped in its own `<span class="cur">` so KaTeX auto-render (which pairs delimiters
+  within one text node only) can't pair it either.
+- **Research history blanked by a literal `❢N❢`**: the math restore threw on a missing stash index
+  and aborted the whole render; it keeps the text now.
+- **dungeon.html**: a campaign-list load error put `e.message` into innerHTML — textContent now.
+- **Reported, not changed**: a mid-stream Anthropic `error` event is enqueued as story prose (and can
+  trigger a paid repair call); TeacherGPT runs Opus at 8000 max_tokens with no stop_reason check;
+  `ffcommentary` has no xAI outage fallback; a background-job 5xx falls through to a second paid run;
+  the parent-only storylog/budget modes are gated only by the family password that ships in client
+  JS — they need their own server-side secret.

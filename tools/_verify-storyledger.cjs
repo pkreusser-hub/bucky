@@ -1538,7 +1538,13 @@ async function sectionServer() {
 
   // ---- …AND READ BACK ------------------------------------------------------
   {
+    // 2026-10-10: one refused turn first, so the plain no's counters have something to read back.
+    // They were written from 2026-10-09 but never read, and the dashboard line stayed blank.
+    await call({ mode: "story", messages: [{ role: "user", content: "A story." }, { role: "assistant", content: "A scene.\n\n===CHOICES===\n1. a\n2. b\n3. c" },
+      { role: "user", content: "They chain my wrists and gag me" }] });
     const statRow = (((await call({ mode: "stats" })).json || {}).days || [])[0] || {};
+    ok(statRow.s_refuse >= 1 && statRow.s_refuse_restraint >= 1 && "s_refuse_model" in statRow && "s_refuse_api" in statRow,
+      "the stats row carries the plain no's counters through to the dashboard (s_refuse, by kind, model, api)");
     // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the per-narrator counters read back are the Sonnet 5.5 ones.
     ok(statRow.s_trunc >= 2 && statRow.s_trunc_sonnet55 >= 1 && statRow.s_trunc_grok >= 1 && statRow.s_oos >= 3 && statRow.s_oos_sonnet55 >= 1,
       "the stats row carries the truncation and out-of-story counters through to the dashboard");

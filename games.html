@@ -494,6 +494,9 @@
   function lobbyHref(data){
     const t = LOBBY_TEXT[data.game];
     if (t && typeof t.href === "function") return t.href(data);
+    // `game` is a raw Firestore field: only a plain page name may become a link (a doc with
+    // game:"javascript:…//" must never render a clickable JOIN).
+    if (!/^[a-z0-9-]+$/i.test(String(data.game || ""))) return null;
     return `${data.game}.html#r=${encodeURIComponent(data.roomCode || "")}`;
   }
 
@@ -526,9 +529,11 @@
       if (!live && !cooking) continue;
 
       if (live){
+        const href = lobbyHref(data);
+        if (!href) continue;   // not a game page we can link to
         const a = document.createElement("a");
         a.className = "lobby-card";
-        a.href = lobbyHref(data);
+        a.href = href;
         const ico = document.createElement("span"); ico.className = "lobby-ico"; ico.textContent = data.ico || "🎮";
         const text = document.createElement("span"); text.className = "lobby-text";
         text.textContent = lobbyText(data, false);

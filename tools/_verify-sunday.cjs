@@ -1418,6 +1418,12 @@ async function main() {
         const nD = next.actors.filter((a) => a.side === "d"), nO = next.actors.filter((a) => a.side === "o");
         const avg = (l, f) => l.reduce((q, a) => q + f(a), 0) / l.length;
         const early = { d: +avg(nD, (a) => mv(a, 0, 1.4)).toFixed(2), o: +avg(nO, (a) => mv(a, 0, 1.4)).toFixed(2) };
+        // Per defender: how far he has to go to his alignment, and how far he moves in the first 0.5 s and 1.4 s.
+        const toSpot = (a) => Math.hypot(a.k[2][1] - a.k[0][1], a.k[2][2] - a.k[0][2]);
+        early.firstHalf = +Math.max(...nD.map((a) => mv(a, 0, 0.5))).toFixed(2);
+        const shortD = nD.filter((a) => toSpot(a) <= 6);
+        early.shortN = shortD.length;
+        early.shortMax = +Math.max(...shortD.map((a) => mv(a, 0, 1.4))).toFixed(2);
         const setAt = next.tS - 0.4;
         const dl = nD.filter((a) => a.role === "DL"), dlStance = dl.filter((a) => raPoseAt(next, a, setAt) === "stance").length;
         const stillAtSet = nD.filter((a) => mv(a, setAt - 0.1, setAt) < 0.05).length;
@@ -1453,8 +1459,16 @@ async function main() {
     FX(() => [fx.huddle.nd >= 11 && fx.huddle.wrongD === 0, `…the defense, in its shell, faces the ball (${fx.huddle.nd} player-frames, ${fx.huddle.wrongD} facing away)`]);
     FX(() => [fx.shell.n === 11 && fx.shell.minGap >= 2.5 && fx.shell.zMin >= 1.5 && fx.shell.zMax <= 13 && fx.shell.line >= 4 && fx.shell.poses.join() === "stand",
       `between plays the defense stands in a loose shell, not a huddle: ${fx.shell.n} men 1.5 to 13 yd off the ball (${fx.shell.zMin} to ${fx.shell.zMax}), none closer than ${fx.shell.minGap} yd to another (a huddle's ring is about 1), ${fx.shell.line} linemen two yards off it, all ${fx.shell.poses}`]);
-    FX(() => [fx.shell.early.d < 0.6 && fx.shell.early.o > 3 * fx.shell.early.d + 1,
-      `…and holds there as the offense breaks its huddle: in the first 1.4 s the defense moves ${fx.shell.early.d} yd on average, the offense ${fx.shell.early.o}`]);
+    // RESTAGED 2026-10-11: this used to cap the defense's AVERAGE movement in the first 1.4 s at 0.6 yd.
+    // That number depended on where Robinson's run (40187294863, "left tackle") ended, which was random:
+    // NFL run text has no verb, so the direction was never read and the hole was R(-1, 1), near the
+    // middle (0.17 yd). Read properly, the run ends on the left, the next snap is back toward the hash,
+    // and the two defenders with 12 and 16 yd to cover set off at 0.5 s, as raBuild's `go` intends;
+    // the average reads 0.78. The rule itself is per player, so the check is now per player: nobody
+    // moves in the first half second, and every defender with a short shuffle (6 yd or less) holds
+    // through 1.4 s while the offense comes out.
+    FX(() => [fx.shell.early.firstHalf < 0.05 && fx.shell.early.shortN >= 6 && fx.shell.early.shortMax < 0.05 && fx.shell.early.o > fx.shell.early.d,
+      `…and holds there as the offense breaks its huddle: no defender moves in the first 0.5 s (most ${fx.shell.early.firstHalf} yd); the ${fx.shell.early.shortN} with 6 yd or less to their spot hold through 1.4 s (most ${fx.shell.early.shortMax} yd); the offense moves ${fx.shell.early.o} yd on average, the defense ${fx.shell.early.d}`]);
     FX(() => [fx.shell.dl === 4 && fx.shell.dlStance === 4 && fx.shell.stillAtSet === fx.shell.nD,
       `…then gets set before the snap: all ${fx.shell.nD} still, the ${fx.shell.dl} linemen down in their stances, 0.4 s before the snap at ${fx.shell.tS} s (${fx.shell.dlStance} in stance)`]);
     FX(() => [fx.huddle.hasHud && fx.huddle.n2 >= 8 && fx.huddle.wrong2 === 0, `…and the offense still faces its middle as the next snap's scene starts, before they break (${fx.huddle.n2} players, ${fx.huddle.wrong2} facing out)`]);
@@ -2588,6 +2602,18 @@ async function main() {
         const wired = /visibilitychange[\s\S]{0,400}sideArrive\(\)/.test(fs.readFileSync(path.join(__dirname, "..", "assets", "sunday", "sd-app.js"), "utf8"));
         ok(settled(s5) && s5.id === NEW && wired, `the page back in front: the play it missed is put at its end, not played (${JSON.stringify(s5)}; called from visibilitychange: ${wired})`);
 
+        // 2026-10-12: hiding the tab stops the SCOREBOARD poller too; coming back with a game open
+        // restarted only the game's own pollers, so the phone game strip / desktop sidebar froze.
+        const vis = await page.evaluate(() => {
+          const set = (h) => { Object.defineProperty(document, "hidden", { configurable: true, get: () => h }); document.dispatchEvent(new Event("visibilitychange")); };
+          const open = !!G;
+          set(true); const hidden = boardPoller.active;
+          set(false); const back = boardPoller.active;
+          delete document.hidden;
+          return { open, hidden, back };
+        });
+        ok(vis.open && vis.hidden === false && vis.back === true, `with a game open, the scoreboard poller stops while hidden and runs again back in front (${JSON.stringify(vis)})`);
+
         // The exception (user: "if the last play was a touchdown it should shoe that").
         tdLast = true;
         await page.goto(BASE + "/sunday.html?arrive=2#g401872963", { waitUntil: "domcontentloaded" });
@@ -2865,10 +2891,16 @@ async function main() {
         play(B, "Pass Reception"); rzOnBoard([A, B, C], s(3));
         out.t1a = RZ.cur.gid === A.id && RZ.pending.has(B.id);
         rzTick(s(7)); out.t1b = RZ.cur.gid === B.id && !RZ.pending.has(B.id);
-        // T2 · a game in the red zone holds against an ordinary play, not against a score
+        // T2 · a red-zone play holds against an ordinary play while it's fresh, not against a score.
+        // RESTAGED 2026-10-11: this held 25 s and more, through the whole huddle (user: "jumping to plays
+        // that just happened vs getting stuck showing one game that is in huddle"). Now the hold lasts
+        // RZ.RZ_FRESH (12 s) from the red-zone play; the game's next snap is what brings the card back.
         start(true);
-        play(B, "Rush"); rzOnBoard([A, B, C], s(10)); rzTick(s(25));
+        play(B, "Rush"); rzOnBoard([A, B, C], s(3)); rzTick(s(8));
         out.t2a = RZ.cur.gid === A.id;
+        rzTick(s(12)); out.t2c = RZ.cur.gid === B.id;
+        start(true);
+        rzTick(s(8));
         B.home.score = (B.home.score || 0) + 7; play(B, "Passing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(26));
         out.t2b = RZ.cur.gid === B.id && RZ.cur.kind === "score";
         // T3 · red zone against red zone: the newcomer gets it once the game on screen has had 20 s
@@ -2913,10 +2945,52 @@ async function main() {
         sit(C, { isRedZone: true, yardLine: 90 }); setEvs([A, B, C]);
         rzTick(s(29)); out.t5a = RZ.cur.gid === A.id;
         rzTick(s(30)); out.t5b = RZ.cur.gid === C.id;
-        // T6 · ...but a quiet game inside the 20 keeps the card up to 90 s
+        // T6 · a quiet game inside the 20 gets the same 30 s as any other. RESTAGED 2026-10-11: it kept
+        // the card up to 90 s, standing in its huddle while nothing ran on the field (see T2).
         start(true);
-        rzTick(s(31)); out.t6a = RZ.cur.gid === A.id;
-        rzTick(s(90)); out.t6b = RZ.cur.gid !== A.id;
+        rzTick(s(29)); out.t6a = RZ.cur.gid === A.id;
+        rzTick(s(30)); out.t6b = RZ.cur.gid !== A.id;
+        // T11 · 2026-10-11: the red-zone game in its huddle while two other games keep snapping. The card
+        // goes to the plays, and the red-zone game's next snap brings it back.
+        start(true);
+        for (let i = 1; i <= 4; i++) { play(B, "Rush"); play(C, "Pass Reception"); rzOnBoard([A, B, C], s(i * 5)); rzTick(s(i * 5)); }
+        out.t11a = RZ.cur.gid !== A.id;
+        const offAt = RZ.cur.since - t0;
+        play(A, "Rush"); rzOnBoard([A, B, C], s(offAt / 1000 + 7)); rzTick(s(offAt / 1000 + 7));
+        out.t11b = RZ.cur.gid === A.id && RZ.cur.kind === "redzone";
+        // T12 · kickoffs and punts in other games don't keep a quiet game on screen past 30 s (they sat in
+        // RZ.pending, which stopped the rotation until they went stale)
+        start(false);
+        play(B, "Kickoff"); rzOnBoard([A, B, C], s(5)); play(C, "Punt"); rzOnBoard([A, B, C], s(20));
+        out.t12a = RZ.pending.size === 0;
+        rzTick(s(30)); out.t12b = RZ.cur.gid !== A.id;
+        // T13 · 2026-10-11, user: "we never want to watch kickoffs or punts on redzone". A kickoff or punt
+        // in the game on screen sends the card on at once, inside RZ.MIN; after a touchdown its 8 s stand.
+        start(false);
+        play(A, "Kickoff"); rzOnBoard([A, B, C], s(2));
+        out.t13a = RZ.cur.gid !== A.id;
+        start(false);
+        play(A, "Rush"); rzOnBoard([A, B, C], s(1)); play(A, "Punt"); rzOnBoard([A, B, C], s(4));
+        out.t13b = RZ.cur.gid !== A.id;
+        start(false);
+        A.home.score += 7; play(A, "Passing Touchdown", { scoreValue: 6 }); rzOnBoard([A, B, C], s(1));
+        play(A, "Kickoff"); rzOnBoard([A, B, C], s(4));
+        out.t13c = RZ.cur.gid === A.id && RZ.cur.kind === "score";
+        rzTick(s(9)); out.t13d = RZ.cur.gid !== A.id;
+        // T14 · leaving a finished drive, a game that just snapped beats a red-zone game in its huddle,
+        // whichever of the two the scoreboard's excitement() favours (each way round, the huddle at the 5)
+        out.t14 = [[B, C], [C, B]].map(([huddle, snapped]) => {
+          start(false);
+          sit(huddle, { isRedZone: true, yardLine: 5, possession: huddle.home.id });
+          A.home.score += 3; play(A, "Field Goal Good", { scoreValue: 3 }); rzOnBoard([A, B, C], s(1));
+          RZ.lastNews?.set(snapped.id, s(4)); RZ.lastNews?.delete(huddle.id);
+          rzTick(s(9)); return RZ.cur.gid === snapped.id;
+        });
+        // T15 · news over 25 s old is dropped (it was 45 s): a play that old didn't just happen
+        start(false);
+        rzCut(A.id, null, s(15), true);
+        RZ.pending.set(B.id, { play: B.sit.lastPlay, kind: "play", prio: 15, at: s(0) });
+        rzTick(s(26)); out.t15 = !RZ.pending.has(B.id) && RZ.cur.gid === A.id;
         // T7 · halftime: the card leaves at once
         start(false);
         A.name = "STATUS_HALFTIME"; rzTick(s(2)); out.t7 = RZ.cur.gid !== A.id;
@@ -2956,7 +3030,7 @@ async function main() {
       }, rzFix.snaps[0].sb);
       const RU = rules || {};
       ok(RU.t1a === true && RU.t1b === true, `a play in another game waits until the one on screen has had 7 s, then the card cuts to it (${RU.t1a}, ${RU.t1b})`);
-      ok(RU.t2a === true && RU.t2b === true, `a game in the red zone keeps the card against an ordinary play elsewhere (25 s on: ${RU.t2a}), not against a touchdown (${RU.t2b})`);
+      ok(RU.t2a === true && RU.t2c === true && RU.t2b === true, `a fresh red-zone play keeps the card against an ordinary play elsewhere (8 s on: ${RU.t2a}), which takes it at 12 s (${RU.t2c}); a touchdown takes it at once (${RU.t2b})`);
       ok(RU.t3a === true && RU.t3b === true, `red zone against red zone: the other game takes the card once this one has had 20 s (at 10 s ${RU.t3a}, at 20 s ${RU.t3b})`);
       ok(RU.t4k === true && RU.t4a === true && RU.t4b === true, `a score holds the card 8 s, even against a touchdown elsewhere at 7 s in, which follows at 8 s (${RU.t4k}, ${RU.t4a}, ${RU.t4b})`);
       ok(RU.t4c === true && RU.t4d === true, `a field goal with the red-zone flag still on: 7 s in it's up, at 8 s the card moves to a game in play with nothing waiting (${RU.t4c}, ${RU.t4d})`);
@@ -2964,7 +3038,13 @@ async function main() {
       ok(RU.t4f === true, `after a score the game isn't "in the red zone" until a new drive snaps inside the 20 (${RU.t4f})`);
       ok(RU.t4g === true, `leaving a finished drive, the card goes to the game that just ran a play (${RU.t4g})`);
       ok(RU.t5a === true && RU.t5b === true, `with nothing new for 30 s the card moves on, to the game in the red zone (29 s ${RU.t5a}, 30 s ${RU.t5b})`);
-      ok(RU.t6a === true && RU.t6b === true, `a quiet game inside the 20 keeps the card past 30 s (${RU.t6a}) up to 90 s (${RU.t6b})`);
+      ok(RU.t6a === true && RU.t6b === true, `a quiet game inside the 20 moves on after 30 s like any other (29 s ${RU.t6a}, 30 s ${RU.t6b})`);
+      ok(RU.t11a === true && RU.t11b === true, `a red-zone game in its huddle gives the card to games that are snapping (${RU.t11a}), and its next red-zone snap brings it back (${RU.t11b})`);
+      ok(RU.t12a === true && RU.t12b === true, `kickoffs and punts elsewhere don't wait (${RU.t12a}) and don't keep a quiet game up past 30 s (${RU.t12b})`);
+      ok(RU.t13a === true && RU.t13b === true, `a kickoff or punt in the game on screen sends the card on at once (kickoff ${RU.t13a}, punt 3 s after a snap ${RU.t13b})`);
+      ok(RU.t13c === true && RU.t13d === true, `a kickoff 3 s after a touchdown leaves the touchdown up (${RU.t13c}) for its 8 s, then the card moves on (${RU.t13d})`);
+      ok(RU.t14?.every((x) => x === true), `leaving a finished drive, a game that just snapped beats a red-zone game in its huddle (${JSON.stringify(RU.t14)})`);
+      ok(RU.t15 === true, `news over 25 s old is dropped (${RU.t15})`);
       ok(RU.t7 === true, `a game that goes to halftime loses the card at once (${RU.t7})`);
       ok(RU.t8 === true, `a touchdown and its extra point both unseen: the touchdown is what waits (${RU.t8})`);
       ok(RU.t8b === true && RU.t8c === true, `the touchdown on screen stays up when its try arrives, then the card moves on at 8 s (${RU.t8b}, ${RU.t8c})`);
@@ -3103,6 +3183,26 @@ async function main() {
         return a;
       });
       ok(nxt.tS === 1.1 && nxt.tSoff === 4, `in RedZone a play starts with the teams set (snap at ${nxt.tS} s); on a game's own screen it walks out of the huddle (snap at ${nxt.tSoff} s)`);
+      // 2026-10-11, user: "we never want to watch kickoffs or punts on redzone". In RedZone the 8-bit view
+      // puts a kickoff or punt up as it ended; a return touchdown still runs, and on a game's own screen
+      // the kick runs as before.
+      const kick = await probe(() => {
+        const list = raPlays(), latest = sideNext();
+        const ko = list.find((p) => p.kind === "kickoff" && !p.scoring && !p.turnover), pu = list.find((p) => p.kind === "punt" && !p.scoring && !p.turnover);
+        if (!ko) return { err: "no kickoff in the fixture" };
+        const end = () => ({ id: String(SIDE.playId), done: !!SIDE.sc && SIDE.t >= SIDE.sc.T });
+        const a = { punt: !!pu };
+        sidePlay(ko); a.ko = end(); a.koId = String(ko.id);
+        if (pu) { sidePlay(pu); a.pu = end(); a.puId = String(pu.id); }
+        sidePlay({ ...ko, scoring: true }); a.koTD = end();
+        history.replaceState(history.state, "", "#g" + G.id);
+        sidePlay(ko); a.koOff = end();
+        history.replaceState(history.state, "", "#redzone");
+        sidePlay(latest);
+        return a;
+      });
+      ok(!kick.err && kick.ko.id === kick.koId && kick.ko.done && (!kick.punt || (kick.pu.id === kick.puId && kick.pu.done)) && !kick.koTD.done && !kick.koOff.done,
+        `in RedZone a kickoff${kick.punt ? " or punt" : ""} is put up as it ended, not run; a return touchdown runs, and on a game's own screen the kickoff runs (${JSON.stringify(kick)})`);
       // A cut waits for the big view to finish the play it's running (up to 25 s), then goes. The play
       // waiting elsewhere is a touchdown, which beats TEN @ BAL's own red-zone hold, so only the stage
       // being busy can keep RedZone where it is.
@@ -3197,6 +3297,193 @@ async function main() {
       });
       ok(ow.h === true && ow.back === true, `another week (no live games to follow) has no RedZone, card or entry; this week brings it back (${JSON.stringify(ow)})`);
       await page.setViewport({ width: 800, height: 600 });
+      MOCK = null;
+    }
+
+    // The 2026-10-11 review: twelve findings from a read of the whole app, each traced in the code first.
+    section("Review fixes: polling, the week, run direction, penalties, the stage's loop, ties");
+    {
+      const sbBody = JSON.stringify(sbFixture), sumBody = JSON.stringify(sumFixture);
+      const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+      MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872948/.test(u) ? json(JSON.stringify(sbFixture.events.find((e) => e.id === "401872948")))
+        : /site\.api\.espn\.com.*\/summary\?event=401872948/.test(u) ? json(sumBody)
+        : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(sbBody) : null;
+      await page.setViewport({ width: 1280, height: 900 });
+      await page.evaluate(() => { localStorage.setItem("sun.tecmoBig", "true"); });
+      await page.goto(BASE + "/sunday.html", { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => typeof makePoller === "function" && S.loaded, { timeout: 15000 }).catch(() => {});
+      const probe = (fn, arg) => page.evaluate(fn, arg).catch((e) => ({ err: e.message.split("\n")[0] }));
+
+      // A tick asked for while one is in flight. pickWeek does stop() then start(); the old poller
+      // dropped that tick (running was true), so the new week waited a whole interval, up to 120 s.
+      const pl = await probe(async () => {
+        let calls = 0, release = null;
+        const p = makePoller(() => { calls++; return new Promise((r) => { release = r; }); }, () => 60000);
+        const settle = () => new Promise((r) => setTimeout(r, 30));
+        p.start(); await settle();
+        const first = calls;
+        p.stop(); p.start(); await settle();                 // a new week picked mid-poll
+        const during = calls;
+        release(); await settle();
+        const afterWeek = calls;
+        p.now(); await settle();                             // a play seen on the scoreboard: "fetch now"
+        release(); await settle();
+        const afterNow = calls;
+        p.stop(); release();
+        return { first, during, afterWeek, afterNow };
+      });
+      ok(pl.first === 1 && pl.during === 1 && pl.afterWeek === 2, `a new week picked while a poll is in flight is fetched the moment that poll returns, not an interval later (calls ${JSON.stringify(pl)})`);
+      ok(pl.afterNow === 3, `"fetch now" during a fetch runs once that one returns, instead of being dropped (calls ${JSON.stringify(pl)})`);
+
+      // The old week's answer arriving after the week changed is dropped, not drawn under the new week.
+      const wk = await probe(async () => {
+        boardPoller.stop();
+        const keep = S.events, real = getJSON;
+        let release = null;
+        getJSON = () => new Promise((r) => { release = r; });
+        S.week = { st: 2, wk: 5 };
+        const run = loadBoard();
+        await new Promise((r) => setTimeout(r, 20));
+        S.week = { st: 2, wk: 6 };                             // picked while week 5 was in flight
+        const marker = [];
+        S.events = marker;
+        release({ events: [], leagues: [] });
+        await run.catch(() => {});
+        const kept = S.events === marker;
+        getJSON = real; S.events = keep; S.week = null;
+        return { kept };
+      });
+      ok(wk.kept === true, `an answer for the week that was being loaded when another week was picked is dropped, not shown under the new week's label (${JSON.stringify(wk)})`);
+
+      // A betting line whose fetch fails is tried again on the next poll (it was given up for the session).
+      const ln = await probe(async () => {
+        const real = getJSON, keep = S.events;
+        getJSON = () => Promise.reject(new Error("timeout"));
+        const ev = { ...keep.find((e) => e.state !== "pre"), id: "rv-line-test" };
+        S.events = [ev];
+        await fetchMissingLines();
+        const tried = S.lineTried.has("rv-line-test");
+        getJSON = real; S.events = keep;
+        return { tried };
+      });
+      ok(ln.tried === false, `a betting line that failed to load is left to be tried again on the next poll (${JSON.stringify(ln)})`);
+
+      // A week with no games: the copy doesn't mention the filters removed on 2026-09-27, and there is no
+      // "Show all games" button that changes nothing.
+      const em = await probe(() => {
+        const keep = S.events;
+        S.events = [];
+        renderBoard();
+        const b = document.getElementById("board");
+        const r = { text: b.textContent.replace(/\s+/g, " ").trim(), goto: !!b.querySelector("[data-goto]") };
+        S.events = keep; renderBoard();
+        return r;
+      });
+      ok(em.text && !/filter/i.test(em.text) && em.goto === false, `a week with no games says so, with no filter talk and no dead "Show all games" button ("${em.text}", button ${em.goto})`);
+
+      // Run direction: NFL run text has no verb ("Bi.Robinson left tackle to ATL 34"), so the direction
+      // was never read and every run got a random hole.
+      const rp = await probe((sum) => {
+        const comp = sum.header.competitions[0];
+        const ev = { home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+        const rows = [];
+        for (const dr of sum.drives.previous || []) for (const raw of dr.plays || []) rows.push({ raw, teamId: dr.team?.id });
+        const np = (id, text) => { const r = rows.find((q) => q.raw.id === id); return normPlay(text == null ? r.raw : { ...r.raw, text }, ev.home.id, r.teamId, ev.home.abbr); };
+        const run = raParse(np("40187294863"), ev);
+        const mid = raParse(np("40187294863", "Bi.Robinson up the middle to ATL 34 for 4 yards (D.Wyatt)."), ev);
+        const pass = raParse(np("40187294885"), ev);
+        // Penalties on a player whose name runs to two words. ATL is away, GB home.
+        const pen = (text) => { const I = raParse(np("40187294863", text), ev); return { team: I.penTeam?.abbr || null, name: I.penName }; };
+        return {
+          run: [run.dir, run.gap], mid: [mid.dir, mid.gap], pass: [pass.dir, pass.depth],
+          stBrown: pen("Bi.Robinson left tackle to ATL 34 for 4 yards (D.Wyatt). PENALTY on GB-A.St. Brown, Offensive Holding, 10 yards, enforced at GB 20 - No Play."),
+          jr: pen("Bi.Robinson left tackle to ATL 34 for 4 yards (D.Wyatt). PENALTY on ATL-D.Smith Jr., False Start, 5 yards, enforced at ATL 30 - No Play."),
+          plain: pen("Bi.Robinson left tackle to ATL 34 for 4 yards (D.Wyatt). PENALTY on GB-J.Burton, False Start, 5 yards, enforced at ATL 49 - No Play."),
+        };
+      }, sumFixture);
+      ok(rp.run && rp.run[0] === "left" && rp.run[1] === "tackle", `an NFL run reads its direction from the text: "Bi.Robinson left tackle" is left, tackle (got ${JSON.stringify(rp.run)})`);
+      ok(rp.mid && rp.mid[0] === "middle", `…"up the middle" is middle (got ${JSON.stringify(rp.mid)})`);
+      ok(rp.pass && rp.pass[0] === "left" && rp.pass[1] === "short", `…and a pass still reads "pass short left" as before (got ${JSON.stringify(rp.pass)})`);
+      ok(rp.stBrown && rp.stBrown.team === "GB" && rp.stBrown.name === "Offensive Holding", `a penalty on "GB-A.St. Brown" is GB's, Offensive Holding; the fallback used to read "on" as the team (got ${JSON.stringify(rp.stBrown)})`);
+      ok(rp.jr && rp.jr.team === "ATL" && rp.jr.name === "False Start", `…and one on "ATL-D.Smith Jr." is ATL's, False Start (got ${JSON.stringify(rp.jr)})`);
+      ok(rp.plain && rp.plain.team === "GB" && rp.plain.name === "False Start", `…while a one-word name still reads as before (got ${JSON.stringify(rp.plain)})`);
+
+      // The 8-bit stage keeps one drawing loop. A scene whose onEnd starts the next scene (the try after
+      // a touchdown, the ruling after a review) used to leave its own loop running alongside the new one,
+      // with no way left to cancel it: one more loop per chained scene for the rest of the game.
+      await page.evaluate(() => { location.hash = "#g401872948"; });
+      let stage = true;
+      try { await page.waitForFunction(() => G && G.sum && SIDE.sc && SIDE.cv?.isConnected, { timeout: 15000 }); } catch { stage = false; }
+      ok(stage, "the fixture game opens with the 8-bit stage drawing");
+      const loops = await probe(async () => {
+        const realRaf = window.requestAnimationFrame;
+        let asks = 0;
+        // Only the stage's own tick is counted (other animations on the page ask for frames too).
+        window.requestAnimationFrame = (cb) => { if (String(cb).includes("SIDE.onEnd")) asks++; return realRaf(cb); };
+        const perFrame = async () => {
+          asks = 0;
+          let frames = 0;
+          await new Promise((done) => { const t0 = performance.now(); const f = () => { frames++; if (performance.now() - t0 < 600) realRaf(f); else done(); }; realRaf(f); });
+          return asks / frames;
+        };
+        const before = await perFrame();
+        const sc = SIDE.sc;
+        for (let i = 0; i < 3; i++) {                        // three scenes chained from inside onEnd
+          SIDE.onEnd = () => { sideRun(sc, null); };
+          SIDE.running = true; SIDE.t = sc.T;
+          await new Promise((r) => setTimeout(r, 80));
+        }
+        const after = await perFrame();
+        window.requestAnimationFrame = realRaf;
+        return { before: +before.toFixed(2), after: +after.toFixed(2) };
+      });
+      ok(loops.before > 0.8 && loops.before < 1.2 && loops.after > 0.8 && loops.after < 1.2, `after three scenes chained from onEnd the stage still draws one loop: its tick asks for ${loops.after} frames per frame (${loops.before} before; each leftover loop adds one)`);
+
+      // Back pressed just after a replay step on the Plays tab: the step's tab refresh (250 ms later) ran
+      // after the game had closed and threw on G.sum.
+      const errsBefore = consoleErrors.length;
+      const back = await probe(async () => {
+        G.tab = "plays";
+        setCursor(3);
+        closeGameView(false);
+        await new Promise((r) => setTimeout(r, 400));
+        return { closed: G === null };
+      });
+      ok(back.closed === true && consoleErrors.length === errsBefore, `closing a game right after a replay step leaves no refresh behind to throw (${JSON.stringify(back)}; errors ${consoleErrors.slice(errsBefore).join(" | ") || "none"})`);
+
+      // A tied final: the win-probability note used to credit the away team with a comeback win.
+      // (The hash still reads #g401872948 after closeGameView, so clear it first or nothing reopens.)
+      await page.evaluate(() => { location.hash = ""; });
+      await page.waitForFunction(() => location.hash === "", { timeout: 5000 }).catch(() => {});
+      await page.evaluate(() => { location.hash = "#g401872948"; });
+      await page.waitForFunction(() => G && G.sum, { timeout: 15000 }).catch(() => {});
+      const tie = await probe(() => {
+        const h = G.ev.home.score, a = G.ev.away.score, wp = G.sum.wp;
+        // The trimmed fixture carries no winprobability; three rows in ESPN's shape, the home side
+        // dipping to 30% and ending level.
+        const ids = G.sum.flat.slice(0, 3).map((x) => x.p.id);
+        G.sum.wp = [{ playId: ids[0], homeWinPercentage: 0.5, tiePercentage: 0 }, { playId: ids[1], homeWinPercentage: 0.3, tiePercentage: 0 }, { playId: ids[2], homeWinPercentage: 0.5, tiePercentage: 0 }];
+        G.cursor = null; G.ev.home.score = 20; G.ev.away.score = 20;
+        renderWPStrip();
+        const text = document.getElementById("wp-strip").textContent.replace(/\s+/g, " ").trim();
+        G.ev.home.score = h; G.ev.away.score = a; G.sum.wp = wp; renderWPStrip();
+        return { state: G.ev.state, text };
+      });
+      ok(!tie.err && tie.state === "post" && /tie/i.test(tie.text) && !/came back|never fell/i.test(tie.text), `a final that ends level says it was a tie, not that one side came back to win ("${tie.err || tie.text}")`);
+
+      // Night/Day repaints the RedZone feed: its chips carry the team colour for the theme.
+      const th = await probe(() => {
+        const real = rzRenderFeed;
+        let n = 0;
+        rzRenderFeed = () => { n++; };
+        const cur = document.documentElement.dataset.theme || "dark";
+        setTheme(cur === "dark" ? "light" : "dark");
+        setTheme(cur);
+        rzRenderFeed = real;
+        return { repaints: n };
+      });
+      ok(th.repaints === 2, `switching Night/Day repaints the RedZone feed each time (${JSON.stringify(th)})`);
+      await page.evaluate(() => { location.hash = ""; });
       MOCK = null;
     }
 

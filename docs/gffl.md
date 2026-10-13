@@ -11211,6 +11211,102 @@ Bite: the pre-review Week 5 column, rebuilt in a worktree, gave **249 pass / 2 f
 preview. Its pattern counts six of the Week 4 recap's seven callbacks; the seventh is phrased "On
 Saturday the column ended".
 
+---
+
+## GFFL — a live player's tap opens the game on Sunday, not the old Scores view (2026-10-11)
+
+User: "clicking a player in GFFL takes the user to the old scores tab, not the new one".
+
+On the Matchup page a row whose NFL game is live carries `data-live-eid` (item 1, 2026-08-22),
+and tapping it called `UI.openNflGame`. Since 2026-09-27 that in-app Scores view has no bar entry;
+the bar's "Scores" is `sunday.html`. So the tap landed on `league.html#nflgame=<id>`, a screen the
+family can no longer reach any other way.
+
+The tap now calls the new `UI.openSundayGame(eid)`, which goes to `sunday.html#g<eid>` (Sunday's
+game detail, same ESPN event id, `route()` in sd-app.js). A not-live player still opens the player
+card. `UI.openNflGame` and the old view are untouched: the old view's own card taps and the suite's
+many `openNflGame` reach-ins still use it.
+
+`gffl-v` → `20261011a` (lg-ui.js is served immutable), recorded with
+`node tools/_gffl_asset_versions.mjs --record`.
+
+Files: `assets/league/lg-ui.js`, `league.html`, `gffl-version.txt`,
+`tools/_gffl_asset_versions.json`, `tools/_verify-gffl.cjs`.
+
+RESTAGED, reasons at the checks: BA1 stubs `UI.openSundayGame` as the game opener and asserts
+`UI.openNflGame` is never called; the matchup-morph duplicate-listener check stubs
+`openSundayGame` too, so its click does not navigate away. NEW in BA1: the real, unstubbed tap
+lands on `/sunday.html#g401900001`.
+
+**VERIFY:** `--only AT,BA,AVG,SU` **339/339**. Bite (HEAD lg-ui.js, suite unchanged): BA **3
+fail**, landing on `/league.html#nflgame=401900001`.
+
+Full battery **4464/4464**, run in four pieces in a Linux sandbox (scratchpad `puppeteer-core@23`
+against `/opt/pw-browsers/chromium`). The single run twice died with `ProtocolError: Promise was
+collected`, first entering AS and then UD4. Neither section touches this change, and each passed
+alone (AS 28/28, UD4 8/8). The run then resumed from the next section.
+
+### Whole-project review fixes (2026-10-12)
+
+- **Postponed games locked their players.** `D.gameStarted` read ESPN's postponed shape (`state:"post"`,
+  `completed:false`) as underway, so every starter on that team was locked (no swap, drop or add) and a
+  waiver winner was forced to bench — D-S6 fixed `gameDone`/`remaining` for this shape but missed this
+  reader. Now `"post"` counts as started only when `completed !== false` (same convention, so a producer
+  that never states the field reads exactly as before), and a postponed game gets no kickoff fallback
+  (the ORIGINAL kickoff has passed and would re-lock the same men). Two checks in BF3.
+- **A bracket tap rewrote the live week.** The bracket's `[data-mu]` handler set `UI.week` to the
+  tapped game's week; `UI.week` is what the locker, `faAdd`, `addClaim` and `dropPlayer` write to, so a
+  lineup set after tapping last week's semi landed in last week's roster doc (and a future game minted a
+  copy-forward roster). It now browses via `UI._muWeek` like the week arrows (stepMuWeek). Check in U's
+  built-bracket page (clock moved to week 16, week-15 game tapped).
+- **lineupwarn warned recovered players every kickoff.** injstate's `""` is the app's committed
+  all-clear, but `findCandidates` treated it as unknown and fell back to the roster doc's import-time
+  `injury`. A present injstate field is authoritative now; `p.injury` only when injstate never saw the
+  player. `_verify-lineupwarn.mjs` **58/58** (+2, A6); on HEAD the new check fails, the control passes.
+- Version bumped to **20261012a** (gffl-version.txt, the gffl-v meta, the three ?v= strings) and
+  recorded with `node tools/_gffl_asset_versions.mjs --record`.
+- **VERIFY:** `--only BF,U,AVG` **133/133**; bite (HEAD lg-*.js, new suite): BF,U **2 fail** — exactly
+  the two new checks, every pre-existing check passes. Full battery **4449 run, 4448 pass**: A–S 665/665 in one run (which
+  then hit the known `Promise was collected` crash entering T, as the 2026-10-11 entry describes), T–AVG
+  in 14 chunks of 8 sections 3783/3784 — the 1 was TG's "a freeze-gap pulse reports the page was
+  frozen" timing check, 163/163 on its rerun (TG–TL).
+- Sandbox note: the default `GFFL_PORT_BASE` 8843 collided with a leftover server
+  (`EADDRINUSE 8847`); `GFFL_PORT_BASE=9350` runs clean.
+- **Reported, not changed:** `persistLineup` re-applies every slot from the render-time snapshot with a
+  blind `saveRoster` rather than a `rosterUpdate` delta of just the changed keys — a stale second device
+  can put a kicked-off player back in a starting slot. Worth converting to the delta pattern.
+
+### Week 5 finalized as four 0-0 games (2026-10-13)
+
+Report: "the standings didn't update for week 5 results." `weekly_2026_w5` was written at
+2026-10-13 03:48Z (`source:"live"`, auto-finalize from some device's boot) with every matchup 0-0,
+every player scored 0 (`accuracy.ours` 11.17 = the mean projection), and a NON-zero power table.
+Every lineup was fielded and every game read "post", so `empty-week`/`empty-matchup` passed; the
+device simply had no player rows behind those lineups, and `fzPts` scores a missing row 0.
+
+Two holes, both fixed:
+- **`LG.weeklyIsVoid` reverses its power-table half** (the 2026-09-02 entry above: "needs BOTH
+  halves"). Its premise, "a played week cannot have an all-zero power table", is true but
+  backwards: power is cumulative (4·wins + 0.05·season PF + 2·last3), so from week 2 on even a
+  week nobody scored in carries a non-zero table. It could only ever recognise a week-1 zombie.
+  Now every matchup 0-0 alone is void. Effect on the live doc: the standings ignore week 5 at
+  once (the four phantom ties disappear), and it is offered on the stale-week card for the
+  commissioner's archived-stats finalize, which replaces it under the existing self-heal
+  (`replacedVoid: true`). No production data was touched.
+- **`finalizeWeek` refuses `no-scores`**, force included, when every matchup totals 0-0 —
+  the whole-week shape weeklyIsVoid calls void, so it is never written in the first place.
+  League-wide rather than per pairing on purpose: `seedAllFielded`'s filler teams legitimately
+  play 0-0 pairings among themselves.
+- Not found: why that device had lineups and a final slate but no player rows. The new guard
+  makes that state refuse instead of write; the next boot after rows load finalizes normally.
+- **Repair (done 2026-10-13, at the commissioner's request):** the zero doc was backed up
+  (scratchpad `weekly_2026_w5_zero_backup.json`) and replaced by the app's own
+  `LG.finalizeWeek(5, {backfill:true})` against production with this code: `source:"archived"`,
+  `replacedVoid:true`, 4-1 163.10-162.74, 3-5 150.74-148.88, 9-2 210.66-188.56, 12-11 145.90-71.22.
+- Version **20261013a**, recorded. **VERIFY:** full battery **4469/4471**, where the 2 were AVG's
+  version-record checks, then `--only BF,AVG` **118/118** after the bump. Bite (`origin/main`
+  lg-core/lg-ui, new suite): `--only M` **62/65**, the 3 failures exactly the new checks; 65/65 with the fix.
+
 ## RoboGoat read log: who actually reads the columns (2026-10-10)
 
 Perry: "I want to log who actually reads the columns." His choices: identify readers from the app
@@ -11245,7 +11341,7 @@ and the push only, show nothing on the pages, and pull the report by asking Robo
 
 **Restaged:** GFFL RGL1. The card's href was the bare issue path; it is now the path plus
 `?r=app1`, because fullSeed claims team 1. The tap lands on the same path with that query. A new
-check confirms a phone with no team still gets the bare link. Cache-bust is now `20261010a`.
+check confirms a phone with no team still gets the bare link. Cache-bust is now `20261013b` (after merging main's `20261013a`).
 
 **VERIFY:**
 - `node tools/_verify-robogoat.cjs` **275/275**. New checks:

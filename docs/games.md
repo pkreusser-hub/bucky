@@ -810,3 +810,17 @@ skills loaded by the opus build agent), Fable spec+review, one polish pass.
   position (family-app posture). STAGE 4 spec'd in the Stage-3 report: Firestore
   lobbies_<familyKey>/sb_<roomCode> doc (game:"storybook", ico 📖, 15s heartbeat) +
   games.html LOBBY_TEXT entry + tiles → then go-live push (user approval required).
+
+# Review fixes (2026-10-12)
+- **games.html lobby cards**: `lobbyHref` built `<game>.html#r=…` from the raw Firestore `game`
+  field; a doc with `game:"javascript:…//"` would render a clickable `javascript:` JOIN. Only a plain
+  page name (`[a-z0-9-]`) becomes a link now; anything else is skipped.
+- Castle Kruzer's arcade entry now carries `?fam=arcade` (see docs/castle-kruzer.md);
+  `_verify-arcade.cjs` restaged at the check with the reason, **23/23**.
+- `node tools/_verify-review-2026-10-12.cjs` **13/13** covers the games.html link guard, the Castle
+  Kruzer note escape (on HEAD the `#r=` payload actually executes), FarmGPT's money/math rendering and
+  the books cover escape; 9 of its 13 checks fail on HEAD.
+- **Reported, not changed**: Pasture Panic never flips its lobby to `started` (full rooms keep a live
+  JOIN card); lobby heartbeats use merge-setDoc, so one landing after the delete recreates a stub doc;
+  farmparty's `clearPage` doesn't dispose per-page materials; hayhaul's bare localStorage calls can
+  kill its rAF loop in private mode.

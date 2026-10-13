@@ -774,6 +774,27 @@
 
   // lg-data.js normSlp, duplicated per house convention: Sleeper's stat names -> FF.KEYS.
   // Defensive keys only for a team-defense row; a player's return TD pays the base dst_td.
+  // lg-data.js fgYdsFromBuckets, duplicated: a kicker row with makes but no fgm_yds gets its
+  // yards rebuilt from the distance buckets (approximate) instead of pricing every make at 0 yards.
+  function fgYdsFromBuckets(st) {
+    const made = num(st.fgm);
+    const b = (k) => num(st[k]);
+    const short = b("fgm_0_19") + b("fgm_20_29");
+    const long = b("fgm_30_39") + b("fgm_40_49") + b("fgm_50_59") + b("fgm_60p");
+    const hi = Math.max(b("fgm_50_59") + b("fgm_60p"), b("fgm_50p")); // fgm_50p is the aggregate 50+ bucket
+    const knownLong = b("fgm_30_39") + b("fgm_40_49") + hi;
+    if (st.fgm_yds_over_30 != null && num(st.fgm_yds_over_30) >= 0) {
+      const nLong = Math.max(0, Math.min(made, knownLong || long));
+      return num(st.fgm_yds_over_30) + 30 * nLong + (made - nLong) * 25;
+    }
+    const bucketed = short + knownLong;
+    if (bucketed > 0) {
+      return b("fgm_0_19") * 15 + b("fgm_20_29") * 25 + b("fgm_30_39") * 35 + b("fgm_40_49") * 45
+        + b("fgm_50_59") * 54 + b("fgm_60p") * 62 + Math.max(0, b("fgm_50p") - b("fgm_50_59") - b("fgm_60p")) * 54
+        + Math.max(0, made - bucketed) * 33;
+    }
+    return made * 33;
+  }
   function normSlp(st, isDst) {
     const n = emptyStat();
     n.pass_yd = num(st.pass_yd); n.pass_td = num(st.pass_td); n.pass_int = num(st.pass_int); n.pass_2pt = num(st.pass_2pt);
@@ -781,6 +802,7 @@
     n.rec = num(st.rec); n.rec_yd = num(st.rec_yd); n.rec_td = num(st.rec_td); n.rec_2pt = num(st.rec_2pt);
     n.fum_lost = num(st.fum_lost);
     n.fg_made_yd = num(st.fgm_yds);
+    if (num(st.fgm) > 0 && st.fgm_yds == null) n.fg_made_yd = fgYdsFromBuckets(st);
     n.dst_2pt_ret = num(st.def_2pt);
     n.fg_0_39 = num(st.fgm_0_19) + num(st.fgm_20_29) + num(st.fgm_30_39);
     n.fg_40_49 = num(st.fgm_40_49); n.fg_50 = num(st.fgm_50p);
@@ -788,7 +810,9 @@
     if (isDst) {
       n.dst_sack = num(st.sack ?? st.def_sack);
       n.dst_int = num(st.int ?? st.def_int);
-      n.dst_fum_rec = num(st.fum_rec ?? st.def_fum_rec);
+      // + def_st_fum_rec: Sleeper books special-teams recoveries under their own key, and the
+      // league's D/ST pays them (lg-data.js normSlp, 2026-10-04). Sunday's copy missed that change.
+      n.dst_fum_rec = num(st.fum_rec ?? st.def_fum_rec) + num(st.def_st_fum_rec);
       n.dst_td = num(st.def_td);
       n.dst_kr_td = num(st.def_st_td) + num(st.st_td);
       n.dst_fum_forced = num(st.ff ?? st.def_ff);

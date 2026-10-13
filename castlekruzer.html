@@ -1713,6 +1713,12 @@
       difficulty: opts.difficulty,      /* the host picks how hard the rivals play, for BOTH seats */
     };
   }
+  // netNote takes HTML, so anything that arrived over the network or the URL (a guest's name, a
+  // room code from #r=) goes through noteEsc first — a name like <img onerror=…> is 40 chars.
+  function noteEsc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
   function netNote(html) {
     netNoteEl.innerHTML = html || "";
     netNoteEl.classList.toggle("hidden", !html);
@@ -1814,8 +1820,8 @@
           const st = FSNet.state();
           if (st.role === "host" && !G) netNote("Opening room…");
           else if (st.role === "host") {
-            netNote('room <span class="code">' + st.code + "</span><br>" +
-              (st.peerHere ? "🤝 " + st.peerName + " joined!" : "waiting for partner… share this link:<br>" + st.link));
+            netNote('room <span class="code">' + noteEsc(st.code) + "</span><br>" +
+              (st.peerHere ? "🤝 " + noteEsc(st.peerName) + " joined!" : "waiting for partner… share this link:<br>" + noteEsc(st.link)));
           } else if (st.role === "guest") {
             netNote(st.status === "syncing" ? "receiving the world…"
               : st.status === "hostLeft" ? "the host went quiet…"
@@ -1995,7 +2001,7 @@
   });
   // deep link: castlekruzer.html#r=<code> joins straight away
   if (FSNet && FSNet.linkCode()) {
-    netNote("Joining " + FSNet.linkCode() + "…");
+    netNote("Joining " + noteEsc(FSNet.linkCode()) + "…");
     setTimeout(() => joinRoom(FSNet.linkCode()), 0);
   }
 

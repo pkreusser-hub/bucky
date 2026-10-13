@@ -1083,7 +1083,9 @@
         // the very next tap without any re-wiring (the same "re-read at click time" rule the
         // scores card taps already follow). Every other data-pk source (league feed, locker,
         // injury report, hot picks, moves) never sets this attribute, so they are untouched.
-        if (el.dataset.liveEid) { UI.openNflGame(el.dataset.liveEid); return; }
+        // 2026-10-11: that game now opens on Sunday (sunday.html, the bar's "Scores"), not the
+        // old in-app Scores view, which lost its tab on 2026-09-27 — see UI.openSundayGame.
+        if (el.dataset.liveEid) { UI.openSundayGame(el.dataset.liveEid); return; }
         UI.openPlayerCard(el.dataset.pk);
       });
     });
@@ -3456,9 +3458,12 @@
         </div>
       </div>`;
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
+      // Browse that game's week the way the week arrows do (stepMuWeek): UI._muWeek, never
+      // UI.week. UI.week is the LIVE league week the locker, faAdd, addClaim and dropPlayer write
+      // to — setting it here (2026-10-12 fix) sent a lineup set after tapping last week's semi
+      // into last week's roster doc, and a tap on a future game minted a copy-forward roster.
       const wk = Number(el.dataset.wk);
-      if (wk) UI.week = wk;
-      UI._muWeek = null;
+      UI._muWeek = wk && wk !== UI.week ? wk : null;
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.go("matchup");
     }));
@@ -3901,6 +3906,15 @@
     UI.nflGameId = id;
     UI._nflGame = null;
     UI.go("nflgame");
+  };
+
+  // The bar's "Scores" is sunday.html (2026-09-27), whose game detail is #g<eventId> (same ESPN
+  // event id). Anything outside the old NFL board that means "show me this game" goes there, so
+  // the family never lands on the tab-less in-app view.
+  UI.openSundayGame = function (eventId) {
+    const id = String(eventId || "");
+    if (!/^\d+$/.test(id)) return;
+    location.href = "sunday.html#g" + id;
   };
 
   // ---- field geometry. PORTED VERBATIM from sports.html (which is where it was worked out
@@ -6752,6 +6766,7 @@
     // finalize), and "not-final" is the single most common one there is.
     "empty-week": "nobody fielded a lineup that week — there is nothing to score",
     "empty-matchup": "neither team fielded a lineup in that game",
+    "no-scores": "every game that week reads 0-0 — the scores haven't loaded yet, try again in a minute",
     "not-final": "some games this week haven't finished yet",
     "no-archived-stats": "that week's archived stats aren't available", "bracket-unresolved": "an earlier playoff round hasn't been settled yet",
     "no-schedule": "there are no games on the board for that week",

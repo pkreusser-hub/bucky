@@ -132,6 +132,7 @@ function isPrivateIPv4(ip) {
   if (p[0] === 192 && p[1] === 168) return true;
   if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
   if (p[0] === 169 && p[1] === 254) return true;   // link-local + cloud metadata
+  if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true;   // 100.64/10 carrier-grade NAT (provider-internal)
   if (p[0] >= 224) return true;                    // multicast / reserved
   return false;
 }
@@ -139,7 +140,13 @@ function isPrivateIPv6(ip) {
   const s = String(ip).toLowerCase();
   if (s === "::1" || s === "::") return true;
   if (s.startsWith("fe80") || s.startsWith("fc") || s.startsWith("fd")) return true;
-  if (s.startsWith("::ffff:")) return isPrivateIPv4(s.slice(7));
+  if (s.startsWith("::ffff:")) {
+    const v4 = s.slice(7);
+    // IPv4-mapped in hex form (::ffff:7f00:1 = 127.0.0.1) as well as dotted (::ffff:127.0.0.1)
+    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v4);
+    if (hex) { const a = parseInt(hex[1], 16), b = parseInt(hex[2], 16); return isPrivateIPv4([a >> 8, a & 255, b >> 8, b & 255].join(".")); }
+    return isPrivateIPv4(v4);
+  }
   return false;
 }
 
@@ -167,22 +174,38 @@ async function guardUrl(raw) {
   return { ok: true, url: u };
 }
 
-/** Fetch with a timeout and a hard size cap, returning text. Never throws. */
+/** Fetch with a timeout and a hard size cap, returning text. Never throws.
+ *  Redirects are followed BY HAND (max MAX_REDIRECTS) and every hop goes back through guardUrl:
+ *  with redirect:"follow" only the first address was ever checked, so a public URL answering
+ *  302 → http://169.254.169.254/… was fetched for us (2026-10-12 review fix). */
+const MAX_REDIRECTS = 4;
 async function getText(url, accept) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const r = await fetch(url, {
-      redirect: "follow",
-      signal: ctrl.signal,
-      headers: { "User-Agent": UA, accept: accept || "*/*", "accept-language": "en-US,en;q=0.9" },
-    });
+    let cur = String(url), r = null;
+    for (let hop = 0; ; hop++) {
+      r = await fetch(cur, {
+        redirect: "manual",
+        signal: ctrl.signal,
+        headers: { "User-Agent": UA, accept: accept || "*/*", "accept-language": "en-US,en;q=0.9" },
+      });
+      if (r.status < 300 || r.status > 399) break;
+      const loc = r.headers.get("location");
+      if (!loc) break;
+      if (hop >= MAX_REDIRECTS) return { ok: false, reason: "too-many-redirects" };
+      let next;
+      try { next = new URL(loc, cur).href; } catch { return { ok: false, reason: "bad-redirect" }; }
+      const g = await guardUrl(next);
+      if (!g.ok) return { ok: false, reason: "redirect-" + g.reason };
+      cur = g.url.href;
+    }
     if (!r.ok) return { ok: false, reason: "http-" + r.status };
     const len = Number(r.headers.get("content-length") || 0);
     if (len && len > MAX_BODY_BYTES) return { ok: false, reason: "too-big" };
     const text = await r.text();
     if (text.length > MAX_BODY_BYTES) return { ok: false, reason: "too-big" };
-    return { ok: true, text, finalUrl: r.url || url, type: r.headers.get("content-type") || "" };
+    return { ok: true, text, finalUrl: cur, type: r.headers.get("content-type") || "" };
   } catch (e) {
     return { ok: false, reason: (e && e.name === "AbortError") ? "timeout" : "unreachable" };
   } finally {

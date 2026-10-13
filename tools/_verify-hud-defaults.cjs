@@ -222,7 +222,17 @@ async function main() {
   assert(mob.camHeight === 3.2, "mobile camHeight 3.2, got " + mob.camHeight);
   assert(mob.camLag === 14, "mobile camLag 14, got " + mob.camLag);
   assert(mob.fov === 74, "mobile fov 74, got " + mob.fov);
-  assert(Math.abs(mob.cameraFov - 74) < 0.01, "camera.fov snapped to 74");
+  // RESTAGED 2026-10-12 (title + menu v3): on the MENU the cinematic menu camera (MenuCam) owns
+  // camera.fov (58 title / 48 garage / 42 showroom), so the old "camera.fov is 74 at boot" read the
+  // menu lens. The rule this guards is unchanged — the CHASE camera runs at the mobile FOV — so it is
+  // now read where the chase camera is live: right after a race starts.
+  const chaseFov = await pageM.evaluate(async () => {
+    const K = window.__KART__;
+    K.startCountdown();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return { phase: K.G.phase, fov: K.camera.fov };
+  });
+  assert(chaseFov.phase === "countdown" && Math.abs(chaseFov.fov - 74) < 0.01, "chase camera.fov is 74 once racing, got " + JSON.stringify(chaseFov));
   // If TUNE still has baked desktop defaults, Effs differ — that's the point
   assert(mob.tuneCamDist === 3 || mob.tuneCamDist !== mob.camDist || true, "tune may be user-saved");
   // Critical: saveTune path must not have written mobile numbers into storage from Effs alone

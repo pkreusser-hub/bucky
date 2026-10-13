@@ -5393,6 +5393,36 @@ async function openDetails(page, id) {
     ok(emptied.onePairForced.ok === false && emptied.onePairForced.reason === "empty-matchup" && !emptied.wrote2,
       "…force included, with nothing written — a partial permanent record is exactly what the bracket findings ruled out");
 
+    // ⭐ FULL LINEUPS, NO SCORES (2026-10-13 — the week-5 zero record). weekly_2026_w5 was
+    // written at 03:48Z with every lineup fielded, every game "post", and no player rows behind
+    // them, so fzPts scored all of it 0: four 0-0 games in a write-once doc. Both guards above
+    // count starters, so neither saw it. Reproduced by emptying D.S.players (snapshot, restore).
+    const zeroed = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+      const savedRows = new Map(D.S.players);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      D.S.players.clear();
+      const plain = await LG.finalizeWeek(1);
+      const forcedZ = await LG.finalizeWeek(1, { force: true });
+      const wrote = await LG.loadWeekly(1);
+      for (const [k, v] of savedRows) D.S.players.set(k, v);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 3, clock: "5:00" }));
+      // The doc exactly as it sits in production: 0-0 everywhere, a NON-zero power table (power
+      // is cumulative — 4·wins + 0.05·season PF + 2·last3 — so week 5 carries weeks 1-4).
+      const w5 = { kind: "weekly", week: 5,
+        matchups: [{ home: 4, away: 1, homePts: 0, awayPts: 0 }, { home: 3, away: 5, homePts: 0, awayPts: 0 }],
+        power: [{ teamId: 5, score: 44.31, rank: 1 }, { teamId: 1, score: 30.2, rank: 2 }], finalizedAt: 1791863291131, source: "live" };
+      const real = { ...w5, matchups: [{ home: 4, away: 1, homePts: 88.4, awayPts: 0 }, { home: 3, away: 5, homePts: 0, awayPts: 0 }] };
+      return { plain, forcedZ, wrote: !!wrote, voidW5: LG.weeklyIsVoid(w5), voidReal: LG.weeklyIsVoid(real) };
+    });
+    ok(zeroed.plain.ok === false && zeroed.plain.reason === "no-scores",
+      "full lineups with no scores behind them refuse as no-scores — pre-fix this wrote 0-0 ties (" + JSON.stringify(zeroed.plain.reason) + ")");
+    ok(zeroed.forcedZ.ok === false && zeroed.forcedZ.reason === "no-scores" && !zeroed.wrote,
+      "…force included, and nothing was written");
+    ok(zeroed.voidW5 === true,
+      "a week of 0-0 games with a NON-zero (cumulative) power table is VOID — the production weekly_2026_w5 shape, which pre-fix read as real and stuck in the standings (" + zeroed.voidW5 + ")");
+    ok(zeroed.voidReal === false, "CONTROL: one real score in the week keeps it a result (" + zeroed.voidReal + ")");
+
     // force:true bypasses the guard (still computes from whatever's currently on the board).
     const forced = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
     ok(forced.ok === true && forced.kind === "weekly", "force:true bypasses the guard and finalizes anyway");
@@ -7130,6 +7160,24 @@ async function openDetails(page, id) {
       await page.evaluate(() => window.__GFFL__.UI.show("bracket"));
       await page.waitForSelector(".bracketrounds", { timeout: 9000 });
       await sweep(page, "bracket (fully built — byes, play-in, semis, consolation rounds)");
+      // 2026-10-12: tapping a bracket game from ANOTHER week must browse it (UI._muWeek) and leave
+      // UI.week — the live week every roster write uses — alone. Move the clock to week 16, then
+      // tap a week-15 play-in game.
+      const bt = await page.evaluate(async () => {
+        const G = window.__GFFL__, LG = G.LG;
+        LG.nowOverride += 7 * 24 * 3600 * 1000;
+        G.UI.week = LG.currentWeek();
+        G.UI.show("bracket");
+        for (let i = 0; i < 60 && !document.querySelector('[data-mu][data-wk]'); i++) await new Promise((r) => setTimeout(r, 100));
+        const live = G.UI.week;
+        const card = [...document.querySelectorAll('[data-mu][data-wk]')].find((e) => Number(e.dataset.wk) !== live);
+        if (!card) return { live, none: true };
+        const wk = Number(card.dataset.wk);
+        card.click();
+        return { live, wk, weekAfter: G.UI.week, muWeek: G.UI._muWeek, view: G.UI.view };
+      });
+      ok(!bt.none && bt.weekAfter === bt.live && bt.muWeek === bt.wk && bt.wk !== bt.live,
+        "a bracket tap on another week's game browses that week (UI._muWeek) and leaves the live UI.week alone (" + JSON.stringify(bt) + ")");
       ok(errors.length === 0, "0 page errors sweeping the built bracket");
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_theme_bracket_390.png"), fullPage: true }); console.log("  📸 shots/gffl_theme_bracket_390.png"); }
       await ctx.close();
@@ -21065,9 +21113,14 @@ async function openDetails(page, id) {
         const origCard = window.__GFFL__.UI.openPlayerCard, origGame = window.__GFFL__.UI.openNflGame;
         window.__GFFL__.UI.openPlayerCard = () => { n++; };
         window.__GFFL__.UI.openNflGame = () => { n++; };
+        // 2026-10-11: the live branch now calls UI.openSundayGame (a real navigation to
+        // sunday.html) — stubbed too, so this click never leaves the page mid-check.
+        const origSun = window.__GFFL__.UI.openSundayGame;
+        window.__GFFL__.UI.openSundayGame = () => { n++; };
         document.querySelector(".pcellgrid[data-pk]").click();
         window.__GFFL__.UI.openPlayerCard = origCard;
         window.__GFFL__.UI.openNflGame = origGame;
+        window.__GFFL__.UI.openSundayGame = origSun;
         return n;
       }));
       ok(dup === 1, "after three live repaints, tapping a player row opens exactly ONE card/game — no duplicate listeners (" + dup + ")");
@@ -21710,28 +21763,48 @@ async function openDetails(page, id) {
     await waitOr(page, ".muhead");
     const tap = await evalOr(page, () => {
       const UI = window.__GFFL__.UI;
-      let openedGame = null, openedCard = null;
-      const origGame = UI.openNflGame, origCard = UI.openPlayerCard;
-      UI.openNflGame = (eid) => { openedGame = eid; };
+      // RESTAGED 2026-10-11 (user: "clicking a player in GFFL takes the user to the old scores
+      // tab, not the new one"): the live row used to call UI.openNflGame, the in-app Scores view
+      // that lost its tab on 2026-09-27. It now calls UI.openSundayGame — Sunday is GFFL's
+      // Scores. openedGame records the Sunday call; openedOld must stay null.
+      let openedGame = null, openedCard = null, openedOld = null;
+      const origGame = UI.openSundayGame, origOld = UI.openNflGame, origCard = UI.openPlayerCard;
+      UI.openSundayGame = (eid) => { openedGame = eid; };
+      UI.openNflGame = (eid) => { openedOld = eid; };
       UI.openPlayerCard = (key) => { openedCard = key; };
       // P. Passer plays for PHI — DAL@PHI is "in" by default (sbFix()'s own default).
       const liveRow = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
       const liveEidAttr = liveRow && liveRow.dataset.liveEid;
       liveRow && liveRow.click();
-      const afterLive = { openedGame, openedCard };
+      const afterLive = { openedGame, openedCard, openedOld };
       openedGame = null; openedCard = null;
       // T. Tight plays for KC — KC@DEN is "pre" by default, so this row must still open the card.
       const preRow = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("T. Tight"));
       preRow && preRow.click();
       const afterPre = { openedGame, openedCard };
-      UI.openNflGame = origGame; UI.openPlayerCard = origCard;
+      UI.openSundayGame = origGame; UI.openNflGame = origOld; UI.openPlayerCard = origCard;
       return { liveEidAttr, afterLive, afterPre };
     });
     ok(!!tap && tap.liveEidAttr === "401900001", "a live player's row carries the live event id (" + JSON.stringify(tap && tap.liveEidAttr) + ")");
     ok(!!tap && tap.afterLive.openedGame === "401900001" && tap.afterLive.openedCard === null,
-      "…tapping it opens the GAME, not the card (" + JSON.stringify(tap && tap.afterLive) + ")");
+      "…tapping it opens the GAME on Sunday, not the card (" + JSON.stringify(tap && tap.afterLive) + ")");
+    ok(!!tap && tap.afterLive.openedOld === null,
+      "…and never the old tab-less in-app Scores view (" + JSON.stringify(tap && tap.afterLive) + ")");
     ok(!!tap && tap.afterPre.openedGame === null && !!tap.afterPre.openedCard,
       "…while a NOT-live player's row still opens the card, exactly as before (" + JSON.stringify(tap && tap.afterPre) + ")");
+    // The real tap, unstubbed: it leaves league.html for sunday.html#g<that event id>, the
+    // Sunday game detail (sd-app.js route(): /^#g(\d+)$/).
+    const liveSel = await evalOr(page, () => {
+      const r = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
+      if (r) r.setAttribute("data-test-live", "1");
+      return !!r;
+    });
+    let landed = "";
+    if (liveSel) {
+      await Promise.all([page.waitForNavigation({ timeout: 9000 }).catch(() => null), page.click('[data-test-live="1"]')]);
+      try { const u = new URL(page.url()); landed = u.pathname + u.hash; } catch (e) { /* keep "" */ }
+    }
+    ok(/\/sunday\.html#g401900001$/.test(landed), "…the real tap lands on sunday.html#g401900001 (" + landed + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
 
@@ -23004,6 +23077,7 @@ async function openDetails(page, id) {
         return {
           state: g.state, completed: g.completed, name: g.statusName,
           donePHI: D.gameDone("PHI"), doneKC: D.gameDone("KC"),
+          startedPHI: D.gameStarted("PHI"), startedKC: D.gameStarted("KC"),
           remPHI: D.remaining(["3915511"]), remKC: D.remaining(["111222"]),
         };
       }) || {};
@@ -23011,6 +23085,9 @@ async function openDetails(page, id) {
         "the postponement is recorded as ESPN actually sends it — state post, completed FALSE, STATUS_POSTPONED (" + JSON.stringify([r.state, r.completed, r.name]) + ")");
       ok(r.donePHI === false, "…so D.gameDone refuses it: the slate has passed the game, nobody played it (" + r.donePHI + ")");
       ok(r.doneKC === true, "CONTROL: the genuine final on the same board still reads done (" + r.doneKC + ")");
+      // 2026-10-12: gameStarted missed D-S6 — a postponed game read as UNDERWAY, locking its players
+      ok(r.startedPHI === false, "…and D.gameStarted does not call it underway: his lineup slot, drop and add stay open (" + r.startedPHI + ")");
+      ok(r.startedKC === true, "CONTROL: the genuine final still reads started (" + r.startedKC + ")");
       ok(r.remPHI && r.remPHI.left === 1 && r.remPHI.played === 0,
         "…and his starter still counts as TO PLAY, so the strip and the star cannot contradict each other (" + JSON.stringify(r.remPHI) + ")");
       ok(r.remKC && r.remKC.played === 1, "CONTROL: the real final's own starter counts as played (" + JSON.stringify(r.remKC) + ")");

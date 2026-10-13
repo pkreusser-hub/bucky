@@ -149,6 +149,10 @@ function servePublisher(){
       }
       if (p === "/"){ res.setHeader("content-type", "text/html"); return res.end("<html><body>no link tag here</body></html>"); }
       if (p === "/notxml"){ res.setHeader("content-type", "text/html"); return res.end("<html><body>definitely not a feed</body></html>"); }
+      // redirects (2026-10-12): a legit move, and a hop to a scheme the guard refuses
+      if (p === "/moved"){ res.statusCode = 301; res.setHeader("location", "/rss.xml"); return res.end(); }
+      if (p === "/hop-ftp"){ res.statusCode = 302; res.setHeader("location", "ftp://127.0.0.1/rss.xml"); return res.end(); }
+      if (p === "/loop"){ res.statusCode = 302; res.setHeader("location", "/loop"); return res.end(); }
       res.statusCode = 404; res.end("nope");
     });
     srv.listen(PUB_PORT, "127.0.0.1", () => resolve(srv));
@@ -322,6 +326,20 @@ async function sectionServer(){
     "a non-http scheme is refused");
   ok((await call({ secret: SECRET, action: "discover", url: "not a url at all" })).body.reason !== undefined,
     "junk input is refused rather than fetched");
+
+  /* -- redirects: followed by hand, every hop re-guarded (2026-10-12). With redirect:"follow" only
+     the FIRST address was ever checked — a public URL answering 302 → the metadata endpoint was
+     fetched for us. A hop to a refused scheme is the observable proof the guard runs per hop
+     (the escape hatch skips only the address/port checks, never the scheme check). -- */
+  const dMoved = await call({ secret: SECRET, action: "discover", url: PUB + "/moved" });
+  ok(dMoved.body.ok && /\/rss\.xml$/.test(dMoved.body.feedUrl), "a feed behind a 301 is still found (" + dMoved.body.feedUrl + ")");
+  const dFtp = await call({ secret: SECRET, action: "feed",
+    sources: [{ id: "hop", title: "Hop", feedUrl: PUB + "/hop-ftp" }] });
+  const hopErr = JSON.stringify(dFtp.body);
+  ok(/redirect-bad-scheme/.test(hopErr), "a redirect hop is re-checked by the URL guard: 302 → ftp:// is refused AS a redirect (" + hopErr.slice(0, 160) + ")");
+  const dLoop = await call({ secret: SECRET, action: "feed",
+    sources: [{ id: "loop", title: "Loop", feedUrl: PUB + "/loop" }] });
+  ok(/too-many-redirects/.test(JSON.stringify(dLoop.body)), "a redirect loop stops after a few hops");
 
   /* -- SSRF guard, with the test escape hatch OFF -- */
   process.env.NEWS_ALLOW_PRIVATE = "";

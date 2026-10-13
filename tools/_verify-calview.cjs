@@ -291,6 +291,36 @@ async function run(){
       `desktop week lands on today too (${Math.round(g.top || -1)}px of ${g.vh})`);
     ok(derr.length === 0, "no page errors at desktop size" + (derr[0] ? " — " + derr[0] : ""));
     if (SHOT) await dp.screenshot({ path: path.join(SHOTS, "cal_week_today_desktop.png") });
+
+    /* ---- H · DST: the November fall-back (2026-10-12) --------------------- */
+    // Day cells were stepped with `+ i*86400000` from a local midnight. Sunday 2026-11-01 is 25h
+    // long in Central time, so every cell after it landed at 11 PM the day BEFORE: the November
+    // grid showed "1" twice and lost Dec 12, and an 11:30 PM event on Nov 1 fell off its day.
+    // Expected grid is hand-computed: Nov 1 2026 is a Sunday, so the 42 cells are Nov 1-30 then
+    // Dec 1-12.
+    console.log("\nH. DST fall-back (America/Chicago)");
+    const { page: zp, errors: zerr } = await newPage(browser, { width: 390, height: 844, deviceScaleFactor: 1 });
+    await zp.emulateTimezone("America/Chicago");
+    await boot(zp);
+    await gotoTab(zp, "calendar");
+    await zp.evaluate(() => { window.__CAL__.setView("month"); window.__CAL__.setFocus("2026-11-15"); });
+    await sleep(500);
+    const nums = await zp.evaluate(() => [...document.querySelectorAll(".cal-cell .cal-num")].map((n) => Number(n.textContent)));
+    const want = [...Array(30)].map((_, i) => i + 1).concat([...Array(12)].map((_, i) => i + 1));
+    ok(JSON.stringify(nums) === JSON.stringify(want),
+      "November 2026 month grid is Nov 1-30 then Dec 1-12, no repeated or missing day (" + nums.join(",") + ")");
+    // read in the SAME tick as setEvents: the route-mocked calendar refetch (events: []) replaces
+    // calEvents a moment later, which is the mock's doing, not the grid's
+    const nov1 = await zp.evaluate(() => {
+      window.__CAL__.setEvents([
+        { id: "dst1", title: "Late call", allDay: false, start: "2026-11-01T23:30:00-06:00", end: "2026-11-02T00:15:00-06:00" },
+      ]);
+      const cells = [...document.querySelectorAll(".cal-cell")];
+      const c = cells.find((x) => (x.querySelector(".cal-num") || {}).textContent === "1" && !x.classList.contains("other"));
+      return c ? c.textContent : null;
+    });
+    ok(!!nov1 && /Late call/.test(nov1), "an 11:30 PM event on the 25-hour Nov 1 stays on Nov 1 (" + String(nov1).replace(/\s+/g, " ").slice(0, 60) + ")");
+    ok(zerr.length === 0, "no page errors in the DST pass" + (zerr[0] ? " — " + zerr[0] : ""));
   } finally {
     for (const c of contexts){ try { await c.close(); } catch {} }
     await browser.close();

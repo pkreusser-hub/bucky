@@ -350,8 +350,12 @@ export function findCandidates(now, slate, rosters, inj) {
       const bye = slate.complete && !slate.playing.has(nfl);
       const ko = kick.get(nfl);
       if (!bye && ko == null) continue; // his game is not in this window
-      const stored = inj["p_" + p.key] ? sv(inj["p_" + p.key]) : "";
-      const desig = desigOf(stored) || desigOf(p.injury);
+      // injstate is the live designation. A field that EXISTS is authoritative even when empty —
+      // "" is the app's committed all-clear (2026-10-12 fix: it used to fall through to p.injury,
+      // the import-time snapshot copied forward every week, so a player seeded as OUT who has
+      // since recovered was warned about every kickoff). p.injury only when injstate never saw him.
+      const hasInj = Object.prototype.hasOwnProperty.call(inj, "p_" + p.key);
+      const desig = hasInj ? desigOf(sv(inj["p_" + p.key])) : desigOf(p.injury);
       if (!bye && !desig) continue;
       out.push({ teamId: r.teamId, key: p.key, name: p.name || p.key, nfl, bye, desig, kickoff: bye ? null : ko });
     }

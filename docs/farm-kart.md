@@ -1322,4 +1322,403 @@ Battle MVP; name Cursor's concurrent Farm Party work in the commit).
   (460d3b7d…/scratchpad — suites live in their OWN session dirs), fp_mp_local 10/10. Suite
   card-count assertions updated 3→4 cards / 1→2 playable for the new registry reality.
 
+# 🏁 Farm Kart — TITLE SCREEN + MENU v3 (2026-10-12)
+
+User: "give it a proper title page and good UI menu that feels like a modern game." Same MenuFlow
+screens, ids and flow logic underneath (every launch / reload / MP path is untouched); the skin,
+camera and input layer are new. All in `farmkart.html`.
+- **TITLE (attract mode)**: `#fkTitle` inside `#startOverlay` — stacked FARM / KART wordmark
+  (`.fkWord`: Lilita One, skewed, gradient fill over an outlined copy in `::before`, checker stripe),
+  tagline, pulsing prompt ("Press any button" / "Tap to start" / "Press A" with a pad), cinematic
+  letterbox bars. Shown ONLY on a bare boot (MenuFlow.init path 5); resume flows, `?track=` deep
+  links, MP and returning from a race never show it. `?notitle=1` skips it (tests / dev). Any key,
+  click, tap or pad A/Start → start sting (`menuSfx('start')`) → home. Its key handler is a window
+  CAPTURE listener that stops propagation, so the Enter that dismisses it never reaches `advance()`.
+- **MENU CAMERA** (`MenuCam`, beside `updateCamera`): replaces the chase cam while `G.phase==='menu'`
+  — `'title'` flies the racing line (12 u/s of sim time, 8.5u up, 7u outside, looking 34u ahead),
+  `'garage'` orbits the parked kart, `'showroom'` (racer select + MP lobby) orbits closer and faster so
+  loadout changes read live. Writes `camera.position` directly, never camPos/camHeading — the chase
+  cam resumes exactly where placeAtGrid snapped it. Wide screens shift the projection with
+  `setViewOffset` so the kart sits right of the panel (0.17·W garage, 0.21·W showroom); phones park it
+  0.30·H down, below the list. Leaving the menu clears the offset and restores the chase FOV.
+  GOTCHA: the menu cam owns `camera.fov` on the menu, so read the chase FOV after a race starts
+  (`_verify-hud-defaults.cjs` was restaged for exactly this).
+- **CHROME**: left-weighted scrim; top bar (`#mfTop`: brand / breadcrumb from histStack via `CRUMB`
+  / profile chip / own sound + music buttons — the race's `#muteBtn`/`#musicBtn`/`#help` hide under
+  `body.fkMenu`, which updateCamera toggles each frame); slab nav buttons (skewed clip-path, accent
+  fill + chevron on focus); cards with a check badge when selected; sticky Back/RACE bar (shaded only
+  when the screen actually scrolls — `#menuFlow.scrolly`); bottom hint bar (keycaps, or pad glyphs
+  when a pad is connected; hidden on touch). Track Editor is now a regular slab on home.
+- **NO EMOJI IN THE CHROME** (house rule): every menu icon is an inline SVG from MenuFlow's `ICON`
+  table (`cupIcon` tints the trophy per cup, `medalSvg` draws gold/silver/bronze); driver cards show
+  the name's initial; classes read "150cc / Truck"; locks are an SVG badge. The hidden `#legacyMenu`
+  still carries emoji — it is never rendered and must stay for its wiring (MENU OVERHAUL entry).
+- **INPUT**: one focus highlight shared by mouse (hover focuses), keys (arrows move spatially —
+  nearest item in that direction, `along + 2.2·across` — Enter/Space select, Esc/Backspace back) and
+  pad (d-pad / left stick with 380 ms hold-to-repeat, A select, B back, Start select). Keyboard and pad
+  users land focused on each new screen's first item (or its selected card); touch never shows a
+  ring. Esc / B never leave the MP lobby (that would drop the room). Synth sound cues for move /
+  select / back through masterGain (never create the AudioContext before a gesture).
+- **FONT**: Google Fonts Lilita One, loaded NON-blocking (`media="print" onload`), fallback Arial
+  Black — a slow font CDN must never delay first paint. Suites that block googleapis see the fallback.
+- **VERIFY**: `node tools/_verify-fk-menu.cjs` **56/56** (title on bare boot + flyover really moving
+  per sim-second, no emoji, Enter never starts a race, keyboard + pad navigation, crumbs/hints,
+  hand-computed camera projections 857.6 / 908.8 / (195, 675.2) px, sticky RACE on-screen, sound
+  toggle, race handoff: no view offset + chase FOV + chase distance, back to home not title,
+  `?notitle` + `?track=` skips, phone layout + touch release). Against HEAD it dies at the first check
+  (no title). Battery: `_verify-hud-defaults` PASS (restaged FOV read), audio 102/102, items 24/24,
+  minimap, modes 17/17, align-boost, editor, farmkart-mobile 119, fences, glbdrivers 65/65,
+  harvesthollow 70/70, midnightrun, ramp, tankbattle 75/75, driver / followterrain / grass-clear /
+  slope-conform / terrain-auth PASS. Pre-existing and identical on HEAD: loadout (expects 3 kart /
+  driver kinds — there are 4 / 7), proj-fx 14/16, gator3d, wall-drift, themepack's rainbow-road Y
+  check, turnpike's ribbon/curb colour checks, editor-bot's one blocked-resource console error, and
+  bots 142/145 — its MEASURED section fails 2-3 checks per run in this swiftshader sandbox on HEAD
+  too, and WHICH ones flips run to run (rival binding: normal one run, hard the next).
+- **SANDBOX GOTCHAS (cloud container)**: (1) suites that don't install request interception hang in
+  `networkidle0` on Firestore's Listen long-poll — run them with a `-r` preload that patches
+  `puppeteer.CdpBrowser.prototype.newPage` to abort googleapis|firestore|firebase|gstatic|playroom
+  (the ESM namespace's `launch` can't be reassigned). (2) A suite reuses ANY server already on its
+  port: a leftover http-server rooted at the working tree makes a "HEAD" run silently test the working
+  tree. Free the port (socket inode → pid) before every before/after run; the new suites spawn their
+  server `detached` and kill the process group.
+
+# 🏁 Farm Kart — review fixes (2026-10-12)
+- **Editor unsaved-work guards** (`farmkart-editor.html`): the Load picker and Import now confirm
+  before discarding unsaved edits (cancel restores the picker); the background cloud pull no longer
+  hot-swaps the open track while it is dirty (toast instead) and resets history when it does swap;
+  two bare `localStorage.getItem` boot reads are guarded (blocked storage killed the editor).
+  `node tools/_verify-fk-editor-guards.cjs` **11/11**; on HEAD the 5 guard checks fail and the
+  blocked-storage editor never boots.
+- **MP host heartbeat sub-steps** (hidden host tab, ~1 Hz): the whole ~1 s dt went into stepKart for
+  every bot in one step (the rAF path clamps 0.05). Now 0.05 steps + one snapshot publish per beat;
+  `net._hbLog` test hook. `node tools/_verify-fk-heartbeat.cjs` **5/5**.
+- **Touch input released on blur / hidden** (steer, drift, item latched after an app switch) and the
+  ♻ reset button respects pause. Checked in `_verify-fk-menu.cjs`'s phone pass.
+- **NOT fixed — needs a sync design** (reported): the editor's and game's cloud reconcile REPLACE the
+  local `fk_tracks_v1` map with the cloud one (a track saved offline is lost), and `doSave` writes the
+  whole local map over the cloud doc (another device's newer save can be wiped). Needs per-track
+  stamps or a read-merge-write; merging naively would re-upload stale shadows like the
+  toads-turnpike case above.
+
+# 🏁 Farm Kart — cloud track sync: merge, never replace (2026-10-12)
+
+Supersedes the "NOT fixed — needs a sync design" bullet above and the replace-the-map behaviour of
+the 2026-07-10 "cloud track sync" entry. User: "fix the farm kart sync".
+- **What was broken**: the game's `fkReconcileTracksCloud` and the editor's `fkEdPullCloud` REPLACED
+  localStorage `fk_tracks_v1` with the cloud map, so a track saved offline vanished on the next pull;
+  and the editor's `doSave` `setDoc`'d its WHOLE local map, so a device that hadn't pulled deleted
+  every track saved elsewhere since, and two simultaneous saves kept only the last.
+- **One shared rule** in `assets/farmkart-track.js` (both pages already load it):
+  `FK_TRACK.mergeTrackMaps` / `cloudSyncTracks` / `noteTrackSaved`. The cloud doc gains
+  `stamps: JSON({id: savedAtMs})` beside `tracks` (old readers ignore it; an old doc without it reads
+  as stamp 0). Locally, `fk_tracks_sync_v1 = {stamps, pending}` — pending = saves the cloud hasn't
+  confirmed. Merge: the cloud copy wins, EXCEPT a pending local save newer than the cloud's stamp for
+  that id. A local-only id that is NOT pending is dropped — that is what keeps a track renamed or
+  removed in the cloud (the toads-turnpike-old shadow above) from being re-uploaded by a stale device.
+- **Pushes are a Firestore transaction** (read → merge → write; the SDK retries if another device
+  wrote in between), so simultaneous saves both land. Adopting the result re-merges against the
+  CURRENT local state, so a save made while the network call was in flight survives.
+- **First run on a device** (no `fk_tracks_sync_v1` yet): every already-saved local track is treated
+  as pending at a LEGACY stamp (1) that only fills ids the cloud doesn't have and never overrides a
+  cloud copy — the old code could have left offline saves stranded on a device; this recovers them.
+- **Editor**: `doSave` writes locally + `noteTrackSaved`, then `cloudSyncTracks` (push). Toasts (no
+  emoji): saved to all devices / saved on this device, goes out next time it's online / another
+  device saved a NEWER copy of this id — the user's version stays open and dirty, saving again keeps
+  it (stamps are device clocks: the later save of the same id wins). The pull hot-reloads the open
+  track only when it changed and isn't dirty (unchanged from the guard batch).
+- **Game is READ-ONLY against the tracks doc** (`cloudSyncTracks(..., {push:false})`): it merges
+  (so an offline save is no longer wiped) and keeps the one-reload adopt of a changed active track,
+  but never writes — it never did, and a headless suite that seeds `fk_tracks_v1` with Firestore
+  unblocked would otherwise publish its test track to the family (`_verify-followterrain.cjs` did
+  exactly that shape; it now blocks Firebase like every other suite). Pending saves go out on the
+  next editor boot or save. GOTCHA hit building this: the read-only path must report the RAW cloud
+  map — returning the merge (cloud + our pending) made the cleanup think the cloud already had the
+  pending save and drop it, unpushed.
+- **GOTCHA**: an editor page that booted with NO connection can never reach Firebase that session —
+  the browser caches a failed module import for the page's life (Firebase's own internal imports
+  too), so a cache-busting retry can't work. Its saves stay pending and the next online editor or
+  game boot pushes them.
+- **VERIFY**: `node tools/_verify-fk-track-sync.cjs` **29/29** — A: the merge rules in node on the
+  shipped module (incl. a save landing mid-pull, offline leaves state untouched, legacy first run);
+  B: end to end, each browser context a family device over a FAKE Firestore SDK served in place of
+  the gstatic imports (the doc lives in the suite; a stale transaction read is refused like the real
+  service, a >1 MiB doc is refused, "offline" fails at the network): offline save survives the
+  game's pull with ZERO commits from the game and is pushed by the next editor boot, a stale
+  device's save doesn't delete another's track, a fully-offline-booted editor's save goes out on the
+  next boot, simultaneous saves both land after a refused commit, the game still adopts a changed
+  active track. Waits on "nothing pending", never fixed sleeps (the editor's scene rebuild on
+  loadTrack can hold a push for seconds under swiftshader — a 2 s sleep flaked). On the old code
+  **10/21** (offline track lost, the other device's track deleted, last writer only). Regression:
+  fk-editor-guards 11/11, fk-menu 56/56, hud-defaults, items, followterrain 12/12, tankbattle 75/75,
+  editor, fences.
+
 ---
+
+# 🎨 Farm Kart — ART STYLE PROTOTYPES (2026-10-12, branch only, NOT in the game)
+
+`farmkart-styles.html` + `assets/farmkart-styles/fks-{rig,toon,lowpoly,clay}.js`. Three candidate
+replacements for the blocky box look, each with a kart, Bucky as racer, a course and a sky:
+**Storybook Toon** (3-band MeshToon ramp, inverted-hull ink outlines incl. on the skinned racer,
+chibi proportions), **Golden-Hour Low-Poly** (flatShading + per-triangle vertex colour, 21° sun,
+dusk sky + mountain rings), **Clay Toybox** (lumpy MeshStandard + thumbprint bump, PCFSoft,
+`stepFps:12` stop-motion stepping of the racer + kart rig, toggleable). Views: Race (auto-driver
+on a shared loop with boost pads + drift), Showroom (orbit), Compare all (3 scissor viewports).
+Download button exports kart + seated racer + every clip as a GLB.
+- **One rig for all styles** (`fks-rig.js`): 21-bone `THREE.Skeleton`, bind pose = the seated
+  driving pose with identity bind rotations, so clip keys are plain euler offsets. Styles only
+  author geometry via `FKS.skinBuilder()` (`rigid` / `limb` blends into child+parent at joints /
+  `along` for the torso). Clips: idle, drive, steerL/R, drift, boost, hit, trick, wave, cheer;
+  `clip.ik = {L,R}` says how much two-bone hand IK owns each arm. Kart contract: root → chassis
+  (roll/pitch/bob/squash) → seat / steerColumn → steerWheel → grip_L/R, wheelPivot_n → wheelSpin_n.
+- **Measured, not guessed:** the steering wheel must sit at kart **(0, 1.25, 0.16)** with
+  `wheelLock` 1.2 rad — at z 0.28 / lock 1.5 the left wrist missed its grip by 12.7 cm at full
+  lock (the suite's "hands follow the turned wheel" check failed at 0.123 before the move).
+- **Clip gotcha:** the upper arm's bind direction is 41° *below* forward, so an X offset θ aims
+  it at (−41° − θ). The first cheer used −150° and put the fists behind the head; −125° is overhead.
+- **Clay gotcha:** three's `bumpScale` is screen-space — 0.32 with a speckled canvas read as
+  knitted carpet at chase distance. Blurred map + ×0.025 scale reads as pressed clay.
+- r128 needs `material.skinning = true` on every skinned material (skinBuilder sets it); renderer
+  stays `LinearEncoding` like farmkart.html so hex colours render as picked.
+VERIFY: `node tools/_verify-fk-styles.cjs` **81/81** — per style: kart contract, 21 shared bones,
+skin weights sum to 1, every clip track binds, wrists < 2 cm from grips at rest and full lock,
+cheer fists above head, wave = left on / right off, hit → hands back, wheels roll, GLB has 1 skin
+× 21 joints + all 13 clips. Racer tris: toon 11.7k, low-poly 1.9k, clay 15.2k.
+
+---
+
+# 🎨 Farm Kart — STORYBOOK TOON ITEMS pass (2026-10-12, branch `fk-itemfx`, ART/VFX only)
+
+`assets/farmkart-items.js` (`window.FK_ITEMS`, needs `FK_TOON`) holds every item model, item effect, the particle pool and the
+item HUD icons. No physics / item rules / networking / localStorage touched. farmkart.html reaches it through small hooks only:
+`buildCardboardItemBox/buildMimicBox/makeProjMesh/makeOrbitBit/buildEggMesh` wrappers, `syncEntityMeshes` + `syncOrbitMeshes`
+(per-frame `FK_ITEMS.syncBox/syncProj/syncHazard/syncOrbitBit/syncTrailShield`), `spawnItemExplode/shellBoom/spawnLightningBolt/
+updateLightningBolts` (delegates), the pool (`spawnParticle`/`updateParticles` delegate to `FK_ITEMS.makeParticlePool`), ONE line in
+`syncKartView` (`FK_ITEMS.syncKartFx(p, view, dt)`), and `updateItemSlot`.
+- **Models**: all procedural, MeshToon via `FK_TOON.mat`, ink hull via `FK_TOON.outline` (merged vertex-colour geometry, flat
+  per-triangle colour bands). Item box = rounded gold crate, glossy trim, blue "?" badge, rivets. Mimic = same silhouette/geometry,
+  red, angry eyes + toothy seam (learnable-different). Lettuce head (leaf rings), chicken (flapping wing pivots; the GLB chicken/lettuce
+  still load — `__KART__.projTpl`, the proj-fx suite — but are no longer used), round hay bale with twine, banded golden egg, tank shell.
+- **Kart FX** (`syncKartFx`, edge-detected from `boostT/starT/bullT`): boost = unlit cone flame (blue at tier 2+) + side speed streaks +
+  start burst; star = sunflower petal ring + STEPPED rainbow emissive (overrides the smooth hue wash) + sparkles; bull = horns on
+  `view.bounce` (they scale with the bull) + nostril steam that rides with the kart + dust + shockwave.
+- **Born effects are edge-detected** in the sync functions (WeakSet of projectile/hazard objects), so bots, remote karts and the host
+  all get muzzle/plop bursts with no hook in `useItem`/`fire*`.
+- **Particles**: ONE instanced draw call for the whole pool (was 1 per particle): shapes puff/dot/star/spark/ring/leaf/chip packed in one
+  atlas, billboarded in the vertex shader (flat rings lie on the road, sparks stretch along the screen-projected velocity). Records keep
+  the old shape (`{m, mat, live,...}`; `m` is now an Object3D proxy, `mat.color/opacity` plain values) so harnesses still work.
+  `MAX_PARTICLES` 160 -> 200. Pop-in `easeOutBack(life/0.09)`, shrink-out `1-((f-0.6)/0.4)^2`, **no alpha fade** (opacity is not
+  rendered; rings hold then pop). **Camera-pass guard**: anything within ~3.5u of the camera shrinks to 0, because a chase camera drives
+  through its own kart's puffs. Drift sparks: tier 1-3 are `spark` streaks in exactly `DRIFT_SPARK_COL[tier]` (tier 0 = tan puffs).
+- **Storm**: pooled rigs (6): angry cloud + flat zig-zag bolt (ink + yellow + white core, regenerated in place) + ground ring/stars/scorch.
+- **HUD**: emoji `ITEM_ICON` replaced by inline SVG (`FK_ITEMS.icon/heldHTML/rollHTML/trailHTML`). Triples = 3 stacked copies + `x3`
+  badge; trail = shield badge; rolling = CSS `steps()` reel. `updateItemSlot` only rewrites the DOM when the visible state changes
+  (key), otherwise the reel/pop/bob animations restart every frame. Slot frame is still 76x76 (the mobile suite measures it).
+  Lesson: an emissive on a toon cone blows out to white — unlit `MeshBasic` + ink hull for the flame.
+- Lathe profiles must run bottom -> top or the faces point inward and only the ink hull renders (hay bale showed as a black disc).
+  Colour lathe bands by ROW (thresholds exactly on profile ring values) or the triangle centroids zig-zag the band edge.
+VERIFY: `node tools/_verify-fk-itemfx.cjs` (110 checks). Regressions: items 24/24, hud-defaults PASS, mobile 119, tankbattle 75/75.
+
+# 🎨 Farm Kart — STORYBOOK TOON is the game's look (2026-10-12, branch, fk-toon workstream)
+
+`assets/farmkart-toon-game.js` (loaded after `farmkart-toon.js` + `farmkart-styles/fks-rig.js`) turns the
+prototype's Storybook Toon into farmkart.html on every track. Hooks in farmkart.html are one-liners:
+`FK_TOON_GAME.install` (scene setup), `buildSky`/`frame` (setSky), `retuneLights` + `decorateMovers`
+(after the per-track light overrides), `decorateProps` (async GLB props), `worldBuilt` (after the local
+kart view), `inkLod` + driver sync (syncKartView), `podiumCheer` (Podium.update).
+- **Live toonify, not a rebuild of every builder.** `Object3D.prototype.add` is wrapped: every subtree
+  added anywhere has its lit materials swapped for `MeshToon` via `FK_TOON.convertMaterial`, plus a
+  1.5 s sweep for runtime `mesh.material = ...` swaps. GOTCHA that shaped it: a swapped material breaks
+  every reference game code still holds (ghost fade, boost/star glow, balloon pops, tank lifts). The toon
+  copy is therefore LIVE-LINKED: it shares the source's `color`/`emissive` Color objects and forwards
+  opacity/transparent/visible/maps/depth flags/`version` (so `src.needsUpdate = true` recompiles it).
+- **Entities get ink by rule:** scene-level adds after `worldBuilt()` (critters, cows, crows, item boxes,
+  turrets, gates, balloons) are inked if 0.12–4.5 u in radius and cast shadows; trains + traffic are
+  inked at boot (minR 0.35 — the dozen tiny bits per car were a draw call each); instanced GLB props get
+  ink scaled per instance, tiny submeshes skipped. Hulls follow the source material's visible/opacity.
+- **Ink LOD (measured):** ink px = t·514/d at 720p. 2 cm kart ink is 0.37 px at 28 u, 1.2 cm GLB-driver /
+  Gator ink 0.39 px at 16 u — hulls switch off past those (a GLB driver's hull is 47k skinned tris).
+- **Lights:** presets stay Lambert-era numbers; ONE rescale after setSky + overrides: hemi ×0.53, then
+  both scaled so the lit band = min(1.18, old hemi+sun) (day → 0.44 / 0.74, the prototype's numbers),
+  hemi ground 35% toward warm tan. Sun shadow: PCF 2048 (phone 1024, smaller box), box follows the view,
+  texel-snapped. GLB Tripo drivers do NOT cast (47k tris re-skinned per shadow pass).
+- **Sky:** every preset (incl. default 'day', which now goes through setSky — preset values = the boot
+  defaults) gets a gradient dome + one merged mesh of puffy inked clouds (2 calls); the 'clouds' preset's
+  alpha sprites are hidden, stars/moon/snow/sun-disc stay.
+- **Karts:** 3 merged meshes (paint/vertex-coloured body/lamps) + ink, fat toon wheels (outer r 0.26 =
+  `_TIRE_ROUT`, so tread planting is untouched), toon steering wheel (grips 58° off top), pennant flair.
+  Footprint unchanged. Seat surface at kart (0, 0.60, 0.10) = the prototype's wheel-to-seat relation for
+  the TUNE wheel at (0, 1.00, 0.36). **KART_RIDER_H is pinned to 1.57** (the old boot bbox measure, the
+  same for every procedural combo) — the toque + pennant must not move wading/drowning depths.
+- **Drivers:** bucky/otis/boots are skinned on the 21-bone rig, ONE vertex-coloured material + one ink
+  hull each (skinBuilder groups → vertex colours). `FKS.RacerAnimator` per driver; base/steer/drift from
+  the kart, one-shots on rising edges (spinT → hit, boostT → boost, airborne > 0.3 s → trick), cheer on
+  `p.finished`; hand IK to the grips. syncKartDriver now runs AFTER the hop/squash/bull transforms so the
+  IK solves against the frame's final pose. Bucky's toque is a separate head-bone mesh hidden by hats.
+  Full lock reach: the far grip is 0.412 from the shoulder vs 0.409 of arm → 0.3 cm miss (budget 2 cm).
+- GOTCHA: `FKS.geo.taperTube` winds inward (normals point in) — exhausts/horns/roll bar read as dark
+  hollow pipes with a pale rim. `tube()` in the toon-game file flips the winding.
+- Perf (probe, 12-kart pile-up at the start, seeded roster): calls wario 1220→216, harvest 394→314,
+  amen 566→294, moo 952→157. Tris rise (e.g. amen 532k→~0.86–1.1M) almost entirely from GLB-driver /
+  Gator ink + kart shadow pass while the whole field is within 16 u; it falls as the pack spreads.
+VERIFY: `node tools/_verify-fk-toon.cjs` 72/72 (pre-toon app: 18 pass / 54 fail). `_verify-glbdrivers`
+restaged: body mats MeshToon+skinning, ink hulls excluded from the body count (reason at the check).
+- GOTCHA (battery): the fixed-port suites (`_verify-items` 8851, `-glbdrivers` 8851, `-hud-defaults` 8853,
+  `-minimap` 8848, `-harvesthollow` 8877, `-farmkart-mobile` 8871) REUSE whatever server is already on
+  their port. In this environment stale `http-server`s rooted at the MAIN checkout held all of them, so
+  running the battery from a worktree silently tested main. Run port-shifted copies from the worktree's
+  own tools/ dir (same ROOT) — the toon battery above was verified that way.
+
+# Farm Kart - HARVEST HOLLOW storybook art pass (2026-10-12)
+
+`assets/farmkart-hh-art.js` (`window.FK_HH_ART.build(scene, ctx)` + `update(dt, t)`) dresses `?track=harvest-hollow` and nothing
+else. farmkart.html carries two hooks: one `if (ACTIVE_TRACK_ID === 'harvest-hollow')` block right after the start-line strip,
+and one `FK_HH_ART.update` line in the frame loop. Track data is untouched (_verify-harvesthollow stays 70/70). Scenery only.
+- LOOK: golden-afternoon sky dome (+ sun disc), haze fog 0xf3dfba, outlined cumulus ring that follows the camera and drifts,
+  a skirt mesh that continues the ground past its edge into rolling far hills + three gumdrop-hill layers + far farm silhouettes.
+  Ground vertex colours are rewritten (mown verge stripes, soft meadow patches, tilled fields where the track paints gold, yard,
+  ford sand). Road = canvas texture (ruts, pebbles, mottling) on a rebuilt ribbon with UVs; candy-stripe prism curbs on bends;
+  cream centre dashes on straights. Lights are retuned for this track only (hemi .52 / sun .68) so the toon lit band lands on the
+  picked colour (the generic sun preset over-exposed it).
+- LANDMARKS: start gantry (checker strip, banner, bunting, flags; beam bottom >= 6u over the road), hay-bale grandstand + 20
+  cheering critters, corner chevron boards, working windmill (the static GLB windmill is hidden by position once it loads),
+  barn lanterns/signs/clutter, ford footbridge + stepping stones + reeds/lily pads/sparkles, pond ducks, scarecrows, tractor +
+  wagon, mailbox, beehives, laundry line, picket fence, fruit orchard, hedgerows, stone walls, flowers, boulders, crop rows.
+- HOW: a Kit bakes primitives into 110u spatial chunks with vertex colours + per-vertex ink + per-vertex sway weight; the ink
+  hull is extruded in the vertex shader (hull normal = ellipsoid-radial, so any convex primitive is watertight) and the wind
+  wobble is a vertex-shader sin driven by one uniform. Pieces with ink 0 get NO hull (a BackSide hull over a double-wound leaf
+  paints it black - that bug cost an hour). Animated things (crowd, ducks, birds, butterflies, leaves, sparkles) are instanced.
+- PLACEMENT RULE: `ok(x,z,r)` = road edge + 2u + r, 5.5u off the rail loop, off fences/objects/water/own claims. First pass put
+  signs at hw+3.6 with r 1.7 and every one was rejected - offsets must be >= hw + 2 + r. Flat roads build the bed as ONE span
+  (N*2 verts, not 9 columns), so "find the road mesh" must take the first N*2 mesh, not N*9.
+- PERF (swiftshader chase poses, calls / tris, art blocked -> on): start 311->450 / 100k->201k; crops 70->220 / 101k->242k;
+  ford 49->179 / 92k->191k; barn 49->151 / 92k->163k. Phone profile (pointer:coarse) builds 128k art tris vs 199k desktop
+  (half the scatter, no ink hull on small props, fewer clouds). Further cut available: skip the crop rows on phones.
+- VERIFY: `node tools/_verify-fk-hh.cjs` 39/39 (isolation on moo-moo-farm, landmarks, every vertex vs the centreline, toon/basic
+  materials, animation, perf budget, phone profile, 0 pageerrors); against the pre-change app it is 4 pass / 35 fail.
+
+# 🏁 Farm Kart — 3D cast + Gator 3D RETIRED (2026-10-12, family playtest)
+
+After the Storybook toon release the family found that racers on the Tripo GLB models went
+invisible on their devices: the four skinned 3D drivers (Bucky 3D, Otis 3D, Boots 3D, Huey 3D —
+~47k triangles, 54 bones each) and the GLB **Gator 3D** kart. Headless swiftshader never showed it
+(every view stayed visible and seated in 12-kart probes) — a real-GPU-only failure, so the fix is
+removal, at the user's call. KART_KINDS / DRIVER_KINDS lost the entries (picker, fk_kart/fk_driver/
+fk_racer persistence and the bot pools all derive from them), `GLB_DRIVER_DEFS` is `{}`, and
+normalizeKartId/normalizeDriverId turn any stale or remote `gator3d`/`*3d` id into `bucky`. The
+loader/builder code is unreachable from the game but kept (kartviewer.html / characterdemo.html still
+read the cast GLBs). Retired suites: `_verify-glbdrivers.cjs`, `_verify-gator3d.cjs`,
+`_verify-bucky3d.cjs`. `_verify-fk-toon.cjs` restaged (roster = 3 karts; section F now proves a stale
+gator3d+bucky3d loadout builds the toon Bucky kart + skinned toon Bucky, no 54-bone skeleton).
+Huey the goose has no procedural version yet — a toon Huey on the shared 21-bone rig is the way back.
+
+# Farm Kart — YETI RIDGE, the lead-designed snow course (2026-10-12)
+
+A new builtin, `yeti-ridge`, in the Star Cup (choco-mountain stays in the Goat Cup). It is a figure-8 with an overpass,
+designed and art-directed here rather than built from Tripo assets. Lap ~1493 u, width 16, 3 laps, bot lap ~62 s.
+- ROUTE: start village -> hairpin A (heading change 152 deg over 45 u) -> glacier ice cave (natural tunnel on a STRAIGHT) ->
+  summit climb under the ski lift -> SKI JUMP over a crevasse (peak 17.6 u above the road) -> frozen-lake sweep on painted ICE
+  with snowman crossings -> pine forest S with a goat crossing and slush -> GORGE JUMP over the frozen creek (peak ~10 u) ->
+  steam-train loop -> overpass back over the start straight (9 u clearance) -> the Yeti's hairpin home. Sharp turns
+  152/149/136/112.
+- DATA: `tools/_yr_build.cjs` generates the whole entry between the `YR_GEN_START/END` markers in `assets/farmkart-track.js`
+  (centreline, terrain sculpt, paint, objects, fences, crossings, pasture, train, water). Edit the generator and re-run it; never
+  hand-edit the generated block.
+- ART: `assets/farmkart-yeti-art.js` (`FK_YETI_ART`, built only when `ACTIVE_TRACK_ID === 'yeti-ridge'`) reuses the Harvest
+  Hollow Kit engine. It adds a winter sky dome, snow ground recolour, packed-snow road with a glassy ice overlay on the ICE span,
+  candy-cane curbs, an ice-crystal gantry, cabins with chimney smoke, a cocoa stand, a ski lift with moving chairs, ice-cave
+  portals, a frozen lake with fishing huts and skating penguins, frozen falls in the gorge, and a waving yeti.
+- LESSON, CORRIDOR WALLS: `RACE_FENCES` falls back to auto corridor walls ONLY when a track has no drawn fences. Yeti's
+  paddock fence silently removed every road wall. A bot then climbed the glacier dome and was thrown 41 u off the course.
+  The generator now writes `corridorFences()` walls itself. Harvest Hollow has the same gap.
+- LESSON, TERRAIN: a wide Gaussian average and then a nearest-road Voronoi split of road heights both made cliffs between
+  road branches at different heights. An inverse-distance blend (`w = (d^2+16)^-1.5`) plus a clamp under the overpass made it
+  smooth. Hard radius cut-offs on scenery terms (the mountain ring) make cliffs too, so ease them with `smooth()`.
+- LESSON, PAINT: `atFrac()` snaps to centreline samples ~3.7 u apart. Painting a band from it left comb-shaped holes in 4 u
+  paint cells on diagonals, and a kart read ICE on only 8 of 30 frames. `paintBand` now interpolates between samples (25/30).
+- LESSON, JUMPS: a boost pad right before a sharp kink makes karts miss the ramp that follows. The gorge got a straight
+  run-in instead. Ramps sit on straights, with entry speeds 10..28 m/s all launching and landing within 2.6 u of the centreline.
+- VERIFY: `node tools/_verify-yeti.cjs` 51/51. It covers data and sanitize (other builtins byte-identical to HEAD), geometry,
+  every feature, both jumps at 4 entry speeds with a scripted driver, a bot lap inside the walls, and the art pass (toon
+  materials, nothing in the road corridor, overhead clearance >= 6, animation, draw calls 451 <= 700, isolation on
+  moo-moo-farm). Bite: old paint plus old portal-crystal spacing gives 49/51, with exactly the two new checks failing.
+
+# Farm Kart — Yeti Ridge playtest fixes: road obstructions, walls everywhere, overcast snowfall (2026-10-12)
+
+The family playtest of Yeti Ridge found a bridge wall clipping into the road below, candy canes and a ski-lift pillar in
+the road, and a stretch where you could fall off the course. It also asked for a fully cloudy sky with snowfall.
+- OBSTRUCTIONS: `_verify-yeti.cjs [G]` scans every vertex of every visible mesh (instances included) for anything sitting
+  inside a road's lane and 0.7..2.6 u above THAT road. The tallest kart with its driver measures 1.87 u. Intentional furniture
+  is excluded by identity: karts, item boxes, ramps, water, trains and crossing gates, crossing critters, the tunnel wall
+  foot, and specks under 0.4 u (butterflies). On the version previously on main it found:
+  - **Bridge side walls:** `buildBridgeMesh` took deck height from `sampleHeight`, which picks the NEAREST branch. At a
+    figure-8 crossing that is the road underneath, so the walls dipped into a V. New opt-in `heightAtYFn` (the game passes
+    `sampleHeightAtY`) follows the bridge's own branch. Pillars that would land on another road are skipped.
+  - **Lake ice sheet:** a flat ellipse that overlapped the sweep 1.4 u above the road. It is now clipped per angle to stop
+    2.5 u short of the road edge.
+  - **Glacier-cave portal boulders:** at hw*1.02 and hw*0.86 they reached 1-2 u into the lane on EVERY natural tunnel.
+    Centres are now at hw + radius.
+  - **Village GLB props:** lanterns and candy canes stood in the overpass road. Both generators now drop any untagged prop
+    whose footprint reaches a road (2D, every branch). On Harvest Hollow that caught a crate by the coop.
+  - **Ski-lift towers:** a tower with no clear spot fell back to its raw position, in the road. There is no fallback now;
+    a tower is skipped and the cable spans further.
+- WALLS: `tools/_fk_walls.cjs`, shared by both generators. It is a close barrier at half+2.5, tightening to half+1.2 where
+  another branch crowds it. It stops at bridges and natural tunnels (they have their own walls), opens 5 u either side of
+  rail crossings, and steps out to half+4.8 at critter crossings (they walk to half+4). The old FK.corridorFences at half+7
+  was height-blind, cut through hedgerows, gantry posts and village props, and left Yeti 13% walled. Coverage is now
+  Yeti 90% and Harvest Hollow 95% per side. Fence collision is 2D, so a wall must never cross another lane: no wall runs
+  under the overpass, and the suite checks this.
+- HARVEST HOLLOW: it gets the same walls (`wallStyle:"fence"`, wooden). The decorative GLB fence rows on the home lane
+  were removed because they doubled the new fence. The walls open across the ford pool (measured water x 200..228,
+  z -94..-68) so the footbridge keeps its spot beside the road. HH art now needs only footprint clearance from a road wall
+  (r+0.3, against 2.2+r for pasture fences). Its chevrons, warning signs and barn lanterns moved just behind the wall.
+  Without that, the windmill found no spot, and the static GLB windmill, which partly stands in the road, came back.
+- SKY: Yeti Ridge is overcast. A grey dome has no sun disc, a cloud deck of 68 puffs follows the camera, the light is
+  softer, and haze fogs from 120 to 560. The 'snow' preset's 800 flat quads (edge-on from half the view directions,
+  invisible on white) are hidden. In their place are two camera-following `THREE.Points` layers (5000 flakes desktop,
+  2600 phone), with a cool rim on the flake so it reads against snow.
+- VERIFY: `node tools/_verify-yeti.cjs` 65/65. Bite against cf8d422 (the first Yeti push): 56/65, exactly the 9 new
+  checks failing.
+
+# Farm Kart — playtest round 3: landing stutter, Yeti cave wall, Midnight Run lamps, "Techno Barn" (2026-10-12)
+
+- LANDING STUTTER ("the screen stutters coming down from a big ramp jump"): the camera was smooth (frame-to-frame
+  curvature 0.015 u at 60 Hz). The KART bounced. Off the Yeti ski jump it lands at ~37 m/s on a descent that keeps
+  steepening, and the terrain-crest launch in `stepKart` re-launched it 2 frames after each touchdown, 3 times in 15
+  frames. Each landing hit harder than `landMinImpact`, so each fired the squash, thump and dust again. The fix is
+  `LAND_SETTLE_T` = 0.6 s: after a real landing (airtime >= `landMinAirT`) the crest launch is suppressed and the kart
+  stays glued. Ramp exits still launch. At 0.35 s a 5-frame crest hop still got through 0.42 s after landing. The Yeti
+  descent profile 15 -> 16 -> 12 also had a crest right past the landing zone; it now eases out 15 -> 11.5 -> 9 -> 6.5.
+  `updateCamera` is now on `__KART__` so a suite can step the camera at a real 60 Hz (headless frames run ~355 ms).
+- YETI CAVE GREY WALL: a tunnel's `s` is its START (`buildTunnelMesh` and `naturalTunnelCoverAt` use the span
+  [s*L, s*L+len]). Yeti Ridge wrote it as the CENTRE in the generator, the art and the suite. The bore therefore ran 22 u
+  past the glacier hill built over it. Inside the bore the ground mesh IS the hill (cover = 1), so the last 22 u of the
+  cave held snow at road level that you drove through, and its slope filled the exit. Now `s = F.cave - 22/L`, the art
+  uses start-based spans, and the generator keeps the hill >= road + 10 over the whole bore (+6 u past each mouth,
+  because the replica centreline and the game's differ by ~2 u there). The suite's road scan now keeps the WHOLE bore
+  clear to 5 u, not just to kart height; the wall sat at 1..17 u and the 2.6 u band never saw it.
+- MIDNIGHT RUN STREET LAMPS: `buildCityscape` stood every pole at half+1.2, inside the walled runoff (62 of 62, with no
+  collision), and karts drove through them. Poles now stand just behind the wall (half + wallMargin + 0.8) on a longer
+  arm, so the head still hangs 1.2 u over the road edge. Each pole reaches down to the real ground; a row of viaduct
+  lamps used to float 8 u in the air. A lamp whose full-height pole would stand in ANY road's walled corridor is left out
+  (2 per city track, at the viaduct crossing). Toad's Turnpike gets the same fix (shared code). `_verify-midnightrun`
+  checks both; against main they fail with 62 poles inside and 6+ floating.
+- HARVEST HOLLOW WINDMILL: the static GLB windmill stood 3.3 u from the centreline. The art pass hides it for its animated
+  windmill, but that hide polls while the GLB loads, so `_verify-fk-playtest`'s corridor check flaked (1 run in 2). The
+  generator now seats it >= 16 u off every road.
+- MUSIC "Techno Barn" (`fk-music-race-techno-barn.mp3`, Midnight Run `music:"techno-barn"`): there is no ElevenLabs key
+  in cloud sessions, so it is composed and synthesized in `tools/_gen-fk-techno-farm.mjs`. Plain-JS DSP (polyBLEP
+  oscillators, TPT state-variable and tanh ladder filters, Freeverb, ping-pong delay, kick sidechain), rendered to a
+  float WAV and mastered with a two-pass ffmpeg loudnorm. 128 BPM, A minor, 48 bars = 90.0 s:
+  - **Drums:** 909-style kick, claps and hats.
+  - **Harmony:** an acid bassline over Am-F-C-G, chord stabs, and a pluck arpeggio in drop B.
+  - **Farm:** an 808 cowbell, synthesized chicken "ba-gawk"s, formant-filtered moos (call and response in the break),
+    and a rooster crow on the drop.
+
+  Mix checks were made against the ElevenLabs themes with an FFT band-share script, not by ear. The first render put 74%
+  of its energy at 40-80 Hz (the acid bass at A1 sat on the kick), mids were 5 dB low and highs 5-8 dB low. Fixes: the
+  acid moved up an octave, a shorter kick, louder stabs and hats, wider pans. It now matches Moonlight Run within
+  ~1.5 dB above 40 Hz at -11.9 LUFS. Chrome decodes it to exactly 90.000 s with no silent head or tail (the ElevenLabs
+  themes carry 0.5 s and 0.9 s of silence, which is a gap at every loop). The 4 s ring-out is folded onto the head.
+- VERIFY: `_verify-yeti.cjs` 74/74 (against main 69/74: the 4 ski-jump micro-hop runs and the cave-bore scan fail).
+  `_verify-midnightrun.cjs` adds 5 checks (lamps x2, music x3). Its old lamp-base check and `_verify-turnpike`'s were
+  restaged: the branch a lamp belongs to is now read 7 u below the pole TOP, since a pole's base may be the ground.

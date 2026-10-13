@@ -386,10 +386,14 @@ async function main() {
       R.laneHighPresent = laneSane.some(y => Math.abs(y - 8) < 1.6);
       //   lamps: rebuild the cityscape with a wrong heightFn; near-crossing lamp instances (poles) must
       //   still sit on a real branch (translationY ~ 3.5 or ~11.5 = by + poleH/2, poleH 7), NOT ~1002.
+      // RESTAGED 2026-10-12: lamp poles now stand behind the corridor wall and reach down to the real ground (they
+      // stood in the drivable runoff / hung in mid-air beside the viaduct), so a pole's base is no longer its road. The
+      // branch a lamp belongs to is 7 u below its TOP (pole top = road y + poleH); lamps left out at crossings are
+      // zero-scaled and skipped.
       function lampYsNear(hf) {
         const cg = FK_TRACK.buildCityscape(_sampled, K.TRACK_WIDTH, THREE, { heightFn: hf, groundFn: (x, z) => K.groundSampleHeight(x, z), wallMargin: 6 });
         const m = new THREE.Matrix4(), bases = [];
-        cg.traverse(o => { if (o.isInstancedMesh && o.userData && o.userData.cityRole === "lamp" && o.geometry && o.geometry.parameters && o.geometry.parameters.height > 5) { for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); const x = m.elements[12], y = m.elements[13], z = m.elements[14]; if (Math.hypot(x - CX, z - CZ) <= 40) bases.push(+(y - 3.5).toFixed(2)); } } });
+        cg.traverse(o => { if (o.isInstancedMesh && o.userData && o.userData.cityRole === "lamp" && o.geometry && o.geometry.parameters && o.geometry.parameters.height > 5) { for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); const x = m.elements[12], y = m.elements[13], z = m.elements[14]; if (m.elements[5] === 0) continue; if (Math.hypot(x - CX, z - CZ) <= 40) bases.push(+(y + 3.5 * m.elements[5] - 7).toFixed(2)); } } });
         return bases;   // pole translationY - poleH/2 = curb base height
       }
       const lampWrong = lampYsNear(() => 999);
@@ -409,6 +413,36 @@ async function main() {
     check("A crossing: lane-mark height is independent of heightFn (comes from centerline y)", cross.laneN > 0 && cross.laneHeightFnIndependent, JSON.stringify({ n: cross.laneN, indep: cross.laneHeightFnIndependent }));
     check("A crossing: near-crossing lane marks sit on a real branch (~0 or ~8), both represented", cross.laneOnBranch && cross.laneLowPresent && cross.laneHighPresent, JSON.stringify({ onBranch: cross.laneOnBranch, low: cross.laneLowPresent, high: cross.laneHighPresent }));
     check("A crossing: near-crossing street lamps sit on a real branch + ignore a wrong heightFn", cross.lampNearN > 0 && cross.lampsOnBranch && cross.lampsIgnoreHeightFn, JSON.stringify({ n: cross.lampNearN, onBranch: cross.lampsOnBranch, ignoreHf: cross.lampsIgnoreHeightFn }));
+
+    // 2026-10-12 playtest "on bucky's midnight run there are some street lamps in the road": every pole stood 1.2 u past
+    // the curb, INSIDE the walled runoff (62 of 62), with no collision - karts drove through them. Each live pole must
+    // stand outside every road's walled corridor (half + wallMargin) over its whole height, and reach the ground.
+    const lampLay = await page.evaluate(() => {
+      const K = window.__KART__, C = K.centerPts, hw = K.TRACK_WIDTH / 2, wm = K.ACTIVE_TRACK.wallMargin || 6, bad = [], floating = [];
+      let poles = null, n = 0; K.scene.traverse((o) => { if (o.isInstancedMesh && o.userData.cityRole === "lamp" && o.geometry.parameters && o.geometry.parameters.height > 5) poles = o; });
+      const M = new THREE.Matrix4();
+      for (let k = 0; k < poles.count; k++){ poles.getMatrixAt(k, M); const sy = M.elements[5]; if (sy === 0) continue; n++;
+        const x = M.elements[12], y = M.elements[13], z = M.elements[14], base = y - 3.5 * sy, top = y + 3.5 * sy;
+        for (const c of C) if (c.y > base - 1 && c.y < top + 1.5 && Math.hypot(c.x - x, c.z - z) < hw + wm - 0.3){ bad.push([+x.toFixed(1), +z.toFixed(1), +Math.hypot(c.x - x, c.z - z).toFixed(1)]); break; }
+        if (base > K.groundSampleHeight(x, z) + 0.3) floating.push([+x.toFixed(1), +z.toFixed(1), +base.toFixed(1)]); }
+      return { n, bad: bad.slice(0, 6), floating: floating.slice(0, 6) };
+    });
+    check(`A lamps: all ${lampLay.n} street-lamp poles stand outside every road's walled runoff`, lampLay.n > 40 && lampLay.bad.length === 0, JSON.stringify(lampLay));
+    check("A lamps: no pole hangs in mid-air (base on the ground)", lampLay.floating.length === 0, JSON.stringify(lampLay.floating));
+
+    // 2026-10-12 "we also need new music for that level (think techno farm)": Techno Barn (tools/_gen-fk-techno-farm.mjs)
+    const mus = await page.evaluate(async () => {
+      const K = window.__KART__, slug = K.ACTIVE_TRACK.music, r = await fetch("assets/audio/fk-music-race-" + slug + ".mp3");
+      if (!r.ok) return { slug, ok: false };
+      const buf = await new OfflineAudioContext(2, 44100, 44100).decodeAudioData(await r.arrayBuffer()), L = buf.getChannelData(0), N = L.length;
+      let lead = 0; while (lead < N && Math.abs(L[lead]) < 1e-4) lead++; let trail = 0; while (trail < N && Math.abs(L[N - 1 - trail]) < 1e-4) trail++;
+      let pk = 0; for (let i = 0; i < N; i += 7) pk = Math.max(pk, Math.abs(L[i]));
+      const man = await (await fetch("assets/audio/manifest.json")).json();
+      return { slug, ok: true, dur: +(N / 44100).toFixed(2), ch: buf.numberOfChannels, lead, trail, pk: +pk.toFixed(3), inManifest: man.some((e) => e.file === "fk-music-race-" + slug + ".mp3" && e.kind === "race-music") };
+    });
+    check("music: Midnight Run plays its own theme (techno-barn), listed in the audio manifest", mus.slug === "techno-barn" && mus.ok && mus.inManifest, JSON.stringify(mus));
+    check(`music: decodes to a stereo 85..110 s loop (${mus.dur} s) with no silent head/tail padding (a gap at every loop)`, mus.ch === 2 && mus.dur >= 85 && mus.dur <= 110 && mus.lead < 441 && mus.trail < 441, JSON.stringify(mus));
+    check("music: not clipped (sampled peak <= 1.0)", mus.pk <= 1.0, mus.pk);
 
     // crossing screenshot for the user (kart mid-crossing under the viaduct, racing cleanly)
     await page.evaluate(() => {
