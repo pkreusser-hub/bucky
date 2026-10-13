@@ -11361,3 +11361,24 @@ check confirms a phone with no team still gets the bare link. Cache-bust is now 
 - robogoat: **252 pass / 23 fail**, all 23 of them the new checks;
 - RGL: **20 / 2**, the two tag checks;
 - notify-url: stops at the first readTag check, because `tagReadUrl` does not exist at HEAD.
+
+## RoboGoat Week 5 recap: two restages and a headshot key (2026-10-13)
+
+- **Archive thumbnails, restaged.** `archive.mjs` lazy-loads every thumbnail after the second. With
+  a fifth issue, the Week 3 card sits below the fold at 1280px, so it never loaded and read as
+  broken. The check now scrolls each image into view and waits for it to settle before asking
+  whether every thumbnail loaded. A missing `share.png` still fails: hiding Week 3's gave
+  **319/324**, with all three archive widths failing on that file.
+- **New check: star headshot keys are ESPN ids.** `build.mjs` fetches each star card's headshot by
+  key. The facts file carries a Sleeper key (`slp_11564`) for players missing from ESPN's feed, and
+  that key builds a URL that 404s. The first build of the Week 5 recap had one for Drake Maye
+  (ESPN `4431452`). Bite: the Sleeper key fails that one check, and every other check passes
+  (**328/329**).
+- **Headings and one voice.** The one-voice check reads section headings too, so "Letters to
+  RoboGoat" and "RoboGoat's Power Rankings" both fail it. Use `## Letters` and `## Power Rankings`.
+  The build's rankings layout matches any heading containing "power rankings".
+- **Charting a week whose series starts before `t0`.** The `"first"` annotation anchors on the
+  series' first reading, not the first reading inside the window. Pin it to a `{t, p}` point
+  instead, or the label is drawn off the chart.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **329/329**.

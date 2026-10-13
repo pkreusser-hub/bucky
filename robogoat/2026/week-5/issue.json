@@ -1,0 +1,317 @@
+{
+ "season": 2026,
+ "week": 5,
+ "type": "recap",
+ "published": "2026-10-13",
+ "subject": "RoboGoat: Perry's Sunday-morning swap beats Tom by 0.36 (Week 5 recap)",
+ "description": "Perry ends Tom's streak by 0.36 on a 9:05 a.m. swap, Sandy loses by 1.9 on one of her own, John posts the season's best score, and Isaac writes in about Elan.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-5/share.png",
+ "window": "Oct. 8 to 12, 2026",
+ "picksWeek": "2-2",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "3-2",
+  "2": "1-4",
+  "3": "2-3",
+  "4": "1-4",
+  "5": "3-2",
+  "9": "4-1",
+  "11": "3-2",
+  "12": "3-2"
+ },
+ "games": [
+  {
+   "away": 1,
+   "awayPts": 163.1,
+   "home": 4,
+   "homePts": 162.74,
+   "note": "Perry's 9:05 a.m. swap scored twice. Tom's six-game streak is over."
+  },
+  {
+   "away": 5,
+   "awayPts": 148.88,
+   "home": 3,
+   "homePts": 150.74,
+   "note": "The tight end Sandy dropped scored 3.2. Her bench decided it anyway."
+  },
+  {
+   "away": 9,
+   "awayPts": 210.66,
+   "home": 2,
+   "homePts": 188.56,
+   "note": "The best score of the season beats Elan's best score of the season."
+  },
+  {
+   "away": 11,
+   "awayPts": 71.22,
+   "home": 12,
+   "homePts": 145.9,
+   "note": "Calvin's three starters on bye; Isaac's toaster GIF at 1:30."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 4,
+   "l": 1,
+   "pf": 797.7
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 2,
+   "pf": 715.14
+  },
+  {
+   "team": 12,
+   "w": 3,
+   "l": 2,
+   "pf": 735.84
+  },
+  {
+   "team": 1,
+   "w": 3,
+   "l": 2,
+   "pf": 659.9
+  },
+  {
+   "team": 11,
+   "w": 3,
+   "l": 2,
+   "pf": 626.9
+  },
+  {
+   "team": 3,
+   "w": 2,
+   "l": 3,
+   "pf": 720.72
+  },
+  {
+   "team": 2,
+   "w": 1,
+   "l": 4,
+   "pf": 682.54
+  },
+  {
+   "team": 4,
+   "w": 1,
+   "l": 4,
+   "pf": 625.72
+  }
+ ],
+ "bench": [
+  {
+   "team": 3,
+   "left": 28.22
+  },
+  {
+   "team": 5,
+   "left": 24.82
+  },
+  {
+   "team": 12,
+   "left": 21.82
+  },
+  {
+   "team": 4,
+   "left": 21.4
+  },
+  {
+   "team": 2,
+   "left": 20.4
+  },
+  {
+   "team": 11,
+   "left": 7.3
+  },
+  {
+   "team": 9,
+   "left": 3.5
+  },
+  {
+   "team": 1,
+   "left": 0
+  }
+ ],
+ "stars": {
+  "kick": "The week’s biggest numbers",
+  "title": "Eight starters cleared 30",
+  "items": [
+   {
+    "key": "4431452",
+    "pts": "42.5",
+    "name": "Drake Maye",
+    "line": "374 yds, 4 TD passes and a TD run vs. Raiders",
+    "team": 9
+   },
+   {
+    "key": "4429795",
+    "pts": "38.2",
+    "name": "Jahmyr Gibbs",
+    "line": "151 rush yds, 2 TD at Arizona",
+    "team": 9
+   },
+   {
+    "key": "4569987",
+    "pts": "36.8",
+    "name": "Jaylen Warren",
+    "line": "50-yd TD run, 80-yd TD catch vs. Colts",
+    "team": 12
+   },
+   {
+    "key": "4596448",
+    "pts": "33.5",
+    "name": "Bucky Irving",
+    "line": "165 rush yds, 2 TD on Thursday night",
+    "team": 2
+   },
+   {
+    "key": "3918298",
+    "pts": "33.5",
+    "name": "Josh Allen",
+    "line": "121 rush yds, TD in an OT win at the Rams",
+    "team": 5
+   },
+   {
+    "key": "4248528",
+    "pts": "32.3",
+    "name": "Christian Watson",
+    "line": "143 yds, TDs of 42 and 53 vs. Bears",
+    "team": 1
+   }
+  ]
+ },
+ "wp": {
+  "game": {
+   "home": 4,
+   "away": 1
+  },
+  "team": 1,
+  "kick": "Perry vs. Tom",
+  "title": "Battle Kreussers’ chance to win, all weekend",
+  "aria": "Battle Kreussers win probability from Sunday morning to Monday night: 41 percent Sunday at 8:30 a.m., 15 percent at 7:52 p.m. Monday, final win by 0.36.",
+  "t0": "2026-10-11T13:00:00Z",
+  "t1": "2026-10-13T04:20:00Z",
+  "annotations": [
+   {
+    "at": "low-after:2026-10-12T22:00:00Z",
+    "dot": true,
+    "labels": [
+     {
+      "text": "15%",
+      "dx": -10,
+      "dy": 5,
+      "anchor": "end",
+      "cls": "strong"
+     },
+     {
+      "text": "Mon 7:52 p.m.",
+      "dx": -10,
+      "dy": 23,
+      "anchor": "end"
+     }
+    ]
+   },
+   {
+    "at": "last",
+    "dot": true,
+    "labels": [
+     {
+      "text": "Final: 163.1 to 162.7",
+      "dx": -10,
+      "dy": 5,
+      "anchor": "end",
+      "cls": "strong"
+     }
+    ]
+   },
+   {
+    "at": {
+     "t": "2026-10-11T13:36:00Z",
+     "p": 0.414
+    },
+    "labels": [
+     {
+      "text": "Sunday: 41%",
+      "dx": 2,
+      "dy": 44
+     }
+    ]
+   },
+   {
+    "at": {
+     "t": "2026-10-11T20:45:00Z",
+     "p": 0.86
+    },
+    "labels": [
+     {
+      "text": "no readings",
+      "anchor": "end",
+      "cls": "small"
+     },
+     {
+      "text": "Sun 12:51 to 5:52",
+      "dyFs": 1,
+      "anchor": "end",
+      "cls": "small"
+     }
+    ]
+   }
+  ]
+ },
+ "allowTwoDecimals": [
+  "0.36",
+  "163.10",
+  "162.74",
+  "0.52"
+ ]
+}

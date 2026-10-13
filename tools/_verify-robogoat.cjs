@@ -153,6 +153,11 @@ const PICKS = { 2: "3-1", 3: "4-0" };
     check(`${dir}: noindex (family names stay out of search engines)`, /<meta name="robots" content="noindex">/.test(html));
     check(`${dir}: viewport meta for phones`, /<meta name="viewport" content="width=device-width,initial-scale=1">/.test(html));
     check(`${dir}: no script tags (static page)`, !/<script\b/i.test(html));
+    // Star cards fetch ESPN headshots by key (build.mjs HEAD). A Sleeper key ("slp_11564", which the
+    // facts file carries for players ESPN's feed missed) builds a URL that 404s on the live page; the
+    // Week 5 recap's first build had one for Drake Maye. Every star key must be an ESPN numeric id.
+    const badKeys = ((issue.stars || {}).items || []).filter((x) => !/^\d+$/.test(String(x.key))).map((x) => x.name + " " + x.key);
+    check(`${dir}: every star card's headshot key is an ESPN numeric id`, badKeys.length === 0, badKeys.join(", "));
     // Read log (Perry, 2026-10-10): one beacon, naming THIS issue (a copied page logging reads
     // against another issue is the bug this guards), and the rule that keeps it invisible.
     const beacons = [...html.matchAll(/<img class="rgb" src="\/\.netlify\/functions\/rgread\?i=([^"]+)" alt="" width="1" height="1" aria-hidden="true">/g)].map((x) => x[1]);
@@ -190,6 +195,15 @@ const PICKS = { 2: "3-1", 3: "4-0" };
   for (const vw of VWS) {
     const errs = [];
     const page = await openPage(drv, browser, vw, `${base}/robogoat/`, errs);
+    // RESTAGED 2026-10-13 (Week 5 recap, the fifth issue): archive.mjs lazy-loads every thumbnail
+    // after the second, and at 1280px the fifth now sits below the fold, so it never loaded and
+    // read as broken. A reader scrolls; so does the check, then waits for every image to settle.
+    // "Every share thumbnail loads" is unchanged: a missing share.png still fails.
+    await page.evaluate(async () => {
+      for (const i of document.images) i.scrollIntoView();
+      await Promise.all([...document.images].map((i) => i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; })));
+      scrollTo(0, 0);
+    });
     const a = await page.evaluate(() => ({
       sw: document.documentElement.scrollWidth, iw: innerWidth,
       links: [...document.querySelectorAll("a.issue")].map((x) => x.getAttribute("href")),
