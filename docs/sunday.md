@@ -1794,3 +1794,6 @@ punt elsewhere.
   `_verify-sunday.cjs` **419/419** (+1); on HEAD the new check fails, the other 418 pass. Its
   "called from visibilitychange" check is a source-proximity regex (`sideArrive()` within 400 chars),
   so the explanatory comment sits above the listener, not inside it.
+
+**Halftime spend is on FarmGPT's cost dashboard now (2026-10-13).** `halftime.mjs` logs each billed
+script into `farmgpt_usage` under bucket `h`. Details are in docs/farmgpt.md, under the same date.

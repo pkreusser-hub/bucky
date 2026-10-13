@@ -2622,7 +2622,8 @@ async function logCounters(fields) {
 // Every mode bucket the dashboard knows about. Keep in sync with logUsage's key map above.
 // "n" (the news digest's summariser) is written by netlify/functions/news.mjs, not from here —
 // a separate function with its own copy of logUsage, committing into these same two documents.
-const USAGE_BUCKETS = ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x", "t", "f", "n", "w"];
+// "h" (the halftime and postgame shows) is written by netlify/functions/halftime.mjs the same way.
+const USAGE_BUCKETS = ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x", "t", "f", "n", "w", "h"];
 // Maps one Firestore usage doc → a flat row. `label` is "date" (daily) or "hour" (hourly).
 function usageRow(d, label) {
   const f = d.fields || {};

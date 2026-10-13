@@ -4730,6 +4730,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // which is the 1.25x convention. Thinking is billed as output, inside the output count.
     claudesonnet55: { in: 2,  out: 10, cached: 0.20 },     // Sonnet 5.5
     claudeopus5:    { in: 5,  out: 25 },                   // Opus 5
+    // Opus 5.5, the halftime/postgame show writer. 2026-10-13, Anthropic's published rates: $4 in /
+    // $20 out, cache read $0.20. Thinking is billed as output, inside the output count.
+    claudeopus55:   { in: 4,  out: 20, cached: 0.20 },     // Opus 5.5
     claudefable5:   { in: 10, out: 50 },                    // Fable 5 — the ledger seeder
     // The grok family. XAI_MODEL can be switched to any of these without a code change, so each
     // one needs a rate here or a switch would land in an unpriced bucket and quietly cost $0 on
@@ -4777,6 +4780,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     { p: "n", icon: "📰", name: "News summaries",       inR: S_IN, outR: S_OUT },
     // Fantasy advice + the weekly league column — Grok 4.5 rates as the no-breakdown fallback.
     { p: "w", icon: "🏈", name: "Fantasy AI",           inR: 2, outR: 6 },
+    // 2026-10-13: the Sunday halftime and postgame shows (written by halftime.mjs) were logged
+    // nowhere before this, so rows from before that day hold no spend for them.
+    { p: "h", icon: "🎙", name: "Halftime & postgame shows", inR: 4, outR: 20 },
   ];
   // Which models actually appear in a row, per bucket (read off the passed-through
   // `<bucket>_<slug>_<metric>` fields rather than a hardcoded list, so a new model needs no edit).

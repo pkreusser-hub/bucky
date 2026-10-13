@@ -118,6 +118,20 @@ const srv = http.createServer(async (req, res) => {
     if (req.method === "POST" && rest === ":commit") {
       const j = JSON.parse(await body(req));
       for (const w of j.writes || []) {
+        // A transform write (usage logging) increments fields the way real Firestore does, creating
+        // the doc if it is missing. Logged apart from log.commits, which the checks above count as the
+        // script doc's own claims and writes.
+        if (w.transform) {
+          (log.usage = log.usage || []).push(w);
+          const tname = w.transform.document, tcur = docs.get(tname) || { fields: {}, createTime: "x", updateTime: "x" };
+          for (const f of w.transform.fieldTransforms || []) {
+            const inc = f.increment && f.increment.integerValue;
+            if (inc == null) return send(res, 400, { error: { code: 400, message: "unsupported transform", status: "INVALID_ARGUMENT" } });
+            tcur.fields[f.fieldPath] = { integerValue: String((parseInt(tcur.fields[f.fieldPath]?.integerValue || "0", 10)) + parseInt(inc, 10)) };
+          }
+          docs.set(tname, tcur);
+          continue;
+        }
         log.commits.push(w);
         const name = w.update?.name, cur = docs.get(name), pre = w.currentDocument;
         if (pre && pre.exists === false && cur) return send(res, 409, { error: { code: 409, message: "Document already exists: " + name, status: "ALREADY_EXISTS" } });
@@ -142,6 +156,7 @@ const srv = http.createServer(async (req, res) => {
       ev("ping", {});
       ev("content_block_stop", { index: 0 });
       if (err) { ev("error", { error: { type: err, message: "Overloaded" } }); return res.end(); }
+      log.billed = (log.billed || 0) + 1;                           // a stream that ran to its end: billed
       ev("content_block_start", { index: 1, content_block: { type: "text", text: "" } });
       for (let i = 0; i < text.length; i += 37) ev("content_block_delta", { index: 1, delta: { type: "text_delta", text: text.slice(i, i + 37) } });
       ev("content_block_stop", { index: 1 });
@@ -550,6 +565,29 @@ try {
     const bgN = log.bg.length;
     await get("401872967&kind=post");
     ok(again.j.ok && log.bg.length === bgN, "…and the once-per-game guard stands: a finished script is served, no second job");
+  }
+
+  section("Every billed call lands on FarmGPT's cost dashboard (bucket h)");
+  {
+    // 2026-10-13: the token counts lived only inside each game's own doc, so no dashboard ever showed
+    // halftime spend. Each stream that ran to its end (scripts, refusals, bad JSON alike: all billed)
+    // increments farmgpt_usage/<day> and farmgpt_usage_hourly/<hour>, under h_* and h_<modelslug>_*.
+    // Expected numbers come from the fake's own fixed counts: 4512 in, 2841 out per stream.
+    const sum = (coll, f) => [...docs.entries()].filter(([k]) => k.startsWith(`${DOC_BASE}/${coll}/`))
+      .reduce((a, [, d]) => a + parseInt(d.fields[f]?.integerValue || "0", 10), 0);
+    const n = log.billed || 0;
+    const day = [...docs.keys()].filter((k) => k.startsWith(`${DOC_BASE}/farmgpt_usage/`));
+    ok(n > 3 && sum("farmgpt_usage", "h_req") === n, `one h_req per billed stream (${sum("farmgpt_usage", "h_req")} of ${n})`);
+    ok(sum("farmgpt_usage", "h_in") === 4512 * n && sum("farmgpt_usage", "h_out") === 2841 * n,
+      `input and output tokens add up to the streams' own counts (${sum("farmgpt_usage", "h_in")} / ${4512 * n}, ${sum("farmgpt_usage", "h_out")} / ${2841 * n})`);
+    ok(sum("farmgpt_usage", "h_claudeopus55_req") === n && sum("farmgpt_usage", "h_claudeopus55_out") === 2841 * n,
+      "the same numbers again under the model that wrote them, h_claudeopus55_*, so the dashboard prices it at Opus 5.5's rate");
+    ok(["h_req", "h_in", "h_out", "h_claudeopus55_in"].every((f) => sum("farmgpt_usage_hourly", f) === sum("farmgpt_usage", f)),
+      "the hourly docs carry the same totals as the daily one");
+    ok(day.length >= 1 && day.every((k) => /\/\d{4}-\d{2}-\d{2}$/.test(k)), `daily docs are keyed by Central date (${day.map((k) => k.split("/").pop())})`);
+    const f = mod.usageFields ? mod.usageFields({ input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 0 }, "claude-opus-5-5") : [];
+    ok(f.length === 10 && f.every((x) => /^\d+$/.test(x.increment.integerValue)) && f.find((x) => x.fieldPath === "h_cw")?.increment.integerValue === "0",
+      "a missing count logs as integer 0, never NaN or undefined (Firestore rejects both)");
   }
 } finally {
   srv.close();

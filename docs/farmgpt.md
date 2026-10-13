@@ -3229,3 +3229,33 @@ the function at origin/main, the new check the only failure).
   `ffcommentary` has no xAI outage fallback; a background-job 5xx falls through to a second paid run;
   the parent-only storylog/budget modes are gated only by the family password that ships in client
   JS — they need their own server-side secret.
+
+## Cost dashboard: halftime and postgame shows get their own row (2026-10-13)
+
+Asked "how much have I spent on gffl halftime shows", the dashboard could not answer.
+`halftime.mjs` kept each script's token counts only inside its own `sunday_halftime` doc and
+logged nothing to `farmgpt_usage`, so its Opus 5.5 spend was on no row.
+- **Bucket `h`.** `halftime.mjs` writes `h_*` and `h_<modelslug>_*` into the daily and hourly
+  usage docs, in the same shape as `logUsage`. The code is duplicated, not shared, following the
+  house convention (news.mjs does the same for `n`). Every stream that runs to its end is logged,
+  including refusals, `max_tokens` cut-offs, bad JSON and rejected scripts, because all of those
+  are billed. A stream that errors out is not logged. `farmgpt.mjs` adds `h` to `USAGE_BUCKETS`
+  so the dashboard reads it back.
+- **farmgpt.html** has a "Halftime & postgame shows" row and a `claudeopus55` rate of $4 in /
+  $20 out / $0.20 cached, from Anthropic's published Opus 5.5 rates that day. Days before
+  2026-10-13 hold no halftime spend, and closed days are not re-priced.
+- **Considered and dropped:** a separate bucket for the GFFL Nerd Report (`ffrecap`). That
+  feature is retired: no page calls it, and `farmgpt_ffrecap` has never held a doc. Its row would
+  always read $0.
+
+**Spend before the logging existed** (token counts read off the stored scripts and priced at
+the rates above; not billed figures): `sunday_desk3`, the live collection, held 41 scripts
+(10 halftime, 31 postgame) for $2.16, every one with its usage recorded. `sunday_desk2` held 3
+postgame scripts ($0.18), and the older `sunday_halftime` held 20 (about $1, of which only 7
+recorded usage). That comes to about $3.35 through week 5. The live collection is `COLL` in
+halftime.mjs; reading an older one by mistake under-counts by more than half.
+
+**VERIFY:** halftime **83/83** (was 77: 6 new). The fake's `:commit` now applies
+`fieldTransforms.increment` the way real Firestore does and logs those writes apart from
+`log.commits`, which the older checks count. Bite (halftime.mjs back to HEAD): 78/83, and the
+failures are exactly the new checks.

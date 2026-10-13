@@ -286,6 +286,42 @@ async function writeDoc(token, event, fields, pre) {
 }
 const S = (v) => ({ stringValue: String(v) }), I = (v) => ({ integerValue: String(Math.round(v)) });
 
+/* ── Usage logging: bucket "h" on FarmGPT's cost dashboard ──
+   Every script used to keep its token counts only inside its own sunday_halftime doc, so the spend
+   showed up nowhere. This writes into farmgpt_usage / farmgpt_usage_hourly in the same shape as
+   farmgpt.mjs's logUsage (`h_<metric>` plus `h_<modelslug>_<metric>`), duplicated rather than shared
+   per the house convention, as news.mjs does for "n". Never allowed to fail the job. */
+const farmParts = (o) => Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", ...o })
+  .formatToParts(new Date()).map((p) => [p.type, p.value]));
+export function farmDay() { const g = farmParts({ year: "numeric", month: "2-digit", day: "2-digit" }); return `${g.year}-${g.month}-${g.day}`; }
+function farmHour() {
+  const g = farmParts({ year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false });
+  return `${g.year}-${g.month}-${g.day}-${g.hour === "24" ? "00" : g.hour}`;   // en-CA reports midnight as "24"
+}
+const modelSlug = (m) => (String(m || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || "unknown");
+export function usageFields(usage, model) {
+  const n = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+  const v = { in: n(usage.input_tokens), out: n(usage.output_tokens), req: 1,
+    cw: n(usage.cache_creation_input_tokens), cr: n(usage.cache_read_input_tokens) };
+  const out = [];
+  for (const k of ["h", `h_${modelSlug(model)}`]) for (const m of ["in", "out", "req", "cw", "cr"])
+    out.push({ fieldPath: `${k}_${m}`, increment: { integerValue: String(v[m]) } });
+  return out;
+}
+async function logUsage(token, usage, model) {
+  try {
+    const fields = usageFields(usage, model);
+    await fetch(`${fsRoot()}:commit`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [
+        { transform: { document: `${DOC_BASE}/farmgpt_usage/${farmDay()}`, fieldTransforms: fields } },
+        { transform: { document: `${DOC_BASE}/farmgpt_usage_hourly/${farmHour()}`, fieldTransforms: fields } },
+      ] }),
+    });
+  } catch { /* usage logging must never break a script */ }
+}
+
 async function espnSummary(event) {
   const r = await fetch(`${ESPN()}/summary?event=${event}`, { headers: { accept: "application/json" } });
   if (!r.ok) throw new Error("espn " + r.status);
@@ -326,12 +362,14 @@ async function writeScript(facts, post) {
   if (!r.ok) return { error: "api-" + r.status };
   const m = readStream(await r.text());
   if (m.error) return { error: "api-" + m.error };
-  if (m.stop_reason === "refusal") return { error: "refusal" };
-  if (m.stop_reason === "max_tokens") return { error: "max-tokens" };
+  // A call that came back but made no usable script is still billed, so its usage rides along too.
+  const spent = { model: m.model || HALFTIME_MODEL, usage: m.usage };
+  if (m.stop_reason === "refusal") return { error: "refusal", ...spent };
+  if (m.stop_reason === "max_tokens") return { error: "max-tokens", ...spent };
   let out;
-  try { out = JSON.parse(m.text); } catch { return { error: "bad-json" }; }
+  try { out = JSON.parse(m.text); } catch { return { error: "bad-json", ...spent }; }
   const lines = cleanScript(out, post, new Set([...facts.scoring, ...facts.notable].map((p) => p.id).filter(Boolean)));
-  return lines ? { lines, model: m.model || HALFTIME_MODEL, usage: m.usage } : { error: "bad-script" };
+  return lines ? { lines, ...spent } : { error: "bad-script", ...spent };
 }
 // The Messages API's event stream, folded back into one message: the model, the text blocks' text,
 // the stop reason, the token counts (input from message_start, output from message_delta), or the
@@ -394,6 +432,7 @@ export async function runHalftimeJob(body) {
     if (eligible(sum, mode)) return;                                                              // no real halftime / final
     res = await writeScript(halftimeFacts(sum, post ? "post" : demo), post);
   } catch (e) { res = { error: "job: " + String(e?.cause?.code || e?.message || e).slice(0, 80) }; }
+  if (res && res.usage) await logUsage(token, res.usage, res.model);
   if (!doc || doc.missing) return;
   const ms = Date.now() - at;                                       // how long it took, claim to script
   const fields = res.lines
