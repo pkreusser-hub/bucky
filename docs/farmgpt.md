@@ -3229,3 +3229,33 @@ the function at origin/main, the new check the only failure).
   `ffcommentary` has no xAI outage fallback; a background-job 5xx falls through to a second paid run;
   the parent-only storylog/budget modes are gated only by the family password that ships in client
   JS — they need their own server-side secret.
+
+## Cost dashboard: halftime shows and GFFL recaps get their own rows (2026-10-13)
+
+Asked "how much have I spent on gffl halftime shows and game recaps", the dashboard could not
+answer. `halftime.mjs` kept each script's token counts only inside its own `sunday_halftime` doc
+and logged nothing to `farmgpt_usage`, so its Opus 5.5 spend was on no row. The Nerd Report
+(`ffrecap`) billed the shared `w` bucket along with lineup advice, the draft booth, trades and the
+adjuster, so recap spend could not be told apart. Changes:
+- **Bucket `h`, the halftime and postgame shows.** `halftime.mjs` writes `h_*` and
+  `h_<modelslug>_*` into the daily and hourly usage docs, in the same shape as `logUsage`. The code
+  is duplicated, not shared, following the house convention (news.mjs does the same for `n`).
+  Every stream that runs to its end is logged, including refusals, `max_tokens` cut-offs, bad JSON
+  and rejected scripts, because all of those are billed. A stream that errors out is not logged.
+- **Bucket `v`, GFFL game recaps.** `logUsage` maps `ffrecap` to `v`. `gfflUsedToday` now reads
+  `w_req + v_req`, so the 300/day `GFFL_DAILY_CAP` covers exactly what it covered before.
+- **farmgpt.html** has a row for each bucket and a `claudeopus55` rate of $4 in / $20 out / $0.20
+  cached, from Anthropic's published Opus 5.5 rates that day. Usage docs from before 2026-10-13
+  hold the recap inside `w` and no halftime spend at all; closed days are not re-priced.
+
+**Rough spend before the logging existed** (read off the docs, not billed figures): 20 halftime
+scripts at about 5 cents each, about $1 in all, with only 7 of them recording usage; recaps were
+inside the ~$4.75 that `w` had cost to date.
+
+**VERIFY:** halftime **83/83** (was 77: 6 new), ffai **43/43** (was 39: 4 new + 1 restaged). The
+halftime fake's `:commit` now applies `fieldTransforms.increment` the way real Firestore does and
+logs those writes apart from `log.commits`, which the older checks count. **RESTAGED** (ffai C):
+"the recap bills the same w_* bucket" is now "bills v_*, and w_* doesn't move". Section E seats
+`w_req` at CAP−1−v_req, since the recap left one `v_req` in today's doc. Bite (halftime.mjs and
+farmgpt.mjs put back to HEAD): halftime 78/83 and ffai 38/43. The failures are exactly the new
+checks; every older check still passes. Also green: sports 301/301, ffdraft 326/326.
