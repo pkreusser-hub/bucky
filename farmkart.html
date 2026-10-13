@@ -994,6 +994,7 @@
     landSquashT:0.16,       // landing squash-and-stretch duration (s)
     landMinAirT:0.25,       // min airtime (s) before a landing fires squash+thump (anti micro-hop spam)
     landMinImpact:4,        // OR min downward impact speed to fire landing effects
+    landSettleT:0.6,        // s after a real landing with no terrain-crest re-launch (see LAND_SETTLE_T)
     camVertLerp:4,          // /s smoothing of the camera's vertical (kart-y) tracking -> jumps float
     // K3.5 bot constants (no sliders):
     botSteerGain:1.6,       // heading-error -> steer input gain (pure pursuit)
@@ -1958,7 +1959,7 @@
   // frames after every touchdown: 3 micro-hops in 15 frames, each one firing the squash + thump + dust again. For this
   // long after a REAL landing (airtime >= landMinAirT) the crest launch is suppressed and the kart stays glued. Ramp
   // exits still launch (explicit, above the crest test).
-  const LAND_SETTLE_T = 0.6;     // 0.35 still let a 5-frame crest hop through 0.42 s after the Yeti ski-jump landing (31.6 m/s on the descent bend)
+  // (the value is TUNE.landSettleT = 0.6:) 0.35 still let a 5-frame crest hop through 0.42 s after the Yeti ski-jump landing (31.6 m/s on the descent bend)
   function rideHeight(sx, sz, seedY){
     return Math.max(sampleHeightAtY(sx, sz, seedY), groundSampleHeight(sx, sz), rampLift(sx, sz, seedY));
   }
@@ -3460,7 +3461,7 @@
             p.landT = TUNE.landSquashT;
             p.landFx = true;                 // one-shot; render layer fires the thump then clears it
           }
-          if (p.airT >= TUNE.landMinAirT) p._landSettle = LAND_SETTLE_T;   // see LAND_SETTLE_T
+          if (p.airT >= TUNE.landMinAirT) p._landSettle = TUNE.landSettleT;   // see LAND_SETTLE_T
           p.airT = 0;
         }
       } else {
