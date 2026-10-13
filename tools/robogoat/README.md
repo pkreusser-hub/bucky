@@ -97,6 +97,11 @@ robogoat/
    `node tools/robogoat/share.mjs robogoat/2026/week-N`, then `node tools/robogoat/archive.mjs`.
 6. `node tools/_verify-robogoat.cjs` must be green. Look at a 390px screenshot of every panel.
 7. Commit on the working branch with the suite count, push the branch, open a PR, ask Perry to merge.
+   **Paste the transcript for approval** (Perry, 2026-10-13: "Drop in the transcript, each week
+   thats what you should provide me for approval"). The message asking him to merge carries the
+   subject line and `column.md`'s text from "RoboGoat here." to the sign-off, without the header
+   or `[IMAGE: …]` lines. He approves the transcript, not the page; make his edits before he
+   merges. Same for a Saturday preview.
 8. Gmail draft to the league: subject = `issue.json` subject, a two-line teaser and the link.
 9. After Perry merges and Netlify deploys: `node tools/robogoat/announce.mjs robogoat/2026/week-N`
    shows the push; send it with `--send` only when Perry says so.
