@@ -11275,3 +11275,27 @@ alone (AS 28/28, UD4 8/8). The run then resumed from the next section.
 - **Reported, not changed:** `persistLineup` re-applies every slot from the render-time snapshot with a
   blind `saveRoster` rather than a `rosterUpdate` delta of just the changed keys — a stale second device
   can put a kicked-off player back in a starting slot. Worth converting to the delta pattern.
+
+### Week 5 finalized as four 0-0 games (2026-10-13)
+
+Report: "the standings didn't update for week 5 results." `weekly_2026_w5` was written at
+2026-10-13 03:48Z (`source:"live"`, auto-finalize from some device's boot) with every matchup 0-0,
+every player scored 0 (`accuracy.ours` 11.17 = the mean projection), and a NON-zero power table.
+Every lineup was fielded and every game read "post", so `empty-week`/`empty-matchup` passed; the
+device simply had no player rows behind those lineups, and `fzPts` scores a missing row 0.
+
+Two holes, both fixed:
+- **`LG.weeklyIsVoid` reverses its power-table half** (the 2026-09-02 entry above: "needs BOTH
+  halves"). Its premise, "a played week cannot have an all-zero power table", is true but
+  backwards: power is cumulative (4·wins + 0.05·season PF + 2·last3), so from week 2 on even a
+  week nobody scored in carries a non-zero table. It could only ever recognise a week-1 zombie.
+  Now every matchup 0-0 alone is void. Effect on the live doc: the standings ignore week 5 at
+  once (the four phantom ties disappear), and it is offered on the stale-week card for the
+  commissioner's archived-stats finalize, which replaces it under the existing self-heal
+  (`replacedVoid: true`). No production data was touched.
+- **`finalizeWeek` refuses `no-scores`**, force included, when every matchup totals 0-0 —
+  the whole-week shape weeklyIsVoid calls void, so it is never written in the first place.
+  League-wide rather than per pairing on purpose: `seedAllFielded`'s filler teams legitimately
+  play 0-0 pairings among themselves.
+- Not found: why that device had lineups and a final slate but no player rows. The new guard
+  makes that state refuse instead of write; the next boot after rows load finalizes normally.

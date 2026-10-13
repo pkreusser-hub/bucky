@@ -6762,6 +6762,7 @@
     // finalize), and "not-final" is the single most common one there is.
     "empty-week": "nobody fielded a lineup that week — there is nothing to score",
     "empty-matchup": "neither team fielded a lineup in that game",
+    "no-scores": "every game that week reads 0-0 — the scores haven't loaded yet, try again in a minute",
     "not-final": "some games this week haven't finished yet",
     "no-archived-stats": "that week's archived stats aren't available", "bracket-unresolved": "an earlier playoff round hasn't been settled yet",
     "no-schedule": "there are no games on the board for that week",

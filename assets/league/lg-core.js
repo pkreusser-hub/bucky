@@ -1935,10 +1935,15 @@
     if (!doc || doc.kind !== "weekly") return false;
     const ms = Array.isArray(doc.matchups) ? doc.matchups : [];
     if (!ms.length) return true; // a "finalized" week with no matchups at all is not a result
-    if (!ms.every((m) => LG.n(m.homePts) === 0 && LG.n(m.awayPts) === 0)) return false;
-    const power = Array.isArray(doc.power) ? doc.power : [];
-    if (power.length && !power.every((p) => LG.n(p.score) === 0)) return false;
-    return true;
+    // ⭐ THE POWER-TABLE HALF IS GONE (2026-10-13, the week-5 zero record). This used to also
+    // require an all-zero power table, on the premise that "a played week cannot have one".
+    // True, but backwards: a power score is CUMULATIVE (4·wins + 0.05·season PF + 2·last3), so
+    // from week 2 on even a week in which nobody scored a point carries a non-zero table, and
+    // the check could only ever recognise a week-1 zombie. weekly_2026_w5 was written at
+    // 2026-10-13 03:48Z with every matchup 0-0 and a non-zero power table, so it read as REAL:
+    // four 0-0 ties in the standings, and the self-heal below refused to replace it. An entire
+    // week of 0-0 games is not a result whatever the power table says.
+    return ms.every((m) => LG.n(m.homePts) === 0 && LG.n(m.awayPts) === 0);
   };
   // Every weekly-doc reader in this file goes through here instead of LG.db.list("weekly"), so
   // "treat a void doc as absent" is one rule in one place rather than eight copies.
@@ -4820,6 +4825,17 @@
     const matchups = [];
     for (const [h, a] of wkGames) {
       matchups.push({ home: h, away: a, homePts: await fzTeamTotal(week, h, pts, fzRosters), awayPts: await fzTeamTotal(week, a, pts, fzRosters) });
+    }
+    // ⭐ …AND A WEEK NOBODY SCORED IN IS NOT A RESULT EITHER (2026-10-13). Both guards above
+    // count STARTERS; neither looks at POINTS. On 2026-10-13 03:48Z a device finalized week 5
+    // with full lineups, every game "post", and not one player row behind them — fzPts scores a
+    // missing row 0, so the write-once record held four 0-0 games. The same whole-week shape
+    // LG.weeklyIsVoid calls void is refused here before it is written, force included; the
+    // next attempt (or the archived backfill) reads the real numbers. League-wide, not per
+    // pairing, to match weeklyIsVoid exactly: a single 0-0 pairing between two all-bye filler
+    // lineups is a legitimate fixture shape the suite's seedAllFielded relies on.
+    if (matchups.length && matchups.every((m) => LG.n(m.homePts) === 0 && LG.n(m.awayPts) === 0)) {
+      return { ok: false, reason: "no-scores" };
     }
     const awards = await fzAwards(week, matchups, pts, opts.backfill ? () => null : null, fzRosters);
     const power = await LG.powerRankings(week, [{ week, matchups }]);

@@ -5393,6 +5393,36 @@ async function openDetails(page, id) {
     ok(emptied.onePairForced.ok === false && emptied.onePairForced.reason === "empty-matchup" && !emptied.wrote2,
       "…force included, with nothing written — a partial permanent record is exactly what the bracket findings ruled out");
 
+    // ⭐ FULL LINEUPS, NO SCORES (2026-10-13 — the week-5 zero record). weekly_2026_w5 was
+    // written at 03:48Z with every lineup fielded, every game "post", and no player rows behind
+    // them, so fzPts scored all of it 0: four 0-0 games in a write-once doc. Both guards above
+    // count starters, so neither saw it. Reproduced by emptying D.S.players (snapshot, restore).
+    const zeroed = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+      const savedRows = new Map(D.S.players);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      D.S.players.clear();
+      const plain = await LG.finalizeWeek(1);
+      const forcedZ = await LG.finalizeWeek(1, { force: true });
+      const wrote = await LG.loadWeekly(1);
+      for (const [k, v] of savedRows) D.S.players.set(k, v);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 3, clock: "5:00" }));
+      // The doc exactly as it sits in production: 0-0 everywhere, a NON-zero power table (power
+      // is cumulative — 4·wins + 0.05·season PF + 2·last3 — so week 5 carries weeks 1-4).
+      const w5 = { kind: "weekly", week: 5,
+        matchups: [{ home: 4, away: 1, homePts: 0, awayPts: 0 }, { home: 3, away: 5, homePts: 0, awayPts: 0 }],
+        power: [{ teamId: 5, score: 44.31, rank: 1 }, { teamId: 1, score: 30.2, rank: 2 }], finalizedAt: 1791863291131, source: "live" };
+      const real = { ...w5, matchups: [{ home: 4, away: 1, homePts: 88.4, awayPts: 0 }, { home: 3, away: 5, homePts: 0, awayPts: 0 }] };
+      return { plain, forcedZ, wrote: !!wrote, voidW5: LG.weeklyIsVoid(w5), voidReal: LG.weeklyIsVoid(real) };
+    });
+    ok(zeroed.plain.ok === false && zeroed.plain.reason === "no-scores",
+      "full lineups with no scores behind them refuse as no-scores — pre-fix this wrote 0-0 ties (" + JSON.stringify(zeroed.plain.reason) + ")");
+    ok(zeroed.forcedZ.ok === false && zeroed.forcedZ.reason === "no-scores" && !zeroed.wrote,
+      "…force included, and nothing was written");
+    ok(zeroed.voidW5 === true,
+      "a week of 0-0 games with a NON-zero (cumulative) power table is VOID — the production weekly_2026_w5 shape, which pre-fix read as real and stuck in the standings (" + zeroed.voidW5 + ")");
+    ok(zeroed.voidReal === false, "CONTROL: one real score in the week keeps it a result (" + zeroed.voidReal + ")");
+
     // force:true bypasses the guard (still computes from whatever's currently on the board).
     const forced = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
     ok(forced.ok === true && forced.kind === "weekly", "force:true bypasses the guard and finalizes anyway");
