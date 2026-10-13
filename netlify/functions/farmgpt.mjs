@@ -2559,10 +2559,7 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       // story on a far pricier model than the per-scene calls, so folding it into "s" would make
       // every chapter of that story look like it cost a share of a one-time build.
       : modeName === "storyseed" ? "f"
-      // The weekly Nerd Report gets its own bucket "v" (2026-10-13) so its cost reads apart from the
-      // rest of the fantasy AI; the GFFL daily cap counts w_req + v_req, so the ceiling is unchanged.
-      : modeName === "ffrecap" ? "v"
-      : (modeName === "fantasy" || modeName === "ffcommentary") ? "w"
+      : (modeName === "fantasy" || modeName === "ffrecap" || modeName === "ffcommentary") ? "w"
       // The live projection adjuster reuses "w" too — it's the same fantasy-AI spend.
       : modeName === "gfflproj" || modeName === "gffltrade" || modeName === "gffladjust" ? "w"
       : modeName === "audit" ? "x" : "r";
@@ -2626,7 +2623,7 @@ async function logCounters(fields) {
 // "n" (the news digest's summariser) is written by netlify/functions/news.mjs, not from here —
 // a separate function with its own copy of logUsage, committing into these same two documents.
 // "h" (the halftime and postgame shows) is written by netlify/functions/halftime.mjs the same way.
-const USAGE_BUCKETS = ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x", "t", "f", "n", "w", "v", "h"];
+const USAGE_BUCKETS = ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x", "t", "f", "n", "w", "h"];
 // Maps one Firestore usage doc → a flat row. `label` is "date" (daily) or "hour" (hourly).
 function usageRow(d, label) {
   const f = d.fields || {};
@@ -2839,9 +2836,7 @@ async function gfflUsedToday() {
     if (r.status === 404) return 0;   // no usage logged yet today
     if (!r.ok) return null;
     const j = await r.json().catch(() => null);
-    // w_req + v_req: the recap moved to its own bucket "v" on 2026-10-13 and still counts here.
-    const req = (k) => parseInt((j && j.fields && j.fields[k] && j.fields[k].integerValue) || "0", 10) || 0;
-    return req("w_req") + req("v_req");
+    return parseInt((j && j.fields && j.fields.w_req && j.fields.w_req.integerValue) || "0", 10) || 0;
   } catch { return null; }
 }
 

@@ -250,7 +250,6 @@ async function main() {
 
   // ---------------- C · mode "ffrecap": generate once, cache family-wide ----------------
   section("C · mode \"ffrecap\" — the weekly column + its Firestore cache");
-  const wReqBeforeRecap = parseInt((usageDoc().w_req || {}).integerValue || "0", 10);   // a snapshot: the doc mutates in place
 
   r = await call({ mode: "ffrecap", season: 2026, week: 0, leagueName: "x", matchups: decidedMatchups() });
   ok(r.status === 400 && /Bad recap request/.test(r.text), "week 0 → 400 Bad recap request");
@@ -285,14 +284,8 @@ async function main() {
   ok(xaiReqs.length === xaiAfterGen, "…with NO second model call — one generation per week, family-wide");
 
   const u2 = usageDoc();
-  // RESTAGED 2026-10-13: this used to assert the recap billed the shared w_* bucket. It now has its
-  // own bucket "v" so FarmGPT's dashboard can show recap spend on its own row; the daily cap still
-  // counts it (section E).
-  ok(parseInt((u2.v_req || {}).integerValue || "0", 10) === 1 && parseInt((u2.v_out || {}).integerValue || "0", 10) > 0,
-    "the recap generation bills its own v_* bucket, exactly once");
-  ok(parseInt((u2.w_req || {}).integerValue || "0", 10) === wReqBeforeRecap,
-    `…and no longer the w_* fantasy-advice bucket (${(u2.w_req || {}).integerValue} vs ${wReqBeforeRecap})`);
-  ok(Object.keys(u2).some((k) => /^v_grok\d+_req$/.test(k)), "the recap's per-model breakdown is written under v_<modelSlug>_*");
+  ok(parseInt((u2.w_req || {}).integerValue || "0", 10) > parseInt((u1.w_req || {}).integerValue || "0", 10),
+    "the recap generation bills the same w_* bucket");
 
   // ---------------- D · gates ----------------
   section("D · gates");
@@ -316,19 +309,15 @@ async function main() {
 
     // the cap refuses the (N+1)th call: sit the real counter at CAP-1 (299), so the NEXT call
     // is request #300 (the Nth, exactly at the cap) and must still be served —
-    // The cap counts w_req + v_req (the recap's own bucket since 2026-10-13), and section C already
-    // left one v_req, so w_req sits at CAP-1 minus that to put the shared total at exactly 299.
-    const vNow = parseInt((fakeDocs[capKey].fields.v_req || {}).integerValue || "0", 10);
-    ok(vNow === 1, `section C's recap left v_req = 1 in today's doc (${vNow})`);
-    fakeDocs[capKey].fields.w_req = { integerValue: String(GFFL_DAILY_CAP - 1 - vNow) };
+    fakeDocs[capKey].fields.w_req = { integerValue: String(GFFL_DAILY_CAP - 1) };
     let xaiBeforeE = xaiReqs.length;
     let r = await call({ mode: "fantasy", kind: "lineup", matchup: fixtureMatchup() });
     ok(r.status === 200 && r.text.includes("bench Justin Jefferson") && xaiReqs.length === xaiBeforeE + 1,
       "request #300 (w_req was 299, exactly CAP-1) is still served normally, a real Grok call");
     // …and logUsage's REAL atomic increment (the fake's own :commit handler, not a manual set)
     // carried w_req from 299 to 300 — so the VERY NEXT call is #301, the (N+1)th.
-    ok(parseInt((fakeDocs[capKey].fields.w_req || {}).integerValue || "0", 10) + vNow === GFFL_DAILY_CAP,
-      "…and that real call's own usage logging carried w_req + v_req to exactly 300");
+    ok(parseInt((fakeDocs[capKey].fields.w_req || {}).integerValue || "0", 10) === GFFL_DAILY_CAP,
+      "…and that real call's own usage logging incremented w_req to exactly 300");
     r = await call({ mode: "fantasy", kind: "lineup", matchup: fixtureMatchup() });
     ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "daily-cap" && xaiReqs.length === xaiBeforeE + 1,
       `request #301 (the (N+1)th) is refused {ok:false,reason:"daily-cap"} at HTTP 200, with NO new model call (got ${r.text.slice(0, 120)})`);
@@ -356,16 +345,7 @@ async function main() {
     // starts exactly like a doc that was never written — simulated directly here (real wall-
     // clock rollover isn't practical to drive in this harness) by clearing today's forced
     // counter back to zero, the same state a brand-new day's key reads.
-    // Recaps alone can fill the budget too: w_req at 0, v_req at the cap, still refused.
     fakeDocs[capKey].fields.w_req = { integerValue: "0" };
-    fakeDocs[capKey].fields.v_req = { integerValue: String(GFFL_DAILY_CAP) };
-    xaiBeforeE = xaiReqs.length;
-    r = await call({ mode: "fantasy", kind: "lineup", matchup: fixtureMatchup() });
-    ok(r.json && r.json.reason === "daily-cap" && xaiReqs.length === xaiBeforeE,
-      "v_req counts toward the shared cap: 300 recaps and no advice still refuses the next call");
-
-    fakeDocs[capKey].fields.w_req = { integerValue: "0" };
-    fakeDocs[capKey].fields.v_req = { integerValue: "0" };
     xaiBeforeE = xaiReqs.length;
     r = await call({ mode: "fantasy", kind: "lineup", matchup: fixtureMatchup() });
     ok(r.status === 200 && r.text.includes("bench Justin Jefferson") && xaiReqs.length === xaiBeforeE + 1,
