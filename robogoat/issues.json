@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 6,
+   "type": "preview",
+   "path": "2026/week-6-preview/",
+   "published": "2026-10-17",
+   "headline": "Perry Trades His Hero for a Player on Bye",
+   "description": "Perry trades Davante Adams to Isaac for a Bengal on bye, Isaac answers Sandy with a pie chart, Tom finds a quarterback in a minute, and John leads Calvin by 21.5 after Thursday.",
+   "subject": "RoboGoat: Perry trades his hero for a player on bye (Week 6 preview)",
+   "share": "2026/week-6-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 5,
    "type": "recap",
    "path": "2026/week-5/",
