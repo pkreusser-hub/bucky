@@ -11388,3 +11388,62 @@ check confirms a phone with no team still gets the bare link. Cache-bust is now 
   word cap was **RESTAGED** from 1,900 to 2,200, with the reason at the check, and the target is
   now about 1,700. `## Letters to the Editor` comes after the games and summarizes the league chat.
   README and the Tuesday routine prompt both say so. **VERIFY:** robogoat **329/329**.
+
+## Win probability: the measured spread (2026-10-19)
+
+Perry, after reading [@will_j_5's thread](https://x.com/will_j_5/status/2111844628710215817) on
+ESPN's fantasy win % (it adds standard deviations instead of variances, and shrinks a game's
+uncertainty linearly with time instead of by √): "lets do them all and push to main".
+**INVERSION** of the 2026-09-14 "calmer win%" entry's spread: σ 10 for every starter, a floor of
+8, a 20% blend toward 50/50, and the logistic curve. Those were felt-right constants. These are
+measured.
+
+**The backtest** (scratch, not in the repo). The family league's own 2025 season came through
+`lg_espn_probe`: 17 weeks, 1,494 starter-weeks, each with ESPN's projection and the points
+scored. Every pair of the 8 lineups was scored at four points of each week: before kickoff,
+after Thursday, before Sunday night, before Monday night. Each week was scored with σs fitted
+on the other 16.
+- A starter's miss against his ESPN projection: QB 8.4, RB 8.6, WR 7.9, TE 6.9, K 5.4, D/ST 4.7,
+  all pooled 7.7.
+- Starters are close to independent. A lineup's 11 together missed by 26.0; adding the
+  variances predicted 25.4. So variances add.
+- Brier, old → new: before kickoff 0.2308 → 0.2314 (a coin flip in the week resample), after
+  Thursday 0.2059 → 0.2019 (better in 87%), before SNF 0.0796 → 0.0752 and before MNF
+  0.0537 → 0.0494 (better in every resample). The 64 real matchups agree.
+- **Not measured**: the boxscores hold final points only, so σ√f for a man partway through his
+  game rests on points arriving evenly through a game. Before kickoff the old and new models
+  can't be told apart on an 8-team league; neither is shown wrong.
+
+**The model** (`assets/league/lg-data.js`, `WP_POS_SD`, `wpLeft`, `wpVar`, `wpFromLead`):
+- The estimate is unchanged: `D.liveProj`, points scored plus the leftover projection.
+- The spread is √Σ σ_pos² × f over both sides' starters. f is the share of his game left: 1
+  before kickoff, minutes left / 60 in it, 0 once final or ruled out. It reads the same state
+  test `D.remaining` uses (byes, postponements, demo games). A position it can't read takes 7.7.
+- p = Φ(lead / spread), the normal curve (A-S 7.1.26).
+- A level expected finish is exactly 0.5. While anyone still has football, p stays inside
+  0.01-0.99 (`WP_EDGE`), so 100/0 is still the final's alone (the 09-14 rule, kept).
+- `D.winProbFromProj` is the same with f = 1 for everyone. `D.wpSpread` is a test hook.
+
+**Feels that changed** (11-on-11, all starters QBs as in section TH):
+- 5 points at kickoff: 53.6% → 55%.
+- 18 points at kickoff: 62.6% → 68%.
+- 3 points with one kicker left: 62.4% → 71%.
+- The same 5-point lead with 8 men in Q4 at 1:00: 57% → 95%.
+- A clock tick on its own now moves the bar. TH7 is inverted to say so.
+
+**Restaged**, each with its hand computation at the check: D (3-37 is ~3%, not ~19%), AQ1 and
+TF (a 10-point edge on a 9-v-3 board is 65%), AQ2 and the compact card (99/1, not 86/14), TF
+(the sparkline's y 51.5), TH1-TH9, UH3 (72/28 and 99/1, not 66/34 and 97/3), UG (the warm
+point is 0.1234, re-derived from the positions the page reports, plus a check that the seed is
+the 9-v-3 the hand count names).
+
+**Not changed**: `assets/sunday/sd-fantasy.js` keeps its own copy of the 09-14 model. Sunday is
+not GFFL's standing approval, so it waits for its own preview.
+
+Version bumped to **20261019a** and recorded with `node tools/_gffl_asset_versions.mjs --record`.
+
+**VERIFY:** full `_verify-gffl.cjs` **4471/4472**; the one failure was UG's own copy of the old
+formula, restaged, and `--only UG` is **9/9** (+1 new check). `--only D,AQ,TF,TH,UH3` **169/169**.
+robogoat **370/370**, sports **301/301**. **Bite** (HEAD's `lg-data.js`, the new suite): D, AQ, TF,
+TH and UH3 **151 pass / 18 fail**, UG **8 / 1**: exactly the 19 restaged checks fail, and every
+other check passes.

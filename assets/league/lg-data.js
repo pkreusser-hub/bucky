@@ -3348,6 +3348,8 @@
   // starters remain — Thursday stays a mild lean even if paper says 18;
   // Monday night with one kicker left finally trusts the lead.
   //
+  // (SUPERSEDED 2026-10-19 by the measured spread below: the constants and pins in the rest
+  // of this note are history.)
   // Felt-right constants, documented rather than derived. There is no correct
   // k, only what reads honestly. Hand-computed 11-on-11 (22 remaining) pins:
   //   5 pts at kickoff  → 53.6%
@@ -3369,22 +3371,70 @@
     const frac = Math.min(1, minLeft / 60);
     return num(proj) * frac;
   };
-  const WP_SIGMA = 10;     // σ per remaining starter, combined as √n
-  const WP_MIN_SD = 8;     // floor so a near-empty slate never divides by ~0
-  const WP_SHRINK = 0.20;  // blend weight toward 50% when the whole slate remains
-  const WP_LOGIT = 1.702;
-  function wpStill(keys) {
-    const r = D.remaining(keys || []);
-    return r.left + r.playing;
+  // ⭐ MEASURED SPREAD (2026-10-19, user: "lets do them all"). INVERSION of 2026-09-14's
+  // felt-right constants above (σ 10 a starter, floor 8, a 20% blend toward 50/50, a logistic):
+  // a backtest on the family league's own 2025 season (ESPN's boxscores, all 17 weeks, 1,494
+  // starter-weeks with ESPN's projection and the points scored, every pair of the 8 lineups at
+  // four points of each week, the σs fitted with the scored week left out) measured each
+  // starter's miss against his ESPN projection by position, below. Starters are close to
+  // independent (a lineup's 11 together missed by 26.0, the variances added said 25.4), so
+  // variances add (the @will_j_5 thread on ESPN, 2026-10-18), and a man partway through his game
+  // keeps the share of the VARIANCE still to play: σ√f, not σ until his final whistle. Brier, the
+  // old model → this one: after Thursday 0.2059 → 0.2019, before SNF 0.0796 → 0.0752, before MNF
+  // 0.0537 → 0.0494 (better in every resample of the weeks); before kickoff 0.2308 → 0.2314, a
+  // coin flip. The old floor of 8 and the blend made a kicker with two minutes left 62.4% on a
+  // 3-point lead; it is 99.9% now. The 100/0 pin is unchanged: only when every game is final.
+  const WP_POS_SD = { QB: 8.4, RB: 8.6, WR: 7.9, TE: 6.9, K: 5.4, DST: 4.7 };
+  const WP_SD_OTHER = 7.7;   // a starter whose position we can't read: all positions pooled
+  const WP_MIN_SD = 0.5;     // only so a slate with every clock at 0:00 never divides by 0
+  function wpPos(key) {
+    const m = D.metaForKey ? D.metaForKey(key) : null;
+    const pos = String((m && m.pos) || "").toUpperCase().replace(/[^A-Z]/g, "");
+    if (pos === "DEF" || pos === "DST") return "DST";
+    if (pos === "PK") return "K";
+    return pos;
   }
-  function wpFromLead(diff, nStill, nTotal) {
-    const sd = Math.max(WP_MIN_SD, WP_SIGMA * Math.sqrt(Math.max(0, nStill)));
-    const raw = 1 / (1 + Math.exp((-WP_LOGIT * diff) / sd));
-    const a = nStill / Math.max(nTotal, 1);
-    const w = WP_SHRINK * Math.min(1, Math.max(0, a));
-    const p = (1 - w) * raw + w * 0.5;
-    return Number.isFinite(p) ? p : 0.5;
+  // The share of his game still to play: the same state test D.remaining uses (byes,
+  // postponements, demo games), the same clock D.remainingProj reads, 0 once ruled out.
+  function wpLeft(key) {
+    const row = D.S.players.get(key);
+    const team = slpTeam((row && row.team) || (D.metaForKey ? D.metaForKey(key).team : ""));
+    const g = D.demoGameView(key) || (team ? D.S.games.get(team) : null);
+    const bye = !g && D.S.games.size > 0 && !boardWeekMismatch();
+    const st = g ? (g.state === "post" && g.completed === false ? "pre" : g.state) : (bye ? "post" : "pre");
+    if (st === "post") return 0;
+    if (st !== "in") return 1;
+    if (ruledOut(key)) return 0;
+    const period = num(g.period) || 1;
+    const [mm, ss] = String(g.clock || "0:00").split(":").map(Number);
+    const minLeft = Math.max(0, (4 - Math.min(period, 4)) * 15 + num(mm) + num(ss) / 60);
+    return Math.min(1, minLeft / 60);
   }
+  function wpVar(keys, whole) {
+    let v = 0;
+    for (const k of keys || []) {
+      const sd = WP_POS_SD[wpPos(k)] || WP_SD_OTHER;
+      v += sd * sd * (whole ? 1 : wpLeft(k));
+    }
+    return v;
+  }
+  // Standard normal CDF (Abramowitz-Stegun 7.1.26, |error| < 1.5e-7).
+  function phi(z) {
+    const x = Math.abs(z) / Math.SQRT2, t = 1 / (1 + 0.3275911 * x);
+    const e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return z >= 0 ? 0.5 * (1 + e) : 0.5 * (1 - e);
+  }
+  // While anyone still has football the bar stays inside 1-99: 100/0 is the final's alone (the
+  // rule since 2026-09-14), and a 60-point lead with a minute left is 99, not a pin. A level
+  // expected finish is exactly 50 (the curve's own approximation is 5e-10 off there).
+  const WP_EDGE = 0.01;
+  function wpFromLead(diff, variance) {
+    if (!Number.isFinite(diff) || diff === 0) return 0.5;
+    const sd = Math.max(WP_MIN_SD, Math.sqrt(Math.max(0, variance)));
+    const p = phi(diff / sd);
+    return Number.isFinite(p) ? Math.min(1 - WP_EDGE, Math.max(WP_EDGE, p)) : 0.5;
+  }
+  D.wpSpread = function (keysA, keysB) { return Math.sqrt(wpVar(keysA) + wpVar(keysB)); }; // test hook
   // IS THIS DEVICE'S MODEL WARM ENOUGH TO RECORD? (2026-09-23, user: "the projection
   // sparklines randomly jump to 50% and then back"). Every open device samples D.winProb into
   // ONE shared graph. A phone that has just opened has no projections and no live stats yet:
@@ -3420,7 +3470,7 @@
         return diff > 0 ? 1 : diff < 0 ? 0 : 0.5;
       }
     }
-    return wpFromLead(diff, wpStill(keysA) + wpStill(keysB), keysA.length + keysB.length);
+    return wpFromLead(diff, wpVar(keysA) + wpVar(keysB));
   };
   // The LEFT EDGE of the matchup win-% graph: what the model said at first kickoff, when
   // every starter still had a full projection in front of them. Same logistic + blend as
@@ -3431,8 +3481,7 @@
     keysA = keysA || [];
     keysB = keysB || [];
     const tot = (keys) => keys.reduce((s, k) => s + num(D.projFor(k)), 0);
-    const n = keysA.length + keysB.length;
-    return wpFromLead(tot(keysA) - tot(keysB), n, n);
+    return wpFromLead(tot(keysA) - tot(keysB), wpVar(keysA, true) + wpVar(keysB, true));
   };
   // First and last kickoff on THIS week's slate. Unique events, not per-team rows — DAL@PHI
   // is one game even though both sides sit in D.S.games. The sparkline no longer uses this

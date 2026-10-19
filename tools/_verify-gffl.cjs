@@ -3199,8 +3199,18 @@ async function openDetails(page, id) {
     // 4 to play + 5 live, so the trailer holds ~19% — a low chance, not a
     // coin flip, and not a leftover-dollar lock. HEAD's leftover model
     // still paints <15% and fails the new band.
+    // RESTAGED 2026-10-19 (the measured spread, the 2025 backtest; docs/gffl.md): the
+    // 09-14 σ of 10 a starter held this trailer at ~19%. Each starter is now his position's σ
+    // (QB 8.4, RB 8.6, WR 7.9, TE 6.9, K 5.4, DST 4.7) times √(share of his game left), added as
+    // variances. Hand-computed off the fixture's own inputs: expected finish away 3.0 vs home
+    // 45.5 (live + leftover), so a 42.5 deficit; the five live away/home men are in Q2 5:00
+    // (35 of 60 minutes left, f = 7/12): away QB, WR, DST and home QB, RB, WR, DST, K; home's
+    // four still to play (RB, WR, TE, RB) are f = 1. Variance = 7/12 × (8.4² + 7.9² + 4.7² + 8.4²
+    // + 8.6² + 7.9² + 4.7² + 5.4²) + (8.6² + 7.9² + 6.9² + 8.6²) = 499.0, sd 22.34,
+    // Φ(−42.5/22.34) = 2.85%. A 42-point hole with most of the home side's points banked is a
+    // long shot; the old 15-25 band now fails it.
     const wp = await page.$eval(".mupbar i", (e) => parseFloat(e.style.width));
-    ok(wp >= 15 && wp <= 25, "win-prob bar: away trailing 3.0-37.0 is a real underdog (~19%), not a leftover-dollar pin under 15% (" + wp + "%)");
+    ok(wp >= 2 && wp <= 4, "win-prob bar: away trailing 3.0-37.0 (42.5 behind on expected finish, sd 22.3) is a long shot (~3%) (" + wp + "%)");
     // Item 3 (2026-08-08): a strict, symmetric slot-paired grid — a TOTAL row at the bottom of
     // the starters table (matching the header's own totals), and a Bench section paired by
     // roster order. Team2 (away, "Rival") has NO bench players on file at all — that's the real
@@ -18475,7 +18485,12 @@ async function openDetails(page, id) {
       // 12 still-to-play + a 20% 50/50 blend is 0.596. Hand-computed:
       // sd = 10√12 ≈ 34.64, raw = logistic(1.702×10/34.64) ≈ 0.620,
       // p = 0.8×0.620 + 0.2×0.5 = 0.596.
-      ok(wp.ab > 0.57 && wp.ab < 0.62, "pre-game: a modest 10-point projected edge (90 vs 80) is a mild lean, not ~70% (" + wp.ab + ")");
+      // RESTAGED 2026-10-19 (the measured spread, the 2025 backtest; docs/gffl.md): twelve
+      // starters by position, all to play: team1 QB, RB×3, WR×2, TE, DST, K and team2 QB, WR, DST.
+      // Variance 8.4²×2 + 8.6²×3 + 7.9²×3 + 6.9² + 4.7²×2 + 5.4² = 671.18, sd 25.91,
+      // Φ(10/25.91) = 0.6502. Twelve players are less spread than twenty-two, so a 10-point
+      // edge on this small board is a real lean, not a coin flip.
+      ok(wp.ab > 0.64 && wp.ab < 0.66, "pre-game: a 10-point projected edge (90 vs 80) on a 9-v-3 board is 65% (sd 25.9), not leftover-dollar ~70% (" + wp.ab + ")");
       ok(wp.ab > 0.05 && wp.ab < 0.95, "…still inside the 5%-95% sanity band (" + wp.ab + ")");
       ok(Math.abs(wp.ab + wp.ba - 1) < 1e-9, "…and the two directions are EXACT complements — the model is anti-symmetric in the point gap (" + wp.ab + " + " + wp.ba + " = " + (wp.ab + wp.ba) + ")");
       ok(errors.length === 0, "0 page errors");
@@ -18508,7 +18523,11 @@ async function openDetails(page, id) {
       // while 12 starters were still on the field. Player-count σ keeps
       // that a real lead. Hand-computed liveProj lead 60.5, nStill=12:
       // sd ≈ 34.64, raw ≈ 0.951, p = 0.8×0.951 + 0.2×0.5 = 0.861.
-      ok(direct > 0.82 && direct < 0.90, "a 100-40 lead with 1:00 left in Q4 is a real favorite (~86%), not a 100% pin (" + direct + ")");
+      // RESTAGED 2026-10-19 (the measured spread, the 2025 backtest; docs/gffl.md): with
+      // one minute of sixty left, each man keeps 1/60 of his variance: sd = 25.91/√60 = 3.35, and
+      // a 60.5-point lead is Φ(18.1), certain. The bar holds at 99 while anyone still plays
+      // (WP_EDGE): 100/0 is the final's alone, the rule this check exists for.
+      ok(direct === 0.99, "a 100-40 lead with 1:00 left in Q4 reads 99%, the most a game still on can say (" + direct + ")");
       ok(direct < 1, "…and it is NOT the same as a final — the game is still 'in', not 'post' (" + direct + ")");
       // The SAME scenario, read off the league home's compact card (matchupHeroExtra's own bar)
       // for the team1-vs-team2 game (week 1's [1,2] pairing). matchupCard(h,a) is
@@ -18527,7 +18546,9 @@ async function openDetails(page, id) {
         const fill = el && el.querySelector(".mupbar.mini i");
         return { pct: fill ? parseInt(fill.style.width, 10) : null, awayPerspective: Math.round(D.winProb(B3, A9) * 100) };
       }, A9, B3);
-      ok(mini.pct != null && mini.pct > 8 && mini.pct < 20, "…and the compact card on the league home reads the SAME model, not a duplicated or stale one — team2's OWN (away) win% is the complement (~14%), not a 0% pin (" + mini.pct + "%)");
+      // RESTAGED 2026-10-19 (the measured spread, the 2025 backtest; docs/gffl.md): the away
+      // complement of the 99% above is 1% (it was ~14%). Still never a 0% pin while the game is on.
+      ok(mini.pct === 1, "…and the compact card on the league home reads the SAME model, not a duplicated or stale one — team2's OWN (away) win% is the complement (1%), not a 0% pin (" + mini.pct + "%)");
       ok(mini.pct === mini.awayPerspective, "…matching D.winProb(away,home) exactly, to the rendered percentage point (" + mini.pct + " vs " + mini.awayPerspective + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -25103,7 +25124,8 @@ async function openDetails(page, id) {
         ok(Math.abs(r.from - r.live) < 1e-9, "…and the kickoff model equals D.winProb when every game is still pre (" + r.from + " vs " + r.live + ")");
         // RESTAGED 2026-09-14: same 90-vs-80 AQ1 edge, now the calmer
         // player-count band (0.596), not leftover-√remaining's ~70%.
-        ok(r.from > 0.57 && r.from < 0.62, "…the 90-vs-80 edge is the same mild lean AQ1 already pins (" + r.from + ")");
+        // RESTAGED 2026-10-19 (the measured spread): AQ1's own hand number, 0.6502 (sd 25.91).
+        ok(r.from > 0.64 && r.from < 0.66, "…the 90-vs-80 edge is the same 65% AQ1 already pins (" + r.from + ")");
         ok(r.t0 === r.firstKick, "slateWindow's first kickoff is DAL@PHI (2026-08-07T00:15Z) (" + r.t0 + ")");
         // RESTAGED 2026-09-11: the 80-tall labelled axis is gone — the card is
         // the NFL 56px sparkline again. Hand-computed: y = 4 + (1-p)*48.
@@ -25317,8 +25339,12 @@ async function openDetails(page, id) {
         // / 87% home. y = 4+(1-p)*48 → p_away 0.13 → y ≈ 45.8, still
         // clearly on the home side of the mid line (y=28), not a lock
         // at the floor.
-        ok(painted.lastY != null && painted.lastY > 40 && painted.lastY < 50,
-          "…a 100-40 live lead sits on the home side of 50/50, not pinned to home 100 (" + painted.lastY + ")");
+        // RESTAGED 2026-10-19 (the measured spread, docs/gffl.md): in Q2 8:00 every man has 38 of
+        // 60 minutes left and projFor is 5, so expected finish 128.5 vs 49.5 (a 79-point lead) on
+        // variance 671.18 × 38/60 = 425.1, sd 20.6: Φ(3.83) is past the 99% edge, so p_away = 0.01
+        // and y = 4 + 0.99 × 48 = 51.52. A 0% pin would be y = 52.
+        ok(painted.lastY != null && painted.lastY > 51.4 && painted.lastY < 51.7,
+          "…a 100-40 live lead sits at the home edge, 99/1, not pinned to home 100 (y 52) (" + painted.lastY + ")");
         ok(!painted.top && !painted.mid && !painted.bot, "…no Y-axis labels (" + JSON.stringify({ top: painted.top, mid: painted.mid, bot: painted.bot }) + ")");
         ok(painted.bands === 0, "…the plot is not shaded (" + painted.bands + " bands)");
         ok(painted.sw === "2", "…the line is the NFL sparkline's 2px (" + painted.sw + ")");
@@ -26088,6 +26114,9 @@ async function openDetails(page, id) {
   // starters (σ = 10, combined √n) plus a 20% blend toward 50% while football
   // is still on. 100/0 still pins only when every starter's game is post.
   // Every number below is hand-computed from that formula against the fixture.
+  // RESTAGED 2026-10-19: the formula is now the measured spread (σ by position, variances added,
+  // σ√f for a man in his game, no floor of 8, no blend; docs/gffl.md). Every number is
+  // re-derived at its check; TH7 is inverted (a clock tick now firms a lead).
   if (section("TH · calmer projected win% — remaining-starter σ + 50% blend")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
 
@@ -26140,8 +26169,11 @@ async function openDetails(page, id) {
       ));
       ok(five.totA === 137 && five.totB === 132 && five.nStill === 22,
         "TH1 fixture is a 5-point kickoff edge on 22 remaining starters (" + JSON.stringify(five) + ")");
-      ok(five.ab > 0.525 && five.ab < 0.550,
-        "…5 points at kickoff is 52–55%, not leftover-√remaining's ~59% (" + five.ab + ")");
+      // RESTAGED 2026-10-19 (the measured spread, the 2025 backtest; docs/gffl.md). Every
+      // starter here is a QB row (σ 8.4); a man still to play counts 8.4² of variance, a man in
+      // his game 8.4² × (minutes left / 60). TH1: 22 × 70.56 = 1552.3, sd 39.40, Φ(5/39.40) = 0.5505.
+      ok(five.ab > 0.545 && five.ab < 0.556,
+        "…5 points at kickoff is 55% (sd 39.4), not leftover-√remaining's ~59% (" + five.ab + ")");
 
       // ---- TH2: 18-point paper edge at kickoff. Hand-computed:
       // raw=logistic(1.702×18/46.904) ≈ 0.6577, p = 0.8×0.6577 + 0.2×0.5 = 0.6262.
@@ -26152,8 +26184,9 @@ async function openDetails(page, id) {
       ));
       ok(eighteen.totA === 150 && eighteen.totB === 132 && eighteen.nStill === 22,
         "TH2 fixture is an 18-point kickoff edge on 22 remaining (" + JSON.stringify(eighteen) + ")");
-      ok(eighteen.ab > 0.60 && eighteen.ab < 0.66,
-        "…18 points at kickoff is ~63%, not leftover-√remaining's ~77% (" + eighteen.ab + ")");
+      // RESTAGED 2026-10-19: Φ(18/39.40) = 0.6761 (the blend held it at 0.626).
+      ok(eighteen.ab > 0.67 && eighteen.ab < 0.682,
+        "…18 points at kickoff is 68%, not leftover-√remaining's ~77% (" + eighteen.ab + ")");
 
       // ---- TH3: Thursday 118 vs 110, nobody has played. Hand-computed:
       // diff=8, raw=logistic(1.702×8/46.904) ≈ 0.5721, p = 0.5577.
@@ -26163,8 +26196,9 @@ async function openDetails(page, id) {
       ));
       ok(thu.totA === 118 && thu.totB === 110 && thu.nStill === 22,
         "TH3 fixture is Thursday 118-110 with nobody played (" + JSON.stringify(thu) + ")");
-      ok(thu.ab > 0.54 && thu.ab < 0.58,
-        "…118-110 before kickoff is a mild lean (~56%), not a real favorite (" + thu.ab + ")");
+      // RESTAGED 2026-10-19: Φ(8/39.40) = 0.5805.
+      ok(thu.ab > 0.575 && thu.ab < 0.586,
+        "…118-110 before kickoff is a mild lean (58%), not a real favorite (" + thu.ab + ")");
       ok(Math.abs(thu.from - thu.ab) < 1e-9,
         "…and winProbFromProj agrees while every game is still pre (" + thu.from + ")");
       ok(Math.abs(thu.ab + thu.ba - 1) < 1e-9,
@@ -26188,8 +26222,10 @@ async function openDetails(page, id) {
       });
       ok(Math.abs(sun.totA - sun.totB - 7) < 1e-9 && sun.nStill === 16 && sun.nTotal === 22,
         "TH4 fixture is a 7-point expected-finish lead with 16 still playing (" + JSON.stringify(sun) + ")");
-      ok(sun.ab > 0.53 && sun.ab < 0.59,
-        "…Sunday 48-41 with most of both lineups still in is basically even (~56%) (" + sun.ab + ")");
+      // RESTAGED 2026-10-19: the 16 live men are in Q2 8:00, 38 of 60 minutes left:
+      // 16 × 70.56 × 38/60 = 715.0, sd 26.74, Φ(7/26.74) = 0.6033 (the blend said 0.563).
+      ok(sun.ab > 0.597 && sun.ab < 0.609,
+        "…Sunday 48-41 with most of both lineups still in is a lean (60%, sd 26.7) (" + sun.ab + ")");
 
       // ---- TH5: Monday night 112-109, one kicker left. Hand-computed:
       // sd=10, raw=logistic(1.702×3/10) ≈ 0.6249, w=0.20/22 ≈ 0.0091,
@@ -26205,8 +26241,9 @@ async function openDetails(page, id) {
       });
       ok(mon.totA === 112 && mon.totB === 109 && mon.nStill === 1,
         "TH5 fixture is Monday 112-109 with one kicker left (" + JSON.stringify(mon) + ")");
-      ok(mon.ab > 0.58 && mon.ab < 0.68,
-        "…3 points with one kicker left is a real favorite (~62%), not ~90% (" + mon.ab + ")");
+      // RESTAGED 2026-10-19: one man to play, sd 8.4 (no floor of 8, no blend): Φ(3/8.4) = 0.6395.
+      ok(mon.ab > 0.634 && mon.ab < 0.645,
+        "…3 points with one man left (sd 8.4) is a real favorite (64%), not ~90% (" + mon.ab + ")");
 
       // ---- TH6: same 5-point lead, 8 still vs 1 still. Loudness comes from
       // who has football left, not leftover projection dollars.
@@ -26232,12 +26269,14 @@ async function openDetails(page, id) {
       });
       ok(Math.abs(eight.totA - eight.totB - 5) < 1e-9 && eight.nStill === 8,
         "TH6a fixture is a 5-point lead with 8 still to play (" + JSON.stringify(eight) + ")");
-      ok(eight.ab > 0.54 && eight.ab < 0.60,
-        "…5 points with 8 still to play stays mid-50s (" + eight.ab + ")");
+      // RESTAGED 2026-10-19: TH6a 8 to play, sd 8.4√8 = 23.76, Φ(5/23.76) = 0.5833;
+      // TH6b one, Φ(5/8.4) = 0.7242. Still: who has football left sets the loudness.
+      ok(eight.ab > 0.578 && eight.ab < 0.589,
+        "…5 points with 8 still to play is 58% (" + eight.ab + ")");
       ok(Math.abs(one.totA - one.totB - 5) < 1e-9 && one.nStill === 1,
         "TH6b fixture is the same 5-point lead with 1 still to play (" + JSON.stringify(one) + ")");
-      ok(one.ab > 0.66 && one.ab < 0.74,
-        "…and with one player left it is finally loud (~70%), not a lock (" + one.ab + ")");
+      ok(one.ab > 0.719 && one.ab < 0.73,
+        "…and with one player left it is finally loud (72%), not a lock (" + one.ab + ")");
       ok(one.ab - eight.ab > 0.10,
         "…the extra loudness is the missing football, not leftover dollars (" + (one.ab - eight.ab) + ")");
 
@@ -26259,8 +26298,14 @@ async function openDetails(page, id) {
       ok(Math.abs(q1.totA - q1.totB - 5) < 1e-9 && Math.abs(q4.totA - q4.totB - 5) < 1e-9
         && q1.nStill === 8 && q4.nStill === 8,
         "TH7 fixture keeps a 5-point expected-finish lead while 8 play Q1 then Q4 (" + JSON.stringify({ q1, q4 }) + ")");
-      ok(Math.abs(q1.ab - q4.ab) < 0.01,
-        "…a clock-only leftover-fraction tick does not move win% (" + q1.ab + " → " + q4.ab + ")");
+      // INVERTED 2026-10-19 (the measured spread; docs/gffl.md): 09-14 held a clock-only tick
+      // still, because σ counted a man in full until his final whistle. A man with one minute of
+      // sixty left has 1/60 of his variance still to come (the @will_j_5 thread: halves of a game
+      // split the VARIANCE), so the same 5-point lead firms up as the clock runs. Q1 15:00, a full
+      // hour left: sd 23.76, Φ(5/23.76) = 0.5833. Q4 1:00: sd 23.76/√60 = 3.067,
+      // Φ(5/3.067) = 0.9485. The lead itself (expected finish) still doesn't move.
+      ok(q1.ab > 0.578 && q1.ab < 0.589 && q4.ab > 0.943 && q4.ab < 0.954,
+        "…a clock-only tick now firms the same 5-point lead: Q1 58% → Q4 1:00 95% (" + q1.ab + " → " + q4.ab + ")");
 
       // ---- TH8: all-post still pins 100/0; a tie pins 50/50.
       const done = await armWin(page, {
@@ -26368,14 +26413,23 @@ async function openDetails(page, id) {
         ok(r.stars === 0,
           "…and no clinch star — football remains (" + JSON.stringify({ kind, stars: r.stars, sub: r.sub }) + ")");
         if (kind === "thu") {
-          ok(r.awayPct >= 54 && r.awayPct <= 58,
+          // RESTAGED 2026-10-19 (the measured spread): these are the seeded rosters' own
+          // starters, QB RB RB RB WR WR WR TE FLEX DST K a side. Thursday, all to play:
+          // 2 × (8.4² + 3×8.6² + 3×7.9² + 6.9² + 4.7² + 5.4²) + the two FLEXes (an RB or WR each,
+          // 7.9²-8.6²) = 1282-1305, sd 35.8-36.1, Φ(8/36) = 58.8% either way → 59.
+          ok(r.awayPct === 59,
             "…Thursday 118-110 paints a mild lean (" + r.awayPct + "%)");
         } else if (kind === "sun") {
-          ok(r.awayPct >= 53 && r.awayPct <= 59,
-            "…Sunday 48-41 with most still in paints basically even (" + r.awayPct + "%)");
+          // RESTAGED 2026-10-19: QB RB RB final each side, the other 8 in Q2 8:00 (38/60 left):
+          // 2 × (8.6² + 3×7.9² + 6.9² + FLEX + 4.7² + 5.4²) × 38/60 = 534-550, sd 23.1-23.4,
+          // Φ(7/23.3) = 61.7-61.9% → 62.
+          ok(r.awayPct === 62,
+            "…Sunday 48-41 with most still in paints a lean (" + r.awayPct + "%)");
         } else {
-          ok(r.awayPct >= 58 && r.awayPct <= 68,
-            "…Monday 112-109 with one kicker paints a real favorite, not 90 (" + r.awayPct + "%)");
+          // RESTAGED 2026-10-19: the one man left is the kicker, sd 5.4: Φ(3/5.4) = 71.1% → 71.
+          // A kicker swings less than a running back, so the same 3 points is louder than TH5's 64.
+          ok(r.awayPct === 71,
+            "…Monday 112-109 with one kicker (sd 5.4) paints a real favorite, not 90 (" + r.awayPct + "%)");
         }
         const el = await page.$(".card.muhead");
         if (el) {
@@ -31547,7 +31601,8 @@ async function openDetails(page, id) {
       LG._wpGraph = null;
       const warm = await LG.sampleMatchupWinProbs();
       const w = last();
-      const out = { n1: s1.length, n2: s2.length, warm, w, cases: {} };
+      const out = { n1: s1.length, n2: s2.length, warm, w, cases: {},
+        pos: s1.concat(s2).map((k) => String((D.metaForKey(k) || {}).pos || "")) };
       // Each case starts from the warm point alone, so each one bites on its own.
       const reseed = async () => {
         restore();
@@ -31593,12 +31648,27 @@ async function openDetails(page, id) {
       return out;
     });
     const n = r && r.n1;
+    // RESTAGED 2026-10-19 (the measured spread, docs/gffl.md): the warm point is Φ(diff / sd),
+    // sd = √Σ σ_pos² over every starter (all pre, so each counts whole), σ QB 8.4, RB 8.6, WR 7.9,
+    // TE 6.9, K 5.4, DST 4.7. No logistic, no 0.20 blend. This fixture's starters are team 1's
+    // QB RB RB WR WR TE RB DST K and team 2's QB WR DST: variance 671.18, sd 25.91, diff −30,
+    // Φ(−1.158) = 0.1234 (0.2491 under the blend). Re-derived here from the positions the page
+    // reports, so a roster change in the seed can't hide a model change.
+    const SD = { QB: 8.4, RB: 8.6, WR: 7.9, TE: 6.9, K: 5.4, DST: 4.7, DEF: 4.7 };
+    const phiT = (z) => 0.5 * (1 + erfT(z / Math.SQRT2));
+    function erfT(x) { // Abramowitz-Stegun 7.1.26
+      const t = 1 / (1 + 0.3275911 * Math.abs(x));
+      const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+      return x >= 0 ? y : -y;
+    }
     const expect = (() => {
-      if (!r || !r.n1 || !r.n2) return null;
-      const diff = 20 * r.n2 - 10 * r.n1, sd = 10 * Math.sqrt(r.n1 + r.n2);
-      const raw = 1 / (1 + Math.exp((-1.702 * diff) / sd));
-      return 0.8 * raw + 0.1;
+      if (!r || !r.n1 || !r.n2 || !Array.isArray(r.pos)) return null;
+      const diff = 20 * r.n2 - 10 * r.n1;
+      const v = r.pos.reduce((a, p) => a + (SD[p] || 7.7) ** 2, 0);
+      return phiT(diff / Math.sqrt(v));
     })();
+    ok(r && Array.isArray(r.pos) && r.pos.join(",") === "QB,RB,RB,WR,WR,TE,RB,DST,K,QB,WR,DST",
+      "UG's warm point is the 9-v-3 seed the hand count above names (" + (r && r.pos) + ")");
     ok(r && expect != null && r.warm && r.warm.added >= 1 && Math.abs(r.w - expect) < 1e-9,
       "a warm device records the hand-computed away chance: n=" + n + "/" + (r && r.n2) + " a side → " + (expect == null ? "?" : expect.toFixed(4)) + " (" + JSON.stringify(r && { warm: r.warm, w: r.w }) + ")");
     const held = (c) => r && r.cases[c] && r.cases[c].p === r.w && r.cases[c].res && r.cases[c].res.added === 0;
@@ -31891,10 +31961,16 @@ async function openDetails(page, id) {
       [7, 2, 92, "132.0", "T5", "100%", "8▲", "4,3,2,2,2,2"],
       [6, 3, 85, "121.0", "BYE", "—", "4▲", "5,4,3,3,3,3"],
       [5, 4, 77, "110.0", "T7", "0%", "3▼", "6,5,4,4,4,4"],
-      [1, 5, 77, "110.0", "T3", "66%", "5–", "2,2,6,7,7,7"],
-      [4, 6, 69, "99.0", "T2", "97%", "1▼", "7,6,5,5,5,5"],
-      [3, 7, 62, "88.0", "T1", "34%", "7–", "8,7,7,6,6,6"],
-      [2, 8, 34, "48.0", "T4", "3%", "2▼", "1,8,8,8,8,8"],
+      // RESTAGED 2026-10-19 (the measured spread): the fill rosters (T3, T4, T5, T7) read
+      // played, so the spread is the other side's alone. T1 (QB RB RB WR WR TE RB DST K, all to
+      // play) 101 vs T3 88: variance 8.4² + 3×8.6² + 2×7.9² + 6.9² + 4.7² + 5.4² = 516.1, sd 22.72,
+      // Φ(13/22.72) = 71.6% → 72 / 28 (66/34 under the blend). T4 99 vs T2 48 (QB WR DST to play):
+      // sd 12.45, Φ(51/12.45) > 99%, held at the 99 edge → 99 / 1 (97/3). T7 v T5 are both done:
+      // the final's own 100/0.
+      [1, 5, 77, "110.0", "T3", "72%", "5–", "2,2,6,7,7,7"],
+      [4, 6, 69, "99.0", "T2", "99%", "1▼", "7,6,5,5,5,5"],
+      [3, 7, 62, "88.0", "T1", "28%", "7–", "8,7,7,6,6,6"],
+      [2, 8, 34, "48.0", "T4", "1%", "2▼", "1,8,8,8,8,8"],
     ];
     const got = (card.rows || []).map((r) => [r.team, Number(r.rank), Number(r.score), r.proj, r.opp, r.win, r.lw, r.cats]);
     ok(card.under === true && /^Powerrankings—week2$/.test(card.h2 || ""), "UH3: the card sits under Standings and names the week on the board (" + card.h2 + ")");
@@ -31905,7 +31981,7 @@ async function openDetails(page, id) {
     ok(got.length === 8 && got.every((g, i) => g[0] === want[i][0] && g[1] === want[i][1] && g[2] === want[i][2] && g[3] === want[i][3]),
       "…rank, score and Best match the hand count: T8 143 · T7 132 · T6 121 · T5 110 · T1 110 (101 as set, +9 from the bench, PF breaks the tie) · T4 99 · T3 88 · T2 48 (" + got.map((g) => g[0] + ":" + g[2] + ":" + g[3]).join(" ") + ")");
     ok(got.length === 8 && got.every((g, i) => g[4] === want[i][4] && g[5] === want[i][5]),
-      "…Opp from week 2's schedule (BYE for the unpaired) and Win% = D.winProb from each side AS SET (T1's 101, not its best 110): 66/34, 3/97, 0/100 (" + got.map((g) => g[0] + ":" + g[4] + ":" + g[5]).join(" ") + ")");
+      "…Opp from week 2's schedule (BYE for the unpaired) and Win% = D.winProb from each side AS SET (T1's 101, not its best 110): 72/28, 1/99, 0/100 (" + got.map((g) => g[0] + ":" + g[4] + ":" + g[5]).join(" ") + ")");
     ok(got.length === 8 && got.every((g, i) => g[7] === want[i][7]) && (card.rows || []).every((x) => x.bn === false),
       "…position ranks off the best lineup match, a FLEX in his real position, ties to season PF, and no BN cell (" + got.map((g) => g[0] + "=" + g[7]).join(" ") + ")");
     ok(got.length === 8 && got.every((g, i) => g[6] === want[i][6]),
