@@ -2775,3 +2775,103 @@ From a whole-project review; every fix has a check that fails on the old code.
   writes can drop a concurrent edit from another device; meal inbox drain can drop a meal logged
   mid-drain; books/movies library sync is a union, so deletions resurrect; a whole-library doc will
   hit Firestore's 1 MiB cap eventually.
+
+---
+
+## Bucky TV: a home screen for the living room TV (2026-10-20)
+
+The family's TCL Google TV (Android TV OS 12, build STT2.230203.001) gets Bucky as its home
+screen. Its OS can't be replaced (locked bootloader, MediaTek, no custom ROMs), so Bucky replaces
+the **launcher**. There are three parts:
+
+- **`tv.html`** is the screen itself, and all the content lives there. It is sized in rem with
+  `html{font-size:calc(100vw/120)}`, because a 1080p TV's WebView reports **960x540** CSS px and
+  a desktop reports 1920x1080. That way one layout fills both.
+  - **Remote navigation.** A remote sends arrow keys and Enter, and `move()` picks the nearest
+    `.tile` in that direction. **Left and Right only consider tiles that overlap the current one
+    vertically.** Without that rule, Right on the last Watch tile slid diagonally into the Apps
+    row; the suite caught that bug.
+  - **Watch row.** Three tiles: Prime Video (`com.amazon.amazonvideo.livingroom`), YouTube TV
+    (`com.google.android.youtube.tvunplugged`) and **RedZone**.
+  - **RedZone link.** RedZone opens `REDZONE_URL` (a `tv.youtube.com/watch/<id>` channel link)
+    in the YouTube TV app. **It is empty until the family supplies the link.** While it is empty,
+    the tile opens YouTube TV and says the link isn't set.
+  - **Data sources.** Each piece reads the same source as the rest of Bucky:
+    - Weather: Open-Meteo, same spot as `weather.html`.
+    - Calendar: the `calendar` function `list` action.
+    - Chores and rota: Firestore REST for `chores_<fam>` (daily chores) and
+      `settings_<fam>/animalCare`. The on-duty and done rules are copied from index.html
+      (`choreOnDuty`, `curPeriodLog`, `isDone`).
+    - Idle photos: goat-doc `photos[]`/`photo` data URLs.
+  - **The page never writes.**
+  - **GFFL strip.** It loads **`assets/sunday/sd-fantasy.js`**: FF.load, then ESPN scoreboard,
+    then `FF.ingestBoard`, then `FF.poll`, until every started game has been read once. This is a
+    deliberate exception to "no shared JS". That file is a self-contained engine with a public
+    API, so a third copy would only drift from Sunday's numbers. It refreshes every 60 s while a
+    game is live and every 15 minutes otherwise.
+    - The strip still uses Sunday's own win% model, so it shows points and projections, not win %.
+  - **Idle screen.** After 5 minutes without a button press it shows a goat-photo slideshow.
+    Photos are 500 px wide, so each one shows at its own shape over a blurred copy of itself
+    rather than stretched.
+  - **Picking up deploys.** The wrapper keeps the page open for days, so every 10 minutes it
+    re-reads its own source plus `sd-fantasy.js` (`cache: "no-store"`). When their hash differs
+    from the boot read, it reloads the next time the idle screen comes up, never while someone is
+    using the remote. A failed or 503 read changes nothing.
+  - **URL overrides.** `?week=N` pins the GFFL week, `?idle=S` sets the idle timeout and
+    `?check=S` the update check, in seconds, for previews and the suite.
+- **`android-tv/`** is the wrapper: a ~200-line Java app with no dependencies.
+  - It is a full-screen WebView on `https://amenfarms.netlify.app/tv.html`. It declares
+    `LEANBACK_LAUNCHER` (so it shows in the app list) and `HOME` (so it can be the home screen
+    once Google's `launcherx` is disabled over adb).
+  - It exposes `window.BuckyTV` with `launch(pkg)`, `openUrl(uri, pkg)`, `openSettings()`,
+    `apps()` and `banner(pkg)`.
+  - It sends the page `buckytv-back`, `buckytv-home` and `buckytv-resume` events. The Back key
+    never exits the app, because it is the home screen.
+  - Build: `gradle assembleRelease` with `sdk.dir` in `local.properties`, plus
+    `BUCKYTV_KEYSTORE` and `BUCKYTV_KEYSTORE_PASSWORD`.
+  - **The signing key is not in the repo (the repo is public).** The family holds it. The TV will
+    only accept an update signed with the same key, so if the key is lost, the next install means
+    uninstalling first.
+  - The built APK is committed at `tvapp/bucky-tv.apk`. `netlify.toml` serves it as
+    `application/vnd.android.package-archive`.
+  - Page changes deploy with the site. The APK only changes if the wrapper does.
+- **`tv-setup.html`** is the family-facing install guide: Downloader, then adb
+  `pm disable-user ... launcherx`, and how to undo it.
+
+**Farmstead look (same day, user: "give the home screen more of a bucky aesthetic").**
+- The page took index.html's `#farmstead-theme`:
+  - the goat mark, the Fraunces "Bucky" wordmark, "Family Farm Hub" and the rail's clay-and-cream
+    stripe
+  - a date in small caps over a Fraunces greeting (Good morning / afternoon / evening)
+  - cream cards with Fraunces titles and clay event times
+  - a cream-and-clay focus ring
+- **The ground is pine green, not the app's cream.** A full-screen cream page glares in a dark
+  room, so the cards carry the cream.
+- **Colours were picked by measured contrast.**
+  - The app's `--muted` #8b9184 is 3.2:1 on cream, so cards use #6f7668 (4.6:1).
+  - Labels on the green use #e2e5da. It is 5.0:1 at the ground's lightest point; the first pick,
+    #d8dccf under a 10% highlight, measured 4.1:1 and failed.
+- **Overscan.** The taller header first pushed the GFFL strip past 1080. The 1080p check now keeps
+  2.5% clear for TVs that crop the edge. It reached 1046 of the 1053 allowed after trimming the
+  clock, the tile height and the panel padding.
+- The wrapper's loading colour and offline page went pine to match, which needed an APK rebuild.
+  No TV had installed the earlier one.
+
+VERIFY: `node tools/_verify-tv.cjs [--shots]` gives **78/78**. F2 is the look:
+- the mark loads
+- wordmark and greeting by the hour
+- Fraunces on the display text
+- WCAG 4.5:1 for every text colour, from computed styles
+- someone else's care slot marked apart
+
+Against the pre-Farmstead page those 6 checks fail and the other 72 pass.
+
+Earlier count: **72/72** (section J, the deploy pickup, was
+added the same day; against the page before it, 6 of its 8 checks fail and the 64 earlier ones pass).
+- It runs at 960x540 with a faked bridge, at 1920x1080 without one, through the idle screen, and
+  with every upstream down.
+- Firestore, Open-Meteo, the calendar, ESPN and Sleeper are all route-mocked in their real
+  shapes, including the CORS preflight a JSON POST to Firestore triggers.
+- The GFFL fixtures are the real week-3 captures under `tools/fixtures/sunday-ff/`.
+- Bite test: with the same-row rule removed from `move()`, the 4 navigation and launch checks
+  fail and the other 60 pass.

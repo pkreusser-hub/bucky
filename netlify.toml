@@ -189,3 +189,11 @@
   for = "/gffl-version.txt"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Bucky TV's Android app (android-tv/, installed with the Downloader app per tv-setup.html).
+# Sent with the Android package type so a TV browser or Downloader treats it as an installer.
+[[headers]]
+  for = "/tvapp/*.apk"
+  [headers.values]
+    Content-Type = "application/vnd.android.package-archive"
+    Cache-Control = "no-cache"

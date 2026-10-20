@@ -1,0 +1,44 @@
+plugins {
+    id "com.android.application"
+}
+
+// The signing key is NOT in this repo (the repo is public). Point these at the family's copy:
+//   BUCKYTV_KEYSTORE=/path/bucky-tv.jks BUCKYTV_KEYSTORE_PASSWORD=... gradle assembleRelease
+// The TV only accepts an update signed with the same key it was first installed with.
+def ks = System.getenv("BUCKYTV_KEYSTORE")
+
+android {
+    namespace "com.amenfarms.buckytv"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.amenfarms.buckytv"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("BUCKYTV_KEYSTORE_PASSWORD")
+                keyAlias "bucky-tv"
+                keyPassword System.getenv("BUCKYTV_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ks) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
