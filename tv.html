@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#18233b" />
+<title>Bucky TV</title>
+<link rel="icon" href="bucky.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+<!-- GFFL live scores come from Sunday's scoring engine rather than a third copy of it. That
+     file is written to stand alone (no DOM, no sd-app.js dependency) and exposes FF.load /
+     FF.ingestBoard / FF.poll / FF.teamScore, so loading it here keeps the TV's numbers the same
+     as Sunday's instead of drifting from a fork. -->
+<script src="assets/sunday/sd-fantasy.js"></script>
+<style>
+  /* Bucky TV: the family's TV home screen, shown full-screen by the Bucky TV Android app
+     (android-tv/). Sized in rem where 1rem = 1/120 of the screen width, so the same layout
+     fills a 1080p TV (WebView reports 960 CSS px there) and a desktop browser alike. */
+  :root {
+    --bg: #141c2e;
+    --bg-2: #1c2740;
+    --panel: rgba(255,255,255,.06);
+    --panel-line: rgba(255,255,255,.10);
+    --ink: #f3f5fa;
+    --ink-2: #b9c3d8;
+    --muted: #8391ad;
+    --red: #ba303e;
+    --gold: #f2c14e;
+    --live: #4cc38a;
+    --focus: #ffffff;
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  html { font-size: calc(100vw / 120); }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: radial-gradient(90% 70% at 15% -10%, #2a3d66 0%, transparent 60%), linear-gradient(180deg, var(--bg-2), var(--bg));
+    color: var(--ink);
+    font-family: "Source Sans 3", Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 1.5rem;
+    cursor: default;
+  }
+  #home { height: 100%; overflow: hidden; padding: 2.6rem 5rem 4rem; }
+
+  /* ---------- header: clock + weather ---------- */
+  .top { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 1.8rem; }
+  .clock { font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 6rem; line-height: 1; letter-spacing: -.04em; }
+  .date { color: var(--ink-2); font-size: 1.9rem; margin-top: .5rem; font-weight: 600; }
+  .wx { display: flex; align-items: flex-end; gap: 2.4rem; }
+  .wx-now { display: flex; align-items: center; gap: 1rem; }
+  .wx-now svg { width: 4.6rem; height: 4.6rem; }
+  .wx-temp { font-size: 4.6rem; font-weight: 700; line-height: 1; }
+  .wx-desc { color: var(--ink-2); font-size: 1.5rem; }
+  .wx-days { display: flex; gap: 1.6rem; }
+  .wx-day { text-align: center; font-size: 1.4rem; color: var(--ink-2); }
+  .wx-day b { display: block; color: var(--ink); font-weight: 700; }
+  .wx-day svg { width: 2.6rem; height: 2.6rem; display: block; margin: .3rem auto; }
+  .wx-day .pp { color: #7fb8ff; font-size: 1.2rem; }
+
+  /* ---------- rows + tiles ---------- */
+  .row-label { font-size: 1.4rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 .8rem; }
+  .row { display: flex; gap: 1.6rem; overflow: hidden; padding: .9rem .9rem 1.2rem; margin: -.9rem -.9rem .6rem; scroll-behavior: smooth; }
+  .tile {
+    flex: 0 0 auto; position: relative; width: 19rem; height: 10.7rem; border-radius: 1rem; border: 0;
+    display: flex; align-items: flex-end; padding: 1.1rem 1.3rem; color: #fff; font: inherit; font-weight: 700; font-size: 1.9rem;
+    text-align: left; background: var(--bg-2); overflow: hidden; outline: none;
+    transition: transform .12s ease, box-shadow .12s ease;
+    box-shadow: 0 .3rem 1rem rgba(0,0,0,.35);
+  }
+  .tile img.banner { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .tile .sub { display: block; font-size: 1.2rem; font-weight: 600; opacity: .85; margin-top: .2rem; }
+  .tile.big { width: 25rem; height: 14rem; font-size: 2.4rem; }
+  .tile:focus, .tile.focus { transform: scale(1.06); box-shadow: 0 0 0 .35rem var(--focus), 0 1rem 2.4rem rgba(0,0,0,.55); z-index: 2; }
+  .t-prime { background: linear-gradient(135deg, #1a98ff, #0f4fa8); }
+  .t-yttv { background: linear-gradient(135deg, #e3262f, #8e0f16); }
+  .t-redzone { background: linear-gradient(135deg, #c8102e 0%, #c8102e 48%, #111 48%, #111 100%); }
+  .t-redzone .rz { font-family: Fraunces, Georgia, serif; font-size: 2.8rem; letter-spacing: -.02em; }
+  .t-app { background: linear-gradient(135deg, #2f3d5f, #1d2842); }
+  .t-settings { background: linear-gradient(135deg, #3b4a6b, #252f49); width: 14rem; }
+  .t-settings svg { position: absolute; top: 1.2rem; left: 1.3rem; width: 3rem; height: 3rem; opacity: .9; }
+
+  /* ---------- today: calendar + chores ---------- */
+  .today { display: grid; grid-template-columns: 1.35fr 1fr; gap: 1.8rem; margin: .6rem 0 2rem; }
+  .panel { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 1.2rem; padding: 1.4rem 1.7rem; min-height: 13rem; }
+  .panel h2 { margin: 0 0 1rem; font-size: 1.4rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .ev { display: flex; gap: 1.4rem; align-items: baseline; padding: .45rem 0; font-size: 1.8rem; }
+  .ev .when { flex: 0 0 9.5rem; color: var(--gold); font-weight: 700; font-size: 1.6rem; }
+  .ev .what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ev-day { font-size: 1.3rem; color: var(--muted); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin: .7rem 0 .2rem; }
+  .empty { color: var(--muted); font-size: 1.6rem; }
+  .care { display: flex; gap: 1.2rem; margin-bottom: 1rem; }
+  .care span { background: rgba(255,255,255,.08); border-radius: 99rem; padding: .3rem 1rem; font-size: 1.4rem; color: var(--ink-2); }
+  .care span b { color: var(--ink); }
+  .chore { display: flex; align-items: center; gap: .9rem; font-size: 1.7rem; padding: .3rem 0; }
+  .chore svg { flex: 0 0 auto; width: 1.8rem; height: 1.8rem; }
+  .chore.done { color: var(--muted); }
+  .chore.done .nm { text-decoration: line-through; text-decoration-color: rgba(255,255,255,.35); }
+  .chore .by { margin-left: auto; font-size: 1.3rem; color: var(--muted); }
+  .chore-sum { font-size: 1.4rem; color: var(--ink-2); margin-top: .6rem; }
+
+  /* ---------- GFFL strip ---------- */
+  .gffl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-bottom: 2rem; }
+  .mu { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 1rem; padding: .9rem 1.2rem; }
+  .mu .tm { display: flex; justify-content: space-between; gap: 1rem; font-size: 1.6rem; padding: .15rem 0; }
+  .mu .tm .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mu .tm .pts { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .mu .tm.lead .nm { color: #fff; font-weight: 700; }
+  .mu .tm:not(.lead) { color: var(--ink-2); }
+  .mu .meta { font-size: 1.2rem; color: var(--muted); margin-top: .3rem; display: flex; justify-content: space-between; }
+  .mu .meta .live { color: var(--live); font-weight: 700; }
+  .gffl-h { display: flex; align-items: baseline; gap: 1.2rem; }
+  .gffl-h .row-label { margin-bottom: .8rem; }
+  .gffl-h .note { font-size: 1.3rem; color: var(--muted); }
+
+  /* ---------- idle screen ---------- */
+  #idle { position: fixed; inset: 0; background: #000; z-index: 50; }
+  #idle .ph { position: absolute; inset: 0; opacity: 0; transition: opacity 1.6s ease; overflow: hidden; }
+  #idle .ph.on { opacity: 1; }
+  /* Goat photos are stored 500 px wide; stretched to a TV they go soft. Each shows at its own
+     shape, over a blurred, darkened copy of itself filling the screen. */
+  #idle .ph .bk { position: absolute; inset: -4rem; background-size: cover; background-position: center; filter: blur(2.4rem) brightness(.55); }
+  #idle .ph .im { position: absolute; inset: 0; background-size: contain; background-position: center; background-repeat: no-repeat; }
+  #idle .scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; background: linear-gradient(0deg, rgba(0,0,0,.75), transparent); }
+  #idle .corner { position: absolute; left: 5rem; bottom: 3.6rem; text-shadow: 0 .2rem 1rem rgba(0,0,0,.7); }
+  #idle .corner .clock { font-size: 7rem; }
+  #idle .corner .line { font-size: 2rem; color: #e8ecf5; margin-top: .6rem; }
+  #idle .cap { position: absolute; right: 5rem; bottom: 3.8rem; font-size: 1.8rem; color: #e8ecf5; text-shadow: 0 .2rem 1rem rgba(0,0,0,.7); }
+
+  #toast { position: fixed; left: 50%; bottom: 4rem; transform: translateX(-50%); background: rgba(10,14,24,.94); color: #fff; border: 1px solid var(--panel-line);
+    padding: 1.1rem 2rem; border-radius: 1rem; font-size: 1.7rem; z-index: 60; max-width: 80rem; text-align: center; }
+</style>
+</head>
+<body>
+<main id="home">
+  <header class="top">
+    <div>
+      <div class="clock" id="clock">--:--</div>
+      <div class="date" id="date"></div>
+    </div>
+    <div class="wx" id="wx" hidden>
+      <div class="wx-now"><span id="wxNowIcon"></span><div><div class="wx-temp" id="wxTemp"></div><div class="wx-desc" id="wxDesc"></div></div></div>
+      <div class="wx-days" id="wxDays"></div>
+    </div>
+  </header>
+
+  <h2 class="row-label">Watch</h2>
+  <div class="row" id="watchRow">
+    <button class="tile big t-prime" data-act="prime"><span>Prime Video</span></button>
+    <button class="tile big t-yttv" data-act="yttv"><span>YouTube TV</span></button>
+    <button class="tile big t-redzone" data-act="redzone"><span><span class="rz">RedZone</span><span class="sub">on YouTube TV</span></span></button>
+  </div>
+
+  <section class="today">
+    <div class="panel" id="calPanel">
+      <h2>Today</h2>
+      <div id="calList"><div class="empty">Loading the calendar</div></div>
+    </div>
+    <div class="panel" id="chorePanel">
+      <h2>Chores</h2>
+      <div class="care" id="care"></div>
+      <div id="choreList"><div class="empty">Loading chores</div></div>
+    </div>
+  </section>
+
+  <section id="gfflSec" hidden>
+    <div class="gffl-h"><h2 class="row-label" id="gfflTitle">GFFL</h2><span class="note" id="gfflNote"></span></div>
+    <div class="gffl" id="gffl"></div>
+  </section>
+
+  <section id="appsSec" hidden>
+    <h2 class="row-label">Apps</h2>
+    <div class="row" id="appsRow"></div>
+  </section>
+</main>
+
+<div id="idle" hidden>
+  <div class="ph" id="ph0"><div class="bk"></div><div class="im"></div></div>
+  <div class="ph" id="ph1"><div class="bk"></div><div class="im"></div></div>
+  <div class="scrim"></div>
+  <div class="corner"><div class="clock" id="idleClock"></div><div class="line" id="idleLine"></div></div>
+  <div class="cap" id="idleCap"></div>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+"use strict";
+// ============================================================================================
+// Config (duplicated per page on purpose — see CLAUDE.md)
+// ============================================================================================
+const FAMILY_PASSWORD = "amenfarms";
+function roomId(pw){ let h=0; for (const ch of pw.toLowerCase()) h=(h*31+ch.charCodeAt(0))>>>0; return "fam"+h.toString(36); }
+const FAM = roomId(FAMILY_PASSWORD);
+const FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
+const FS_BASE = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents";
+const LAT = 34.686537, LON = -86.210417;
+const TZ = "America/Chicago";
+// ?week=N pins the GFFL week and ?idle=S shortens the idle timer to S seconds, for previews
+// and tools/_verify-tv.cjs. The TV itself loads the bare URL.
+const QS = new URLSearchParams(location.search);
+const IDLE_MS = (Number(QS.get("idle")) || 5 * 60) * 1000;
+const SLIDE_MS = 12 * 1000;
+
+// Android package names for the featured tiles.
+const PKG = {
+  prime: "com.amazon.amazonvideo.livingroom",
+  yttv: "com.google.android.youtube.tvunplugged",
+};
+// YouTube TV's live channels each have a fixed watch link (tv.youtube.com/watch/<id>). The
+// app opens a channel when handed that link. Paste RedZone's here once it's known: on a
+// computer, open tv.youtube.com, go to Live, start NFL RedZone, and copy the address bar.
+// Until then the tile opens YouTube TV itself.
+const REDZONE_URL = "";
+
+// The Android wrapper (android-tv/) injects window.BuckyTV. In a plain browser it is absent,
+// and the tiles fall back to the services' websites so the page can be previewed anywhere.
+const TV = window.BuckyTV || null;
+const WEB_FALLBACK = { prime: "https://www.primevideo.com", yttv: "https://tv.youtube.com" };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const pad = (n) => String(n).padStart(2, "0");
+
+// ============================================================================================
+// Firestore REST (read-only; no SDK needed for a page that never writes)
+// ============================================================================================
+function fsDec(v) {
+  if (!v || typeof v !== "object") return null;
+  if ("nullValue" in v) return null;
+  if ("booleanValue" in v) return !!v.booleanValue;
+  if ("integerValue" in v) return Number(v.integerValue);
+  if ("doubleValue" in v) return Number(v.doubleValue);
+  if ("stringValue" in v) return v.stringValue;
+  if ("timestampValue" in v) return String(v.timestampValue);
+  if ("arrayValue" in v) return (v.arrayValue.values || []).map(fsDec);
+  if ("mapValue" in v) return fsDecFields(v.mapValue.fields);
+  return null;
+}
+function fsDecFields(fields) { const o = {}; for (const k of Object.keys(fields || {})) o[k] = fsDec(fields[k]); return o; }
+async function fsGet(path) {
+  const r = await fetch(FS_BASE + "/" + path + "?key=" + FS_KEY);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error("Firestore " + r.status + " for " + path);
+  return fsDecFields((await r.json()).fields);
+}
+async function fsWhere(coll, field, value, select) {
+  const q = { from: [{ collectionId: coll }], where: { fieldFilter: { field: { fieldPath: field }, op: "EQUAL", value: { stringValue: value } } } };
+  if (select) q.select = { fields: select.map((f) => ({ fieldPath: f })) };
+  const r = await fetch(FS_BASE + ":runQuery?key=" + FS_KEY, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ structuredQuery: q }) });
+  if (!r.ok) throw new Error("Firestore query " + r.status);
+  const rows = await r.json();
+  return rows.filter((x) => x.document).map((x) => Object.assign({ _id: x.document.name.split("/").pop() }, fsDecFields(x.document.fields)));
+}
+
+// ============================================================================================
+// Clock
+// ============================================================================================
+function fmtTime(d) { return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M$/i, ""); }
+function tickClock() {
+  const d = new Date();
+  $("clock").textContent = fmtTime(d);
+  $("date").textContent = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  $("idleClock").textContent = fmtTime(d);
+}
+
+// ============================================================================================
+// Weather (Open-Meteo, same source and spot as weather.html)
+// ============================================================================================
+const ICON = {
+  sun: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="9" fill="#f6c343"/><g stroke="#f6c343" stroke-width="3.2" stroke-linecap="round"><path d="M24 5v6M24 37v6M5 24h6M37 24h6M10.6 10.6l4.2 4.2M33.2 33.2l4.2 4.2M10.6 37.4l4.2-4.2M33.2 14.8l4.2-4.2"/></g></svg>',
+  partly: '<svg viewBox="0 0 48 48"><circle cx="18" cy="17" r="8" fill="#f6c343"/><path d="M15 38h20a8 8 0 0 0 0-16 11 11 0 0 0-21 3 6.5 6.5 0 0 0 1 13z" fill="#dfe6f2"/></svg>',
+  cloud: '<svg viewBox="0 0 48 48"><path d="M13 37h22a9 9 0 0 0 0-18 12 12 0 0 0-23 3 7.5 7.5 0 0 0 1 15z" fill="#c4cedf"/></svg>',
+  fog: '<svg viewBox="0 0 48 48"><g stroke="#c4cedf" stroke-width="3.4" stroke-linecap="round"><path d="M8 18h32M5 26h38M10 34h28"/></g></svg>',
+  rain: '<svg viewBox="0 0 48 48"><path d="M13 30h22a9 9 0 0 0 0-18 12 12 0 0 0-23 3 7.5 7.5 0 0 0 1 15z" fill="#c4cedf"/><g stroke="#6fb1ff" stroke-width="3" stroke-linecap="round"><path d="M16 35l-2 6M25 35l-2 6M34 35l-2 6"/></g></svg>',
+  snow: '<svg viewBox="0 0 48 48"><path d="M13 30h22a9 9 0 0 0 0-18 12 12 0 0 0-23 3 7.5 7.5 0 0 0 1 15z" fill="#c4cedf"/><g fill="#fff"><circle cx="16" cy="38" r="2.4"/><circle cx="25" cy="41" r="2.4"/><circle cx="34" cy="38" r="2.4"/></g></svg>',
+  storm: '<svg viewBox="0 0 48 48"><path d="M13 29h22a9 9 0 0 0 0-18 12 12 0 0 0-23 3 7.5 7.5 0 0 0 1 15z" fill="#9aa6bd"/><path d="M25 30l-6 9h6l-3 7 9-11h-6l3-5z" fill="#f6c343"/></svg>',
+};
+function wxKind(code) {
+  if (code === 0) return ["sun", "Clear"];
+  if (code === 1 || code === 2) return ["partly", "Partly cloudy"];
+  if (code === 3) return ["cloud", "Cloudy"];
+  if (code === 45 || code === 48) return ["fog", "Fog"];
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return ["snow", "Snow"];
+  if (code >= 95) return ["storm", "Storms"];
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return ["rain", code <= 57 ? "Drizzle" : "Rain"];
+  return ["cloud", "Cloudy"];
+}
+let wxLine = "";
+async function loadWeather() {
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=" + LAT + "&longitude=" + LON +
+    "&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+    "&temperature_unit=fahrenheit&timezone=America%2FChicago&forecast_days=5";
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("weather " + r.status);
+    const j = await r.json();
+    const [kind, label] = wxKind(j.current.weather_code);
+    const t = Math.round(j.current.temperature_2m);
+    $("wxNowIcon").innerHTML = ICON[kind];
+    $("wxTemp").textContent = t + "°";
+    const hi = Math.round(j.daily.temperature_2m_max[0]), lo = Math.round(j.daily.temperature_2m_min[0]);
+    $("wxDesc").textContent = label + " · " + hi + "° / " + lo + "°";
+    wxLine = t + "° " + label.toLowerCase();
+    let days = "";
+    for (let i = 1; i < Math.min(5, j.daily.time.length); i++) {
+      const d = new Date(j.daily.time[i] + "T12:00:00");
+      const [k] = wxKind(j.daily.weather_code[i]);
+      const pp = j.daily.precipitation_probability_max[i];
+      days += '<div class="wx-day"><b>' + d.toLocaleDateString("en-US", { weekday: "short" }) + "</b>" + ICON[k] +
+        Math.round(j.daily.temperature_2m_max[i]) + "° " + Math.round(j.daily.temperature_2m_min[i]) + "°" +
+        (pp != null && pp >= 30 ? '<div class="pp">' + pp + "%</div>" : "") + "</div>";
+    }
+    $("wxDays").innerHTML = days;
+    $("wx").hidden = false;
+  } catch (e) { console.warn(e); }
+  updateIdleLine();
+}
+
+// ============================================================================================
+// Calendar (Google Calendar through the calendar function, same call index.html makes)
+// ============================================================================================
+let calEvents = [];
+function dayStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function evStart(ev) { return ev.allDay ? new Date(ev.start + "T00:00:00") : new Date(ev.start); }
+function evEnd(ev) { return ev.allDay ? new Date(ev.end + "T00:00:00") : new Date(ev.end || ev.start); }
+async function loadCalendar() {
+  const t0 = dayStart(new Date()), t1 = new Date(t0); t1.setDate(t1.getDate() + 2);
+  try {
+    const r = await fetch("/.netlify/functions/calendar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: FAMILY_PASSWORD, action: "list", timeMin: t0.toISOString(), timeMax: t1.toISOString() }),
+    });
+    if (!r.ok) throw new Error("calendar " + r.status);
+    const j = await r.json();
+    calEvents = (j.events || []).slice().sort((a, b) => evStart(a) - evStart(b) || (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0));
+    renderCalendar();
+  } catch (e) {
+    console.warn(e);
+    if (!calEvents.length) $("calList").innerHTML = '<div class="empty">Couldn\'t reach the calendar</div>';
+  }
+  updateIdleLine();
+}
+function renderCalendar() {
+  const now = new Date(), today = dayStart(now), tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const after = new Date(tomorrow); after.setDate(tomorrow.getDate() + 1);
+  // Timed events drop off once they've ended; all-day ones stay up for the whole day.
+  const on = (ev, a, b) => evStart(ev) < b && evEnd(ev) > a && (ev.allDay || evEnd(ev) > now);
+  const todays = calEvents.filter((ev) => on(ev, today, tomorrow));
+  const tmrw = calEvents.filter((ev) => on(ev, tomorrow, after));
+  const line = (ev) => '<div class="ev"><span class="when">' + (ev.allDay ? "All day" : fmtTime(evStart(ev)) + (evStart(ev).getHours() < 12 ? " am" : " pm")) +
+    '</span><span class="what">' + esc(ev.title || "(no title)") + "</span></div>";
+  let html = todays.length ? todays.slice(0, 5).map(line).join("") : '<div class="empty">Nothing on the calendar today</div>';
+  const room = Math.max(0, 5 - Math.max(todays.length, 1));
+  if (tmrw.length && room > 0) html += '<div class="ev-day">Tomorrow</div>' + tmrw.slice(0, room).map(line).join("");
+  $("calList").innerHTML = html;
+}
+function nextEventText() {
+  const now = new Date(), end = new Date(dayStart(now)); end.setDate(end.getDate() + 1);
+  const ev = calEvents.find((e) => !e.allDay && evStart(e) > now && evStart(e) < end);
+  return ev ? (ev.title || "Event") + " at " + fmtTime(evStart(ev)) + (evStart(ev).getHours() < 12 ? " am" : " pm") : "";
+}
+
+// ============================================================================================
+// Chores + animal-care rota (rules copied from index.html: periodKey, curPeriodLog, isDone,
+// choreCareSlot, careSlotValue, choreOnDuty)
+// ============================================================================================
+const CARE_OWNER_GROUP = "Kreussers";
+const CARE_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+let careData = null;
+let chores = [];
+function dateKeyLocal(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+function careSlotGroup(d, slot) {
+  if (!careData) return CARE_OWNER_GROUP;
+  const ov = (careData.overrides || {})[dateKeyLocal(d)];
+  if (ov && ov[slot]) return ov[slot];
+  const wk = (careData.defaults || {})[CARE_DAYS[d.getDay()]] || {};
+  return wk[slot] || CARE_OWNER_GROUP;
+}
+function choreCareSlot(c) { return (c.timeOfDay === "noon" || c.timeOfDay === "night") ? "pm" : "am"; }
+function choreOnDuty(c, d) { return careSlotGroup(d, choreCareSlot(c)) === CARE_OWNER_GROUP; }
+function curPeriodLog(c) {
+  const cur = dateKeyLocal(new Date());   // daily chores only on this screen
+  if (c.donePeriod === cur && Array.isArray(c.doneLog)) return c.doneLog.slice();
+  if (c.lastPeriod === cur && c.lastAt) return [{ at: c.lastAt, by: c.lastBy || "" }];
+  return [];
+}
+function isDone(c) { return curPeriodLog(c).length >= (c.target || 1); }
+
+async function loadChores() {
+  try {
+    const [care, daily] = await Promise.all([
+      fsGet("settings_" + FAM + "/animalCare").catch(() => null),
+      fsWhere("chores_" + FAM, "frequency", "daily"),
+    ]);
+    if (care && care.json) { try { careData = JSON.parse(care.json); } catch (e) { careData = null; } }
+    chores = daily;
+    renderChores();
+  } catch (e) {
+    console.warn(e);
+    if (!chores.length) $("choreList").innerHTML = '<div class="empty">Couldn\'t load chores</div>';
+  }
+}
+const CHECK = { done: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#4cc38a"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  open: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#8391ad" stroke-width="2.2"/></svg>' };
+const TOD_ORDER = { morning: 0, noon: 1, night: 2 };
+function renderChores() {
+  const d = new Date();
+  const am = careSlotGroup(d, "am"), pm = careSlotGroup(d, "pm");
+  $("care").innerHTML = "<span>Morning: <b>" + esc(am) + "</b></span><span>Night: <b>" + esc(pm) + "</b></span>";
+  const list = chores.filter((c) => choreOnDuty(c, d))
+    .sort((a, b) => (TOD_ORDER[a.timeOfDay] ?? 0) - (TOD_ORDER[b.timeOfDay] ?? 0) || (a.order ?? 999) - (b.order ?? 999));
+  if (!list.length) {
+    $("choreList").innerHTML = '<div class="empty">' + (chores.length ? "No chores for us today" : "No daily chores set up") + "</div>";
+    return;
+  }
+  const doneCt = list.filter(isDone).length;
+  // The panel holds about six lines; open chores come first so the ones left are never cut off.
+  const shown = list.filter((c) => !isDone(c)).concat(list.filter(isDone)).slice(0, 6);
+  let html = shown.map((c) => {
+    const log = curPeriodLog(c), done = isDone(c);
+    const by = done && log.length ? log[log.length - 1].by : "";
+    return '<div class="chore' + (done ? " done" : "") + '">' + (done ? CHECK.done : CHECK.open) + '<span class="nm">' + esc(c.name) + "</span>" +
+      (by ? '<span class="by">' + esc(by) + "</span>" : "") + "</div>";
+  }).join("");
+  html += '<div class="chore-sum">' + (doneCt === list.length ? "All done for today" : doneCt + " of " + list.length + " done") + "</div>";
+  $("choreList").innerHTML = html;
+}
+
+// ============================================================================================
+// GFFL live strip (Sunday's engine: assets/sunday/sd-fantasy.js)
+// ============================================================================================
+let gfflBoard = [];
+let gfflLoadedWeek = 0;
+let gfflTimer = 0;
+async function loadGffl() {
+  if (typeof FF === "undefined") return;
+  try {
+    const week = Number(QS.get("week")) || FF._currentWeek();
+    if (gfflLoadedWeek !== week) { await FF.load({ week }); gfflLoadedWeek = week; }
+    await refreshGfflBoard();
+  } catch (e) { console.warn(e); }
+}
+async function refreshGfflBoard() {
+  clearTimeout(gfflTimer);
+  const week = gfflLoadedWeek;
+  try {
+    const r = await fetch("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=" + FF.season + "&seasontype=2&week=" + week);
+    if (r.ok) { gfflBoard = (await r.json()).events || []; FF.ingestBoard(gfflBoard); }
+    // FF.poll reads four game summaries per call, round-robin. Enough calls to cover every
+    // started game once means the strip shows real totals on the first paint, not partial ones.
+    const started = gfflBoard.filter((e) => { const s = e.status?.type?.state || e.competitions?.[0]?.status?.type?.state; return s === "in" || s === "post"; }).length;
+    for (let i = 0; i < Math.ceil(started / 4); i++) await FF.poll();
+  } catch (e) { console.warn(e); }
+  renderGffl();
+  const live = gfflBoard.some((e) => (e.status?.type?.state || "") === "in");
+  gfflTimer = setTimeout(refreshGfflBoard, live ? 60 * 1000 : 15 * 60 * 1000);
+}
+function fmtPts(n) { return (Math.round((Number(n) || 0) * 10) / 10).toFixed(1); }
+function renderGffl() {
+  const ms = (FF.matchups || []).filter((m) => m.home != null && m.away != null);
+  if (!ms.length) { $("gfflSec").hidden = true; return; }
+  const live = gfflBoard.filter((e) => (e.status?.type?.state || "") === "in").length;
+  $("gfflTitle").textContent = "GFFL · Week " + FF.week;
+  $("gfflNote").textContent = live ? live + (live === 1 ? " NFL game live" : " NFL games live") : "";
+  $("gffl").innerHTML = ms.slice(0, 4).map((m) => {
+    const A = FF.teamScore(m.home), B = FF.teamScore(m.away);
+    const ta = FF.teams.get(m.home) || {}, tb = FF.teams.get(m.away) || {};
+    const started = A.playing + B.playing > 0 || A.pts + B.pts > 0;
+    const final = A.done && B.done;
+    const a = started ? A.pts : A.proj, b = started ? B.pts : B.proj;
+    const row = (t, v, lead) => '<div class="tm' + (lead ? " lead" : "") + '"><span class="nm">' + esc(t.name || "Team") + '</span><span class="pts">' + fmtPts(v) + "</span></div>";
+    const status = final ? "Final" : (A.playing + B.playing) ? '<span class="live">Live · ' + (A.playing + B.playing) + " playing</span>" : started ? "In progress" : "Projected";
+    const proj = started && !final ? "Proj " + fmtPts(A.proj) + " – " + fmtPts(B.proj) : "";
+    return '<div class="mu">' + row(ta, a, a >= b) + row(tb, b, b > a) + '<div class="meta"><span>' + status + "</span><span>" + proj + "</span></div></div>";
+  }).join("");
+  $("gfflSec").hidden = false;
+}
+
+// ============================================================================================
+// Apps (only inside the Android wrapper)
+// ============================================================================================
+const SETTINGS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+function setupApps() {
+  if (!TV) return;
+  // The featured tiles wear each app's own TV banner when the TV has one.
+  for (const act of ["prime", "yttv"]) {
+    const b = safe(() => TV.banner(PKG[act]), "");
+    const tile = document.querySelector('[data-act="' + act + '"]');
+    if (b && tile) tile.insertAdjacentHTML("afterbegin", '<img class="banner" alt="" src="' + b + '">');
+  }
+  let apps = [];
+  try { apps = JSON.parse(TV.apps() || "[]"); } catch (e) { apps = []; }
+  const featured = new Set(Object.values(PKG));
+  const row = $("appsRow");
+  for (const a of apps.filter((x) => !featured.has(x.pkg))) {
+    const btn = document.createElement("button");
+    btn.className = "tile t-app";
+    btn.dataset.act = "app";
+    btn.dataset.pkg = a.pkg;
+    const b = safe(() => TV.banner(a.pkg), "");
+    btn.innerHTML = (b ? '<img class="banner" alt="" src="' + b + '">' : "") + "<span>" + esc(a.label) + "</span>";
+    row.appendChild(btn);
+  }
+  const s = document.createElement("button");
+  s.className = "tile t-settings";
+  s.dataset.act = "settings";
+  s.innerHTML = SETTINGS_SVG + "<span>TV settings</span>";
+  row.appendChild(s);
+  $("appsSec").hidden = false;
+}
+function safe(fn, dflt) { try { return fn(); } catch (e) { return dflt; } }
+
+// ============================================================================================
+// Actions
+// ============================================================================================
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.hidden = true; }, 4000);
+}
+function launch(act, pkg) {
+  if (act === "settings") { if (!(TV && TV.openSettings())) toast("Settings open from the TV remote"); return; }
+  if (act === "app") { if (!(TV && TV.launch(pkg))) toast("That app isn't installed"); return; }
+  if (act === "redzone") {
+    if (TV) {
+      if (REDZONE_URL) { if (!TV.openUrl(REDZONE_URL, PKG.yttv)) toast("YouTube TV isn't installed on this TV"); }
+      else if (TV.launch(PKG.yttv)) toast("RedZone isn't linked yet. Opening YouTube TV.");
+      else toast("YouTube TV isn't installed on this TV");
+    } else window.open(REDZONE_URL || WEB_FALLBACK.yttv, "_blank");
+    return;
+  }
+  const name = act === "prime" ? "Prime Video" : "YouTube TV";
+  if (TV) { if (!TV.launch(PKG[act])) toast(name + " isn't installed on this TV"); }
+  else window.open(WEB_FALLBACK[act], "_blank");
+}
+
+// ============================================================================================
+// Remote-control navigation: arrow keys move focus to the nearest tile in that direction.
+// ============================================================================================
+function tiles() { return [...document.querySelectorAll("#home .tile")].filter((t) => t.offsetParent !== null); }
+function focusTile(t) {
+  if (!t) return;
+  t.focus({ preventScroll: true });
+  t.scrollIntoView({ block: "nearest", inline: "nearest" });
+  // Rows have no visible scrollbar; keep the focused tile's whole row in view.
+  const sec = t.closest("section") || t.closest(".row");
+  if (sec) sec.scrollIntoView({ block: "nearest" });
+  if (t.closest("#watchRow")) $("home").scrollTop = 0;
+}
+function move(dir) {
+  const all = tiles();
+  const cur = document.activeElement && document.activeElement.classList.contains("tile") ? document.activeElement : null;
+  if (!cur) { focusTile(all[0]); return; }
+  const a = cur.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  let best = null, bestScore = Infinity;
+  for (const t of all) {
+    if (t === cur) continue;
+    const b = t.getBoundingClientRect(), bx = b.left + b.width / 2, by = b.top + b.height / 2;
+    const dx = bx - ax, dy = by - ay;
+    let main, cross;
+    // Left/Right never leave the row: only tiles that overlap this one vertically qualify.
+    // Otherwise Right on the last Watch tile slid diagonally into the Apps row below.
+    const sameRow = b.top < a.bottom && b.bottom > a.top;
+    if (dir === "left") { if (dx >= -1 || !sameRow) continue; main = -dx; cross = Math.abs(dy); }
+    else if (dir === "right") { if (dx <= 1 || !sameRow) continue; main = dx; cross = Math.abs(dy); }
+    else if (dir === "up") { if (dy >= -1) continue; main = -dy; cross = Math.abs(dx); }
+    else { if (dy <= 1) continue; main = dy; cross = Math.abs(dx); }
+    // Moving sideways stays in the row; moving up/down prefers the tile straight above/below.
+    const score = (dir === "left" || dir === "right") ? main + cross * 4 : main + cross * 0.6;
+    if (score < bestScore) { bestScore = score; best = t; }
+  }
+  if (best) focusTile(best);
+}
+function goHome() {
+  stopIdle();
+  $("home").scrollTop = 0;
+  focusTile(tiles()[0]);
+}
+
+// ============================================================================================
+// Idle screen: farm photos with the clock, after five minutes without a button press
+// ============================================================================================
+const STATIC_PHOTOS = [{ src: "Goat1.png", cap: "" }, { src: "Goat2.png", cap: "" }, { src: "logo.png", cap: "Amen Farms" }];
+let photos = null, photosAt = 0, slideIx = 0, slideTimer = 0, idleTimer = 0, idleOn = false;
+async function loadPhotos() {
+  if (photos && Date.now() - photosAt < 60 * 60 * 1000) return;
+  try {
+    const goats = await fsWhere("chores_" + FAM, "frequency", "goathooves", ["name", "photos", "photo"]);
+    const list = [];
+    for (const g of goats) {
+      const ps = Array.isArray(g.photos) && g.photos.length ? g.photos : (g.photo ? [g.photo] : []);
+      for (const p of ps) if (typeof p === "string" && p.startsWith("data:image/")) list.push({ src: p, cap: g.name || "" });
+    }
+    // Shuffle so the slideshow isn't the same goat order every time.
+    for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+    photos = list.length ? list : STATIC_PHOTOS;
+    photosAt = Date.now();
+  } catch (e) { console.warn(e); if (!photos) photos = STATIC_PHOTOS; }
+}
+function updateIdleLine() {
+  const bits = [];
+  if (wxLine) bits.push(wxLine);
+  const nx = nextEventText();
+  if (nx) bits.push(nx);
+  $("idleLine").textContent = bits.join(" · ");
+}
+function showSlide() {
+  if (!photos || !photos.length) return;
+  const p = photos[slideIx % photos.length];
+  const on = $("ph" + (slideIx % 2)), off = $("ph" + ((slideIx + 1) % 2));
+  const bg = 'url("' + p.src + '")';
+  on.querySelector(".bk").style.backgroundImage = bg;
+  on.querySelector(".im").style.backgroundImage = bg;
+  on.classList.add("on");
+  off.classList.remove("on");
+  $("idleCap").textContent = p.cap || "";
+  slideIx++;
+}
+async function startIdle() {
+  if (idleOn) return;
+  idleOn = true;
+  await loadPhotos();
+  if (!idleOn) return;
+  updateIdleLine();
+  $("idle").hidden = false;
+  showSlide();
+  slideTimer = setInterval(showSlide, SLIDE_MS);
+}
+function stopIdle() {
+  if (!idleOn) return;
+  idleOn = false;
+  clearInterval(slideTimer);
+  $("idle").hidden = true;
+}
+function armIdle() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(startIdle, IDLE_MS);
+}
+
+// ============================================================================================
+// Input
+// ============================================================================================
+const KEY_DIR = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+document.addEventListener("keydown", (e) => {
+  armIdle();
+  // The first press only wakes the screen; it never also launches whatever had focus.
+  if (idleOn) { stopIdle(); e.preventDefault(); return; }
+  if (KEY_DIR[e.key]) { e.preventDefault(); move(KEY_DIR[e.key]); return; }
+  if (e.key === "Enter" || e.key === " ") {
+    const t = document.activeElement;
+    if (t && t.classList.contains("tile")) { e.preventDefault(); launch(t.dataset.act, t.dataset.pkg); }
+    return;
+  }
+  if (e.key === "Escape") { e.preventDefault(); goHome(); }
+});
+document.addEventListener("click", (e) => {
+  armIdle();
+  if (idleOn) { stopIdle(); return; }
+  const t = e.target.closest(".tile");
+  if (t) launch(t.dataset.act, t.dataset.pkg);
+});
+document.addEventListener("pointermove", armIdle, { passive: true });
+// From the Android wrapper: Back, Home pressed while already home, and coming back from an app.
+window.addEventListener("buckytv-back", () => { armIdle(); if (idleOn) stopIdle(); else goHome(); });
+window.addEventListener("buckytv-home", () => { armIdle(); goHome(); });
+window.addEventListener("buckytv-resume", () => { armIdle(); stopIdle(); refreshAll(); });
+
+// ============================================================================================
+// Boot + refresh
+// ============================================================================================
+let lastRefresh = 0;
+function refreshAll() {
+  // Coming back from an app re-reads what may have changed, at most once a minute.
+  if (Date.now() - lastRefresh < 60 * 1000) return;
+  lastRefresh = Date.now();
+  loadCalendar();
+  loadChores();
+  if (gfflLoadedWeek) refreshGfflBoard();
+}
+tickClock();
+setInterval(tickClock, 1000);
+setupApps();
+focusTile(tiles()[0]);
+armIdle();
+loadWeather();
+loadCalendar();
+loadChores();
+loadGffl();
+lastRefresh = Date.now();
+setInterval(loadWeather, 15 * 60 * 1000);
+setInterval(loadCalendar, 10 * 60 * 1000);
+setInterval(() => { loadChores(); renderCalendar(); }, 2 * 60 * 1000);
+// A new GFFL week starts Tuesday morning; check hourly whether the loaded week is stale.
+setInterval(() => { if (typeof FF !== "undefined" && !QS.get("week") && FF._currentWeek() !== gfflLoadedWeek) loadGffl(); }, 60 * 60 * 1000);
+// Warm the slideshow so the idle screen doesn't open on a blank frame.
+setTimeout(loadPhotos, 20 * 1000);
+</script>
+</body>
+</html>

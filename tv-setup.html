@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#18233b" />
+<title>Bucky TV setup</title>
+<link rel="icon" href="bucky.png" />
+<style>
+  :root { --ink: #15233f; --muted: #5d6b86; --line: #c9d6ea; --navy: #233357; --bg: #eef2fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 28px; margin: 8px 0 4px; }
+  h2 { font-size: 20px; margin: 32px 0 8px; color: var(--navy); }
+  p.lede { color: var(--muted); margin-top: 0; }
+  ol { padding-left: 22px; }
+  li { margin: 8px 0; }
+  code, .addr { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 15px; word-break: break-all; }
+  pre { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 14px; }
+  .note { background: #fff; border-left: 4px solid var(--navy); border-radius: 6px; padding: 10px 14px; margin: 14px 0; }
+  a { color: #1f5fbf; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bucky TV setup</h1>
+  <p class="lede">Puts the Bucky home screen on the living room TV. Takes about 10 minutes with the TV remote. Part 2 needs a computer for one command.</p>
+
+  <h2>Part 1: Install the app</h2>
+  <ol>
+    <li>On the TV, open <b>Settings → System → About</b>. Scroll to <b>Android TV OS build</b> and click it 7 times, until it says you are a developer.</li>
+    <li>Open the Google Play Store on the TV, search for <b>Downloader</b> (by AFTVnews) and install it.</li>
+    <li>Go to <b>Settings → Apps → Security &amp; restrictions → Unknown sources</b> and switch it on for Downloader.</li>
+    <li>Open Downloader and type this address:<br><span class="addr">amenfarms.netlify.app/tvapp/bucky-tv.apk</span></li>
+    <li>When it asks, choose <b>Install</b>. If Google Play Protect warns that it doesn't know the app, choose <b>Install anyway</b>. It's ours, it just isn't in the Play Store.</li>
+    <li>Bucky TV now shows in the TV's app list. Open it to check it works.</li>
+  </ol>
+
+  <h2>Part 2: Make it the home screen</h2>
+  <p>This switches off Google's home screen, so the Home button opens Bucky instead. Nothing is deleted, and it can be switched back (see Part 3).</p>
+  <ol>
+    <li>On the TV, go to <b>Settings → System → Developer options</b> and turn on <b>USB debugging</b>.</li>
+    <li>Find the TV's address in <b>Settings → Network &amp; Internet</b>, under your Wi-Fi network. It looks like <code>192.168.1.42</code>.</li>
+    <li>On a computer on the same Wi-Fi, install Google's <a href="https://developer.android.com/tools/releases/platform-tools">Android platform tools</a> and open a terminal in that folder.</li>
+    <li>Run these, using the TV's address. The TV will ask whether to allow debugging: choose <b>Always allow</b> and <b>OK</b>.
+<pre>adb connect 192.168.1.42:5555
+adb shell pm disable-user --user 0 com.google.android.apps.tv.launcherx</pre></li>
+    <li>Press <b>Home</b> on the remote. If the TV asks which home app to use, pick <b>Bucky TV</b> and <b>Always</b>.</li>
+    <li>Turn <b>USB debugging</b> back off.</li>
+  </ol>
+  <div class="note">If <code>adb connect</code> is refused, look in Developer options for <b>Wireless debugging</b>. Turn it on, choose <b>Pair device with pairing code</b>, and run <code>adb pair</code> with the address and code it shows. Then run <code>adb connect</code> with the address it lists under Wireless debugging.</div>
+  <div class="note">A Google TV system update can switch Google's home screen back on. If Home starts showing Google's screen again, repeat Part 2.</div>
+
+  <h2>Part 3: Putting Google's home screen back</h2>
+  <p>Repeat Part 2, but run this instead of the <code>disable-user</code> line:</p>
+  <pre>adb shell pm enable com.google.android.apps.tv.launcherx</pre>
+  <p>A factory reset also brings it back.</p>
+
+  <h2>Using it</h2>
+  <ol>
+    <li>The arrow buttons move between tiles, and the center button opens one.</li>
+    <li><b>Apps</b> (scroll down) has every other app on the TV, and <b>TV settings</b> at the end. Google's home screen is switched off, so the TV's settings are reached from here.</li>
+    <li>After 5 minutes without a button press it shows goat photos with the clock. Any button brings the home screen back.</li>
+    <li>Everything on the screen comes from the website, so changes to Bucky show up on the TV without reinstalling anything.</li>
+  </ol>
+</main>
+</body>
+</html>
