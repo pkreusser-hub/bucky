@@ -3010,3 +3010,34 @@ Bite tests:
 - Back at 13.4rem tiles, the two fit checks fail and the other 105 pass.
 - Against the previous page the suite cannot boot (no show tiles, no week calendar), so every
   new check fails there.
+
+**Logos and show art (same day, user: "can we use the actual logos").**
+
+Nothing is copied into the repo, because the repo is public. The images load from where they
+already live:
+- RedZone uses the logo on its Wikipedia article: `upload.wikimedia.org/wikipedia/en/…/NFL_Network_Redzone.png`.
+- MNF uses ESPN's wordmark and SNF uses NBC's peacock, both public domain on Commons
+  (PD-textlogo / PD).
+- Voyager (TVmaze 492) and TNG (491) use TVmaze background art from `api.tvmaze.com/shows/<id>/images`.
+  TVmaze allows web pages to load it (CORS-open).
+
+How the page uses them:
+- `addPicture()` inserts the image hidden. The tile takes `has-logo` or `has-art` only on `load`,
+  and an `error` removes the image, so a failed source leaves the text tile with no broken-image
+  icon.
+- `pickArt()` takes the `main` background, else the one nearest 1920 wide. Posters and banners are
+  never used. The pick is kept in localStorage for a week per show.
+- Logo tiles are white plates, because the logos are drawn for white. They stack the chip, the
+  logo, then a one-line name (1.1rem) and the game line. The first try put a two-line name at
+  1.2rem, which ran up into the logo on the plate.
+- Art tiles put the title over a dark fade.
+- The Commons API is rate-limited from the cloud box (shared address).
+  `Special:FilePath/<name>` still answers, and that is how the files were found.
+
+VERIFY gives **119/119**:
+- D3: logos land, the right file per tile, art picked by the rule (hand-picked from the fixture),
+  stack geometry, and a one-line name that isn't cut short.
+- L: both hosts down leaves clean text tiles; the weekly cache means no second TVmaze call after a
+  reload.
+
+Bite: against the page without pictures, 7 of these fail and the other 112 pass.

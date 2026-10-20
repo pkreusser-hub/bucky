@@ -95,6 +95,22 @@
   .s-mnf { background: linear-gradient(160deg, #5a2a1d, #2b1712); }
   .s-snf { background: linear-gradient(160deg, #24365c, #141f36); }
   .s-trek { background: radial-gradient(120% 90% at 80% 0%, #2b3550 0%, #0d1018 60%); color: #f3d58a; }
+  /* Logo tiles: the channel's logo on a white plate (the logos are drawn for white), with the
+     show's name and this week's game small beneath it. */
+  .t-show img.logo, .t-show img.art { display: none; }
+  .t-show.has-logo { background: #fff; color: var(--ink); justify-content: flex-end; padding-top: 1rem; }
+  /* Stacked top to bottom: chip, logo (2.7-5.6rem), then one line of name and one of game. A
+     two-line name at 1.2rem ran up into the logo, so the name is one line at 1.1rem. */
+  .t-show.has-logo img.logo { display: block; position: absolute; left: 1.2rem; right: 1.2rem; top: 2.7rem; height: 2.9rem; width: calc(100% - 2.4rem); object-fit: contain; }
+  .t-show.has-logo .ttl { display: block; width: 100%; font-family: "Source Sans 3", Roboto, sans-serif; font-weight: 700; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-show.has-logo .sub { color: var(--muted); opacity: 1; }
+  .t-show.has-logo .app { background: #efeadd; color: var(--ink-2); }
+  /* Art tiles: the show's artwork fills the tile, its title over a dark fade at the bottom. */
+  .t-show.has-art { justify-content: flex-end; padding-top: 1rem; color: #fffdf8; }
+  .t-show.has-art img.art { display: block; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .t-show.has-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(8,10,14,.92) 0%, rgba(8,10,14,.55) 45%, rgba(8,10,14,0) 75%); }
+  .t-show.has-art .app, .t-show.has-art .ttl { position: relative; z-index: 1; }
+  .t-show.has-art .app { position: absolute; background: rgba(8,10,14,.6); }
   .t-app { background: var(--cream); color: var(--ink); }
   .t-setup { background: var(--cream); color: var(--ink); font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 1.9rem; box-shadow: inset 0 0 0 .3rem var(--clay), var(--shadow); }
   .t-setup .sub { color: var(--muted); }
@@ -250,12 +266,22 @@ const APP_NAME = { prime: "Prime Video", yttv: "YouTube TV" };
 //   and copy the address bar (tv.youtube.com/watch/...). MNF is on ESPN, SNF on NBC.
 //   Prime Video shows: in the Prime Video app on a phone, open the show, Share, Copy link.
 // MNF and SNF also show this week's game on the tile, from ESPN's scoreboard.
+//
+// Pictures (user, 2026-10-20: "can we use the actual logos"). They are loaded from where they
+// already live, never copied into this public repo, and any that fails to load leaves the tile
+// as its plain text design:
+//   logo: the channel's logo on a white plate. ESPN's wordmark and NBC's peacock are public
+//         domain on Wikimedia Commons; RedZone's is the one on its Wikipedia article.
+//   tvmaze: the show's id on TVmaze (free, CORS-open); its landscape artwork fills the tile.
 const SHOWS = [
-  { id: "redzone", title: "NFL RedZone", app: "yttv", url: "", cls: "s-redzone", sub: "Sundays from noon" },
-  { id: "mnf", title: "Monday Night Football", app: "yttv", url: "", cls: "s-mnf", sub: "ESPN", game: { day: "Mon" } },
-  { id: "snf", title: "Sunday Night Football", app: "yttv", url: "", cls: "s-snf", sub: "NBC", game: { day: "Sun" } },
-  { id: "voyager", title: "Star Trek: Voyager", app: "prime", url: "", cls: "s-trek", sub: "" },
-  { id: "tng", title: "Star Trek: TNG", app: "prime", url: "", cls: "s-trek", sub: "The Next Generation" },
+  { id: "redzone", title: "NFL RedZone", app: "yttv", url: "", cls: "s-redzone", sub: "Sundays from noon",
+    logo: "https://upload.wikimedia.org/wikipedia/en/7/7b/NFL_Network_Redzone.png" },
+  { id: "mnf", title: "Monday Night Football", app: "yttv", url: "", cls: "s-mnf", sub: "ESPN", game: { day: "Mon" },
+    logo: "https://upload.wikimedia.org/wikipedia/commons/2/2f/ESPN_wordmark.svg" },
+  { id: "snf", title: "Sunday Night Football", app: "yttv", url: "", cls: "s-snf", sub: "NBC", game: { day: "Sun" },
+    logo: "https://upload.wikimedia.org/wikipedia/commons/3/3f/NBC_logo.svg" },
+  { id: "voyager", title: "Star Trek: Voyager", app: "prime", url: "", cls: "s-trek", sub: "", tvmaze: 492 },
+  { id: "tng", title: "Star Trek: TNG", app: "prime", url: "", cls: "s-trek", sub: "The Next Generation", tvmaze: 491 },
 ];
 
 // The Android wrapper (android-tv/) injects window.BuckyTV. In a plain browser it is absent,
@@ -429,8 +455,47 @@ function buildShows() {
     b.className = "tile t-show " + s.cls;
     b.dataset.act = "show";
     b.dataset.show = s.id;
-    b.innerHTML = '<span class="app">' + APP_NAME[s.app] + "</span><span>" + esc(s.title) + '<span class="sub" data-sub>' + esc(s.sub) + "</span></span>";
+    b.innerHTML = '<span class="app">' + APP_NAME[s.app] + '</span><span class="ttl">' + esc(s.title) + '<span class="sub" data-sub>' + esc(s.sub) + "</span></span>";
+    if (s.logo) addPicture(b, s.logo, "has-logo", "logo");
     $("watchRow").insertBefore(b, before);
+  }
+  loadShowArt();
+}
+// A picture goes in hidden and the tile switches to its picture style only once it has loaded,
+// so a slow or failed load never shows a broken image: the text tile simply stays.
+function addPicture(tile, src, cls, imgCls) {
+  const img = new Image();
+  img.className = imgCls;
+  img.alt = "";
+  img.addEventListener("load", () => { if (img.naturalWidth > 0) tile.classList.add(cls); });
+  img.addEventListener("error", () => { img.remove(); tile.classList.remove(cls); });
+  img.src = src;
+  tile.insertBefore(img, tile.firstChild);
+}
+// TVmaze's landscape artwork for a show: its main background, else the one nearest 1920 wide.
+// Kept for a week per show, so the TV asks TVmaze once a week, not on every start.
+function pickArt(images) {
+  const bgs = (images || []).filter((im) => im.type === "background" && im.resolutions && im.resolutions.original);
+  if (!bgs.length) return null;
+  const main = bgs.find((im) => im.main);
+  const pick = main || bgs.slice().sort((a, b) => Math.abs(a.resolutions.original.width - 1920) - Math.abs(b.resolutions.original.width - 1920))[0];
+  return pick.resolutions.original.url;
+}
+async function loadShowArt() {
+  for (const s of SHOWS.filter((x) => x.tvmaze)) {
+    const key = "buckytv_art_" + s.tvmaze;
+    let url = null;
+    try { const c = JSON.parse(localStorage.getItem(key) || "null"); if (c && Date.now() - c.at < 7 * 864e5) url = c.url; } catch (e) { /* no storage */ }
+    if (!url) {
+      try {
+        const r = await fetch("https://api.tvmaze.com/shows/" + s.tvmaze + "/images");
+        if (!r.ok) throw new Error("tvmaze " + r.status);
+        url = pickArt(await r.json());
+        if (url) { try { localStorage.setItem(key, JSON.stringify({ url, at: Date.now() })); } catch (e) { /* no storage */ } }
+      } catch (e) { console.warn(e); }
+    }
+    const tile = document.querySelector('[data-show="' + s.id + '"]');
+    if (url && tile && !tile.querySelector("img.art")) addPicture(tile, url, "has-art", "art");
   }
 }
 // The game a tile should name: the first one this week in that slot, Central time, kickoff

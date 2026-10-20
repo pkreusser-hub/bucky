@@ -144,6 +144,16 @@ const NIGHT_BOARD = { events: [
   nightEvent("903", centralAt(MON, 19, 15), "DAL", "NYG", "pre", "ESPN"),
 ] };
 
+// TVmaze /shows/<id>/images, in the API's shape. Voyager (492): two backgrounds, neither main,
+// so the rule takes the one nearest 1920 wide; a poster that is main must be ignored (portrait).
+// TNG (491): a main background at 1280 wins over a 1920 one that isn't main.
+const tvImg = (id, type, main, w, h) => ({ id, type, main, resolutions: { original: { url: "https://static.tvmaze.com/uploads/images/original_untouched/9/" + id + ".jpg", width: w, height: h } } });
+const TVMAZE = {
+  492: [tvImg(907309, "poster", true, 680, 1000), tvImg(907310, "background", false, 3840, 2160), tvImg(556981, "background", false, 1920, 1080)],
+  491: [tvImg(556352, "background", false, 1920, 1080), tvImg(756780, "background", true, 1280, 720), tvImg(756776, "banner", false, 758, 140)],
+};
+const ART_WANT = { voyager: "https://static.tvmaze.com/uploads/images/original_untouched/9/556981.jpg", tng: "https://static.tvmaze.com/uploads/images/original_untouched/9/756780.jpg" };
+
 // ------------------------------------------------------------------------------------------
 // Routing
 // ------------------------------------------------------------------------------------------
@@ -207,6 +217,17 @@ async function newPage(browser, viewport, opts) {
       return json({ error: { code: 404, message: "No document to update", status: "NOT_FOUND" } }, 404);
     }
     if (/api\.open-meteo\.com/.test(url)) return json(WX);
+    // Channel logos (Wikimedia) and show art (TVmaze), or their failures when the test asks.
+    if (/^https:\/\/upload\.wikimedia\.org\//.test(url)) {
+      if (opts.logosDown) return req.respond({ status: 404, contentType: "text/html", body: "Not Found" });
+      return req.respond({ status: 200, contentType: "image/png", body: fs.readFileSync(path.join(ROOT, "bucky.png")) });
+    }
+    if (/^https:\/\/api\.tvmaze\.com\/shows\/(\d+)\/images/.test(url)) {
+      if (opts.tvmaze) opts.tvmaze.push(url);
+      if (opts.tvmazeDown) return json({ name: "Service Unavailable" }, 503);
+      return json(TVMAZE[url.match(/shows\/(\d+)/)[1]] || []);
+    }
+    if (/^https:\/\/static\.tvmaze\.com\//.test(url)) return req.respond({ status: 200, contentType: "image/jpeg", body: fs.readFileSync(path.join(__dirname, "fixtures", "tv", "goat-0.jpg")) });
     if (/site\.api\.espn\.com\/.*\/scoreboard/.test(url)) return json(/week=/.test(url) ? BOARD : NIGHT_BOARD);
     if (/site\.api\.espn\.com\/.*\/summary\?event=401872948/.test(url)) return json(SUMMARY);
     if (/api\.sleeper\.com/.test(url)) return json([]);
@@ -376,6 +397,35 @@ async function run() {
     const noGame = await A.page.evaluate(() => nightGame([], "Mon"));
     ok(noGame === null, "no game in the slot: the tile keeps its network name");
 
+    console.log("\nD3. Logos and show art");
+    await A.page.waitForFunction(() => document.querySelectorAll(".t-show.has-logo").length === 3 && document.querySelectorAll(".t-show.has-art").length === 2, { timeout: 8000 }).catch(() => {});
+    const pics = await A.page.evaluate(() => Object.fromEntries([...document.querySelectorAll(".t-show")].map((t) => {
+      const img = t.querySelector("img");
+      return [t.dataset.show, { cls: t.classList.contains("has-logo") ? "logo" : t.classList.contains("has-art") ? "art" : "text", src: img ? img.src : "", w: img ? img.naturalWidth : 0 }];
+    })));
+    ok(["redzone", "mnf", "snf"].every((id) => pics[id].cls === "logo" && pics[id].w > 0), "RedZone, MNF and SNF show their channel logos (" + ["redzone", "mnf", "snf"].map((id) => pics[id].cls).join(",") + ")");
+    ok(/NFL_Network_Redzone\.png$/.test(pics.redzone.src) && /ESPN_wordmark\.svg$/.test(pics.mnf.src) && /NBC_logo\.svg$/.test(pics.snf.src), "each the right logo: RedZone, ESPN, NBC");
+    ok(pics.voyager.cls === "art" && pics.voyager.src === ART_WANT.voyager, "Voyager: no main background, so the one nearest 1920 wide, not the 4K one or the portrait poster (" + pics.voyager.src.split("/").pop() + ")");
+    ok(pics.tng.cls === "art" && pics.tng.src === ART_WANT.tng, "TNG: the main background wins over a wider one that isn't main (" + pics.tng.src.split("/").pop() + ")");
+    const picFit = await A.page.evaluate(() => [...document.querySelectorAll(".t-show")].map((t) => {
+      const box = (el) => el.getBoundingClientRect(), chip = box(t.querySelector(".app")), tile = box(t);
+      const r = document.createRange(); r.selectNodeContents((t.querySelector(".ttl") || t.children[1]).firstChild); const title = r.getBoundingClientRect();
+      const logo = t.classList.contains("has-logo") ? box(t.querySelector("img.logo")) : null;
+      return { id: t.dataset.show, ok: title.bottom <= tile.bottom && (logo ? logo.top >= chip.bottom && title.top >= logo.bottom : title.top >= chip.bottom) };
+    }));
+    ok(picFit.every((f) => f.ok), "chip, logo and title stack without touching, inside the tile (" + picFit.filter((f) => !f.ok).map((f) => f.id).join(",") + ")");
+    const nameCut = await A.page.evaluate(() => [...document.querySelectorAll(".t-show.has-logo .ttl")].filter((t) => t.scrollWidth > t.clientWidth).map((t) => t.closest(".t-show").dataset.show));
+    ok(nameCut.length === 0, "the one-line show name under each logo is not cut short (" + nameCut.join(",") + ")");
+    const logoText = await A.page.evaluate(() => { if (!document.querySelector(".t-show.has-logo")) return 0;
+      const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      const t = document.querySelector(".t-show.has-logo"), bg = rgb(getComputedStyle(t).backgroundColor);
+      return Math.min(cr(rgb(getComputedStyle(t.querySelector(".ttl")).color), bg), cr(rgb(getComputedStyle(t.querySelector(".sub")).color), bg), cr(rgb(getComputedStyle(t.querySelector(".app")).color), rgb(getComputedStyle(t.querySelector(".app")).backgroundColor)));
+    });
+    ok(logoText >= 4.5, "text on the white logo tiles clears 4.5:1 (lowest " + logoText.toFixed(2) + ")");
+    if (SHOT) await A.page.screenshot({ path: path.join(SHOTS, "tv-logos-960.png") });
+
     console.log("\nE. Remote-control navigation and launching");
     await A.page.keyboard.press("ArrowRight");
     ok((await active(A.page)) === "yttv", "Right moves to YouTube TV");
@@ -437,7 +487,7 @@ async function run() {
       // A show's title must start below its app chip. Measured on the title's own text.
       const clash = [...document.querySelectorAll(".t-show")].filter((t) => {
         const chip = t.querySelector(".app").getBoundingClientRect();
-        const r = document.createRange(); r.selectNodeContents(t.children[1].firstChild);
+        const r = document.createRange(); r.selectNodeContents((t.querySelector(".ttl") || t.children[1]).firstChild);
         return r.getBoundingClientRect().top < chip.bottom;
       }).map((t) => t.dataset.show);
       const wordInk = (() => { const r = document.createRange(); r.selectNodeContents(document.querySelector(".wordmark").firstChild); return r.getBoundingClientRect(); })();
@@ -595,6 +645,26 @@ async function run() {
     ok(site.docLoads === 2 && (await J.page.evaluate(() => updatePending === false)), "the new version doesn't keep reloading itself");
     ok(J.errors.length === 0, "no page errors (" + J.errors.join(" | ") + ")");
     await J.ctx.close();
+
+    console.log("\nL. Pictures unavailable, and kept for a week");
+    const L = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, logosDown: true, tvmazeDown: true });
+    await boot(L.page);
+    await sleep(800);
+    const lp = await L.page.evaluate(() => [...document.querySelectorAll(".t-show")].map((t) => ({ id: t.dataset.show, pic: t.classList.contains("has-logo") || t.classList.contains("has-art"), imgs: t.querySelectorAll("img").length, chip: !!t.querySelector(".app"), title: (t.querySelector(".ttl") || t.children[1]).firstChild.textContent })));
+    ok(lp.every((t) => !t.pic && t.imgs === 0), "with the logo host and TVmaze both failing, every show tile stays a text tile with no broken image (" + lp.filter((t) => t.pic || t.imgs).map((t) => t.id).join(",") + ")");
+    ok(lp.every((t) => t.chip && t.title), "…still naming the show and the app it opens in");
+    ok(L.errors.length === 0, "no page errors (" + L.errors.join(" | ") + ")");
+    await L.ctx.close();
+    const tvReqs = [];
+    const L2 = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, tvmaze: tvReqs });
+    await boot(L2.page);
+    await L2.page.waitForFunction(() => document.querySelectorAll(".t-show.has-art").length === 2, { timeout: 8000 }).catch(() => {});
+    const firstAsk = tvReqs.length;
+    await L2.page.reload({ waitUntil: "domcontentloaded" });
+    await L2.page.waitForFunction(() => document.querySelectorAll(".t-show.has-art").length === 2, { timeout: 8000 }).catch(() => {});
+    ok(firstAsk === 2 && tvReqs.length === 2, "TVmaze is asked once per show; a restart within the week uses the kept picture (" + firstAsk + " then " + (tvReqs.length - firstAsk) + ")");
+    ok(await L2.page.evaluate((want) => (document.querySelector('[data-show="voyager"] img.art') || {}).src === want, ART_WANT.voyager), "…and shows the same art from it");
+    await L2.ctx.close();
 
     /* ---- I · upstreams down ---------------------------------------------------------- */
     console.log("\nI. Everything upstream failing");
