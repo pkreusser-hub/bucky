@@ -76,19 +76,19 @@
   "6": [
    {
     "team": 1,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 2,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 12,
-    "result": ""
+    "result": "W"
    },
    {
     "team": 9,
-    "result": ""
+    "result": "W"
    }
   ]
  },
@@ -132,6 +132,16 @@
    3,
    2,
    4
+  ],
+  "6": [
+   9,
+   12,
+   3,
+   5,
+   11,
+   1,
+   4,
+   2
   ]
  },
  "weeks": {
@@ -492,6 +502,78 @@
      "name": "Josh Allen",
      "pos": "QB",
      "pts": 33.5
+    }
+   ]
+  },
+  "6": {
+   "bench": {
+    "1": 5.4,
+    "2": 20.6,
+    "3": 13.4,
+    "4": 4.1,
+    "5": 0,
+    "9": 8,
+    "11": 11,
+    "12": 2.4
+   },
+   "scores": {
+    "1": 101.14,
+    "2": 116.96,
+    "3": 145.74,
+    "4": 130.02,
+    "5": 114.5,
+    "9": 159.7,
+    "11": 140.06,
+    "12": 123.08
+   },
+   "games": [
+    {
+     "away": 3,
+     "home": 1
+    },
+    {
+     "away": 2,
+     "home": 4
+    },
+    {
+     "away": 12,
+     "home": 5
+    },
+    {
+     "away": 11,
+     "home": 9
+    }
+   ],
+   "top": [
+    {
+     "team": 3,
+     "name": "Trevor Lawrence",
+     "pos": "QB",
+     "pts": 30.34
+    },
+    {
+     "team": 11,
+     "name": "Kenneth Walker III",
+     "pos": "RB",
+     "pts": 29.9
+    },
+    {
+     "team": 11,
+     "name": "Tyler Shough",
+     "pos": "QB",
+     "pts": 26.96
+    },
+    {
+     "team": 12,
+     "name": "Christian McCaffrey",
+     "pos": "RB",
+     "pts": 26.2
+    },
+    {
+     "team": 2,
+     "name": "Malik Nabers",
+     "pos": "WR",
+     "pts": 25.5
     }
    ]
   }
