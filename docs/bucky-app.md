@@ -3041,3 +3041,30 @@ VERIFY gives **119/119**:
   reload.
 
 Bite: against the page without pictures, 7 of these fail and the other 112 pass.
+
+**No screensaver; logos on the app tiles (same day).**
+
+User: *"get rid of the screensaver view, I just want it to show the bucky tv page at all times"*,
+and for the app tiles, option 1 (logos where the TV gives no banner).
+
+- **The idle overlay is gone** (DOM, CSS, `startIdle`, `showSlide` and the idle line). The page
+  never covers itself.
+- **"Idle" now only means nobody is using the remote.** `armIdle()` stamps `lastInput` on every
+  input. After `IDLE_MS` (5 min) of quiet, a pending deploy reloads, and `checkForUpdate` also
+  reloads on its own if the remote is already quiet. Before, the reload waited for the screensaver.
+- Google TV's own screensaver (ambient mode) is a TV setting and is separate from this.
+- **The Prime Video and YouTube TV tiles** still use the app's banner from `TV.banner()` on the
+  TV. Without one (a browser, or an app with no banner), they show the Commons logo
+  (`Amazon_Prime_Video_logo.svg`, `YouTube_TV_logo.svg`) on a white plate, through the same
+  `addPicture()` as the channel logos.
+- Rendering the plate with the real images from the cloud box hit Wikimedia 429s
+  (`ERR_BLOCKED_BY_ORB` on the image), alternating which logo failed. The text fallback showed
+  each time. Both logos rendered on a clean run. A home TV makes 5 logo requests per page load.
+
+VERIFY gives **122/122**:
+- **G is restaged:** past the idle time nothing covers the page, and the first press acts.
+- **J is restaged:** presses every 0.7 s hold a deploy back, and it loads once the remote goes quiet.
+- **D3 and H:** the app logos.
+- **K2:** a fake bridge with banners keeps the banners.
+
+Bite: against the previous page, the 5 new checks fail and the other 117 pass.
