@@ -44,7 +44,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         web = new WebView(this);
-        web.setBackgroundColor(Color.rgb(20, 28, 22));
+        web.setBackgroundColor(Color.rgb(0x2f, 0x46, 0x34)); // the page's pine green, so loading never flashes
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -110,7 +110,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOffline() {
-        String html = "<body style='background:#141c16;color:#fff;font:32px sans-serif;"
+        String html = "<body style='background:#2f4634;color:#fffdf8;font:32px sans-serif;"
                 + "display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
                 + "<div style='text-align:center'><p>Bucky can't reach the internet.</p>"
                 + "<p style='font-size:24px;opacity:.7'>Trying again in 15 seconds.</p></div>"

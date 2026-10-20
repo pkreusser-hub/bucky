@@ -360,6 +360,42 @@ async function run() {
     // 1rem = 960/120 = 8 CSS px here; the clock is 6rem = 48 px type, i.e. 96 device px on the TV.
     ok(lay.clockH >= 40, "the clock's ink is TV-sized (" + Math.round(lay.clockH) + " CSS px at 960 wide)");
     if (SHOT) await A.page.screenshot({ path: path.join(SHOTS, "tv-960.png") });
+
+    console.log("\nF2. The Bucky look: brand, greeting, legible colours");
+    const look = await A.page.evaluate(() => {
+      const mark = document.querySelector(".brand .mark");
+      const q = (sel) => document.querySelector(sel);
+      const fam = (sel) => (q(sel) ? getComputedStyle(q(sel)).fontFamily : "");
+      return { markW: mark ? mark.naturalWidth : 0, markShown: mark ? mark.getBoundingClientRect().width : 0,
+        word: q(".wordmark") ? q(".wordmark").textContent : "", hub: q(".hub") ? q(".hub").textContent : "",
+        greet: q("#greet") ? q("#greet").textContent : "",
+        fonts: [fam(".clock"), fam(".greet"), fam(".wordmark"), fam(".panel h2")] };
+    });
+    ok(look.markW === 256 && look.markShown > 20, "the Bucky goat mark (bucky.png) loads and shows beside the wordmark");
+    ok(look.word === "Bucky" && look.hub === "Family Farm Hub", "wordmark reads 'Bucky · Family Farm Hub', as in the app");
+    const h = new Date().getHours();
+    const wantGreet = h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : "Good evening";
+    ok(look.greet === wantGreet, "the greeting follows the hour (" + h + " -> '" + look.greet + "')");
+    ok(look.fonts.every((f) => /^Fraunces/.test(f)), "clock, greeting, wordmark and card titles are set in Fraunces, the app's display face");
+    // WCAG contrast of the text the family reads from the couch, from computed colours. Text on
+    // the page ground is measured against the LIGHTEST point of it: the top of the pine gradient
+    // under the 6% cream highlight. Card text against the card's own cream.
+    const pairs = await A.page.evaluate(() => {
+      const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      const pine = [0x3f, 0x5c, 0x46], ground = pine.map((v) => v * 0.94 + 255 * 0.06);
+      const col = (sel) => (document.querySelector(sel) ? rgb(getComputedStyle(document.querySelector(sel)).color) : [255, 255, 255]);
+      const cardBg = rgb(getComputedStyle(document.querySelector(".panel")).backgroundColor);
+      const out = {};
+      for (const sel of [".row-label", ".date", ".hub", ".wx-desc", ".greet"]) out[sel + " on pine"] = cr(col(sel), ground);
+      for (const sel of [".panel h2", ".ev .when", ".ev .what", ".chore .by", ".chore-sum", ".ev-day", ".mu .meta"]) out[sel + " on cream"] = cr(col(sel), cardBg);
+      return out;
+    });
+    const low = Object.entries(pairs).filter(([, v]) => v < 4.5);
+    ok(low.length === 0, "every text colour clears 4.5:1 (lowest " + Object.entries(pairs).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([k, v]) => k + " " + v.toFixed(2)).join(", ") + ")" + (low.length ? " FAILING: " + low.map(([k, v]) => k + " " + v.toFixed(2)).join(", ") : ""));
+    const careCls = await A.page.evaluate(() => [...document.querySelectorAll("#care span")].map((c) => c.className));
+    ok(careCls[0] === "" && careCls[1] === "away", "a slot someone else covers (Joy tonight) is marked apart from ours");
     ok(A.escaped.filter((u) => !NOISE.test(u)).length === 0, "nothing left the mocks (" + A.escaped.filter((u) => !NOISE.test(u)).join(", ") + ")");
     await A.ctx.close();
 
@@ -393,7 +429,11 @@ async function run() {
     await H.page.keyboard.press("Enter");
     ok((await H.page.evaluate(() => window.__opened[0])) === "https://www.primevideo.com", "Prime Video falls back to its website");
     const hl = await H.page.evaluate(() => ({ docW: document.documentElement.scrollWidth, vw: innerWidth, gffl: document.getElementById("gfflSec").getBoundingClientRect().bottom, vh: innerHeight }));
-    ok(hl.docW <= hl.vw && hl.gffl <= hl.vh, "everything through the GFFL strip fits one 1080p screen (" + Math.round(hl.gffl) + " <= " + hl.vh + ")");
+    // Some TVs still crop the picture edge (overscan); 2.5% of the height is kept clear below
+    // the strip. Restaged with the Farmstead header: "<= the viewport" passed at 1074 of 1080,
+    // which a cropping set would cut.
+    const safe = Math.floor(hl.vh * 0.975);
+    ok(hl.docW <= hl.vw && hl.gffl <= safe, "everything through the GFFL strip fits one 1080p screen inside a 2.5% overscan margin (" + Math.round(hl.gffl) + " <= " + safe + ")");
     if (SHOT) await H.page.screenshot({ path: path.join(SHOTS, "tv-1920.png") });
     await H.ctx.close();
 

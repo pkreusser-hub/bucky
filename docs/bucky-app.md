@@ -2838,7 +2838,35 @@ the **launcher**. There are three parts:
 - **`tv-setup.html`** is the family-facing install guide: Downloader, then adb
   `pm disable-user ... launcherx`, and how to undo it.
 
-VERIFY: `node tools/_verify-tv.cjs [--shots]` gives **72/72** (section J, the deploy pickup, was
+**Farmstead look (same day, user: "give the home screen more of a bucky aesthetic").**
+- The page took index.html's `#farmstead-theme`:
+  - the goat mark, the Fraunces "Bucky" wordmark, "Family Farm Hub" and the rail's clay-and-cream
+    stripe
+  - a date in small caps over a Fraunces greeting (Good morning / afternoon / evening)
+  - cream cards with Fraunces titles and clay event times
+  - a cream-and-clay focus ring
+- **The ground is pine green, not the app's cream.** A full-screen cream page glares in a dark
+  room, so the cards carry the cream.
+- **Colours were picked by measured contrast.**
+  - The app's `--muted` #8b9184 is 3.2:1 on cream, so cards use #6f7668 (4.6:1).
+  - Labels on the green use #e2e5da. It is 5.0:1 at the ground's lightest point; the first pick,
+    #d8dccf under a 10% highlight, measured 4.1:1 and failed.
+- **Overscan.** The taller header first pushed the GFFL strip past 1080. The 1080p check now keeps
+  2.5% clear for TVs that crop the edge. It reached 1046 of the 1053 allowed after trimming the
+  clock, the tile height and the panel padding.
+- The wrapper's loading colour and offline page went pine to match, which needed an APK rebuild.
+  No TV had installed the earlier one.
+
+VERIFY: `node tools/_verify-tv.cjs [--shots]` gives **78/78**. F2 is the look:
+- the mark loads
+- wordmark and greeting by the hour
+- Fraunces on the display text
+- WCAG 4.5:1 for every text colour, from computed styles
+- someone else's care slot marked apart
+
+Against the pre-Farmstead page those 6 checks fail and the other 72 pass.
+
+Earlier count: **72/72** (section J, the deploy pickup, was
 added the same day; against the page before it, 6 of its 8 checks fail and the 64 earlier ones pass).
 - It runs at 960x540 with a faked bridge, at 1920x1080 without one, through the idle screen, and
   with every upstream down.

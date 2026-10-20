@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="theme-color" content="#18233b" />
+<meta name="theme-color" content="#3f5c46" />
 <title>Bucky TV</title>
 <link rel="icon" href="bucky.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -17,131 +17,155 @@
 <style>
   /* Bucky TV: the family's TV home screen, shown full-screen by the Bucky TV Android app
      (android-tv/). Sized in rem where 1rem = 1/120 of the screen width, so the same layout
-     fills a 1080p TV (WebView reports 960 CSS px there) and a desktop browser alike. */
+     fills a 1080p TV (WebView reports 960 CSS px there) and a desktop browser alike.
+
+     Farmstead look, from index.html's #farmstead-theme: pine green, cream cards, clay accent,
+     Fraunces for display type. The page ground is the pine green of the desktop rail rather than
+     the app's cream, because a full-screen cream page glares in a dark living room; the cards
+     carry the cream. Text colours are picked for contrast, measured in tools/_verify-tv.cjs:
+     the app's --muted (#8b9184) is 3.2:1 on cream, too faint across a room, so cards use
+     #6f7668 (4.6:1), and labels on the green use #e2e5da (5.0:1 at the lightest point of
+     the ground, under the 6% cream highlight). */
   :root {
-    --bg: #141c2e;
-    --bg-2: #1c2740;
-    --panel: rgba(255,255,255,.06);
-    --panel-line: rgba(255,255,255,.10);
-    --ink: #f3f5fa;
-    --ink-2: #b9c3d8;
-    --muted: #8391ad;
-    --red: #ba303e;
-    --gold: #f2c14e;
-    --live: #4cc38a;
-    --focus: #ffffff;
+    --green: #3f5c46; --green-d: #2f4634; --green-dd: #24372a;
+    --cream: #fffdf8; --paper: #f4f1e8; --line: #e3ded0;
+    --ink: #26332b; --ink-2: #4b584e; --muted: #6f7668;
+    --on-green: #fffdf8; --on-green-2: #e2e5da;
+    --clay: #b8552f; --clay-soft: #f3e4dc;
+    --good: #3e7d51; --good-soft: #e4eee6;
+    --amber: #c08a3e; --amber-soft: #f5ecdb;
+    --shadow: 0 .2rem .5rem rgba(20,30,24,.18), 0 .8rem 2rem rgba(20,30,24,.16);
   }
   [hidden] { display: none !important; }
   * { box-sizing: border-box; }
   html { font-size: calc(100vw / 120); }
   html, body { margin: 0; height: 100%; overflow: hidden; }
   body {
-    background: radial-gradient(90% 70% at 15% -10%, #2a3d66 0%, transparent 60%), linear-gradient(180deg, var(--bg-2), var(--bg));
-    color: var(--ink);
+    background: radial-gradient(80% 60% at 10% -10%, rgba(255,253,248,.06) 0%, transparent 60%), linear-gradient(180deg, var(--green) 0%, var(--green-d) 70%, var(--green-dd) 100%);
+    color: var(--on-green);
     font-family: "Source Sans 3", Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
     font-size: 1.5rem;
     cursor: default;
   }
-  #home { height: 100%; overflow: hidden; padding: 2.6rem 5rem 4rem; }
+  #home { height: 100%; overflow: hidden; padding: 2rem 5rem 4rem; }
 
-  /* ---------- header: clock + weather ---------- */
+  /* ---------- header: brand + greeting | clock + weather ---------- */
   .top { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 1.8rem; }
-  .clock { font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 6rem; line-height: 1; letter-spacing: -.04em; }
-  .date { color: var(--ink-2); font-size: 1.9rem; margin-top: .5rem; font-weight: 600; }
-  .wx { display: flex; align-items: flex-end; gap: 2.4rem; }
-  .wx-now { display: flex; align-items: center; gap: 1rem; }
-  .wx-now svg { width: 4.6rem; height: 4.6rem; }
-  .wx-temp { font-size: 4.6rem; font-weight: 700; line-height: 1; }
-  .wx-desc { color: var(--ink-2); font-size: 1.5rem; }
-  .wx-days { display: flex; gap: 1.6rem; }
-  .wx-day { text-align: center; font-size: 1.4rem; color: var(--ink-2); }
-  .wx-day b { display: block; color: var(--ink); font-weight: 700; }
-  .wx-day svg { width: 2.6rem; height: 2.6rem; display: block; margin: .3rem auto; }
-  .wx-day .pp { color: #7fb8ff; font-size: 1.2rem; }
+  .brand { display: flex; align-items: center; gap: 1.1rem; margin-bottom: 1.1rem; }
+  .brand .mark { width: 3.4rem; height: 3.4rem; border-radius: .9rem; display: block; box-shadow: 0 .2rem .6rem rgba(0,0,0,.2); }
+  .wordmark { font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 2.3rem; line-height: 1; color: var(--on-green); }
+  .hub { font-size: 1.05rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--on-green-2); margin-top: .35rem; }
+  /* The rail's red-and-cream stripe under "Family Farm Hub". */
+  .hub::after { content: ""; display: block; width: 5rem; height: .3rem; margin-top: .45rem; border-radius: .2rem;
+    background: repeating-linear-gradient(90deg, var(--clay) 0 1rem, var(--cream) 1rem 1.6rem); }
+  .date { color: var(--on-green-2); font-size: 1.3rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .greet { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 3.7rem; line-height: 1.05; margin-top: .2rem; }
+  .right { text-align: right; }
+  .clock { font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 5.4rem; line-height: 1; letter-spacing: -.03em; }
+  .wx { display: flex; align-items: center; justify-content: flex-end; gap: 2.2rem; margin-top: .6rem; }
+  .wx-now { display: flex; align-items: center; gap: .8rem; text-align: left; }
+  .wx-now svg { width: 3.8rem; height: 3.8rem; }
+  .wx-temp { font-size: 3.4rem; font-weight: 700; line-height: 1; }
+  .wx-desc { color: var(--on-green-2); font-size: 1.35rem; }
+  .wx-days { display: flex; gap: 1.5rem; padding-left: 2.2rem; border-left: 1px solid rgba(255,253,248,.18); }
+  .wx-day { text-align: center; font-size: 1.3rem; color: var(--on-green-2); }
+  .wx-day b { display: block; color: var(--on-green); font-weight: 700; }
+  .wx-day svg { width: 2.3rem; height: 2.3rem; display: block; margin: .2rem auto; }
+  .wx-day .pp { color: #cfe3ff; font-size: 1.15rem; font-weight: 600; }
 
   /* ---------- rows + tiles ---------- */
-  .row-label { font-size: 1.4rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 .8rem; }
+  .row-label { font-size: 1.3rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--on-green-2); margin: 0 0 .8rem; }
   .row { display: flex; gap: 1.6rem; overflow: hidden; padding: .9rem .9rem 1.2rem; margin: -.9rem -.9rem .6rem; scroll-behavior: smooth; }
   .tile {
-    flex: 0 0 auto; position: relative; width: 19rem; height: 10.7rem; border-radius: 1rem; border: 0;
-    display: flex; align-items: flex-end; padding: 1.1rem 1.3rem; color: #fff; font: inherit; font-weight: 700; font-size: 1.9rem;
-    text-align: left; background: var(--bg-2); overflow: hidden; outline: none;
+    flex: 0 0 auto; position: relative; width: 19rem; height: 10.7rem; border-radius: 1.4rem; border: 0;
+    display: flex; align-items: flex-end; padding: 1.1rem 1.4rem; color: #fff; font: inherit; font-weight: 700; font-size: 1.9rem;
+    text-align: left; background: var(--green-dd); overflow: hidden; outline: none;
     transition: transform .12s ease, box-shadow .12s ease;
-    box-shadow: 0 .3rem 1rem rgba(0,0,0,.35);
+    box-shadow: var(--shadow);
   }
   .tile img.banner { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  .tile .sub { display: block; font-size: 1.2rem; font-weight: 600; opacity: .85; margin-top: .2rem; }
-  .tile.big { width: 25rem; height: 14rem; font-size: 2.4rem; }
-  .tile:focus, .tile.focus { transform: scale(1.06); box-shadow: 0 0 0 .35rem var(--focus), 0 1rem 2.4rem rgba(0,0,0,.55); z-index: 2; }
+  .tile .sub { display: block; font-size: 1.2rem; font-weight: 600; opacity: .9; margin-top: .2rem; }
+  .tile.big { width: 24rem; height: 13rem; font-size: 2.4rem; }
+  /* Focus: a cream ring with a clay keyline outside it, the farm's two accent colours. */
+  .tile:focus, .tile.focus { transform: scale(1.06); box-shadow: 0 0 0 .32rem var(--cream), 0 0 0 .6rem var(--clay), 0 1.2rem 2.6rem rgba(10,18,12,.5); z-index: 2; }
   .t-prime { background: linear-gradient(135deg, #1a98ff, #0f4fa8); }
   .t-yttv { background: linear-gradient(135deg, #e3262f, #8e0f16); }
-  .t-redzone { background: linear-gradient(135deg, #c8102e 0%, #c8102e 48%, #111 48%, #111 100%); }
-  .t-redzone .rz { font-family: Fraunces, Georgia, serif; font-size: 2.8rem; letter-spacing: -.02em; }
-  .t-app { background: linear-gradient(135deg, #2f3d5f, #1d2842); }
-  .t-settings { background: linear-gradient(135deg, #3b4a6b, #252f49); width: 14rem; }
-  .t-settings svg { position: absolute; top: 1.2rem; left: 1.3rem; width: 3rem; height: 3rem; opacity: .9; }
+  .t-redzone { background: linear-gradient(135deg, var(--clay) 0%, var(--clay) 50%, var(--ink) 50%, var(--ink) 100%); }
+  .t-redzone .rz { font-family: Fraunces, Georgia, serif; font-size: 2.9rem; letter-spacing: -.01em; }
+  .t-app { background: var(--cream); color: var(--ink); }
+  .t-settings { background: var(--green-dd); width: 14rem; box-shadow: inset 0 0 0 1px rgba(255,253,248,.2), var(--shadow); }
+  .t-settings svg { position: absolute; top: 1.2rem; left: 1.4rem; width: 3rem; height: 3rem; opacity: .9; }
 
-  /* ---------- today: calendar + chores ---------- */
-  .today { display: grid; grid-template-columns: 1.35fr 1fr; gap: 1.8rem; margin: .6rem 0 2rem; }
-  .panel { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 1.2rem; padding: 1.4rem 1.7rem; min-height: 13rem; }
-  .panel h2 { margin: 0 0 1rem; font-size: 1.4rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-  .ev { display: flex; gap: 1.4rem; align-items: baseline; padding: .45rem 0; font-size: 1.8rem; }
-  .ev .when { flex: 0 0 9.5rem; color: var(--gold); font-weight: 700; font-size: 1.6rem; }
+  /* ---------- today: calendar + chores, as the app's cream cards ---------- */
+  .today { display: grid; grid-template-columns: 1.35fr 1fr; gap: 1.8rem; margin: .3rem 0 1.6rem; }
+  .panel { background: var(--cream); color: var(--ink); border: 1px solid var(--line); border-radius: 1.6rem; padding: 1.2rem 1.8rem; min-height: 13rem; box-shadow: var(--shadow); }
+  .panel h2 { margin: 0 0 .7rem; font-family: Fraunces, Georgia, serif; font-size: 1.9rem; font-weight: 600; color: var(--ink); }
+  .ev { display: flex; gap: 1.4rem; align-items: baseline; padding: .4rem 0; font-size: 1.8rem; }
+  .ev .when { flex: 0 0 9.5rem; color: var(--clay); font-weight: 700; font-size: 1.6rem; }
   .ev .what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ev-day { font-size: 1.3rem; color: var(--muted); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin: .7rem 0 .2rem; }
+  .ev-day { font-size: 1.2rem; color: var(--muted); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin: .8rem 0 .2rem; padding-top: .7rem; border-top: 1px solid var(--line); }
   .empty { color: var(--muted); font-size: 1.6rem; }
-  .care { display: flex; gap: 1.2rem; margin-bottom: 1rem; }
-  .care span { background: rgba(255,255,255,.08); border-radius: 99rem; padding: .3rem 1rem; font-size: 1.4rem; color: var(--ink-2); }
-  .care span b { color: var(--ink); }
-  .chore { display: flex; align-items: center; gap: .9rem; font-size: 1.7rem; padding: .3rem 0; }
+  .care { display: flex; gap: 1rem; margin-bottom: .9rem; }
+  .care span { background: var(--good-soft); color: var(--ink-2); border-radius: 99rem; padding: .3rem 1.1rem; font-size: 1.35rem; }
+  .care span b { color: var(--green-d); }
+  .care span.away { background: var(--amber-soft); }
+  .care span.away b { color: #8a5d1e; }
+  .chore { display: flex; align-items: center; gap: .9rem; font-size: 1.7rem; padding: .28rem 0; }
   .chore svg { flex: 0 0 auto; width: 1.8rem; height: 1.8rem; }
   .chore.done { color: var(--muted); }
-  .chore.done .nm { text-decoration: line-through; text-decoration-color: rgba(255,255,255,.35); }
+  .chore.done .nm { text-decoration: line-through; text-decoration-color: rgba(38,51,43,.3); }
   .chore .by { margin-left: auto; font-size: 1.3rem; color: var(--muted); }
-  .chore-sum { font-size: 1.4rem; color: var(--ink-2); margin-top: .6rem; }
+  .chore-sum { font-size: 1.35rem; color: var(--ink-2); font-weight: 600; margin-top: .6rem; }
 
   /* ---------- GFFL strip ---------- */
   .gffl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-bottom: 2rem; }
-  .mu { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 1rem; padding: .9rem 1.2rem; }
-  .mu .tm { display: flex; justify-content: space-between; gap: 1rem; font-size: 1.6rem; padding: .15rem 0; }
+  .mu { background: var(--cream); color: var(--ink); border: 1px solid var(--line); border-radius: 1.3rem; padding: .9rem 1.3rem; box-shadow: var(--shadow); }
+  .mu .tm { display: flex; justify-content: space-between; gap: 1rem; font-size: 1.6rem; padding: .15rem 0; color: var(--ink-2); }
   .mu .tm .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mu .tm .pts { font-weight: 800; font-variant-numeric: tabular-nums; }
-  .mu .tm.lead .nm { color: #fff; font-weight: 700; }
-  .mu .tm:not(.lead) { color: var(--ink-2); }
-  .mu .meta { font-size: 1.2rem; color: var(--muted); margin-top: .3rem; display: flex; justify-content: space-between; }
-  .mu .meta .live { color: var(--live); font-weight: 700; }
+  .mu .tm.lead { color: var(--ink); }
+  .mu .tm.lead .nm { font-weight: 700; }
+  .mu .meta { font-size: 1.2rem; color: var(--muted); margin-top: .35rem; padding-top: .35rem; border-top: 1px solid var(--line); display: flex; justify-content: space-between; }
+  .mu .meta .live { color: var(--good); font-weight: 700; }
   .gffl-h { display: flex; align-items: baseline; gap: 1.2rem; }
   .gffl-h .row-label { margin-bottom: .8rem; }
-  .gffl-h .note { font-size: 1.3rem; color: var(--muted); }
+  .gffl-h .note { font-size: 1.3rem; color: var(--on-green-2); }
 
   /* ---------- idle screen ---------- */
-  #idle { position: fixed; inset: 0; background: #000; z-index: 50; }
+  #idle { position: fixed; inset: 0; background: var(--green-dd); z-index: 50; }
   #idle .ph { position: absolute; inset: 0; opacity: 0; transition: opacity 1.6s ease; overflow: hidden; }
   #idle .ph.on { opacity: 1; }
   /* Goat photos are stored 500 px wide; stretched to a TV they go soft. Each shows at its own
      shape, over a blurred, darkened copy of itself filling the screen. */
   #idle .ph .bk { position: absolute; inset: -4rem; background-size: cover; background-position: center; filter: blur(2.4rem) brightness(.55); }
   #idle .ph .im { position: absolute; inset: 0; background-size: contain; background-position: center; background-repeat: no-repeat; }
-  #idle .scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; background: linear-gradient(0deg, rgba(0,0,0,.75), transparent); }
-  #idle .corner { position: absolute; left: 5rem; bottom: 3.6rem; text-shadow: 0 .2rem 1rem rgba(0,0,0,.7); }
+  #idle .scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; background: linear-gradient(0deg, rgba(20,30,24,.8), transparent); }
+  #idle .corner { position: absolute; left: 5rem; bottom: 3.6rem; text-shadow: 0 .2rem 1rem rgba(0,0,0,.6); }
   #idle .corner .clock { font-size: 7rem; }
-  #idle .corner .line { font-size: 2rem; color: #e8ecf5; margin-top: .6rem; }
-  #idle .cap { position: absolute; right: 5rem; bottom: 3.8rem; font-size: 1.8rem; color: #e8ecf5; text-shadow: 0 .2rem 1rem rgba(0,0,0,.7); }
+  #idle .corner .line { font-size: 2rem; color: var(--paper); margin-top: .6rem; }
+  #idle .cap { position: absolute; right: 5rem; bottom: 3.8rem; font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 2.4rem; color: var(--paper); text-shadow: 0 .2rem 1rem rgba(0,0,0,.6); }
 
-  #toast { position: fixed; left: 50%; bottom: 4rem; transform: translateX(-50%); background: rgba(10,14,24,.94); color: #fff; border: 1px solid var(--panel-line);
-    padding: 1.1rem 2rem; border-radius: 1rem; font-size: 1.7rem; z-index: 60; max-width: 80rem; text-align: center; }
+  #toast { position: fixed; left: 50%; bottom: 4rem; transform: translateX(-50%); background: var(--ink); color: var(--cream); border: 1px solid rgba(255,253,248,.2);
+    padding: 1.1rem 2rem; border-radius: 1.2rem; font-size: 1.7rem; z-index: 60; max-width: 80rem; text-align: center; box-shadow: var(--shadow); }
 </style>
 </head>
 <body>
 <main id="home">
   <header class="top">
     <div>
-      <div class="clock" id="clock">--:--</div>
+      <div class="brand">
+        <img class="mark" src="bucky.png" alt="" width="256" height="256" />
+        <div><div class="wordmark">Bucky</div><div class="hub">Family Farm Hub</div></div>
+      </div>
       <div class="date" id="date"></div>
+      <div class="greet" id="greet"></div>
     </div>
-    <div class="wx" id="wx" hidden>
-      <div class="wx-now"><span id="wxNowIcon"></span><div><div class="wx-temp" id="wxTemp"></div><div class="wx-desc" id="wxDesc"></div></div></div>
-      <div class="wx-days" id="wxDays"></div>
+    <div class="right">
+      <div class="clock" id="clock">--:--</div>
+      <div class="wx" id="wx" hidden>
+        <div class="wx-now"><span id="wxNowIcon"></span><div><div class="wx-temp" id="wxTemp"></div><div class="wx-desc" id="wxDesc"></div></div></div>
+        <div class="wx-days" id="wxDays"></div>
+      </div>
     </div>
   </header>
 
@@ -257,10 +281,15 @@ async function fsWhere(coll, field, value, select) {
 // Clock
 // ============================================================================================
 function fmtTime(d) { return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M$/i, ""); }
+function greeting(d) {
+  const h = d.getHours();
+  return h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : "Good evening";
+}
 function tickClock() {
   const d = new Date();
   $("clock").textContent = fmtTime(d);
   $("date").textContent = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  $("greet").textContent = greeting(d);
   $("idleClock").textContent = fmtTime(d);
 }
 
@@ -401,13 +430,14 @@ async function loadChores() {
     if (!chores.length) $("choreList").innerHTML = '<div class="empty">Couldn\'t load chores</div>';
   }
 }
-const CHECK = { done: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#4cc38a"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  open: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#8391ad" stroke-width="2.2"/></svg>' };
+const CHECK = { done: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#3e7d51"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  open: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#b9b29f" stroke-width="2.2"/></svg>' };
 const TOD_ORDER = { morning: 0, noon: 1, night: 2 };
 function renderChores() {
   const d = new Date();
   const am = careSlotGroup(d, "am"), pm = careSlotGroup(d, "pm");
-  $("care").innerHTML = "<span>Morning: <b>" + esc(am) + "</b></span><span>Night: <b>" + esc(pm) + "</b></span>";
+  const chip = (label, g) => "<span" + (g === CARE_OWNER_GROUP ? "" : ' class="away"') + ">" + label + ": <b>" + esc(g) + "</b></span>";
+  $("care").innerHTML = chip("Morning", am) + chip("Night", pm);
   const list = chores.filter((c) => choreOnDuty(c, d))
     .sort((a, b) => (TOD_ORDER[a.timeOfDay] ?? 0) - (TOD_ORDER[b.timeOfDay] ?? 0) || (a.order ?? 999) - (b.order ?? 999));
   if (!list.length) {
