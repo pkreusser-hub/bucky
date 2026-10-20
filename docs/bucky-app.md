@@ -2875,3 +2875,57 @@ added the same day; against the page before it, 6 of its 8 checks fail and the 6
 - The GFFL fixtures are the real week-3 captures under `tools/fixtures/sunday-ff/`.
 - Bite test: with the same-row rule removed from `move()`, the 4 navigation and launch checks
   fail and the other 60 pass.
+
+## Bucky TV: Home opens Bucky without switching Google's launcher off (2026-10-20, app 1.1)
+
+**The adb route failed on the family's TCL set, so it is no longer the setup.** The registered
+HOME handlers, from `cmd package query-activities ... HOME`, are:
+
+| package | priority | what it is |
+|---|---|---|
+| `launcherx` | 2 | Google's home screen |
+| `com.google.android.tungsten.setupwraith` | 1 | the setup wizard |
+| `com.amenfarms.buckytv` | 0 | Bucky TV |
+| `com.android.tv.settings` | -1000 | FallbackHome |
+
+- `cmd package set-home-activity` is ignored while a higher-priority handler is enabled.
+- Disabling `launcherx` hands Home to `setupwraith`, which draws a **black screen**. That happened
+  twice, once after a restart.
+- Recovery is `pm enable` on both packages.
+- Disabling both packages would probably work, but the TV's network adb then dropped off the LAN
+  (ping: host unreachable), so the family asked for a route with no computer.
+
+**`HomeWatcher` (accessibility service, `android-tv/.../HomeWatcher.java`).**
+- It listens for `TYPE_WINDOW_STATE_CHANGED`, only from `launcherx`
+  (`res/xml/home_watcher.xml`, `canRetrieveWindowContent=false`).
+- When the class is exactly `...launcherx.home.HomeActivity`, it starts `MainActivity`.
+- Other launcherx screens (the long-press-Home dashboard, the profile picker) are left alone.
+- A 1.5 s debounce stops one Home press, which fires several events, from launching twice.
+- **Behaviour the user chose:** Bucky opens whenever Google's home would appear, which covers Home
+  and a normal power-on. A TV set to resume its last app or an HDMI input does that instead. The
+  rejected option was opening Bucky on every screen-on.
+- An accessibility service is exempt from Android 12's background-activity-start limit.
+- Android 13+ would add a "restricted setting" step for a sideloaded app; this TV is on 12.
+
+**The app is now version 2 / 1.1**, signed with the same key, so it installs over 1.0.
+- The bridge gained `homeOverride()` (reads `ENABLED_ACCESSIBILITY_SERVICES`) and
+  `openAccessibilitySettings()`.
+- `tv.html` shows a **"Make Home open Bucky"** tile at the end of the Watch row only while
+  `homeOverride()` returns false.
+- `buckytv-resume` re-checks it, so the tile disappears on return from Settings. Focus that was on
+  the tile moves to the first tile.
+- A 1.0 app has no `homeOverride` and gets no tile.
+- `tv-setup.html` Part 2 is now this switch. The adb route is documented only as what not to do,
+  with the recovery commands.
+
+**VERIFY:**
+- `node tools/_verify-tv.cjs` gives **88/88**.
+  - Section K is new: the tile with the switch off, its place in the row, Enter, hiding on resume,
+    no tile when the switch is on.
+  - Section A gained: no tile from a 1.0 bridge.
+  - Bite: against the previous page, 5 of the new checks fail and the other 83 pass.
+- JVM unit tests: `gradle testReleaseUnitTest` in `android-tv/` gives **6/6** (`HomeWatcherTest`).
+  - They cover the class and package filter, the debounce, and full and short component forms in
+    the enabled-services setting.
+  - Bite: dropping the class check fails `googlesOtherScreensAreLeftAlone`.
+  - Maven Central answered 429 once; the second try resolved junit.

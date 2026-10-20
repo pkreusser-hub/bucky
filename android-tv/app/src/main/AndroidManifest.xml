@@ -42,13 +42,30 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Lets the TV use Bucky TV as its home screen once Google's launcher is switched
-                 off (see tv-setup.html). -->
+            <!-- A HOME candidate too, for anyone who switches Google's launcher off over adb.
+                 On Google TV that alone is not enough: the setup wizard (setupwraith) outranks
+                 a sideloaded app and shows a black screen, so the family setup uses
+                 HomeWatcher instead (see tv-setup.html). -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Makes Home open Bucky while Google's home screen stays switched on; the family
+             turns it on in Settings > System > Accessibility. See HomeWatcher. -->
+        <service
+            android:name=".HomeWatcher"
+            android:label="@string/home_watcher_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/home_watcher" />
+        </service>
     </application>
 </manifest>

@@ -187,7 +187,7 @@ async function newPage(browser, viewport, opts) {
     escaped.push(url);
     return req.abort();
   });
-  await page.evaluateOnNewDocument((withBridge) => {
+  await page.evaluateOnNewDocument((withBridge, bridgeV2, homeOn) => {
     window.__opened = [];
     window.open = (u) => { window.__opened.push(u); return null; };
     if (withBridge) {
@@ -207,8 +207,16 @@ async function newPage(browser, viewport, opts) {
         ]),
         banner: () => "",
       };
+      // Version 2 of the app adds the Home-button setup (HomeWatcher). Version 1 has neither
+      // method, which is what a TV still running the first install exposes.
+      if (bridgeV2) {
+        window.__homeOn = !!homeOn;
+        window.BuckyTV.version = () => 2;
+        window.BuckyTV.homeOverride = () => window.__homeOn;
+        window.BuckyTV.openAccessibilitySettings = () => { window.__calls.push(["accessibility"]); return true; };
+      }
     }
-  }, !!opts.bridge);
+  }, !!opts.bridge, !!opts.v2, !!opts.homeOn);
   return { page, ctx, errors, escaped, seen };
 }
 const NOISE = /fonts\.g|Failed to load resource|ERR_FAILED/i;
@@ -261,6 +269,7 @@ async function run() {
     await boot(A.page);
     ok(A.errors.length === 0, "no page errors (" + A.errors.join(" | ") + ")");
     ok((await active(A.page)) === "prime", "Prime Video has focus on open (" + (await active(A.page)) + ")");
+    ok(!(await shown(A.page, "#homeSetup")), "an app from before version 2 (no homeOverride) gets no Home setup tile");
     ok(/^\d{1,2}:\d{2}$/.test(await text(A.page, "#clock")), "the clock shows the time (" + (await text(A.page, "#clock")) + ")");
     // Hand-computed from the fixture: 61.6 rounds to 62; today's 72.4/50.2 -> 72/50; code 2 is partly cloudy.
     ok((await text(A.page, "#wxTemp")) === "62°", "current temperature 61.6 shows as 62° (" + (await text(A.page, "#wxTemp")) + ")");
@@ -438,6 +447,28 @@ async function run() {
     await H.ctx.close();
 
     /* ---- J · picking up a new deploy -------------------------------------------------- */
+    console.log("\nK. Making Home open Bucky (app version 2's HomeWatcher)");
+    const K = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, v2: true, homeOn: false });
+    await boot(K.page);
+    ok(K.errors.length === 0, "no page errors (" + K.errors.join(" | ") + ")");
+    ok(await shown(K.page, "#homeSetup"), "with the switch still off, a 'Make Home open Bucky' tile shows");
+    ok(await K.page.evaluate(() => { const t = document.getElementById("homeSetup"); if (!t) return false; const r = t.getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth && r.bottom <= innerHeight; }), "…on the first screen, inside the width");
+    ok((await active(K.page)) === "prime", "focus still opens on Prime Video, not on the setup tile");
+    for (let i = 0; i < 3; i++) await K.page.keyboard.press("ArrowRight");
+    ok((await active(K.page)) === "homesetup", "it is the last tile of the Watch row, after RedZone");
+    if (SHOT) await K.page.screenshot({ path: path.join(SHOTS, "tv-homesetup.png") });
+    await K.page.keyboard.press("Enter");
+    ok(JSON.stringify(await K.page.evaluate(() => window.__calls)) === JSON.stringify([["accessibility"]]), "Enter opens the TV's Accessibility settings and launches nothing else");
+    // The family flips the switch and comes back: the wrapper's resume event re-checks.
+    await K.page.evaluate(() => { window.__homeOn = true; window.dispatchEvent(new Event("buckytv-resume")); });
+    ok(!(await shown(K.page, "#homeSetup")), "once it's on, coming back to Bucky hides the tile");
+    ok((await active(K.page)) === "prime", "…and focus that was on the tile moves to the first tile instead of vanishing");
+    await K.ctx.close();
+    const K2 = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, v2: true, homeOn: true });
+    await boot(K2.page);
+    ok(!(await shown(K2.page, "#homeSetup")), "already switched on: no tile at all");
+    await K2.ctx.close();
+
     console.log("\nJ. A new deploy reaches the TV without a restart");
     const site = { deployed: false, down: false, docLoads: 0 };
     const J = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, site });

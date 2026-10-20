@@ -25,42 +25,33 @@
 <body>
 <main>
   <h1>Bucky TV setup</h1>
-  <p class="lede">Puts the Bucky home screen on the living room TV. Takes about 10 minutes with the TV remote. Part 2 needs a computer for one command.</p>
+  <p class="lede">Puts the Bucky home screen on the living room TV. About 10 minutes with the TV remote, no computer needed.</p>
 
   <h2>Part 1: Install the app</h2>
   <ol>
     <li>On the TV, open <b>Settings → System → About</b>. Scroll to <b>Android TV OS build</b> and click it 7 times, until it says you are a developer.</li>
     <li>Open the Google Play Store on the TV, search for <b>Downloader</b> (by AFTVnews) and install it.</li>
-    <li>Go to <b>Settings → Apps → Security &amp; restrictions → Unknown sources</b> and switch it on for Downloader.</li>
     <li>Open Downloader and type this address:<br><span class="addr">amenfarms.netlify.app/tvapp/bucky-tv.apk</span></li>
-    <li>When it asks, choose <b>Install</b>. If Google Play Protect warns that it doesn't know the app, choose <b>Install anyway</b>. It's ours, it just isn't in the Play Store.</li>
-    <li>Bucky TV now shows in the TV's app list. Open it to check it works.</li>
+    <li>When it finishes downloading, the TV will probably refuse to install it, with a <b>Settings</b> button. Choose <b>Settings</b>, switch Downloader on, press <b>Back</b>, and choose <b>Install</b>.</li>
+    <li>If Google Play Protect warns that it doesn't know the app, choose <b>Install anyway</b>. It's ours, it just isn't in the Play Store.</li>
+    <li>Choose <b>Open</b>. The Bucky home screen should appear.</li>
   </ol>
+  <div class="note">No Settings button? The switch is under <b>Settings → Apps → Security &amp; restrictions → Unknown sources</b> on most Google TVs, or <b>Settings → Privacy → Security &amp; restrictions</b> on some. It only appears once developer mode is on (step 1), and it is hidden on a kids profile.</div>
 
-  <h2>Part 2: Make it the home screen</h2>
-  <p>This switches off Google's home screen, so the Home button opens Bucky instead. Nothing is deleted, and it can be switched back (see Part 3).</p>
+  <h2>Part 2: Make Home open Bucky</h2>
+  <p>Google's home screen stays installed and switched on. Bucky watches for it and opens itself in its place, so Home, and turning the TV on, land on Bucky after a moment's flash of Google's screen.</p>
   <ol>
-    <li>On the TV, go to <b>Settings → System → Developer options</b> and turn on <b>USB debugging</b>.</li>
-    <li>Find the TV's address in <b>Settings → Network &amp; Internet</b>, under your Wi-Fi network. It looks like <code>192.168.1.42</code>.</li>
-    <li>On a computer on the same Wi-Fi, install Google's <a href="https://developer.android.com/tools/releases/platform-tools">Android platform tools</a> and open a terminal in that folder.</li>
-    <li>Run these, using the TV's address. The TV will ask whether to allow debugging: choose <b>Always allow</b> and <b>OK</b>.
-<pre>adb connect 192.168.1.42:5555
-adb shell pm disable-user --user 0 com.google.android.apps.tv.launcherx</pre></li>
-    <li>Press <b>Home</b> on the remote. If the TV asks which home app to use, pick <b>Bucky TV</b> and <b>Always</b>.</li>
-    <li>Turn <b>USB debugging</b> back off.</li>
+    <li>On the Bucky screen, choose the <b>Make Home open Bucky</b> tile. It opens the TV's Accessibility settings. (Or go to <b>Settings → System → Accessibility</b>.)</li>
+    <li>Choose <b>Bucky TV Home button</b> and switch it on. The TV warns that the app could see the screen; Bucky only watches for Google's home screen and reads nothing on it. Choose <b>OK</b>.</li>
+    <li>Press <b>Home</b>. Bucky should come up, and the setup tile is gone.</li>
   </ol>
-  <div class="note">If <code>adb connect</code> is refused, look in Developer options for <b>Wireless debugging</b>. Turn it on, choose <b>Pair device with pairing code</b>, and run <code>adb pair</code> with the address and code it shows. Then run <code>adb connect</code> with the address it lists under Wireless debugging.</div>
-  <div class="note">A Google TV system update can switch Google's home screen back on. If Home starts showing Google's screen again, repeat Part 2.</div>
-
-  <h2>Part 3: Putting Google's home screen back</h2>
-  <p>Repeat Part 2, but run this instead of the <code>disable-user</code> line:</p>
-  <pre>adb shell pm enable com.google.android.apps.tv.launcherx</pre>
-  <p>A factory reset also brings it back.</p>
+  <div class="note">To go back to Google's home screen, switch <b>Bucky TV Home button</b> off again in the same place. Bucky stays in the app list.</div>
+  <div class="note">Don't switch Google's home screen off with a computer (<code>pm disable-user</code>). On this TV, Google's setup screen takes over Home instead and the TV shows a black screen. If that has happened, connect with <code>adb</code> and run <code>adb shell pm enable com.google.android.apps.tv.launcherx</code> and <code>adb shell pm enable com.google.android.tungsten.setupwraith</code>.</div>
 
   <h2>Using it</h2>
   <ol>
     <li>The arrow buttons move between tiles, and the center button opens one.</li>
-    <li><b>Apps</b> (scroll down) has every other app on the TV, and <b>TV settings</b> at the end. Google's home screen is switched off, so the TV's settings are reached from here.</li>
+    <li><b>Apps</b> (scroll down) has every other app on the TV, and <b>TV settings</b> at the end.</li>
     <li>After 5 minutes without a button press it shows goat photos with the clock. Any button brings the home screen back.</li>
     <li>Everything on the screen comes from the website, so changes to Bucky show up on the TV without reinstalling anything. The TV checks for a new version every 10 minutes and switches over the next time the goat photos come on, so it never changes while someone is using it.</li>
   </ol>

@@ -93,6 +93,8 @@
   .t-redzone { background: linear-gradient(135deg, var(--clay) 0%, var(--clay) 50%, var(--ink) 50%, var(--ink) 100%); }
   .t-redzone .rz { font-family: Fraunces, Georgia, serif; font-size: 2.9rem; letter-spacing: -.01em; }
   .t-app { background: var(--cream); color: var(--ink); }
+  .t-setup { background: var(--cream); color: var(--ink); font-family: Fraunces, Georgia, serif; font-weight: 600; box-shadow: inset 0 0 0 .3rem var(--clay), var(--shadow); }
+  .t-setup .sub { font-family: "Source Sans 3", Roboto, sans-serif; color: var(--muted); }
   .t-settings { background: var(--green-dd); width: 14rem; box-shadow: inset 0 0 0 1px rgba(255,253,248,.2), var(--shadow); }
   .t-settings svg { position: absolute; top: 1.2rem; left: 1.4rem; width: 3rem; height: 3rem; opacity: .9; }
 
@@ -174,6 +176,7 @@
     <button class="tile big t-prime" data-act="prime"><span>Prime Video</span></button>
     <button class="tile big t-yttv" data-act="yttv"><span>YouTube TV</span></button>
     <button class="tile big t-redzone" data-act="redzone"><span><span class="rz">RedZone</span><span class="sub">on YouTube TV</span></span></button>
+    <button class="tile big t-setup" data-act="homesetup" id="homeSetup" hidden><span>Make Home open Bucky<span class="sub">One switch in the TV's settings</span></span></button>
   </div>
 
   <section class="today">
@@ -540,6 +543,17 @@ function setupApps() {
   $("appsSec").hidden = false;
 }
 function safe(fn, dflt) { try { return fn(); } catch (e) { return dflt; } }
+// The Home button opens Bucky through the app's HomeWatcher, which the family switches on once
+// in Settings > Accessibility. Until it is on, a tile offers to take them there. An app from
+// before version 2 has no homeOverride() and gets no tile (it can't open the setting either).
+function updateHomeSetup() {
+  const needed = !!TV && typeof TV.homeOverride === "function" && !safe(() => TV.homeOverride(), true);
+  const tile = $("homeSetup");
+  if (tile.hidden === !needed) return;
+  const hadFocus = document.activeElement === tile;
+  tile.hidden = !needed;
+  if (hadFocus && !needed) focusTile(tiles()[0]);
+}
 
 // ============================================================================================
 // Actions
@@ -552,6 +566,10 @@ function toast(msg) {
   toast._t = setTimeout(() => { t.hidden = true; }, 4000);
 }
 function launch(act, pkg) {
+  if (act === "homesetup") {
+    if (!(TV && typeof TV.openAccessibilitySettings === "function" && TV.openAccessibilitySettings())) toast("Open Settings, then System, then Accessibility, and switch on Bucky TV Home button");
+    return;
+  }
   if (act === "settings") { if (!(TV && TV.openSettings())) toast("Settings open from the TV remote"); return; }
   if (act === "app") { if (!(TV && TV.launch(pkg))) toast("That app isn't installed"); return; }
   if (act === "redzone") {
@@ -697,7 +715,7 @@ document.addEventListener("pointermove", armIdle, { passive: true });
 // From the Android wrapper: Back, Home pressed while already home, and coming back from an app.
 window.addEventListener("buckytv-back", () => { armIdle(); if (idleOn) stopIdle(); else goHome(); });
 window.addEventListener("buckytv-home", () => { armIdle(); goHome(); });
-window.addEventListener("buckytv-resume", () => { armIdle(); stopIdle(); refreshAll(); });
+window.addEventListener("buckytv-resume", () => { armIdle(); stopIdle(); updateHomeSetup(); refreshAll(); });
 
 // ============================================================================================
 // Picking up new deploys. The wrapper keeps this page open for days as the home screen, so a
@@ -741,6 +759,7 @@ function refreshAll() {
 tickClock();
 setInterval(tickClock, 1000);
 setupApps();
+updateHomeSetup();
 focusTile(tiles()[0]);
 armIdle();
 loadWeather();
