@@ -434,23 +434,25 @@ async function run() {
     await A.page.keyboard.press("Enter");
     let calls = await A.page.evaluate(() => window.__calls.slice());
     // The family's links (2026-10-20): RedZone's YouTube TV channel page, ESPN's and NBC's live
-    // streams, Voyager's Prime Video page. TNG has none yet, so it is the "not linked" case.
+    // streams, Voyager's and TNG's Prime Video pages.
     const YTTV = "com.google.android.youtube.tvunplugged", PRIME = "com.amazon.amazonvideo.livingroom";
     ok(calls.length === 1 && JSON.stringify(calls[0]) === JSON.stringify(["openUrl", "https://tv.youtube.com/browse/UC2P9QOChMRn6kPUpBcjVlWw", YTTV]), "RedZone opens its channel page in YouTube TV (" + JSON.stringify(calls[0]) + ")");
     const linked = [["mnf", "https://tv.youtube.com/watch/PFuNFGzJDE4", YTTV, "MNF opens ESPN in YouTube TV"],
       ["snf", "https://tv.youtube.com/watch/5-T6_ZU9bmA", YTTV, "SNF opens NBC in YouTube TV"],
-      ["voyager", "https://www.amazon.com/gp/video/detail/B00C16V4B0", PRIME, "Voyager opens its page in Prime Video"]];
+      ["voyager", "https://www.amazon.com/gp/video/detail/B00C16V4B0", PRIME, "Voyager opens its page in Prime Video"],
+      ["tng", "https://www.amazon.com/gp/video/detail/B0CQ7XDXSJ", PRIME, "TNG opens its page in Prime Video"]];
     for (const [id, url, pkg, msg] of linked) {
       await A.page.keyboard.press("ArrowRight");
       await A.page.keyboard.press("Enter");
       calls = await A.page.evaluate(() => window.__calls.slice());
       ok((await active(A.page)) === id && JSON.stringify(calls[calls.length - 1]) === JSON.stringify(["openUrl", url, pkg]), msg + " (" + JSON.stringify(calls[calls.length - 1]) + ")");
     }
-    await A.page.keyboard.press("ArrowRight");
-    ok((await active(A.page)) === "tng", "Right to Star Trek: TNG");
+    // Every show is linked now, so the "not linked yet" path is exercised by clearing one: a show
+    // whose link is removed later must still open its app, not do nothing.
+    await A.page.evaluate(() => { SHOWS.find((x) => x.id === "tng").url = ""; });
     await A.page.keyboard.press("Enter");
     calls = await A.page.evaluate(() => window.__calls.slice());
-    ok(JSON.stringify(calls[4]) === JSON.stringify(["launch", PRIME]), "TNG, with no link yet, opens Prime Video (" + JSON.stringify(calls[4]) + ")");
+    ok(JSON.stringify(calls[5]) === JSON.stringify(["launch", PRIME]), "a show with no link opens its app (" + JSON.stringify(calls[5]) + ")");
     ok(await shown(A.page, "#toast") && (await text(A.page, "#toast")) === "Star Trek: TNG isn't linked yet. Opening Prime Video.", "…and says the show isn't linked yet");
     ok(await A.page.evaluate(() => { const r = document.activeElement.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; }), "the last tile is fully on screen");
     await A.page.keyboard.press("ArrowRight");
@@ -459,7 +461,7 @@ async function run() {
     ok((await active(A.page)) === "prime", "Left walks back to Prime Video");
     await A.page.keyboard.press("Enter");
     calls = await A.page.evaluate(() => window.__calls.slice());
-    ok(calls[5] && calls[5][1] === "com.amazon.amazonvideo.livingroom", "Enter on Prime Video launches its Android TV package");
+    ok(calls[6] && calls[6][1] === "com.amazon.amazonvideo.livingroom", "Enter on Prime Video launches its Android TV package");
     await A.page.keyboard.press("ArrowDown");
     const apps = await A.page.evaluate(() => [...document.querySelectorAll("#appsRow .tile")].map((t) => t.dataset.pkg || t.dataset.act));
     ok((await active(A.page)).startsWith("app:"), "Down from the Watch row lands in Apps (" + (await active(A.page)) + ")");
@@ -592,8 +594,9 @@ async function run() {
     await H.page.keyboard.press("Enter");
     ok((await H.page.evaluate(() => window.__opened[1])) === "https://tv.youtube.com/watch/PFuNFGzJDE4", "in a browser a linked show (MNF) opens its own link");
     for (let i = 0; i < 3; i++) await H.page.keyboard.press("ArrowRight");
+    await H.page.evaluate(() => { SHOWS.find((x) => x.id === "tng").url = ""; });
     await H.page.keyboard.press("Enter");
-    ok((await H.page.evaluate(() => window.__opened[2])) === "https://www.primevideo.com", "an unlinked Prime Video show (TNG) falls back to primevideo.com");
+    ok((await H.page.evaluate(() => window.__opened[2])) === "https://www.primevideo.com", "a Prime Video show with no link falls back to primevideo.com");
     const hl = await H.page.evaluate(() => ({ docW: document.documentElement.scrollWidth, vw: innerWidth, gffl: document.getElementById("gfflSec").getBoundingClientRect().bottom, vh: innerHeight }));
     // Some TVs still crop the picture edge (overscan); 2.5% of the height is kept clear below
     // the strip. Restaged with the Farmstead header: "<= the viewport" passed at 1074 of 1080,
