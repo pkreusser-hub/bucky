@@ -196,8 +196,8 @@ const FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
 const FS_BASE = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents";
 const LAT = 34.686537, LON = -86.210417;
 const TZ = "America/Chicago";
-// ?week=N pins the GFFL week and ?idle=S shortens the idle timer to S seconds, for previews
-// and tools/_verify-tv.cjs. The TV itself loads the bare URL.
+// ?week=N pins the GFFL week, ?idle=S sets the idle timer and ?check=S the update check, in
+// seconds, for previews and tools/_verify-tv.cjs. The TV itself loads the bare URL.
 const QS = new URLSearchParams(location.search);
 const IDLE_MS = (Number(QS.get("idle")) || 5 * 60) * 1000;
 const SLIDE_MS = 12 * 1000;
@@ -628,6 +628,7 @@ async function startIdle() {
   $("idle").hidden = false;
   showSlide();
   slideTimer = setInterval(showSlide, SLIDE_MS);
+  if (updatePending) location.reload();
 }
 function stopIdle() {
   if (!idleOn) return;
@@ -669,6 +670,33 @@ window.addEventListener("buckytv-home", () => { armIdle(); goHome(); });
 window.addEventListener("buckytv-resume", () => { armIdle(); stopIdle(); refreshAll(); });
 
 // ============================================================================================
+// Picking up new deploys. The wrapper keeps this page open for days as the home screen, so a
+// change to the site would otherwise wait for the TV to restart. Every few minutes the page
+// re-reads its own source (and the GFFL engine it loads); when either differs from what it
+// booted with, it reloads the next time the idle screen comes up, never under someone's thumb.
+// ============================================================================================
+const UPDATE_CHECK_MS = (Number(QS.get("check")) || 10 * 60) * 1000;
+const SELF_FILES = [location.pathname, "assets/sunday/sd-fantasy.js"];
+let bootHash = null, updatePending = false;
+function hashText(t) { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36) + ":" + t.length; }
+async function deployedHash() {
+  const texts = await Promise.all(SELF_FILES.map(async (f) => {
+    const r = await fetch(f, { cache: "no-store" });
+    if (!r.ok) throw new Error("update check " + r.status + " for " + f);
+    return r.text();
+  }));
+  return hashText(texts.join("\n"));
+}
+async function checkForUpdate() {
+  try {
+    const h = await deployedHash();
+    if (bootHash == null) bootHash = h;
+    else if (h !== bootHash) updatePending = true;
+  } catch (e) { /* offline or mid-deploy: try again next time */ }
+  if (updatePending && idleOn) location.reload();
+}
+
+// ============================================================================================
 // Boot + refresh
 // ============================================================================================
 let lastRefresh = 0;
@@ -697,6 +725,8 @@ setInterval(() => { loadChores(); renderCalendar(); }, 2 * 60 * 1000);
 setInterval(() => { if (typeof FF !== "undefined" && !QS.get("week") && FF._currentWeek() !== gfflLoadedWeek) loadGffl(); }, 60 * 60 * 1000);
 // Warm the slideshow so the idle screen doesn't open on a blank frame.
 setTimeout(loadPhotos, 20 * 1000);
+checkForUpdate();
+setInterval(checkForUpdate, UPDATE_CHECK_MS);
 </script>
 </body>
 </html>

@@ -144,6 +144,12 @@ async function newPage(browser, viewport, opts) {
     // A cross-origin POST with a JSON body is preflighted, as it is against the real Firestore.
     if (req.method() === "OPTIONS" && !url.startsWith(BASE)) return req.respond({ status: 204, headers: CORS, body: "" });
     if (url.startsWith(BASE)) {
+      // A "deploy" while the page is open: from now on the server hands out a changed tv.html.
+      if (opts.site && /\/tv\.html(\?|$)/.test(url)) {
+        if (req.resourceType() === "document") opts.site.docLoads++;
+        if (opts.site.down && req.resourceType() !== "document") return req.respond({ status: 503, contentType: "text/plain", body: "deploying" });
+        if (opts.site.deployed) return req.respond({ status: 200, contentType: "text/html", body: fs.readFileSync(path.join(ROOT, "tv.html"), "utf8") + "\n<!-- deploy 2 -->\n" });
+      }
       if (url.includes("/.netlify/functions/calendar")) {
         const b = JSON.parse(req.postData() || "{}");
         if (b.secret !== "amenfarms" || b.action !== "list") return json({ error: "unauthorized" }, 401);
@@ -390,6 +396,31 @@ async function run() {
     ok(hl.docW <= hl.vw && hl.gffl <= hl.vh, "everything through the GFFL strip fits one 1080p screen (" + Math.round(hl.gffl) + " <= " + hl.vh + ")");
     if (SHOT) await H.page.screenshot({ path: path.join(SHOTS, "tv-1920.png") });
     await H.ctx.close();
+
+    /* ---- J · picking up a new deploy -------------------------------------------------- */
+    console.log("\nJ. A new deploy reaches the TV without a restart");
+    const site = { deployed: false, down: false, docLoads: 0 };
+    const J = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, site });
+    await boot(J.page, "?week=3&check=1&idle=600");
+    await J.page.evaluate(() => { window.__mark = 1; });
+    await sleep(2500);
+    ok(await J.page.evaluate(() => window.__mark === 1 && typeof updatePending !== "undefined" && updatePending === false), "nothing deployed: no update pending, no reload");
+    site.down = true;
+    await sleep(2500);
+    ok(await J.page.evaluate(() => window.__mark === 1 && typeof updatePending !== "undefined" && updatePending === false), "the site briefly failing (503) is not mistaken for a new version");
+    site.down = false;
+    site.deployed = true;
+    await sleep(2500);
+    ok(await J.page.evaluate(() => typeof updatePending !== "undefined" && updatePending === true), "after a deploy the page notices within one check");
+    ok(await J.page.evaluate(() => window.__mark === 1) && site.docLoads === 1, "…but does not reload while someone may be using it");
+    await Promise.all([J.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => null), J.page.evaluate(() => startIdle())]);
+    await J.page.waitForFunction(() => document.querySelector("#calList .ev"), { timeout: 10000 }).catch(() => {});
+    ok(site.docLoads === 2 && (await J.page.evaluate(() => window.__mark)) === undefined, "when the idle screen comes up it reloads into the new version (" + site.docLoads + " loads)");
+    ok(/deploy 2/.test(await J.page.content()), "the reloaded page is the new deploy");
+    await sleep(2500);
+    ok(site.docLoads === 2 && (await J.page.evaluate(() => updatePending === false)), "the new version doesn't keep reloading itself");
+    ok(J.errors.length === 0, "no page errors (" + J.errors.join(" | ") + ")");
+    await J.ctx.close();
 
     /* ---- I · upstreams down ---------------------------------------------------------- */
     console.log("\nI. Everything upstream failing");

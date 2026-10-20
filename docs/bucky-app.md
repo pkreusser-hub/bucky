@@ -2813,8 +2813,12 @@ the **launcher**. There are three parts:
   - **Idle screen.** After 5 minutes without a button press it shows a goat-photo slideshow.
     Photos are 500 px wide, so each one shows at its own shape over a blurred copy of itself
     rather than stretched.
-  - **URL overrides.** `?week=N` pins the GFFL week and `?idle=S` sets the idle timeout in
-    seconds, for previews and the suite.
+  - **Picking up deploys.** The wrapper keeps the page open for days, so every 10 minutes it
+    re-reads its own source plus `sd-fantasy.js` (`cache: "no-store"`). When their hash differs
+    from the boot read, it reloads the next time the idle screen comes up, never while someone is
+    using the remote. A failed or 503 read changes nothing.
+  - **URL overrides.** `?week=N` pins the GFFL week, `?idle=S` sets the idle timeout and
+    `?check=S` the update check, in seconds, for previews and the suite.
 - **`android-tv/`** is the wrapper: a ~200-line Java app with no dependencies.
   - It is a full-screen WebView on `https://amenfarms.netlify.app/tv.html`. It declares
     `LEANBACK_LAUNCHER` (so it shows in the app list) and `HOME` (so it can be the home screen
@@ -2834,7 +2838,8 @@ the **launcher**. There are three parts:
 - **`tv-setup.html`** is the family-facing install guide: Downloader, then adb
   `pm disable-user ... launcherx`, and how to undo it.
 
-VERIFY: `node tools/_verify-tv.cjs [--shots]` gives **64/64**.
+VERIFY: `node tools/_verify-tv.cjs [--shots]` gives **72/72** (section J, the deploy pickup, was
+added the same day; against the page before it, 6 of its 8 checks fail and the 64 earlier ones pass).
 - It runs at 960x540 with a faked bridge, at 1920x1080 without one, through the idle screen, and
   with every upstream down.
 - Firestore, Open-Meteo, the calendar, ESPN and Sleeper are all route-mocked in their real
