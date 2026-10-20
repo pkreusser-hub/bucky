@@ -1,0 +1,312 @@
+{
+ "season": 2026,
+ "week": 6,
+ "type": "recap",
+ "published": "2026-10-20",
+ "subject": "RoboGoat: Sandy concedes to Isaac before GFFL does (Week 6 recap)",
+ "description": "Sandy congratulates Isaac before GFFL calls it, Perry's released quarterback outscores his new one for Calvin, Joe beats Perry by 44.6, and Tom wins on two Saturday signings.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-6/share.png",
+ "window": "Oct. 15 to 19, 2026",
+ "picksWeek": "2-2",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "3-3",
+  "2": "1-5",
+  "3": "3-3",
+  "4": "2-4",
+  "5": "3-3",
+  "9": "5-1",
+  "11": "3-3",
+  "12": "4-2"
+ },
+ "games": [
+  {
+   "away": 3,
+   "awayPts": 145.74,
+   "home": 1,
+   "homePts": 101.14,
+   "note": "The Adams trade produced 5.4 points between both sides."
+  },
+  {
+   "away": 2,
+   "awayPts": 116.96,
+   "home": 4,
+   "homePts": 130.02,
+   "note": "Tom's two Saturday signings scored 23.7. He won by 13.1."
+  },
+  {
+   "away": 12,
+   "awayPts": 123.08,
+   "home": 5,
+   "homePts": 114.5,
+   "note": "Sandy called it before GFFL did. McCaffrey decided it Monday night."
+  },
+  {
+   "away": 11,
+   "awayPts": 140.06,
+   "home": 9,
+   "homePts": 159.7,
+   "note": "Calvin's quarterback came from Perry's waiver wire and scored 27.0."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 5,
+   "l": 1,
+   "pf": 957.4
+  },
+  {
+   "team": 12,
+   "w": 4,
+   "l": 2,
+   "pf": 858.92
+  },
+  {
+   "team": 3,
+   "w": 3,
+   "l": 3,
+   "pf": 866.46
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 3,
+   "pf": 829.64
+  },
+  {
+   "team": 11,
+   "w": 3,
+   "l": 3,
+   "pf": 766.96
+  },
+  {
+   "team": 1,
+   "w": 3,
+   "l": 3,
+   "pf": 761.04
+  },
+  {
+   "team": 4,
+   "w": 2,
+   "l": 4,
+   "pf": 755.74
+  },
+  {
+   "team": 2,
+   "w": 1,
+   "l": 5,
+   "pf": 799.5
+  }
+ ],
+ "bench": [
+  {
+   "team": 2,
+   "left": 20.6
+  },
+  {
+   "team": 3,
+   "left": 13.4
+  },
+  {
+   "team": 11,
+   "left": 11
+  },
+  {
+   "team": 9,
+   "left": 8
+  },
+  {
+   "team": 1,
+   "left": 5.4
+  },
+  {
+   "team": 4,
+   "left": 4.1
+  },
+  {
+   "team": 12,
+   "left": 2.4
+  },
+  {
+   "team": 5,
+   "left": 0
+  }
+ ],
+ "stars": {
+  "kick": "The week’s biggest numbers",
+  "title": "Six starters cleared 24",
+  "items": [
+   {
+    "key": "4360310",
+    "pts": "30.3",
+    "name": "Trevor Lawrence",
+    "line": "306 yds, 4 TD in London",
+    "team": 3
+   },
+   {
+    "key": "4567048",
+    "pts": "29.9",
+    "name": "Kenneth Walker III",
+    "line": "128 rush yds, 2 TD vs. Chargers",
+    "team": 11
+   },
+   {
+    "key": "4360689",
+    "pts": "27.0",
+    "name": "Tyler Shough",
+    "line": "3 TD passes and a TD run at the Giants",
+    "team": 11
+   },
+   {
+    "key": "3117251",
+    "pts": "26.2",
+    "name": "Christian McCaffrey",
+    "line": "2 TD, 9 catches on Monday night",
+    "team": 12
+   },
+   {
+    "key": "4595348",
+    "pts": "25.5",
+    "name": "Malik Nabers",
+    "line": "12 catches, 165 yds vs. Saints",
+    "team": 2
+   },
+   {
+    "key": "4428718",
+    "pts": "24.2",
+    "name": "Tre Tucker",
+    "line": "2 TD, the last from 44 yds vs. Bills",
+    "team": 4
+   }
+  ]
+ },
+ "wp": {
+  "game": {
+   "home": 5,
+   "away": 12
+  },
+  "team": 12,
+  "kick": "Isaac vs. Sandy",
+  "title": "The GOAT Kids’ chance to win, all weekend",
+  "aria": "GOAT Kids win probability from Sunday morning to Monday night: 65 percent Sunday at 8 a.m., 44 percent at 9:59 p.m. Sunday, 74 percent when Sandy conceded at 8:37 p.m. Monday, final win.",
+  "t0": "2026-10-18T13:00:00Z",
+  "t1": "2026-10-20T04:10:00Z",
+  "annotations": [
+   {
+    "at": "low-after:2026-10-19T00:00:00Z",
+    "dot": true,
+    "labels": [
+     {
+      "text": "44%",
+      "dx": -10,
+      "dy": 18,
+      "anchor": "end",
+      "cls": "strong"
+     },
+     {
+      "text": "Sun 9:59 p.m.",
+      "dx": -10,
+      "dy": 36,
+      "anchor": "end"
+     }
+    ]
+   },
+   {
+    "at": "last",
+    "dot": true,
+    "labels": [
+     {
+      "text": "Final: 123.1 to 114.5",
+      "dx": -10,
+      "dy": 5,
+      "anchor": "end",
+      "cls": "strong"
+     }
+    ]
+   },
+   {
+    "at": {
+     "t": "2026-10-18T13:10:00Z",
+     "p": 0.649
+    },
+    "labels": [
+     {
+      "text": "Sunday: 65%",
+      "dx": 2,
+      "dy": 44
+     }
+    ]
+   },
+   {
+    "at": {
+     "t": "2026-10-18T22:00:00Z",
+     "p": 0.9
+    },
+    "labels": [
+     {
+      "text": "no readings",
+      "anchor": "end",
+      "cls": "small"
+     },
+     {
+      "text": "Sun 12:07 to 7:46",
+      "dyFs": 1,
+      "anchor": "end",
+      "cls": "small"
+     }
+    ]
+   }
+  ]
+ },
+ "allowTwoDecimals": []
+}
