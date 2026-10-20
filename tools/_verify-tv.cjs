@@ -234,7 +234,7 @@ async function newPage(browser, viewport, opts) {
     escaped.push(url);
     return req.abort();
   });
-  await page.evaluateOnNewDocument((withBridge, bridgeV2, homeOn) => {
+  await page.evaluateOnNewDocument((withBridge, bridgeV2, homeOn, bannerUrl) => {
     window.__opened = [];
     window.open = (u) => { window.__opened.push(u); return null; };
     if (withBridge) {
@@ -252,7 +252,7 @@ async function newPage(browser, viewport, opts) {
           { pkg: "com.google.android.youtube.tv", label: "YouTube" },
           { pkg: "com.example.gone", label: "Gone App" },
         ]),
-        banner: () => "",
+        banner: () => bannerUrl || "",
       };
       // Version 2 of the app adds the Home-button setup (HomeWatcher). Version 1 has neither
       // method, which is what a TV still running the first install exposes.
@@ -263,7 +263,7 @@ async function newPage(browser, viewport, opts) {
         window.BuckyTV.openAccessibilitySettings = () => { window.__calls.push(["accessibility"]); return true; };
       }
     }
-  }, !!opts.bridge, !!opts.v2, !!opts.homeOn);
+  }, !!opts.bridge, !!opts.v2, !!opts.homeOn, opts.banners ? "data:image/png;base64," + fs.readFileSync(path.join(ROOT, "bucky.png")).toString("base64") : "");
   return { page, ctx, errors, escaped, seen };
 }
 const NOISE = /fonts\.g|Failed to load resource|ERR_FAILED/i;
@@ -405,6 +405,10 @@ async function run() {
     })));
     ok(["redzone", "mnf", "snf"].every((id) => pics[id].cls === "logo" && pics[id].w > 0), "RedZone, MNF and SNF show their channel logos (" + ["redzone", "mnf", "snf"].map((id) => pics[id].cls).join(",") + ")");
     ok(/NFL_Network_Redzone\.png$/.test(pics.redzone.src) && /ESPN_wordmark\.svg$/.test(pics.mnf.src) && /NBC_logo\.svg$/.test(pics.snf.src), "each the right logo: RedZone, ESPN, NBC");
+    const appTile = (page) => page.evaluate(() => Object.fromEntries(["prime", "yttv"].map((a) => { const t = document.querySelector('[data-act="' + a + '"]'); const lg = t.querySelector("img.logo"), bn = t.querySelector("img.banner"); return [a, { logo: t.classList.contains("has-logo") && lg && lg.naturalWidth > 0 ? lg.src : "", banner: !!bn, label: getComputedStyle(t.querySelector(":scope > span")).display }]; })));
+    const at = await appTile(A.page);
+    ok(/Amazon_Prime_Video_logo\.svg$/.test(at.prime.logo) && /YouTube_TV_logo\.svg$/.test(at.yttv.logo), "with no app banner from the TV, Prime Video and YouTube TV show their logos (" + [at.prime.logo, at.yttv.logo].map((u) => u.split("/").pop()).join(", ") + ")");
+    ok(at.prime.label === "none" && at.yttv.label === "none", "…in place of the text label, which the logo already says");
     ok(pics.voyager.cls === "art" && pics.voyager.src === ART_WANT.voyager, "Voyager: no main background, so the one nearest 1920 wide, not the 4K one or the portrait poster (" + pics.voyager.src.split("/").pop() + ")");
     ok(pics.tng.cls === "art" && pics.tng.src === ART_WANT.tng, "TNG: the main background wins over a wider one that isn't main (" + pics.tng.src.split("/").pop() + ")");
     const picFit = await A.page.evaluate(() => [...document.querySelectorAll(".t-show")].map((t) => {
@@ -561,25 +565,19 @@ async function run() {
     ok(A.escaped.filter((u) => !NOISE.test(u)).length === 0, "nothing left the mocks (" + A.escaped.filter((u) => !NOISE.test(u)).join(", ") + ")");
     await A.ctx.close();
 
-    /* ---- G · idle screen ------------------------------------------------------------ */
-    console.log("\nG. Idle screen");
+    /* ---- G · no screensaver --------------------------------------------------------- */
+    // User, 2026-10-20: "get rid of the screensaver view, I just want it to show the bucky tv
+    // page at all times". Restaged from the old section G, which checked the photo screen.
+    console.log("\nG. No screensaver: the page stays up");
     const G = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true });
     await boot(G.page, "?week=3&idle=1");
-    await G.page.waitForFunction(() => !document.getElementById("idle").hidden, { timeout: 5000 }).catch(() => {});
-    ok(await shown(G.page, "#idle"), "after the idle time the photo screen covers the page");
-    const ph = await G.page.evaluate(() => ({ bg: document.querySelector("#idle .ph.on .im")?.style.backgroundImage || "", cap: document.getElementById("idleCap").textContent, line: document.getElementById("idleLine").textContent }));
-    ok(/data:image\/jpeg/.test(ph.bg) && ["Daisy", "Pepper"].includes(ph.cap), "it shows a goat photo with the goat's name (" + ph.cap + ")");
-    ok(/62° partly cloudy/.test(ph.line) && /Soccer practice at/.test(ph.line), "the corner line has the weather and the next event (" + ph.line + ")");
-    const n = await G.page.evaluate(async () => { const seen = new Set(); for (let i = 0; i < 6; i++) { showSlide(); seen.add(document.getElementById("idleCap").textContent); } return [...seen].sort().join(","); });
-    ok(n === "Daisy,Pepper", "the slideshow cycles both goats' photos, a goat with none is skipped (" + n + ")");
-    await G.page.keyboard.press("Enter");
-    ok(!(await shown(G.page, "#idle")), "any button wakes the home screen");
-    ok((await G.page.evaluate(() => window.__calls.length)) === 0, "…and that wake-up press launched nothing");
-    await G.page.evaluate(() => startIdle());
-    await sleep(50);
-    await G.page.evaluate(() => window.dispatchEvent(new Event("buckytv-back")));
-    ok(!(await shown(G.page, "#idle")), "Back on the remote also leaves the photo screen");
-    if (SHOT) { await G.page.evaluate(() => startIdle()); await sleep(1700); await G.page.screenshot({ path: path.join(SHOTS, "tv-idle.png") }); }
+    await sleep(2500);
+    const gs = await G.page.evaluate(() => { const el = document.elementFromPoint(innerWidth / 2, innerHeight / 2); return { idleEl: !!document.getElementById("idle"), onHome: !!(el && el.closest("#home")), act: document.activeElement.dataset.act }; });
+    ok(!gs.idleEl && gs.onHome, "well past the idle time, nothing covers the page (the middle of the screen is still Bucky TV)");
+    ok(gs.act === "prime", "focus is where it was");
+    await G.page.keyboard.press("ArrowRight");
+    ok((await active(G.page)) === "yttv", "the first button press after a quiet spell does its job, it isn't spent waking a screensaver");
+    ok(G.errors.length === 0, "no page errors (" + G.errors.join(" | ") + ")");
     await G.ctx.close();
 
     /* ---- H · a plain browser (no wrapper) ------------------------------------------- */
@@ -588,6 +586,9 @@ async function run() {
     await boot(H.page);
     ok(H.errors.length === 0, "no page errors (" + H.errors.join(" | ") + ")");
     ok(!(await shown(H.page, "#appsSec")), "no Apps row without the wrapper (geometry, not the attribute)");
+    await H.page.waitForFunction(() => document.querySelectorAll(".t-prime.has-logo, .t-yttv.has-logo").length === 2, { timeout: 8000 }).catch(() => {});
+    const ht = await appTile(H.page);
+    ok(ht.prime.logo && ht.yttv.logo, "in a browser, Prime Video and YouTube TV show their logos (a web page can't read the TV's apps)");
     await H.page.keyboard.press("Enter");
     ok((await H.page.evaluate(() => window.__opened[0])) === "https://www.primevideo.com", "Prime Video falls back to its website");
     for (let i = 0; i < 3; i++) await H.page.keyboard.press("ArrowRight");
@@ -628,15 +629,21 @@ async function run() {
     ok(!(await shown(K.page, "#homeSetup")), "once it's on, coming back to Bucky hides the tile");
     ok((await active(K.page)) === "prime", "…and focus that was on the tile moves to the first tile instead of vanishing");
     await K.ctx.close();
-    const K2 = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, v2: true, homeOn: true });
+    const K2 = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, v2: true, homeOn: true, banners: true });
     await boot(K2.page);
     ok(!(await shown(K2.page, "#homeSetup")), "already switched on: no tile at all");
+    await sleep(500);
+    const kt = await appTile(K2.page);
+    ok(kt.prime.banner && kt.yttv.banner && !kt.prime.logo && !kt.yttv.logo, "on a TV whose apps have banners, the tiles use the apps' own banners, not the logos (user's choice, option 1)");
     await K2.ctx.close();
 
     console.log("\nJ. A new deploy reaches the TV without a restart");
     const site = { deployed: false, down: false, docLoads: 0 };
     const J = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, site });
-    await boot(J.page, "?week=3&check=1&idle=600");
+    // The page counts 3 s without a button press as nobody using it (?idle=3), and checks for a
+    // new version every second (?check=1). Restaged when the screensaver went: the reload used to
+    // wait for the screensaver to come up; now it waits for the remote to go quiet.
+    await boot(J.page, "?week=3&check=1&idle=3");
     await J.page.evaluate(() => { window.__mark = 1; });
     await sleep(2500);
     ok(await J.page.evaluate(() => window.__mark === 1 && typeof updatePending !== "undefined" && updatePending === false), "nothing deployed: no update pending, no reload");
@@ -644,15 +651,21 @@ async function run() {
     await sleep(2500);
     ok(await J.page.evaluate(() => window.__mark === 1 && typeof updatePending !== "undefined" && updatePending === false), "the site briefly failing (503) is not mistaken for a new version");
     site.down = false;
+    // Someone is using the remote: a press every 0.7 s, before and after the deploy lands.
+    let pressing = true;
+    const presser = (async () => { while (pressing) { await J.page.keyboard.press("ArrowRight").catch(() => {}); await sleep(700); } })();
+    await sleep(800);
     site.deployed = true;
-    await sleep(2500);
-    ok(await J.page.evaluate(() => typeof updatePending !== "undefined" && updatePending === true), "after a deploy the page notices within one check");
-    ok(await J.page.evaluate(() => window.__mark === 1) && site.docLoads === 1, "…but does not reload while someone may be using it");
-    await Promise.all([J.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => null), J.page.evaluate(() => startIdle())]);
+    await sleep(3500);
+    ok(await J.page.evaluate(() => typeof updatePending !== "undefined" && updatePending === true).catch(() => false), "after a deploy the page notices within one check");
+    ok(await J.page.evaluate(() => window.__mark === 1).catch(() => false) && site.docLoads === 1, "…but does not reload while the remote is in use");
+    pressing = false;
+    await presser;
+    await J.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
     await J.page.waitForFunction(() => document.querySelector("#calList .ev"), { timeout: 10000 }).catch(() => {});
-    ok(site.docLoads === 2 && (await J.page.evaluate(() => window.__mark)) === undefined, "when the idle screen comes up it reloads into the new version (" + site.docLoads + " loads)");
+    ok(site.docLoads === 2 && (await J.page.evaluate(() => window.__mark)) === undefined, "once the remote goes quiet it reloads into the new version (" + site.docLoads + " loads)");
     ok(/deploy 2/.test(await J.page.content()), "the reloaded page is the new deploy");
-    await sleep(2500);
+    await sleep(4000);
     ok(site.docLoads === 2 && (await J.page.evaluate(() => updatePending === false)), "the new version doesn't keep reloading itself");
     ok(J.errors.length === 0, "no page errors (" + J.errors.join(" | ") + ")");
     await J.ctx.close();
