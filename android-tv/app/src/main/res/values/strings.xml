@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">Bucky TV</string>
     <string name="home_watcher_label">Bucky TV Home button</string>
-    <string name="home_watcher_description">Opens Bucky whenever the Google TV home screen would appear, so the Home button goes to Bucky. It only watches for that one screen and reads nothing on it.</string>
+    <string name="home_watcher_description">Opens Bucky whenever the Google TV home screen would appear, so the Home button goes to Bucky. It only watches for that one screen and for the Home button, and reads nothing on screen. Hold Home to get Google\'s home screen.</string>
 </resources>

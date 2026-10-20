@@ -40,13 +40,13 @@
   <div class="note">No Settings button? The switch is under <b>Settings → Apps → Security &amp; restrictions → Unknown sources</b> on most Google TVs, or <b>Settings → Privacy → Security &amp; restrictions</b> on some. It only appears once developer mode is on (step 1), and it is hidden on a kids profile.</div>
 
   <h2>Part 2: Make Home open Bucky</h2>
-  <p>Google's home screen stays installed and switched on. Bucky watches for it and opens itself in its place, so Home, and turning the TV on, land on Bucky after a moment's flash of Google's screen.</p>
+  <p>Google's home screen stays installed and switched on. Bucky catches the Home button itself, and also steps in when Google's screen appears some other way (turning the TV on, backing out of an app), so Home lands on Bucky from anywhere.</p>
   <ol>
     <li>On the Bucky screen, choose the <b>Make Home open Bucky</b> tile. It opens the TV's Accessibility settings. (Or go to <b>Settings → System → Accessibility</b>.)</li>
     <li>Choose <b>Bucky TV Home button</b> and switch it on. The TV warns that the app could see the screen; Bucky only watches for Google's home screen and reads nothing on it. Choose <b>OK</b>.</li>
     <li>Press <b>Home</b>. Bucky should come up, and the setup tile is gone.</li>
   </ol>
-  <div class="note">To go back to Google's home screen, switch <b>Bucky TV Home button</b> off again in the same place. Bucky stays in the app list.</div>
+  <div class="note">To reach Google's home screen once, <b>hold</b> Home for about a second. To go back to it for good, switch <b>Bucky TV Home button</b> off again in the same place. Bucky stays in the app list.</div>
   <div class="note">Don't switch Google's home screen off with a computer (<code>pm disable-user</code>). On this TV, Google's setup screen takes over Home instead and the TV shows a black screen. If that has happened, connect with <code>adb</code> and run <code>adb shell pm enable com.google.android.apps.tv.launcherx</code> and <code>adb shell pm enable com.google.android.tungsten.setupwraith</code>.</div>
 
   <h2>Using it</h2>
