@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- HomeWatcher only needs to know when Google's home screen comes to the front: window-state
-     events, from that one package, with no access to what is on screen. -->
+<!-- HomeWatcher needs two things: window-state events from Google's home screen package (no
+     access to what is on screen), and key filtering, so it can act on the Home button before
+     Android does. Every other key passes straight through. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:packageNames="com.google.android.apps.tv.launcherx"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="100"
     android:canRetrieveWindowContent="false"
+    android:canRequestFilterKeyEvents="true"
+    android:accessibilityFlags="flagRequestFilterKeyEvents"
     android:description="@string/home_watcher_description" />

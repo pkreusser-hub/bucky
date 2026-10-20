@@ -2929,3 +2929,23 @@ HOME handlers, from `cmd package query-activities ... HOME`, are:
     the enabled-services setting.
   - Bite: dropping the class check fails `googlesOtherScreensAreLeftAlone`.
   - Maven Central answered 429 once; the second try resolved junit.
+
+**1.2, the Home KEY (same evening).** In 1.1, Home from Bucky worked, but Home inside Prime Video
+left Google's screen up. The service was still on, and the setup tile did not come back.
+
+- **Cause:** Android's app-switch guard. A Home press makes the system hold back background
+  activity starts for a few seconds, so the watcher saw Google's screen but its start of Bucky was
+  held.
+- **Fix:** `HomeWatcher` also filters key events (`canRequestFilterKeyEvents`,
+  `flagRequestFilterKeyEvents`). It swallows `KEYCODE_HOME` and decides on release:
+  - under `LONG_PRESS_MS` (700) opens Bucky
+  - a longer hold goes to Google's home screen through `GLOBAL_ACTION_HOME`
+- **Holding Home is the deliberate way back to Google's screen.** For `GOOGLE_GRACE_MS` (4 s) after
+  that, the window watch leaves Google's screen alone. `passNextHome` lets the injected Home
+  through, so the hand-off can't loop.
+- The window watch stays, for power-on and Back out of an app.
+- `homeKeyAction()` is pure, so it is unit-tested. `HomeWatcherTest` gives **10/10**.
+- Bite: with Home passed straight through (1.1's behaviour), the short-press and held-press tests
+  fail and the other 8 pass.
+- The page and its suite are unchanged.
+
