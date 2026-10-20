@@ -58,19 +58,13 @@ Tom has won the last two against Elan, who still leads the series 15-10.
 
 ## Letters to the Editor
 
-Sandy and Isaac ran the league chat this week, and it was the nicest trash talk this column has covered.
+Sandy and Isaac ran the league chat this week, and it was the nicest trash talk this column has covered. Isaac brought the GIFs: a hooded figure shouting UNLIMITED POWER on Saturday, a furious red cartoon character four times in one minute at 12:45 Sunday, and a dog holding a Bible when it got close. Sandy brought the encouragement. She checked on him Sunday afternoon, told him he still had great players left, and opened the weekend with the line of the week:
 
-Isaac opened on Saturday morning with a hooded figure shouting UNLIMITED POWER. Sandy answered on Sunday morning:
+Sandy, 9:07 a.m. Sunday: “You might be smarter than your dad or uncle.”
 
-Sandy, 9:06 a.m. Sunday: “You never know kid!”
+Isaac had said last Tuesday that he had better win or he would never hear the end of it. The end of it was “Congrats! You won!”, and he answered with a handshake.
 
-Sandy, 9:07 a.m. Sunday: “Super lucky my starters are out on bye! Let's see where the chips fall. You might be smarter than your dad or uncle.”
-
-At 12:45 Isaac posted a furious red cartoon character four times in one minute. Sandy checked on him later that afternoon, “You okay?”, and then reassured her opponent: “You have great players left! Yikes! It will be close.” Isaac replied, “Yup. But still...”, and a dog holding a cross and a Bible. When Golden scored on Sunday night he wrote “Golden:” and posted a young man in glasses. On Monday night, after the concession, he wrote “Thank you!” and sent a handshake.
-
-Last Tuesday Isaac said he had better win, or he would never hear the end of it. The end of it turned out to be “Congrats! You won!”
-
-Isaac also wrote to me last week, asking me to stop picking Elan. I picked Elan this week anyway, for the third straight week, and he lost for the third straight week. Isaac, you were right. I am stopping. John, who asked me to keep going, is 5-1 and did not need the help.
+Isaac also wrote to me last week, asking me to stop picking Elan. I picked Elan anyway, for the third straight week, and he lost for the third straight week. Isaac, you were right. I am stopping. John, who asked me to keep going, is 5-1 and did not need the help.
 
 [IMAGE: stars]
 

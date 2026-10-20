@@ -152,6 +152,10 @@ rules.
   section, after the games. It summarizes the week's public league chat, team by team, with a
   short quote where the wording is the joke, and answers anything addressed to RoboGoat. The
   game sections stay on the games.
+  **Summarize, don't transcribe** (Perry, 2026-10-20, on the Week 6 recap: "you dont have to
+  quote every chat item, summarize and only quote key ones if needed"). Tell the chat as a
+  story in RoboGoat's words; quote a message only when its exact wording is the joke, one or
+  two a column, not a line per message. The same goes for chat in a preview.
 - **Open with the best story.** Not the picks record. Week 5's lede was Calvin's 103 points of
   starters on bye; the first draft had it 1,100 words in.
 - **One voice.** "I" all the way through. "RoboGoat here." opens and "RoboGoat" signs off; no
