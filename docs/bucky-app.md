@@ -2949,3 +2949,95 @@ left Google's screen up. The service was still on, and the setup tile did not co
   fail and the other 8 pass.
 - The page and its suite are unchanged.
 
+
+## Bucky TV: the "keep it simple" layout (2026-10-20)
+
+User: *"keep it simple, I like having the weeks weather, I dont think we need chores there but a
+view of the weeks calendar is needed, a larger bucky logo but get rid of the family hub part and
+call it Bucky TV. Want a rotating slides how of goats. Prime video, youtube tv, then some specific
+shows: nfl redzone, MNF, SNF all on YouTube tv, then on prime video Star Trek Voyager and Star Trek
+TNG"*, then *"actually lets keep the GFFL strip"*. The layout from top to bottom:
+
+- **Header.** A 6.4rem mark with the Fraunces "Bucky TV" wordmark and the clay stripe;
+  "Family Farm Hub" and the greeting are gone. **The week's weather is in the header** (7 small
+  cards, today showing the temperature now), between the wordmark and the clock. Kept as a
+  bottom row, the GFFL strip would not have fitted the first screen.
+- **Watch row**, built from `SHOWS`:
+  - Prime Video and YouTube TV come first, then RedZone, MNF and SNF (YouTube TV), then Voyager
+    and TNG (Prime Video).
+  - Each show tile has an app chip and a second line.
+  - **`url` is empty for all five.** Until one is filled in, the tile opens the app and says
+    "<show> isn't linked yet". The comment in `tv.html` says where each link comes from.
+  - MNF and SNF read ESPN's default scoreboard. The second line is the first not-final game in
+    that slot: Central time, kickoff at 6 pm or later, on the tile's weekday. It reads
+    "7:20 · KC @ BUF", or "On now · ..." during the game, and the network otherwise.
+- **This week** (Google Calendar, today's midnight + 7 days), beside a **goat slideshow** (8 s
+  crossfade, same photo layering as the idle screen).
+  - Events are grouped by day: Today, Tomorrow, then "Fri, Oct 23".
+  - Each event shows once, on its first day still ahead. A multi-day all-day event reads "Thru Sun".
+  - Timed events that have ended drop off.
+  - The panel is capped at 10 lines and counts what is left ("+7 more this week").
+- **GFFL strip**, unchanged.
+- Chores and the animal-care rota are no longer on the TV.
+
+**Sizes that were measured, not guessed:**
+- The show tiles started at 13.4rem. That ran "Monday Night Football" to three lines, which pushed
+  its game line out of the tile, and cut SNF's and TNG's second lines to "…".
+  - The suite was green; the 1080p plate showed it.
+  - Now: app tiles 15rem, show tiles 14.6rem, 1.1rem gaps (109.6 of 110rem).
+  - Titles start below the chip, the game line drops the day and am/pm, and TNG's tile reads
+    "Star Trek: TNG / The Next Generation".
+- Weather text is all cream. On today's card, `--on-green-2` measured 3.9:1 and cream on a 16%
+  fill measured 4.3:1; the fill is now 12% (4.7:1) and today is marked by its border.
+
+**VERIFY:** `node tools/_verify-tv.cjs` gives **107/107**.
+
+New checks:
+- the seven weather cards, hand-computed from a 7-day fixture
+- the calendar request range and day grouping, plus the 10-line cap computed by hand
+  (15 events give 8 shown, "+7 more")
+- MNF and SNF lines from Central kickoffs, with a final game and a 3:25 game as decoys
+- show launches, linked and unlinked
+- titles clear of chips, and second lines inside the tile and not truncated
+- mark size, "Bucky TV", no "Family Farm Hub"
+- the setup tile scrolled into view, waiting for the smooth scroll to settle
+
+Restaged:
+- The GFFL/overscan check now runs at 960 too.
+- The setup tile is no longer on the first screen; reaching it scrolls it into view.
+
+Bite tests:
+- Back at 13.4rem tiles, the two fit checks fail and the other 105 pass.
+- Against the previous page the suite cannot boot (no show tiles, no week calendar), so every
+  new check fails there.
+
+**Logos and show art (same day, user: "can we use the actual logos").**
+
+Nothing is copied into the repo, because the repo is public. The images load from where they
+already live:
+- RedZone uses the logo on its Wikipedia article: `upload.wikimedia.org/wikipedia/en/…/NFL_Network_Redzone.png`.
+- MNF uses ESPN's wordmark and SNF uses NBC's peacock, both public domain on Commons
+  (PD-textlogo / PD).
+- Voyager (TVmaze 492) and TNG (491) use TVmaze background art from `api.tvmaze.com/shows/<id>/images`.
+  TVmaze allows web pages to load it (CORS-open).
+
+How the page uses them:
+- `addPicture()` inserts the image hidden. The tile takes `has-logo` or `has-art` only on `load`,
+  and an `error` removes the image, so a failed source leaves the text tile with no broken-image
+  icon.
+- `pickArt()` takes the `main` background, else the one nearest 1920 wide. Posters and banners are
+  never used. The pick is kept in localStorage for a week per show.
+- Logo tiles are white plates, because the logos are drawn for white. They stack the chip, the
+  logo, then a one-line name (1.1rem) and the game line. The first try put a two-line name at
+  1.2rem, which ran up into the logo on the plate.
+- Art tiles put the title over a dark fade.
+- The Commons API is rate-limited from the cloud box (shared address).
+  `Special:FilePath/<name>` still answers, and that is how the files were found.
+
+VERIFY gives **119/119**:
+- D3: logos land, the right file per tile, art picked by the rule (hand-picked from the fixture),
+  stack geometry, and a one-line name that isn't cut short.
+- L: both hosts down leaves clean text tiles; the weekly cache means no second TVmaze call after a
+  reload.
+
+Bite: against the page without pictures, 7 of these fail and the other 112 pass.
