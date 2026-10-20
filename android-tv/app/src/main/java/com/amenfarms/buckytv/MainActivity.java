@@ -148,7 +148,24 @@ public class MainActivity extends Activity {
     class Bridge {
         @JavascriptInterface
         public int version() {
-            return 1;
+            return 2;
+        }
+
+        /** Whether the Home button opens Bucky (HomeWatcher switched on). Added in version 2. */
+        @JavascriptInterface
+        public boolean homeOverride() {
+            return HomeWatcher.isEnabled(MainActivity.this);
+        }
+
+        /** Straight to Settings > Accessibility, where HomeWatcher is switched on. */
+        @JavascriptInterface
+        public boolean openAccessibilitySettings() {
+            try {
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return true;
+            } catch (ActivityNotFoundException e) {
+                return false;
+            }
         }
 
         @JavascriptInterface

@@ -1,11 +1,9 @@
 package com.amenfarms.buckytv;
 
 import android.accessibilityservice.AccessibilityService;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
-import android.text.TextUtils;
 import android.view.accessibility.AccessibilityEvent;
 
 /**
@@ -51,20 +49,24 @@ public class HomeWatcher extends AccessibilityService {
     public void onInterrupt() {
     }
 
-    /** Whether the family has switched this on in Settings → Accessibility. */
+    /** Whether the family has switched this on in Settings > Accessibility. */
     static boolean isEnabled(Context ctx) {
         String on = Settings.Secure.getString(ctx.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        return isListed(on, new ComponentName(ctx, HomeWatcher.class));
+        return isListed(on, ctx.getPackageName(), HomeWatcher.class.getName());
     }
 
-    /** Pure parse of the ':'-separated enabled-services setting, unit-tested in HomeWatcherTest. */
-    static boolean isListed(String enabledServices, ComponentName me) {
+    /**
+     * Pure parse of the ':'-separated enabled-services setting, unit-tested in HomeWatcherTest.
+     * Entries are flattened component names, written either in full ("pkg/pkg.Cls") or short
+     * ("pkg/.Cls") form depending on what wrote them, so both count.
+     */
+    static boolean isListed(String enabledServices, String pkg, String cls) {
         if (enabledServices == null || enabledServices.isEmpty()) return false;
-        TextUtils.SimpleStringSplitter split = new TextUtils.SimpleStringSplitter(':');
-        split.setString(enabledServices);
-        while (split.hasNext()) {
-            ComponentName c = ComponentName.unflattenFromString(split.next());
-            if (me.equals(c)) return true;
+        String full = pkg + "/" + cls;
+        String shortForm = cls.startsWith(pkg + ".") ? pkg + "/" + cls.substring(pkg.length()) : null;
+        for (String entry : enabledServices.split(":")) {
+            String e = entry.trim();
+            if (e.equalsIgnoreCase(full) || (shortForm != null && e.equalsIgnoreCase(shortForm))) return true;
         }
         return false;
     }
