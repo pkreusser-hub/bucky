@@ -265,6 +265,8 @@ const APP_NAME = { prime: "Prime Video", yttv: "YouTube TV" };
 //   YouTube TV channels: on a computer, open tv.youtube.com, go to Live, start the channel,
 //   and copy the address bar (tv.youtube.com/watch/...). MNF is on ESPN, SNF on NBC.
 //   Prime Video shows: in the Prime Video app on a phone, open the show, Share, Copy link.
+// Query strings from the copied links (?vp=..., ?ref_=...) are player and tracking settings and
+// are left off; the channel or show is the path.
 // MNF and SNF also show this week's game on the tile, from ESPN's scoreboard.
 //
 // Pictures (user, 2026-10-20: "can we use the actual logos"). They are loaded from where they
@@ -274,13 +276,13 @@ const APP_NAME = { prime: "Prime Video", yttv: "YouTube TV" };
 //         domain on Wikimedia Commons; RedZone's is the one on its Wikipedia article.
 //   tvmaze: the show's id on TVmaze (free, CORS-open); its landscape artwork fills the tile.
 const SHOWS = [
-  { id: "redzone", title: "NFL RedZone", app: "yttv", url: "", cls: "s-redzone", sub: "Sundays from noon",
+  { id: "redzone", title: "NFL RedZone", app: "yttv", url: "https://tv.youtube.com/browse/UC2P9QOChMRn6kPUpBcjVlWw", cls: "s-redzone", sub: "Sundays from noon",
     logo: "https://upload.wikimedia.org/wikipedia/en/7/7b/NFL_Network_Redzone.png" },
-  { id: "mnf", title: "Monday Night Football", app: "yttv", url: "", cls: "s-mnf", sub: "ESPN", game: { day: "Mon" },
+  { id: "mnf", title: "Monday Night Football", app: "yttv", url: "https://tv.youtube.com/watch/PFuNFGzJDE4", cls: "s-mnf", sub: "ESPN", game: { day: "Mon" },
     logo: "https://upload.wikimedia.org/wikipedia/commons/2/2f/ESPN_wordmark.svg" },
-  { id: "snf", title: "Sunday Night Football", app: "yttv", url: "", cls: "s-snf", sub: "NBC", game: { day: "Sun" },
+  { id: "snf", title: "Sunday Night Football", app: "yttv", url: "https://tv.youtube.com/watch/5-T6_ZU9bmA", cls: "s-snf", sub: "NBC", game: { day: "Sun" },
     logo: "https://upload.wikimedia.org/wikipedia/commons/3/3f/NBC_logo.svg" },
-  { id: "voyager", title: "Star Trek: Voyager", app: "prime", url: "", cls: "s-trek", sub: "", tvmaze: 492 },
+  { id: "voyager", title: "Star Trek: Voyager", app: "prime", url: "https://www.amazon.com/gp/video/detail/B00C16V4B0", cls: "s-trek", sub: "", tvmaze: 492 },
   { id: "tng", title: "Star Trek: TNG", app: "prime", url: "", cls: "s-trek", sub: "The Next Generation", tvmaze: 491 },
 ];
 

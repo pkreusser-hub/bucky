@@ -433,20 +433,25 @@ async function run() {
     ok((await active(A.page)) === "redzone", "Right again moves to RedZone");
     await A.page.keyboard.press("Enter");
     let calls = await A.page.evaluate(() => window.__calls.slice());
-    ok(calls.length === 1 && calls[0][0] === "launch" && calls[0][1] === "com.google.android.youtube.tvunplugged", "RedZone with no link set opens YouTube TV (" + JSON.stringify(calls) + ")");
-    ok(await shown(A.page, "#toast") && (await text(A.page, "#toast")) === "NFL RedZone isn't linked yet. Opening YouTube TV.", "…and says the show isn't linked yet");
-    for (let i = 0; i < 3; i++) await A.page.keyboard.press("ArrowRight");
-    ok((await active(A.page)) === "voyager", "Right walks the shows to Star Trek: Voyager");
-    await A.page.keyboard.press("Enter");
-    calls = await A.page.evaluate(() => window.__calls.slice());
-    ok(calls[1] && calls[1][0] === "launch" && calls[1][1] === "com.amazon.amazonvideo.livingroom", "an unlinked Prime Video show opens Prime Video");
-    // Once a link is filled in, the tile hands that link to the show's own app.
-    await A.page.evaluate(() => { SHOWS.find((x) => x.id === "voyager").url = "https://app.primevideo.com/detail?gti=amzn1.dv.gti.test"; });
-    await A.page.keyboard.press("Enter");
-    calls = await A.page.evaluate(() => window.__calls.slice());
-    ok(JSON.stringify(calls[2]) === JSON.stringify(["openUrl", "https://app.primevideo.com/detail?gti=amzn1.dv.gti.test", "com.amazon.amazonvideo.livingroom"]), "a linked show opens its link in Prime Video (" + JSON.stringify(calls[2]) + ")");
+    // The family's links (2026-10-20): RedZone's YouTube TV channel page, ESPN's and NBC's live
+    // streams, Voyager's Prime Video page. TNG has none yet, so it is the "not linked" case.
+    const YTTV = "com.google.android.youtube.tvunplugged", PRIME = "com.amazon.amazonvideo.livingroom";
+    ok(calls.length === 1 && JSON.stringify(calls[0]) === JSON.stringify(["openUrl", "https://tv.youtube.com/browse/UC2P9QOChMRn6kPUpBcjVlWw", YTTV]), "RedZone opens its channel page in YouTube TV (" + JSON.stringify(calls[0]) + ")");
+    const linked = [["mnf", "https://tv.youtube.com/watch/PFuNFGzJDE4", YTTV, "MNF opens ESPN in YouTube TV"],
+      ["snf", "https://tv.youtube.com/watch/5-T6_ZU9bmA", YTTV, "SNF opens NBC in YouTube TV"],
+      ["voyager", "https://www.amazon.com/gp/video/detail/B00C16V4B0", PRIME, "Voyager opens its page in Prime Video"]];
+    for (const [id, url, pkg, msg] of linked) {
+      await A.page.keyboard.press("ArrowRight");
+      await A.page.keyboard.press("Enter");
+      calls = await A.page.evaluate(() => window.__calls.slice());
+      ok((await active(A.page)) === id && JSON.stringify(calls[calls.length - 1]) === JSON.stringify(["openUrl", url, pkg]), msg + " (" + JSON.stringify(calls[calls.length - 1]) + ")");
+    }
     await A.page.keyboard.press("ArrowRight");
     ok((await active(A.page)) === "tng", "Right to Star Trek: TNG");
+    await A.page.keyboard.press("Enter");
+    calls = await A.page.evaluate(() => window.__calls.slice());
+    ok(JSON.stringify(calls[4]) === JSON.stringify(["launch", PRIME]), "TNG, with no link yet, opens Prime Video (" + JSON.stringify(calls[4]) + ")");
+    ok(await shown(A.page, "#toast") && (await text(A.page, "#toast")) === "Star Trek: TNG isn't linked yet. Opening Prime Video.", "…and says the show isn't linked yet");
     ok(await A.page.evaluate(() => { const r = document.activeElement.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; }), "the last tile is fully on screen");
     await A.page.keyboard.press("ArrowRight");
     ok((await active(A.page)) === "tng", "Right at the end of the row stays put");
@@ -454,7 +459,7 @@ async function run() {
     ok((await active(A.page)) === "prime", "Left walks back to Prime Video");
     await A.page.keyboard.press("Enter");
     calls = await A.page.evaluate(() => window.__calls.slice());
-    ok(calls[3] && calls[3][1] === "com.amazon.amazonvideo.livingroom", "Enter on Prime Video launches its Android TV package");
+    ok(calls[5] && calls[5][1] === "com.amazon.amazonvideo.livingroom", "Enter on Prime Video launches its Android TV package");
     await A.page.keyboard.press("ArrowDown");
     const apps = await A.page.evaluate(() => [...document.querySelectorAll("#appsRow .tile")].map((t) => t.dataset.pkg || t.dataset.act));
     ok((await active(A.page)).startsWith("app:"), "Down from the Watch row lands in Apps (" + (await active(A.page)) + ")");
@@ -585,7 +590,10 @@ async function run() {
     ok((await H.page.evaluate(() => window.__opened[0])) === "https://www.primevideo.com", "Prime Video falls back to its website");
     for (let i = 0; i < 3; i++) await H.page.keyboard.press("ArrowRight");
     await H.page.keyboard.press("Enter");
-    ok((await H.page.evaluate(() => window.__opened[1])) === "https://tv.youtube.com", "an unlinked YouTube TV show (MNF) falls back to tv.youtube.com");
+    ok((await H.page.evaluate(() => window.__opened[1])) === "https://tv.youtube.com/watch/PFuNFGzJDE4", "in a browser a linked show (MNF) opens its own link");
+    for (let i = 0; i < 3; i++) await H.page.keyboard.press("ArrowRight");
+    await H.page.keyboard.press("Enter");
+    ok((await H.page.evaluate(() => window.__opened[2])) === "https://www.primevideo.com", "an unlinked Prime Video show (TNG) falls back to primevideo.com");
     const hl = await H.page.evaluate(() => ({ docW: document.documentElement.scrollWidth, vw: innerWidth, gffl: document.getElementById("gfflSec").getBoundingClientRect().bottom, vh: innerHeight }));
     // Some TVs still crop the picture edge (overscan); 2.5% of the height is kept clear below
     // the strip. Restaged with the Farmstead header: "<= the viewport" passed at 1074 of 1080,
