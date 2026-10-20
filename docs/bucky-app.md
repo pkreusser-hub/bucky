@@ -3068,3 +3068,16 @@ VERIFY gives **122/122**:
 - **K2:** a fake bridge with banners keeps the banners.
 
 Bite: against the previous page, the 5 new checks fail and the other 117 pass.
+
+**Screensaver restored (same day).**
+- Soon after #167 went live, the family reported the TV back on Google's home screen, and asked to
+  go back to the previous behaviour. The goat screensaver, and its reload-on-screensaver update
+  pickup, are restored from #166. The app logos from #167 stay.
+- **Leading guess, not confirmed:** with Bucky's own screensaver gone, Google TV's ambient mode
+  took over after its timeout, and on waking the TV landed on Google's home screen.
+- Without adb or logs from the set, the cause can't be pinned down.
+- If it recurs with the screensaver back, the next step is the app holding the screen awake
+  (`FLAG_KEEP_SCREEN_ON`, so Google's ambient mode never starts while Bucky is showing). That
+  needs an APK update.
+
+VERIFY gives **125/125**: #166's 121 checks with section G restored, plus the 4 logo checks.

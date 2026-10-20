@@ -565,19 +565,28 @@ async function run() {
     ok(A.escaped.filter((u) => !NOISE.test(u)).length === 0, "nothing left the mocks (" + A.escaped.filter((u) => !NOISE.test(u)).join(", ") + ")");
     await A.ctx.close();
 
-    /* ---- G · no screensaver --------------------------------------------------------- */
-    // User, 2026-10-20: "get rid of the screensaver view, I just want it to show the bucky tv
-    // page at all times". Restaged from the old section G, which checked the photo screen.
-    console.log("\nG. No screensaver: the page stays up");
+    /* ---- G · idle screen ------------------------------------------------------------ */
+    // Restored 2026-10-20: the screensaver was removed on request ("show the bucky tv page at all
+    // times"), and right after that the TV ended up back on Google's home screen. The family asked
+    // to go back to this, so these are the original checks.
+    console.log("\nG. Idle screen");
     const G = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true });
     await boot(G.page, "?week=3&idle=1");
-    await sleep(2500);
-    const gs = await G.page.evaluate(() => { const el = document.elementFromPoint(innerWidth / 2, innerHeight / 2); return { idleEl: !!document.getElementById("idle"), onHome: !!(el && el.closest("#home")), act: document.activeElement.dataset.act }; });
-    ok(!gs.idleEl && gs.onHome, "well past the idle time, nothing covers the page (the middle of the screen is still Bucky TV)");
-    ok(gs.act === "prime", "focus is where it was");
-    await G.page.keyboard.press("ArrowRight");
-    ok((await active(G.page)) === "yttv", "the first button press after a quiet spell does its job, it isn't spent waking a screensaver");
-    ok(G.errors.length === 0, "no page errors (" + G.errors.join(" | ") + ")");
+    await G.page.waitForFunction(() => !document.getElementById("idle").hidden, { timeout: 5000 }).catch(() => {});
+    ok(await shown(G.page, "#idle"), "after the idle time the photo screen covers the page");
+    const ph = await G.page.evaluate(() => ({ bg: document.querySelector("#idle .ph.on .im")?.style.backgroundImage || "", cap: document.getElementById("idleCap").textContent, line: document.getElementById("idleLine").textContent }));
+    ok(/data:image\/jpeg/.test(ph.bg) && ["Daisy", "Pepper"].includes(ph.cap), "it shows a goat photo with the goat's name (" + ph.cap + ")");
+    ok(/62° partly cloudy/.test(ph.line) && /Soccer practice at/.test(ph.line), "the corner line has the weather and the next event (" + ph.line + ")");
+    const n = await G.page.evaluate(async () => { const seen = new Set(); for (let i = 0; i < 6; i++) { showSlide(); seen.add(document.getElementById("idleCap").textContent); } return [...seen].sort().join(","); });
+    ok(n === "Daisy,Pepper", "the slideshow cycles both goats' photos, a goat with none is skipped (" + n + ")");
+    await G.page.keyboard.press("Enter");
+    ok(!(await shown(G.page, "#idle")), "any button wakes the home screen");
+    ok((await G.page.evaluate(() => window.__calls.length)) === 0, "…and that wake-up press launched nothing");
+    await G.page.evaluate(() => startIdle());
+    await sleep(50);
+    await G.page.evaluate(() => window.dispatchEvent(new Event("buckytv-back")));
+    ok(!(await shown(G.page, "#idle")), "Back on the remote also leaves the photo screen");
+    if (SHOT) { await G.page.evaluate(() => startIdle()); await sleep(1700); await G.page.screenshot({ path: path.join(SHOTS, "tv-idle.png") }); }
     await G.ctx.close();
 
     /* ---- H · a plain browser (no wrapper) ------------------------------------------- */
@@ -640,10 +649,7 @@ async function run() {
     console.log("\nJ. A new deploy reaches the TV without a restart");
     const site = { deployed: false, down: false, docLoads: 0 };
     const J = await newPage(browser, { width: 960, height: 540, deviceScaleFactor: 1 }, { bridge: true, site });
-    // The page counts 3 s without a button press as nobody using it (?idle=3), and checks for a
-    // new version every second (?check=1). Restaged when the screensaver went: the reload used to
-    // wait for the screensaver to come up; now it waits for the remote to go quiet.
-    await boot(J.page, "?week=3&check=1&idle=3");
+    await boot(J.page, "?week=3&check=1&idle=600");
     await J.page.evaluate(() => { window.__mark = 1; });
     await sleep(2500);
     ok(await J.page.evaluate(() => window.__mark === 1 && typeof updatePending !== "undefined" && updatePending === false), "nothing deployed: no update pending, no reload");
@@ -651,21 +657,15 @@ async function run() {
     await sleep(2500);
     ok(await J.page.evaluate(() => window.__mark === 1 && typeof updatePending !== "undefined" && updatePending === false), "the site briefly failing (503) is not mistaken for a new version");
     site.down = false;
-    // Someone is using the remote: a press every 0.7 s, before and after the deploy lands.
-    let pressing = true;
-    const presser = (async () => { while (pressing) { await J.page.keyboard.press("ArrowRight").catch(() => {}); await sleep(700); } })();
-    await sleep(800);
     site.deployed = true;
-    await sleep(3500);
-    ok(await J.page.evaluate(() => typeof updatePending !== "undefined" && updatePending === true).catch(() => false), "after a deploy the page notices within one check");
-    ok(await J.page.evaluate(() => window.__mark === 1).catch(() => false) && site.docLoads === 1, "…but does not reload while the remote is in use");
-    pressing = false;
-    await presser;
-    await J.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => null);
+    await sleep(2500);
+    ok(await J.page.evaluate(() => typeof updatePending !== "undefined" && updatePending === true), "after a deploy the page notices within one check");
+    ok(await J.page.evaluate(() => window.__mark === 1) && site.docLoads === 1, "…but does not reload while someone may be using it");
+    await Promise.all([J.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => null), J.page.evaluate(() => startIdle())]);
     await J.page.waitForFunction(() => document.querySelector("#calList .ev"), { timeout: 10000 }).catch(() => {});
-    ok(site.docLoads === 2 && (await J.page.evaluate(() => window.__mark)) === undefined, "once the remote goes quiet it reloads into the new version (" + site.docLoads + " loads)");
+    ok(site.docLoads === 2 && (await J.page.evaluate(() => window.__mark)) === undefined, "when the idle screen comes up it reloads into the new version (" + site.docLoads + " loads)");
     ok(/deploy 2/.test(await J.page.content()), "the reloaded page is the new deploy");
-    await sleep(4000);
+    await sleep(2500);
     ok(site.docLoads === 2 && (await J.page.evaluate(() => updatePending === false)), "the new version doesn't keep reloading itself");
     ok(J.errors.length === 0, "no page errors (" + J.errors.join(" | ") + ")");
     await J.ctx.close();
