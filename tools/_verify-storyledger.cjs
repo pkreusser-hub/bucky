@@ -1536,6 +1536,54 @@ async function sectionServer() {
   await call({ mode: "ledger", ledger: fixtureLedger(), scene: "A short scene.", turn: 4 });
   ok(fbCount("s_trunc") === beforeK, "the counter is for story scenes only: a cut-off keeper reply is not a scene");
 
+  // ---- NEW 2026-10-20: SCENES WITH NO WAY FORWARD, AND KEEPER HEALTH, ARE COUNTED -------------
+  // s_nochoices: a story scene that ends on neither ===CHOICES=== nor ===CHAPTER END=== (nor the
+  // legacy ===THE END===). Scene #80 on 2026-10-09 was one and nothing counted it; the page's repair
+  // pass rescues it and the Story Log keeps the original, so only a server counter can see the rate.
+  {
+    const ncBase = fbCount("s_nochoices");
+    const withChoices = "The lamps guttered.\n\n===CHOICES===\n1. Look\n2. Wait\n3. Run";
+    setSseOverride(sseOf([withChoices]));
+    await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
+    ok(fbCount("s_nochoices") === ncBase, "s_nochoices: a scene that ends on ===CHOICES=== is not counted");
+    setSseOverride(sseOf(["The lamps guttered. The scene finished its last line and simply stopped."]));
+    await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
+    ok(fbCount("s_nochoices") === ncBase + 1, "…a complete scene with neither choices nor a chapter end is counted once");
+    setSseOverride(sseOf(["The chapter closes on the quay.\n\n===CHAPTER END===\nA title"]));
+    await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
+    setSseOverride(sseOf(["And that was the last of it.\n\n===THE END==="]));
+    await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
+    ok(fbCount("s_nochoices") === ncBase + 1, "…a chapter end and a legacy THE END are not counted (they have no choices on purpose)");
+    setSseOverride(sseOf(["===NOT WRITTEN===\nThis one is not allowed."]));
+    await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad" });
+    ok(fbCount("s_nochoices") === ncBase + 1, "…and the narrator's own plain no is not counted (it has no choices by design)");
+    setSseOverride(sseOf(["A keeper-ish reply with no choices at all."]));
+    await call({ mode: "ledger", ledger: fixtureLedger(), scene: "A short scene.", turn: 4 });
+    ok(fbCount("s_nochoices") === ncBase + 1, "…and only story mode counts: a keeper reply has no choices and is not a scene");
+    const s1 = await call({ mode: "story", messages: [{ role: "user", content: "A story." }, { role: "assistant", content: "A scene.\n\n===CHOICES===\n1. a\n2. b\n3. c" },
+      { role: "user", content: "They chain my wrists and gag me" }] });
+    ok(fbCount("s_nochoices") === ncBase + 1, "…and the app's own plain no (no model asked) is not counted");
+  }
+  // l_apply_ok / l_apply_fail: the page reports whether the last keeper diff applied, as body.keeperApply.
+  {
+    const okBase = fbCount("l_apply_ok"), failBase = fbCount("l_apply_fail");
+    const scene = "The lamps guttered.\n\n===CHOICES===\n1. Look\n2. Wait\n3. Run";
+    setSseOverride(sseOf([scene]));
+    await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad", keeperApply: "ok" });
+    ok(fbCount("l_apply_ok") === okBase + 1 && fbCount("l_apply_fail") === failBase, "keeper health: keeperApply \"ok\" is counted once, as l_apply_ok");
+    await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad", keeperApply: "fail" });
+    ok(fbCount("l_apply_fail") === failBase + 1 && fbCount("l_apply_ok") === okBase + 1, "…\"fail\" is counted once, as l_apply_fail");
+    for (const bad of ["OK", "ok ", "yes", "true", "", "fail,ok", "l_apply_ok", 1, true, null, ["ok"], { v: "ok" }]) {
+      await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger(), user: "Dad", keeperApply: bad });
+    }
+    ok(fbCount("l_apply_ok") === okBase + 1 && fbCount("l_apply_fail") === failBase + 1, "…anything but those two exact values is ignored (12 malformed values, nothing counted)");
+    await call({ mode: "research", messages: [{ role: "user", content: "How do volcanoes work?" }], keeperApply: "ok" });
+    ok(fbCount("l_apply_ok") === okBase + 1, "…and only a story request counts it");
+    await call({ mode: "story", messages: [{ role: "user", content: "A story." }, { role: "assistant", content: "A scene.\n\n===CHOICES===\n1. a\n2. b\n3. c" },
+      { role: "user", content: "They chain my wrists and gag me" }], keeperApply: "ok" });
+    ok(fbCount("l_apply_ok") === okBase + 2, "…and a turn the app turns down still reports it, once");
+  }
+
   // ---- …AND READ BACK ------------------------------------------------------
   {
     // 2026-10-10: one refused turn first, so the plain no's counters have something to read back.
@@ -1548,6 +1596,8 @@ async function sectionServer() {
     // RESTAGED 2026-10-09: the narrator moved from Haiku 5.5 to Sonnet 5.5 (Dad, after Haiku 5.5 wrote two captivity scenes the rule forbids during its trial); the per-narrator counters read back are the Sonnet 5.5 ones.
     ok(statRow.s_trunc >= 2 && statRow.s_trunc_sonnet55 >= 1 && statRow.s_trunc_grok >= 1 && statRow.s_oos >= 3 && statRow.s_oos_sonnet55 >= 1,
       "the stats row carries the truncation and out-of-story counters through to the dashboard");
+    ok(statRow.s_nochoices >= 1 && statRow.l_apply_ok >= 1 && statRow.l_apply_fail >= 1,
+      "the stats row carries s_nochoices, l_apply_ok and l_apply_fail through to the dashboard (2026-10-20)");
     ok(!Object.keys(statRow).some((k) => /^s_(trunc|oos|steer)_?[a-z0-9]*_(in|out|req|cw|cr)$/.test(k)),
       "…and none of them is mistaken for a per-model token field");
   }
@@ -2788,7 +2838,8 @@ async function sectionKeeper(browser) {
     promote_knowledge: [{ fact: HIDDEN_SECRET, to: "known" }],
     resolve_threads: ["T1"],
   };
-  let page = await keeperPage(browser, { keeper: () => good });
+  // (2026-10-20: the second keeper call hangs, so the health report below is not overwritten by it)
+  let page = await keeperPage(browser, { keeper: (b, i) => (i === 0 ? good : "hang") });
   await page.evaluate(keeperStoryJS());
   await page.evaluate(() => window.__STORY__.runKeeper(window.__STORY__.story, 0));
   await keeperSettled(page, 0);
@@ -2820,6 +2871,19 @@ async function sectionKeeper(browser) {
   ok(!!kSent[0].ledger && !!kSent[0].scene && kSent[0].turn === 1,
     "…carrying the ledger, the scene and the turn");
   ok(kSent[0].readerAssert === false, "…and readerAssert false for a tapped choice");
+  // NEW 2026-10-20 — KEEPER HEALTH reaches the server without a request of its own. A clean apply is
+  // remembered as "ok", rides the next STORY request as keeperApply, and is sent once.
+  ok(await page.evaluate(() => (window.__STORY__.keeperApplyPending || (() => "(no hook)"))()) === "ok", "keeper health: a clean apply is remembered as \"ok\"");
+  ok(!page.__sent.some((b) => b.mode === "story" && "keeperApply" in b), "…and nothing has been sent about it yet (no request of its own)");
+  await page.evaluate(() => { document.getElementById("viewStory").classList.add("on"); window.__STORY__.takeTurn("Go and look at the ferry."); });
+  await page.waitForFunction("window.__STORY__.story.messages.length >= 4", { timeout: 15000 });
+  const storyReqs = page.__sent.filter((b) => b.mode === "story");
+  ok(storyReqs.length >= 1 && storyReqs[0].keeperApply === "ok", "…the next story request carries keeperApply:\"ok\"");
+  ok(await page.evaluate(() => (window.__STORY__.keeperApplyPending || (() => "(no hook)"))()) === "", "…and the report is cleared once delivered, so it is sent once");
+  await page.evaluate(() => { window.__STORY__.takeTurn("Walk along the quay."); });
+  await page.waitForFunction("window.__STORY__.story.messages.length >= 6", { timeout: 15000 });
+  const storyReqs2 = page.__sent.filter((b) => b.mode === "story");
+  ok(storyReqs2.length >= 2 && !("keeperApply" in storyReqs2[1]), "…the turn after that carries no keeperApply at all");
   ok(!(kSent[0].messages && kSent[0].messages.length), "…with no messages array (the server builds its own turn)");
   ok(page.__errors.length === 0, "no page errors (keeper happy path)");
   await page.close();
@@ -2848,8 +2912,11 @@ async function sectionKeeper(browser) {
       const s = window.__STORY__.story;
       return { same: JSON.stringify(s.ledger) === b, entry: s.ledgerDiffs[0], len: s.ledgerDiffs.length,
                prev: !!s.ledgerPrev, valid: window.__STORY__.validateLedger(s.ledger).ok,
-               busy: window.__STORY__.keeperBusy() };
+               busy: window.__STORY__.keeperBusy(), pending: typeof window.__STORY__.keeperApplyPending === "function" ? window.__STORY__.keeperApplyPending() : "(no hook)" };
     }, before);
+    // NEW 2026-10-20: every way the diff can fail to apply is remembered as "fail", to be sent on
+    // the next story request (the server cannot see a browser-side failure any other way).
+    ok(res.pending === "fail", "keeper health — " + label + ": remembered as a failed apply, to report on the next story request");
     ok(res.same && res.valid, "fail-open — " + label + ": the previous ledger is untouched");
     ok(res.entry && res.entry.ok === false && res.entry.diff === null && !!res.entry.reason && res.len === 1,
       "fail-open — " + label + ": an honest empty entry keeps the diff log gapless");
@@ -4431,6 +4498,8 @@ async function sectionDashboard(browser) {
       s_fb_sonnet: 3, s_fb_grok: 1,
       s_trunc: 3, s_trunc_haiku55: 2, s_trunc_sonnet: 1,
       s_oos: 2, s_oos_haiku55: 2,
+      // 2026-10-20: scenes with no choices, and the keeper's diff applying in the browser (hand-read: 2; 9 of 12)
+      s_nochoices: 2, l_apply_ok: 9, l_apply_fail: 3,
       // the quiet ones
       k_in: 300, k_out: 120, k_req: 1, k_cw: 0, k_cr: 0,
       a_in: 200, a_out: 400, a_req: 1, a_cw: 0, a_cr: 0,
@@ -4504,6 +4573,8 @@ async function sectionDashboard(browser) {
     "…a scene cut off at its length cap is counted on the dashboard, by narrator");
   ok(/2 scenes re-run after the narrator stepped out of the story \(2 on Haiku 5\.5\)/.test(dash.health || ""),
     "…and so is a scene re-run because the narrator stepped out of the story");
+  ok(/2 scenes ended with no choices/.test(dash.health || "") && /keeper notes applied 9 of 12 times \(3 failed\)/.test(dash.health || ""),
+    "…and so are scenes with no choices (2) and the keeper's apply rate (9 of 12, 3 failed), 2026-10-20: " + JSON.stringify(dash.health));
   ok(!/[\u{1F300}-\u{1FAFF}]/u.test(String(dash.health || "").split("·").slice(2).join("·")),
     "…and the two new lines carry no emoji");
   const names = dash.rows.map((r) => r.name);
