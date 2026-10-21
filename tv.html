@@ -134,7 +134,7 @@
   .ev .what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .more { font-size: 1.3rem; color: var(--muted); font-weight: 600; margin-top: .5rem; }
   .empty { color: var(--muted); font-size: 1.6rem; }
-  /* The goats: each photo at its own shape over a blurred copy of itself. */
+  /* The goats: same layering as the idle screen (photo at its own shape over a blurred copy). */
   .goats { position: relative; border-radius: 1.6rem; overflow: hidden; background: var(--green-dd); box-shadow: var(--shadow); }
   .ph { position: absolute; inset: 0; opacity: 0; transition: opacity 1.6s ease; overflow: hidden; }
   .ph.on { opacity: 1; }
@@ -172,6 +172,14 @@
   .gffl-h { display: flex; align-items: baseline; gap: 1.2rem; }
   .gffl-h .row-label { margin-bottom: .8rem; }
   .gffl-h .note { font-size: 1.3rem; color: var(--on-green-2); }
+
+  /* ---------- idle screen ---------- */
+  #idle { position: fixed; inset: 0; background: var(--green-dd); z-index: 50; }
+  #idle .scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; background: linear-gradient(0deg, rgba(20,30,24,.8), transparent); }
+  #idle .corner { position: absolute; left: 5rem; bottom: 3.6rem; text-shadow: 0 .2rem 1rem rgba(0,0,0,.6); }
+  #idle .corner .clock { font-size: 7rem; }
+  #idle .corner .line { font-size: 2rem; color: var(--paper); margin-top: .6rem; }
+  #idle .cap { position: absolute; right: 5rem; bottom: 3.8rem; font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 2.4rem; color: var(--paper); text-shadow: 0 .2rem 1rem rgba(0,0,0,.6); }
 
   #toast { position: fixed; left: 50%; bottom: 4rem; transform: translateX(-50%); background: var(--ink); color: var(--cream); border: 1px solid rgba(255,253,248,.2);
     padding: 1.1rem 2rem; border-radius: 1.2rem; font-size: 1.7rem; z-index: 60; max-width: 80rem; text-align: center; box-shadow: var(--shadow); }
@@ -223,6 +231,13 @@
   </section>
 </main>
 
+<div id="idle" hidden>
+  <div class="ph" id="ph0"><div class="bk"></div><div class="im"></div></div>
+  <div class="ph" id="ph1"><div class="bk"></div><div class="im"></div></div>
+  <div class="scrim"></div>
+  <div class="corner"><div class="clock" id="idleClock"></div><div class="line" id="idleLine"></div></div>
+  <div class="cap" id="idleCap"></div>
+</div>
 <div id="toast" hidden></div>
 
 <script>
@@ -237,11 +252,11 @@ const FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
 const FS_BASE = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents";
 const LAT = 34.686537, LON = -86.210417;
 const TZ = "America/Chicago";
-// ?week=N pins the GFFL week, ?idle=S sets how long without a button press counts as nobody
-// using the TV, and ?check=S the update check, in seconds, for previews and tools/_verify-tv.cjs.
-// The TV itself loads the bare URL.
+// ?week=N pins the GFFL week, ?idle=S sets the idle timer and ?check=S the update check, in
+// seconds, for previews and tools/_verify-tv.cjs. The TV itself loads the bare URL.
 const QS = new URLSearchParams(location.search);
 const IDLE_MS = (Number(QS.get("idle")) || 5 * 60) * 1000;
+const SLIDE_MS = 12 * 1000;
 const GOAT_MS = 8 * 1000;
 
 // Android package names for the apps the tiles open.
@@ -324,6 +339,7 @@ function tickClock() {
   const d = new Date();
   $("clock").textContent = fmtTime(d);
   $("date").textContent = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  $("idleClock").textContent = fmtTime(d);
 }
 
 // ============================================================================================
@@ -348,6 +364,7 @@ function wxKind(code) {
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return ["rain", code <= 57 ? "Drizzle" : "Rain"];
   return ["cloud", "Cloudy"];
 }
+let wxLine = "";
 async function loadWeather() {
   const url = "https://api.open-meteo.com/v1/forecast?latitude=" + LAT + "&longitude=" + LON +
     "&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
@@ -358,6 +375,7 @@ async function loadWeather() {
     const j = await r.json();
     const [nowKind, nowLabel] = wxKind(j.current.weather_code);
     const now = Math.round(j.current.temperature_2m);
+    wxLine = now + "° " + nowLabel.toLowerCase();
     let html = "";
     for (let i = 0; i < Math.min(7, j.daily.time.length); i++) {
       const d = new Date(j.daily.time[i] + "T12:00:00");
@@ -373,6 +391,7 @@ async function loadWeather() {
     $("wx").innerHTML = html;
     $("wx").hidden = false;
   } catch (e) { console.warn(e); }
+  updateIdleLine();
 }
 
 // ============================================================================================
@@ -399,6 +418,7 @@ async function loadCalendar() {
     console.warn(e);
     if (!calEvents.length) $("calList").innerHTML = '<div class="empty">Couldn\'t reach the calendar</div>';
   }
+  updateIdleLine();
 }
 function dayLabel(d, today) {
   const diff = Math.round((dayStart(d) - today) / 864e5);
@@ -432,6 +452,12 @@ function renderCalendar() {
   if (shown < live.length) html += '<div class="more">+' + (live.length - shown) + " more this week</div>";
   $("calList").innerHTML = html;
 }
+function nextEventText() {
+  const now = new Date(), end = addDays(dayStart(now), 1);
+  const ev = calEvents.filter((e) => !e.allDay && evStart(e) > now && evStart(e) < end).sort((a, b) => evStart(a) - evStart(b))[0];
+  return ev ? (ev.title || "Event") + " at " + fmtTimeAmPm(evStart(ev)) : "";
+}
+
 // ============================================================================================
 // Show tiles, and this week's Monday and Sunday night games on MNF and SNF
 // ============================================================================================
@@ -690,15 +716,16 @@ function move(dir) {
   if (best) focusTile(best);
 }
 function goHome() {
+  stopIdle();
   $("home").scrollTop = 0;
   focusTile(tiles()[0]);
 }
 
 // ============================================================================================
-// Goat photos: the slideshow on the home screen
+// Goat photos: the slideshow on the home screen, and full screen after five idle minutes
 // ============================================================================================
 const STATIC_PHOTOS = [{ src: "Goat1.png", cap: "" }, { src: "Goat2.png", cap: "" }, { src: "logo.png", cap: "Amen Farms" }];
-let photos = null, photosAt = 0;
+let photos = null, photosAt = 0, idleTimer = 0, idleOn = false;
 async function loadPhotos() {
   if (photos && Date.now() - photosAt < 60 * 60 * 1000) return;
   try {
@@ -731,23 +758,41 @@ function makeShow(frameA, frameB, capId) {
   };
 }
 const goatSlide = makeShow("gs0", "gs1", "goatCap");
-let goatTimer = 0;
+const showSlide = makeShow("ph0", "ph1", "idleCap");
+let goatTimer = 0, slideTimer = 0;
 async function startGoats() {
   await loadPhotos();
   goatSlide();
   clearInterval(goatTimer);
   goatTimer = setInterval(goatSlide, GOAT_MS);
 }
-// No screensaver (user, 2026-10-20: "get rid of the screensaver view, I just want it to show the
-// bucky tv page at all times"). What is left of "idle" is knowing when nobody is using the
-// remote, so a new deploy can load then (see checkForUpdate).
-const IDLE_SLACK = 1000;
-let lastInput = Date.now(), idleTimer = 0;
-function nobodyUsing() { return Date.now() - lastInput >= IDLE_MS - IDLE_SLACK; }
+function updateIdleLine() {
+  const bits = [];
+  if (wxLine) bits.push(wxLine);
+  const nx = nextEventText();
+  if (nx) bits.push(nx);
+  $("idleLine").textContent = bits.join(" · ");
+}
+async function startIdle() {
+  if (idleOn) return;
+  idleOn = true;
+  await loadPhotos();
+  if (!idleOn) return;
+  updateIdleLine();
+  $("idle").hidden = false;
+  showSlide();
+  slideTimer = setInterval(showSlide, SLIDE_MS);
+  if (updatePending) location.reload();
+}
+function stopIdle() {
+  if (!idleOn) return;
+  idleOn = false;
+  clearInterval(slideTimer);
+  $("idle").hidden = true;
+}
 function armIdle() {
-  lastInput = Date.now();
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { if (updatePending) location.reload(); }, IDLE_MS);
+  idleTimer = setTimeout(startIdle, IDLE_MS);
 }
 
 // ============================================================================================
@@ -756,6 +801,8 @@ function armIdle() {
 const KEY_DIR = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 document.addEventListener("keydown", (e) => {
   armIdle();
+  // The first press only wakes the screen; it never also launches whatever had focus.
+  if (idleOn) { stopIdle(); e.preventDefault(); return; }
   if (KEY_DIR[e.key]) { e.preventDefault(); move(KEY_DIR[e.key]); return; }
   if (e.key === "Enter" || e.key === " ") {
     const t = document.activeElement;
@@ -766,21 +813,21 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("click", (e) => {
   armIdle();
+  if (idleOn) { stopIdle(); return; }
   const t = e.target.closest(".tile");
   if (t) launch(t.dataset.act, t);
 });
 document.addEventListener("pointermove", armIdle, { passive: true });
 // From the Android wrapper: Back, Home pressed while already home, and coming back from an app.
-window.addEventListener("buckytv-back", () => { armIdle(); goHome(); });
+window.addEventListener("buckytv-back", () => { armIdle(); if (idleOn) stopIdle(); else goHome(); });
 window.addEventListener("buckytv-home", () => { armIdle(); goHome(); });
-window.addEventListener("buckytv-resume", () => { armIdle(); updateHomeSetup(); refreshAll(); });
+window.addEventListener("buckytv-resume", () => { armIdle(); stopIdle(); updateHomeSetup(); refreshAll(); });
 
 // ============================================================================================
 // Picking up new deploys. The wrapper keeps this page open for days as the home screen, so a
 // change to the site would otherwise wait for the TV to restart. Every few minutes the page
 // re-reads its own source (and the GFFL engine it loads); when either differs from what it
-// booted with, it reloads once nobody has pressed a button for IDLE_MS, never under someone's
-// thumb. (It used to wait for the screensaver, which is gone.)
+// booted with, it reloads the next time the idle screen comes up, never under someone's thumb.
 // ============================================================================================
 const UPDATE_CHECK_MS = (Number(QS.get("check")) || 10 * 60) * 1000;
 const SELF_FILES = [location.pathname, "assets/sunday/sd-fantasy.js"];
@@ -800,7 +847,7 @@ async function checkForUpdate() {
     if (bootHash == null) bootHash = h;
     else if (h !== bootHash) updatePending = true;
   } catch (e) { /* offline or mid-deploy: try again next time */ }
-  if (updatePending && nobodyUsing()) location.reload();
+  if (updatePending && idleOn) location.reload();
 }
 
 // ============================================================================================
