@@ -3229,3 +3229,100 @@ the function at origin/main, the new check the only failure).
   `ffcommentary` has no xAI outage fallback; a background-job 5xx falls through to a second paid run;
   the parent-only storylog/budget modes are gated only by the family password that ships in client
   JS — they need their own server-side secret.
+
+## 2026-10-20 — a read of the Story Log since 2026-10-07: four fixes, two new counters, and a correction
+A read-only review of every Story Log scene since 2026-10-07 (the narrator is Sonnet 5.5 from 2026-10-09).
+
+**Review numbers (Sonnet 5.5, 200 scenes read).** 0 scenes with restraint or air-loss on the page.
+18 plain-no refusals, all correct. Redo rate 2.5%. About $0.053 a scene, keeper included.
+
+**CORRECTS the 2026-10-10 entry.** That entry puts scene #80, the one that ended with no choices, on
+Sonnet 5.5. The hourly per-model counters say Haiku 5.5 wrote it: 07:00 CDT on 2026-10-09 had 4
+Haiku 5.5 story requests. The 2026-10-10 text is left as written; this is the correction. Until now nothing counted scenes
+with no choices at all, so see `s_nochoices` below.
+
+### 1. False mind-control fires: "collar" alone is not servitude. RESTAGES the 2026-10-07 trigger
+All four `s_steer_mind` fires on 2026-10-20 were the word "collar" (a hero's armour helmet "folding
+back into your collar", a collarbone) in scenes with no mind control in them.
+`PREV_SERV_RE` carried a bare `\bcollar\w*\b`, which also matches "collarbone", and `mindShown`
+reads it with no control device required at all.
+- `collarServitude(text)` (exported): a collar counts only with a second sign in the same text:
+  leash, obey/obedient, master/mistress, slave, kneel, "trained", "good girl/boy", or a collar locked,
+  fastened, clasped or snapped on a neck or throat. A collar on gear (armour, helmet, suit, shirt,
+  cloak...) never counts through the neck form. "Collarbone" never matches (`\b` after "collar").
+- `PREV_SERV_RE` no longer has collar; `prevServ(p)` = `PREV_SERV_RE` or `collarServitude`, used in
+  `mindControlAsked` (twice) and `mindShown`. The generic `SERV_SIGNALS` entry for collar is now the
+  same function, so the reader-text path asks for company too, as the generic signals always did.
+- Checked and left alone: `CONTROL_RE` and `SERV_WEAK` never had collar; `storyRefusalOf` and
+  `STORY_REFUSAL_RULES` do not match it. `DEVICE_USE_RE` (captive harm) still has "collar" as a device:
+  it reads only the reader's own message, needs a captivity word and a device-use verb within 80
+  characters, and is not what fired.
+- Pinned quiet: armour collar, shirt collar, collarbone, an enchanted suit's collar, a puppy's collar.
+  Pinned loud: collar plus Master, leash, fastened on a neck, obey, kneeling.
+
+### 2. Steer wording leaked into the stories. RESTAGES the 2026-10-09 steers' wording only
+After the steers were rebuilt on 2026-10-09, scenes carried reassurances ("They did not hurt you",
+"nobody meant for you to go without air"): 14 in 200 recent scenes against 2 in 382 before. The
+steers told the narrator the state of the world ("nobody is hurt or threatened, and everyone can
+breathe"), and it said so back. The safety substance is unchanged (the thing is over in the scene's
+first line or two, the story carries on where it stands, a plain lock-up is fine, no choice offers it,
+a fresh ask goes to the plain no); only the register changed, from stating a condition to a plot beat
+with nothing to narrate about anyone's condition.
+- Captivity steer, old: "In its first line or two that part is over: the restraints are off, nobody is
+  hurt or threatened, and everyone can breathe. ... Do not describe restraints, pain, or anyone's
+  suffering."
+  New: "In its first line or two that part is simply behind the story: open on a way out already
+  happening (a lock gives, a friend arrives, the plan lands) and go straight to what the characters do
+  next. Write nothing about anyone's condition, in either direction: no restraints, pain or suffering
+  described, no reassurance about their absence, and nothing about what anyone did or did not intend."
+- Mind-control steer, old: "... the control is broken and the character is fully themselves again."
+  New: "... the control lets go as a plot beat (the amulet slips, a friend's name gets through) and the
+  character is themselves again, then go straight to what the heroes do next. Say nothing about what
+  the control did or did not do to anyone." (The "Nobody obeys, serves, kneels..." sentence stays.)
+- Not changed: `STORY_RULES_REMINDER`'s continuity clause is an instruction about facts, not a
+  line the narrator copies, and the review did not trace any leak to it.
+- A check now holds both steers' own text to a list of reassurance phrasings (nobody was hurt, can
+  breathe, did not hurt you, is safe, ...). The old captivity wording fails it.
+- Watch `s_nochoices` and the Story Log for the reassurance phrasing over the next week; it was
+  measured as a count of scenes, so it can be measured again.
+
+### 3. `s_nochoices`: scenes that end with nothing to tap
+After a story scene finishes, if the whole text holds none of `===CHOICES===`, `===CHAPTER END===`,
+`===THE END===` or `===END===`, and it was not a plain no (the narrator's marker or the API's
+decline), the usage doc gets `s_nochoices` +1. Story mode only: a keeper reply, kid story or the
+app's own refusal never counts. A scene that was also cut off at the cap counts here and in `s_trunc`
+(how often, and why, are different questions). The page's repair pass still rescues the scene.
+`captureReply` now also covers story mode with no `user`, so Dad's own stories are counted.
+
+### 4. Keeper health: `l_apply_ok` / `l_apply_fail`
+Keeper diffs are applied in the browser, so a malformed or rejected diff was invisible to the server.
+`keeperOnce`'s `record()` (every outcome passes through it: reply not JSON, `applyLedgerDiff`
+rejected it, the call failed, or a clean apply) now sets `keeperApplyPending` to "ok" or "fail".
+`callFarmGPT` sends it as `keeperApply` on the next story request, and clears it only once a response
+came back. No request of its own. The server (`keeperApplyCounter`) accepts exactly the strings
+`ok` and `fail`, on a story-mode request only, counts at most one per request, and counts it even
+when the app's own check turns that request down. Anything else is ignored. A keeper still in flight
+when the reader leaves, or a redo that abandons it, reports nothing. A page reload loses a pending
+report (it is memory only).
+
+### The dashboard
+The health line gains "N scenes ended with no choices" and "keeper notes applied A of B times (F
+failed)", each only when non-zero. `usageRow` passes `s_nochoices`, `l_apply_ok`, `l_apply_fail`.
+
+### Dad's decision, 2026-10-20: not being able to move stays allowed
+Being unable to move with no bindings at all (paralysis, a body-shaped tank, a sealed lid) is allowed
+as it is. It is not added to the plain-no list. The refusal still covers tying, chaining, cuffing,
+gagging, blindfolding, hanging up, a captive hurt, and a captive kept short of air.
+
+### Verified
+storyledger **965/965** (939 + 26) - story-reminder **221/221** (201 + 20) - story-plainno 22/22 -
+kidstory-server 56/56 - dnd-server 47/47 - storylog-summary 109/109 - stocks-server 143/143 - health
+210/210 - parent-research 25/25 - teachergpt 39/39 - calories-server 24/24 = **1,861**. Also green:
+farmgpt-retry 9/9, ffai 39, sports 301, books 197, movies 152, notify-url 50, arcade 23.
+**Before/after:** with farmgpt.mjs and farmgpt.html at origin/main and the new suites, story-reminder
+**205/221** (the 16 failures are 2 restaged checks and 14 new ones) and storyledger **942/965** (all
+23 new; the page checks are written to fail rather than crash when the hook is missing). Every
+pre-existing check passes on both sides except the two restaged captivity/mind-control wording checks,
+each marked `RESTAGED 2026-10-20` with its reason.
+`_verify-review-2026-10-12` stops at section D (Castle Kruzer's server does not start in this
+environment); sections A to C pass.

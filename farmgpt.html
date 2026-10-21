@@ -2467,8 +2467,15 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // has been seen on Story Time when an upstream model has a slow moment (2026-08-19): the model
   // and the function were both healthy on re-measure; only that one response had timed out at the
   // gateway. Real request errors (4xx) are NOT retried — those mean the request itself is wrong.
+  // KEEPER HEALTH (2026-10-20). The keeper's diff is applied here in the browser, so the server
+  // cannot see one fail. keeperOnce records whether the last diff applied cleanly ("ok" / "fail":
+  // the reply wasn't JSON, was rejected by applyLedgerDiff, or the keeper call itself failed);
+  // the next story request carries it as keeperApply and the server counts it (l_apply_ok /
+  // l_apply_fail). No request of its own. It is held until a request actually got an answer.
+  let keeperApplyPending = "";
   async function callFarmGPT(mode, messages, onChunk, opts, signal) {
     let resp;
+    const keeperApplyReport = mode === "story" ? keeperApplyPending : "";
     for (let attempt = 0; ; attempt++) {
       let netErr = null;
       resp = null;
@@ -2476,7 +2483,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         resp = await fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, ...(opts || {}) }),
+          body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, ...(keeperApplyReport ? { keeperApply: keeperApplyReport } : {}), ...(opts || {}) }),
           ...(signal ? { signal } : {}),
         });
       } catch (e) { netErr = e; }
@@ -2489,6 +2496,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       if (netErr) throw netErr;
       break;
     }
+    if (keeperApplyReport && keeperApplyPending === keeperApplyReport) keeperApplyPending = "";   // delivered
     if (!resp.ok) {
       let msg = "Request failed (" + resp.status + ")";
       try { msg = (await resp.json()).error || msg; } catch { /* keep generic */ }
@@ -3237,6 +3245,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // threw the scene away while we were out, in which case there is nothing left to file.
     const record = (diff, okFlag, reason) => {
       if ((s.keeperGen | 0) !== (gen | 0)) return;
+      keeperApplyPending = okFlag ? "ok" : "fail";   // reported on the next story request
       recordLedgerDiff(s, sceneIdx, diff, okFlag, reason);
       saveStoryObj(s);
     };
@@ -4344,6 +4353,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     auditTranscript, keeperNotes, parseAuditJSON, renderAuditList, runAudit,
     setKeeperTimeout(ms) { KEEPER_TIMEOUT_MS = ms; },
     keeperBusy() { return keeping; },
+    keeperApplyPending() { return keeperApplyPending; },
     parseChapter,
     // 2026-09-24 — third-person stories and the story-text emphasis renderer
     storyPovFor, THIRD_PERSON_RE, get povPick() { return povPick; }, renderStoryText,
@@ -4886,7 +4896,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // themselves are in the Story Log.
     const refusedApp = sum(monthDays, "s_refuse"), refusedModel = sum(monthDays, "s_refuse_model"), refusedApi = sum(monthDays, "s_refuse_api");
     const refusedAll = refusedApp + refusedModel + refusedApi;
-    if (seedTotal || storyFallbacks || storyTruncs || storyOos || refusedAll) {
+    // 2026-10-20: scenes that ended with no choices (the reader is handed nothing to tap), and
+    // how the keeper's diff fared in the browser (the server cannot see that any other way).
+    const storyNoChoices = sum(monthDays, "s_nochoices");
+    const applyOk = sum(monthDays, "l_apply_ok"), applyFail = sum(monthDays, "l_apply_fail");
+    if (seedTotal || storyFallbacks || storyTruncs || storyOos || refusedAll || storyNoChoices || applyOk || applyFail) {
       const note = document.createElement("div");
       note.id = "usageSeedHealth";
       note.style.cssText = "margin:-6px 0 14px;text-align:center;font-size:.82rem;opacity:.75";
@@ -4901,6 +4915,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       }
       if (storyOos) {
         bits.push(storyOos + " scene" + (storyOos === 1 ? "" : "s") + " re-run after the narrator stepped out of the story" + named(byNarrator("s_oos_")));
+      }
+      if (storyNoChoices) {
+        bits.push(storyNoChoices + " scene" + (storyNoChoices === 1 ? "" : "s") + " ended with no choices");
+      }
+      if (applyOk || applyFail) {
+        bits.push("keeper notes applied " + applyOk + " of " + (applyOk + applyFail) + " times" + (applyFail ? " (" + applyFail + " failed)" : ""));
       }
       if (refusedAll) {
         const who = [[refusedApp, "by the app's check"], [refusedModel, "by the storyteller"], [refusedApi, "by the AI service"]]

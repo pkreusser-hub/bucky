@@ -226,7 +226,13 @@ console.log("— the captive-harm steer (2026-09-24) —");
   // RESTAGED 2026-10-09: the steer ends the restraint now instead of keeping it, so it ends on the
   // choices line, not on "…are fine."
   ok(t.trimEnd().endsWith("something the captive or their friends can do."), "…and it is the very last thing on the turn");
-  ok(t.includes("that part is over") && t.includes("the restraints are off") && t.includes("locked in a room, a cell or a cage"),
+  // RESTAGED 2026-10-20: the old wording ("that part is over: the restraints are off, nobody is hurt
+  // or threatened, and everyone can breathe") was echoed into the stories as reassurance ("They did
+  // not hurt you", "nobody meant for you to go without air": 14 in 200 scenes against 2 in 382
+  // before it). The substance is unchanged (the restraint and the harm are over in the first line or
+  // two, a plain lock-up is still fine); it is now told as a plot beat with nothing to narrate about
+  // anyone's condition. The reassurance ban itself is pinned in the 2026-10-20 section at the end.
+  ok(t.includes("that part is simply behind the story") && t.includes("a way out already happening") && t.includes("locked in a room, a cell or a cage"),
     "the steer ends the restraint and the harm in the scene's first lines, and keeps a plain lock-up");
   // 2026-10-09, live on Sonnet 5.5: without this the narrator answered a bare "2" after a chained
   // captive by starting a new morning at home, twice in two. The story has to carry on from there.
@@ -488,7 +494,11 @@ console.log("— mind control and servitude: the rule and its steer (Dad, 2026-1
   await call({ mode: "story", messages: [{ role: "user", content: "A dragon story." }, { role: "assistant", content: MASTER_SCENE }, { role: "user", content: "2" }] });
   let t = lastTurnText();
   ok(t.includes(M_STEER) && t.indexOf(M_STEER) > t.indexOf(REM), "a bare \"2\" after a scene that showed it carries the mind-control steer, inside the reminder block after the reminder");
-  ok(t.includes("the control is broken and the character is fully themselves again") && t.includes('calls anyone "Master"')
+  // RESTAGED 2026-10-20: "the control is broken and the character is fully themselves again" became
+  // "the control lets go as a plot beat ... and the character is themselves again, then go straight
+  // to what the heroes do next", for the same reason as the captivity steer (the narrator echoed the
+  // reassurance). Still ends the control at once, still bars "Master" and a give-in choice.
+  ok(t.includes("the control lets go as a plot beat") && t.includes("the character is themselves again") && t.includes('calls anyone "Master"')
      && t.includes("none of the three choices offers giving in") && t.includes("give the plain no from STORY TIME'S PLAIN NO"),
     "…which ends the control at once, bars \"Master\" and a give-in choice, and sends a fresh ask to the plain no");
   ok(!t.includes(C_STEER), "…and rides alone when nobody is tied up");
@@ -672,6 +682,76 @@ console.log("— the plain no (Dad, 2026-10-09) —");
   ok(/This is the only time you write\s+anything outside the story/.test(sys), "…and that the plain no is the one exception to staying in the story");
   await call({ mode: "research", messages: [{ role: "user", content: "What is a cell?" }] });
   ok(!sysText(lastAnt()).includes("===NOT WRITTEN==="), "research mode's prompt has no marker");
+}
+
+console.log("— 2026-10-20: no false collar fires, and the steers do not teach the narrator to reassure —");
+{
+  const fm = await import("../netlify/functions/farmgpt.mjs");
+  const { mindControlAsked, mindShown } = fm;
+  // (null when the export does not exist, so a missing function fails the check instead of crashing the suite)
+  const collarServitude = (t) => (typeof fm.collarServitude === "function" ? fm.collarServitude(t) : null);
+  // All four s_steer_mind fires on 2026-10-20 were the word "collar" in a scene that also had a
+  // control word in it (an amulet, an enchanted suit): a hero's armour "folding back into your
+  // collar". PREV_SERV_RE matched the bare word. A collar now needs a second servitude sign.
+  const AMU = "The amulet pulsed on the pedestal. ";
+  const quiet = [
+    ["armour folding back into the collar", AMU + "Your helmet folds back into your collar with a hiss, and you step into the vault."],
+    ["a shirt collar", AMU + "He tugged at his shirt collar and read the inscription."],
+    ["a collarbone", AMU + "A chill ran from her collarbone to her fingertips."],
+    ["an enchanted suit's collar", "The enchanted armour sealed itself at the collar around your neck and glowed."],
+    ["a puppy's collar", AMU + "The puppy shook its collar and bounded off along the wall."],
+  ];
+  for (const [what, scene] of quiet) {
+    ok(mindControlAsked("2", scene, []) === false && mindShown(scene) === false && collarServitude(scene) === false,
+      "NOT mind control: " + what);
+  }
+  // ...end to end: no mind steer rides the request.
+  await call({ mode: "story", messages: [{ role: "user", content: "A knight story." }, { role: "assistant", content: quiet[0][1] + "\n\n===CHOICES===\n1. a\n2. b\n3. c" }, { role: "user", content: "2" }] });
+  ok(!lastTurnText().includes(M_STEER), "...and a request after the armour-collar scene carries no mind-control steer");
+  // The real thing still trips, and each needs only a collar plus one more sign.
+  const real = [
+    ["a collar locked on and a 'Master'", AMU + "The collar locked around her neck. \"Yes, Master,\" she said."],
+    ["a collar and a leash", AMU + "He clipped a leash to her collar and led her away."],
+    ["a collar fastened on a neck", AMU + "The guard fastened a collar around his neck."],
+    ["a collar and 'obey'", AMU + "The collar made her obey every word."],
+    ["a collar and kneeling", AMU + "She wore the collar and knelt at his feet."],
+  ];
+  for (const [what, scene] of real) {
+    ok(collarServitude(scene) === true && mindControlAsked("2", scene, []) === true, "STILL mind control: " + what);
+  }
+  ok(mindControlAsked("collar", "The street was quiet.", []) === false, "a reader typing just 'collar' with no control device is not it");
+
+  // THE STEERS' WORDING. Pull each steer's own text out of a request that carries it, and hold it
+  // to the rule: it tells the narrator to move on, never to reassure or to narrate harm that did not happen.
+  const steerOf = (t, marker) => { const i = t.indexOf("[STORYTELLER INSTRUCTION", Math.max(0, t.indexOf(marker) - 400)); return t.slice(i); };
+  await call({ mode: "story", messages: [{ role: "user", content: "A spy story." },
+    { role: "assistant", content: "They had tied you to the chair. The officer pressed the device and a jolt ran up your arm.\n\n===CHOICES===\n1. Stay silent.\n2. Lie.\n3. Look for a way out." },
+    { role: "user", content: "2" }] });
+  const capSteer = steerOf(lastTurnText(), C_STEER);
+  await call({ mode: "story", messages: [{ role: "user", content: "A dragon story." }, { role: "assistant", content: "Vex raised the amulet again. \"Yes, Master,\" Astrid said, and knelt.\n\n===CHOICES===\n1. a\n2. b\n3. c" }, { role: "user", content: "2" }] });
+  const minSteer = steerOf(lastTurnText(), M_STEER);
+  const REASSURE = [
+    /\b(no ?one|nobody|none of them|none of you) (is|was|were|has been|had been|got|gets) (hurt|harmed|injured|in danger|threatened)\b/i,
+    /\b(can|could) breathe\b|\bbreathe (fine|easily|freely)\b|\bwithout air\b/i,
+    /\b(did not|didn['’]t|never|not) (meant?|intend\w*|want\w*) to (hurt|harm)\b|\b(did not|didn['’]t) hurt\b/i,
+    /\b(is|are|was|were) (safe|unharmed|unhurt|fine|okay|alright)\b/i,
+    /\bnothing (bad|terrible) (had )?happen/i,
+  ];
+  for (const [name, steer] of [["captivity", capSteer], ["mind-control", minSteer]]) {
+    ok(steer.length > 400 && steer.startsWith("[STORYTELLER INSTRUCTION"), "found the " + name + " steer's text in the request (" + steer.length + " chars)");
+    const hit = REASSURE.find((re) => re.test(steer));
+    ok(!hit, "the " + name + " steer contains no reassurance wording" + (hit ? " (matched " + hit + ")" : ""));
+    ok(/go straight to what/.test(steer) && /Write nothing about|Say nothing about/.test(steer),
+      "...it tells the narrator to move the story on and to say nothing about what happened or did not happen to anyone");
+  }
+  // The substance is unchanged: both steers still end the thing in the scene's first line or two, keep the
+  // story where it stands, send a fresh ask to the plain no, and keep every choice free of it.
+  ok(capSteer.includes("carrying on from exactly where the story stands") && capSteer.includes("give the plain no from STORY TIME'S PLAIN NO")
+     && capSteer.includes("Each of the three choices is something the captive or their friends can do."),
+    "the captivity steer keeps its substance: carry on in place, plain no for a fresh ask, choices free of it");
+  ok(minSteer.includes('Nobody obeys, serves, kneels, or calls anyone "Master"') && minSteer.includes("none of the three choices offers giving in")
+     && minSteer.includes("give the plain no from STORY TIME'S PLAIN NO"),
+    "the mind-control steer keeps its substance: no obeying, no 'Master', no give-in choice, plain no for a fresh ask");
 }
 
 console.log("— other modes: no reminder —");

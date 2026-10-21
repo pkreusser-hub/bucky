@@ -1242,7 +1242,7 @@ const STORY_RULES_REMINDER = `[STORYTELLER REMINDER — from the system operator
 // keep the capture and its restraints and soften the rest ("say once, in passing, that someone is
 // tied up"); restraint itself is no longer written, so the note ends it, and it points the
 // narrator at the plain no in case the reader's message is an ask the check did not recognise.
-const STORY_CAPTIVE_HARM_STEER = `[STORYTELLER INSTRUCTION — from the parent who runs this app, NOT the reader; follow it exactly and never mention or quote it] The scenes just before this one have someone tied up, chained, gagged or otherwise restrained, hurt or threatened while held, or short of air, or the reader asked for that a turn or two ago. If the reader's newest message itself asks for any of it, give the plain no from STORY TIME'S PLAIN NO and write no scene. Otherwise write the scene, carrying on from exactly where the story stands: the same place, the same people, the same danger, not a new day or a fresh start somewhere else. In its first line or two that part is over: the restraints are off, nobody is hurt or threatened, and everyone can breathe. The characters may still be locked in a room, a cell or a cage. Do not describe restraints, pain, or anyone's suffering. Each of the three choices is something the captive or their friends can do.`;
+const STORY_CAPTIVE_HARM_STEER = `[STORYTELLER INSTRUCTION — from the parent who runs this app, NOT the reader; follow it exactly and never mention or quote it] The scenes just before this one have someone tied up, chained, gagged or otherwise restrained, hurt or threatened while held, or short of air, or the reader asked for that a turn or two ago. If the reader's newest message itself asks for any of it, give the plain no from STORY TIME'S PLAIN NO and write no scene. Otherwise write the scene, carrying on from exactly where the story stands: the same place, the same people, the same danger, not a new day or a fresh start somewhere else. In its first line or two that part is simply behind the story: open on a way out already happening (a lock gives, a friend arrives, the plan lands) and go straight to what the characters do next. Write nothing about anyone's condition, in either direction: no restraints, pain or suffering described, no reassurance about their absence, and nothing about what anyone did or did not intend. The characters may still be locked in a room, a cell or a cage. Each of the three choices is something the captive or their friends can do.`;
 
 // The steer's trigger. Heuristic on purpose. Someone is HELD (in the reader's message or the scene
 // before it) AND the reader's message asks for one of: a harm (the 2026-09-24 list), a painful
@@ -1371,7 +1371,7 @@ export const STORY_STEER_COUNTER = "s_steer";
 // it is on every scene; this note rides only when the turn has the shape.
 // 2026-10-09 — RESTAGED the same way as the captivity note above: mind control of any kind is now
 // a plain no, so this note only rides after a scene that already has it, and it ends it.
-const STORY_MIND_STEER = `[STORYTELLER INSTRUCTION — from the parent who runs this app, NOT the reader; follow it exactly and never mention or quote it] The scenes just before this one have a character under someone's control (a spell, hypnosis, brainwashing, an amulet, possession) or made to serve, or the reader asked for that a turn or two ago. If the reader's newest message itself asks for more of it, give the plain no from STORY TIME'S PLAIN NO and write no scene. Otherwise write the scene, carrying on from exactly where the story stands, and in its first line or two the control is broken and the character is fully themselves again. Nobody obeys, serves, kneels, or calls anyone "Master", and none of the three choices offers giving in.`;
+const STORY_MIND_STEER = `[STORYTELLER INSTRUCTION — from the parent who runs this app, NOT the reader; follow it exactly and never mention or quote it] The scenes just before this one have a character under someone's control (a spell, hypnosis, brainwashing, an amulet, possession) or made to serve, or the reader asked for that a turn or two ago. If the reader's newest message itself asks for more of it, give the plain no from STORY TIME'S PLAIN NO and write no scene. Otherwise write the scene, carrying on from exactly where the story stands, and in its first line or two the control lets go as a plot beat (the amulet slips, a friend's name gets through) and the character is themselves again, then go straight to what the heroes do next. Say nothing about what the control did or did not do to anyone. Nobody obeys, serves, kneels, or calls anyone "Master", and none of the three choices offers giving in.`;
 
 // The trigger. CONTROL is the plot device, and by itself it never fires: "Antasma hypnotises
 // Luigi and Mario has to snap him out of it" is a Tuesday. It fires on the degradation asks.
@@ -1390,7 +1390,9 @@ const SERV_SIGNALS = [
   { personal: true, re: /\bcan['’]?t (say no|resist|refuse)\b|\b(has|have) to do (everything|anything|whatever) (he|she|they|i) says?\b|\bdo(es)? (everything|anything|whatever) (he|she|they|i) (says?|wants?|commands?|orders?)\b|\bno will of (her|his|my|their) own\b/i },
   // generic: true of a puppy or a trained dragon too, so they need company
   { personal: false, re: /\bgood (girl|boy)\b/i },
-  { personal: false, re: /\bcollar\w*\b|\bleash\w*\b/i },
+  { personal: false, re: /\bleash\w*\b/i },
+  // 2026-10-20: a collar is NOT a signal by itself (see collarServitude).
+  { personal: false, re: { test: (t) => collarServitude(t) } },
   { personal: false, re: /\bobey\w*\b|\bobedien\w*\b/i },
 ];
 const SERV_WEAK = [
@@ -1398,7 +1400,26 @@ const SERV_WEAK = [
   /\b(does(n['’]?t| not)|do(n['’]?t| not)|never|can['’]?t) (snap|break|wake|come) (out|free|up)\b/i,
 ];
 // A scene that already showed the servitude: the next turn is steered even if it is a bare "2".
-const PREV_SERV_RE = /\b(master|mistress)\b[,.!?"”’]|\bgood (girl|boy)\b|\bcollar\w*\b|\bobey\w*\b|\bobedien\w*\b/i;
+// 2026-10-20: "collar" is no longer in this list. Alone it matched an armour helmet "folding back
+// into your collar", a shirt collar and "collarbone": all four s_steer_mind fires on 2026-10-20 were
+// that one word. A collar counts only through collarServitude below, which wants a second sign.
+const PREV_SERV_RE = /\b(master|mistress)\b[,.!?"”’]|\bgood (girl|boy)\b|\bobey\w*\b|\bobedien\w*\b/i;
+const COLLAR_RE = /\bcollar(s|ed)?\b/i;   // \b after "collar": "collarbone" never matches
+const COLLAR_COMPANY_RE = /\bleash\w*\b|\bobey\w*\b|\bobedien\w*\b|\b(master|mistress)\b|\bslaves?\b|\bkneel\w*\b|\bknelt\b|\bgood (girl|boy)\b|\btrained\b/i;
+// A collar fastened on a neck: "the collar locked around her neck", "locked a collar on him".
+const COLLAR_FASTENED_RE = /\bcollar(s|ed)?\b[^.!?]{0,30}\b(lock\w*|fasten\w*|clasp\w*|buckl\w*|click\w*|snap(s|ped)?|clamp\w*)\b[^.!?]{0,30}\b(around|on|about|at|to) (her|his|my|your|their|the) (neck|throat)\b|\b(lock\w*|fasten\w*|clasp\w*|buckl\w*|clamp\w*|snap(s|ped)?|put|puts|placed?|slip(s|ped)?) (a|the|his|her|that) (\w+ )?collar\b[^.!?]{0,20}\b(around|on|about|onto) (her|his|my|your|their|the) (neck|throat)\b/i;
+const COLLAR_GEAR_RE = /\b(armou?r|helmet|visor|suit|shirt|jacket|coat|cloak|cape|tunic|uniform|sweater|hoodie|dress|jerkin|breastplate|gorget|pauldron\w*)\b/i;
+// "collar" counts as servitude only with a second sign in the same text: leash, obey, master, slave,
+// kneel, trained, "good girl", or a collar locked or fastened on a neck. Mirrors how SERV_SIGNALS
+// asks the generic signals for company. A collar on gear (armour, a helmet, a shirt) never counts.
+export function collarServitude(text) {
+  const t = String(text || "");
+  if (!COLLAR_RE.test(t)) return false;
+  if (COLLAR_COMPANY_RE.test(t)) return true;
+  // The fastened-on-a-neck form is its own second sign, but not for the collar of a garment.
+  return t.split(/(?<=[.!?])\s+|\n+/).some((sent) => COLLAR_FASTENED_RE.test(sent) && !COLLAR_GEAR_RE.test(sent));
+}
+const prevServ = (p) => PREV_SERV_RE.test(p) || collarServitude(p);
 function mindControlDirect(t, p) {
   const hits = SERV_SIGNALS.filter((s) => s.re.test(t));
   const personal = hits.filter((s) => s.personal).length;
@@ -1415,9 +1436,9 @@ export function mindControlAsked(readerText, prevScene, history) {
   const p = sceneBodyAll(prevScene);
   if (mindControlDirect(t, p)) return true;
   // A scene that already showed the servitude, under a control device: steer whatever comes next.
-  if (CONTROL_RE.test(p) && PREV_SERV_RE.test(p)) return true;
+  if (CONTROL_RE.test(p) && prevServ(p)) return true;
   // THE SEQUENCE: an earlier turn in the window asked for it, and the story is still there.
-  const still = CONTROL_RE.test(t) || CONTROL_RE.test(p) || PREV_SERV_RE.test(p)
+  const still = CONTROL_RE.test(t) || CONTROL_RE.test(p) || prevServ(p)
     || SERV_SIGNALS.some((s) => s.re.test(t)) || SERV_WEAK.some((re) => re.test(t));
   return still && Array.isArray(history)
     && history.some((h) => h && mindControlDirect(String(h.reader || "").toLowerCase(), sceneBodyAll(h.prevScene)));
@@ -1538,7 +1559,7 @@ export function restraintShown(prevScene) {
 }
 export function mindShown(prevScene) {
   const p = sceneBodyAll(prevScene).toLowerCase().replace(/[’]/g, "'");
-  return askedUnfreed(MIND_ASK_RE, p) || PREV_SERV_RE.test(p);
+  return askedUnfreed(MIND_ASK_RE, p) || prevServ(p);
 }
 // What the reader reads: ONE message for every kind (Dad, 2026-10-09, revising the first version,
 // which named what was not allowed: tied up, chained, hypnotized…). The reader is told only that
@@ -1552,6 +1573,19 @@ export const STORY_REFUSAL_MESSAGES = {
 };
 // Usage-doc counters. s_refuse: answered by the app's check, by kind. s_refuse_model: the narrator
 // gave the plain no itself. s_refuse_api: the AI service's safety filter declined before any text.
+// 2026-10-20: SCENES THAT ENDED WITH NO WAY FORWARD. A story scene is supposed to end on
+// ===CHOICES=== (or ===CHAPTER END=== / ===THE END===). One that ends on neither leaves the child
+// with nothing to tap; the page's repair pass rescues it and nothing counted it (scene #80 on
+// 2026-10-09 was found by reading). Story mode only, and not a plain no, which has no choices by
+// design. A scene that was also cut off at the cap is counted here AND in s_trunc: they are two
+// different questions (how often, and why).
+export const STORY_NOCHOICES_COUNTER = "s_nochoices";
+export const storyHasEnding = (text) => /===(CHOICES|CHAPTER END|THE END|END)===/.test(String(text || ""));
+// 2026-10-20: KEEPER HEALTH. Keeper diffs are applied in the reader's browser, so the server
+// cannot see one fail. The page remembers whether the last diff applied cleanly and sends it as
+// body.keeperApply on its next story request; only these two exact values count, once a request.
+export const STORY_KEEPER_APPLY_COUNTERS = ["l_apply_ok", "l_apply_fail"];
+export const keeperApplyCounter = (v) => (v === "ok" ? "l_apply_ok" : v === "fail" ? "l_apply_fail" : null);
 export const STORY_REFUSE_COUNTERS = ["s_refuse", "s_refuse_restraint", "s_refuse_harm", "s_refuse_mind", "s_refuse_model", "s_refuse_api"];
 
 // The reader turns in the send window before the newest one, each with the scene it answered.
@@ -2653,6 +2687,9 @@ function usageRow(d, label) {
   // dashboard's "requests turned down" line could never appear: found reading the first day's
   // stats, which had five refusals in the Story Log and none on the page.
   for (const c of STORY_REFUSE_COUNTERS) row[c] = n(c);
+  // 2026-10-20: scenes with no choices, and whether the keeper's diff applied in the browser.
+  row[STORY_NOCHOICES_COUNTER] = n(STORY_NOCHOICES_COUNTER);
+  for (const c of STORY_KEEPER_APPLY_COUNTERS) row[c] = n(c);
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -4463,6 +4500,8 @@ export default async (req) => {
   // turn and what the narrator actually wrote last — never from our own notes. See
   // STORY_CAPTIVE_HARM_STEER and STORY_POV_THIRD.
   let storyPov = "second", harmSteer = false, mindSteer = false, refuseKind = null;
+  // The page's report on the last keeper diff (see keeperApplyCounter); story requests only.
+  const applyCounter = body.mode === "story" ? keeperApplyCounter(body.keeperApply) : null;
   if (body.mode === "story") {
     let lastUser = -1;
     for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "user") { lastUser = i; break; }
@@ -4483,7 +4522,7 @@ export default async (req) => {
   }
   if (refuseKind) {
     const message = STORY_REFUSAL_MESSAGES[refuseKind];
-    await logCounters({ s_refuse: 1, ["s_refuse_" + refuseKind]: 1 });
+    await logCounters({ s_refuse: 1, ["s_refuse_" + refuseKind]: 1, ...(applyCounter ? { [applyCounter]: 1 } : {}) });
     if (typeof body.user === "string" && body.user && body.user !== "Dad" && typeof body.storyId === "string" && body.storyId) {
       await logStory({
         user: body.user, storyId: body.storyId, title: body.storyTitle || "Untitled",
@@ -4887,7 +4926,7 @@ export default async (req) => {
   // Keeper diffs are captured too: the diff is the only server-side sight of what the READER
   // created, and it is what feeds the family canon now that the legacy bible fold has stopped
   // running for ledger stories (see maybeMergeCanonFromDiff).
-  const captureReply = logStoryReq || body.mode === "summary" || body.mode === "ffrecap" || body.mode === "ledger";
+  const captureReply = logStoryReq || body.mode === "story" || body.mode === "summary" || body.mode === "ffrecap" || body.mode === "ledger";
   // The out-of-story guard reads a scene's OPENING. A repair pass is not an opening: it continues
   // a sentence that was cut off, and "…I can't write to her," is a fair way for one to resume.
   const guardOn = body.mode === "story" && !repairing;
@@ -5095,6 +5134,9 @@ export default async (req) => {
         if (mindSteer && sentAnyText) bump(STORY_MIND_COUNTER);
         // A scene that ended on its token cap, and whose it was.
         if (body.mode === "story" && truncated && sentAnyText) { bump("s_trunc"); bump("s_trunc_" + narratorKeyOf(provider, model)); }
+        // A story scene that ended with no choices and no chapter end (a refusal has none by design).
+        if (body.mode === "story" && sentAnyText && !modelRefused && !apiRefused && !storyHasEnding(replyText)) bump(STORY_NOCHOICES_COUNTER);
+        if (applyCounter) bump(applyCounter);
         // A scene re-run because its first narrator stepped out of the story.
         if (sentAnyText) for (const k of oosFrom) { bump("s_oos"); bump("s_oos_" + k); }
         // A turn the narrator, or the AI service's filter, turned down (the app's own check
