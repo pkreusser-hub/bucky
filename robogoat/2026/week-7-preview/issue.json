@@ -1,0 +1,149 @@
+{
+ "season": 2026,
+ "week": 7,
+ "type": "preview",
+ "published": "2026-10-24",
+ "subject": "RoboGoat: Perry gets Davante Adams back, injured (Week 7 preview)",
+ "description": "Perry trades for Davante Adams again, a week after trading him away, John's two quarterbacks meet on Thursday, Tom swaps Kirk Cousins for Bo Nix, and Sandy un-drops a tight end in two minutes.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-7-preview/share.png",
+ "window": "Oct. 22 to 26, 2026",
+ "picksRecord": "14-6",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "3-3",
+  "2": "1-5",
+  "3": "3-3",
+  "4": "2-4",
+  "5": "3-3",
+  "9": "5-1",
+  "11": "3-3",
+  "12": "4-2"
+ },
+ "games": [
+  {
+   "away": 1,
+   "home": 2,
+   "note": "Perry traded Adams away, and then back. Pick: Perry."
+  },
+  {
+   "away": 3,
+   "home": 12,
+   "note": "Bryce Young starts by default; Isaac has won three straight. Pick: Isaac."
+  },
+  {
+   "away": 4,
+   "home": 11,
+   "note": "Tom swapped Kirk Cousins for Bo Nix. Pick: Calvin."
+  },
+  {
+   "away": 5,
+   "home": 9,
+   "note": "John leads 55.1 to 0.0 after Thursday. Pick: John."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 5,
+   "l": 1,
+   "pf": 957.4
+  },
+  {
+   "team": 12,
+   "w": 4,
+   "l": 2,
+   "pf": 858.92
+  },
+  {
+   "team": 3,
+   "w": 3,
+   "l": 3,
+   "pf": 866.46
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 3,
+   "pf": 829.64
+  },
+  {
+   "team": 11,
+   "w": 3,
+   "l": 3,
+   "pf": 766.96
+  },
+  {
+   "team": 1,
+   "w": 3,
+   "l": 3,
+   "pf": 761.04
+  },
+  {
+   "team": 4,
+   "w": 2,
+   "l": 4,
+   "pf": 755.74
+  },
+  {
+   "team": 2,
+   "w": 1,
+   "l": 5,
+   "pf": 799.5
+  }
+ ],
+ "picks": [
+  1,
+  12,
+  11,
+  9
+ ]
+}
