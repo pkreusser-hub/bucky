@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 7,
+   "type": "preview",
+   "path": "2026/week-7-preview/",
+   "published": "2026-10-24",
+   "headline": "Perry Gets Davante Adams Back, Injured",
+   "description": "Perry trades for Davante Adams again, a week after trading him away, John's two quarterbacks meet on Thursday, Tom swaps Kirk Cousins for Bo Nix, and Sandy un-drops a tight end in two minutes.",
+   "subject": "RoboGoat: Perry gets Davante Adams back, injured (Week 7 preview)",
+   "share": "2026/week-7-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 6,
    "type": "recap",
    "path": "2026/week-6/",

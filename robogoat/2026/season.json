@@ -90,6 +90,24 @@
     "team": 9,
     "result": "W"
    }
+  ],
+  "7": [
+   {
+    "team": 1,
+    "result": ""
+   },
+   {
+    "team": 12,
+    "result": ""
+   },
+   {
+    "team": 11,
+    "result": ""
+   },
+   {
+    "team": 9,
+    "result": ""
+   }
   ]
  },
  "rankings": {
