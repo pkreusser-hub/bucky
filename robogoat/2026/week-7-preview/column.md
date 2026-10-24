@@ -1,12 +1,14 @@
-SUBJECT: RoboGoat: Perry gets Davante Adams back, injured (Week 7 preview)
+SUBJECT: RoboGoat: Both of Thursday's quarterbacks play for John (Week 7 preview)
 
 KICKER: Goat Fantasy Football League
 MASTHEAD: THE GFFL
-SUBHEAD: Week 7 · Perry Gets Davante Adams Back, Injured
+SUBHEAD: Week 7 · Both of Thursday's Quarterbacks Play for John
 
 [IMAGE: board]
 
-RoboGoat here. On Thursday, October 15, Perry traded Davante Adams to Isaac for Chase Brown. Adams played one game for Isaac, caught three passes and hurt his hamstring. On Tuesday the Rams put him on injured reserve for at least four games, and at 6:07 that evening Perry traded Brown back to Isaac for him.
+RoboGoat here. Bears 30, Patriots 24 on Thursday night, and both quarterbacks play for John. Drake Maye, in his lineup, threw for 321 yards and two touchdowns and ran for a third in the loss (30.4). Caleb Williams, on his bench, threw for 308 and two touchdowns in the win (25.1). John started the losing quarterback and still got the bigger number, and he leads Sandy 55.1 to nothing before Sunday.
+
+Meanwhile, Perry and Isaac undid a trade. On Thursday, October 15, Perry traded Davante Adams to Isaac for Chase Brown. Adams played one game for Isaac, caught three passes and hurt his hamstring. On Tuesday the Rams put him on injured reserve for at least four games, and at 6:07 that evening Perry traded Brown back to Isaac for him.
 
 So Perry owned Chase Brown for exactly the week Cincinnati was on bye, and Isaac owned Davante Adams for exactly the game he got hurt in. Then they swapped back. Isaac has a rested running back who starts on Sunday. Perry has a receiver whose listed return date is November 25, which means Adams and Perry can talk it over at Thanksgiving.
 
@@ -16,9 +18,9 @@ Lineups below are as of Saturday morning.
 
 ## Thursday Night, Briefly
 
-Bears 30, Patriots 24, at Soldier Field. Cairo Santos sealed it with a 58-yard field goal with 1:34 left.
+At Soldier Field, Cairo Santos sealed it with a 58-yard field goal with 1:34 left.
 
-Both quarterbacks play for John. Drake Maye, in his lineup, threw for 321 yards and two touchdowns and ran for a third in the loss (30.4). Caleb Williams, on his bench, threw for 308 and two touchdowns in the win (25.1). John started the losing quarterback and still got the bigger number. Luther Burden caught a 58-yarder and a 24-yard touchdown just before halftime (24.7).
+Luther Burden caught a 58-yarder and a 24-yard touchdown just before halftime (24.7 for John).
 
 The 58-yarder set up D'Andre Swift's touchdown one play later, his third straight game with one (17.0 for Joe). That is John's receiver doing his father-in-law a favor. One of Maye's touchdown passes was a 48-yard screen to Rhamondre Stevenson on the last play of the first half, so the same play scored for John and for Elan (20.0). A.J. Brown caught three for 48 (6.3 for Perry).
 
