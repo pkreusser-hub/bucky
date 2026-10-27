@@ -199,9 +199,16 @@ const PICKS = { 2: "3-1", 3: "4-0" };
     // after the second, and at 1280px the fifth now sits below the fold, so it never loaded and
     // read as broken. A reader scrolls; so does the check, then waits for every image to settle.
     // "Every share thumbnail loads" is unchanged: a missing share.png still fails.
+    // RESTAGED 2026-10-27 (Week 7 recap, the ninth issue): scrolling through every image first and
+    // waiting afterwards hung the run. A lazy image that is scrolled past before it starts loading
+    // never fires load or error. The check now scrolls to each image in turn and waits for that one
+    // (capped at 5 s) before moving on, the way a reader's scroll would. A missing share.png still
+    // fails: it settles with naturalWidth 0 and is listed as broken below.
     await page.evaluate(async () => {
-      for (const i of document.images) i.scrollIntoView();
-      await Promise.all([...document.images].map((i) => i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; })));
+      for (const i of document.images) {
+        i.scrollIntoView();
+        if (!i.complete) await new Promise((r) => { i.onload = i.onerror = r; setTimeout(r, 5000); });
+      }
       scrollTo(0, 0);
     });
     const a = await page.evaluate(() => ({
@@ -699,6 +706,13 @@ async function kitChecks() {
   const ml2 = md0.split("\n"); ml2[rk[0]] = ml2[rk[0]].replace(/\((\w+), \d-\d\)\./, "($1, 9-9).");
   fs.writeFileSync(c3, ml2.join("\n"));
   check("build: a power-ranking record that differs from the issue's records fails the build", /^ERR .*9-9/s.test(build("week-3")), build("week-3").slice(0, 200));
+  // From Week 7 the rankings rank the rest of the season and open with a method paragraph (Perry,
+  // 2026-10-27). Prose there renders as a paragraph over the list; the list itself is unchanged.
+  const ml3 = md0.split("\n"); ml3.splice(rk[0], 0, "How I rank them now.", "");
+  fs.writeFileSync(c3, ml3.join("\n"));
+  const intro = build("week-3");
+  check("build: a prose paragraph in the power rankings renders before the ranked list, which keeps every team",
+    /<p>How I rank them now\.<\/p>\s*<ol class="ranks">/.test(intro) && (intro.match(/<li><span class="rk">/g) || []).length === rk.length, intro.slice(0, 200));
   fs.writeFileSync(c3, md0);
   check("build: restored, the copy builds again", same("week-3"));
   // Pairings kept in season.json (weeks 1-3) are the real ones: week 3's against its own issue.json.

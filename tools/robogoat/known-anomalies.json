@@ -3,6 +3,7 @@
  "known": [
   { "week": 2, "count": 1, "pattern": "NO stat line at all", "reason": "Puka Nacua, ruled out and left in Elan's Week 2 lineup; his injury tag has since cleared. Checked 2026-10-03." },
   { "week": 4, "count": 1, "pattern": "NO stat line at all", "reason": "Terry McLaurin, inactive in London (hamstring, ruled out 90 minutes before kickoff) and left in Elan's Week 4 lineup; he was never injury-listed in GFFL. Checked 2026-10-06." },
-  { "week": 6, "count": 1, "pattern": "NO stat line at all", "reason": "Tyler Warren, inactive (groin, hurt at the start of Friday's practice; AP recap) and left in Elan's Week 6 lineup; questionable in GFFL, never marked out. Checked 2026-10-20." }
+  { "week": 6, "count": 1, "pattern": "NO stat line at all", "reason": "Tyler Warren, inactive (groin, hurt at the start of Friday's practice; AP recap) and left in Elan's Week 6 lineup; questionable in GFFL, never marked out. Checked 2026-10-20." },
+  { "week": 7, "count": 1, "pattern": "NO stat line at all", "reason": "Emeka Egbuka, out with a concussion and left in Sandy's Week 7 lineup (she was traveling in Japan). Checked 2026-10-27." }
  ]
 }

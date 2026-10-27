@@ -94,19 +94,19 @@
   "7": [
    {
     "team": 1,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 12,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 11,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 9,
-    "result": ""
+    "result": "W"
    }
   ]
  },
@@ -160,6 +160,16 @@
    1,
    4,
    2
+  ],
+  "7": [
+   9,
+   2,
+   12,
+   5,
+   11,
+   3,
+   4,
+   1
   ]
  },
  "weeks": {
@@ -592,6 +602,78 @@
      "name": "Malik Nabers",
      "pos": "WR",
      "pts": 25.5
+    }
+   ]
+  },
+  "7": {
+   "bench": {
+    "1": 13.5,
+    "2": 29.36,
+    "3": 16.4,
+    "4": 0,
+    "5": 44.1,
+    "9": 17.8,
+    "11": 15.1,
+    "12": 21.8
+   },
+   "scores": {
+    "1": 124.72,
+    "2": 137.82,
+    "3": 145.32,
+    "4": 139.88,
+    "5": 101.1,
+    "9": 153.34,
+    "11": 103.62,
+    "12": 144.68
+   },
+   "games": [
+    {
+     "away": 1,
+     "home": 2
+    },
+    {
+     "away": 3,
+     "home": 12
+    },
+    {
+     "away": 4,
+     "home": 11
+    },
+    {
+     "away": 5,
+     "home": 9
+    }
+   ],
+   "top": [
+    {
+     "team": 4,
+     "name": "Tony Pollard",
+     "pos": "RB",
+     "pts": 38
+    },
+    {
+     "team": 9,
+     "name": "Drake Maye",
+     "pos": "QB",
+     "pts": 30.44
+    },
+    {
+     "team": 9,
+     "name": "Jaxon Smith-Njigba",
+     "pos": "WR",
+     "pts": 29.8
+    },
+    {
+     "team": 12,
+     "name": "Joe Burrow",
+     "pos": "QB",
+     "pts": 28.88
+    },
+    {
+     "team": 5,
+     "name": "Tee Higgins",
+     "pos": "WR",
+     "pts": 26.8
     }
    ]
   }
