@@ -172,6 +172,15 @@ rules.
   a story already told above them.
 - **No plumbing.** How GFFL finalized a week or why an award is missing belongs in `docs/`, not the
   column.
+- **Power Rankings rank the rest of the season** (Perry, 2026-10-27: "it should be an analysis on
+  strength of the whole team for the remainder of the season"). Not last Sunday's result, and not
+  the record. Week 7's method: each rostered player's points per game this season under league
+  scoring (every game he played, not only the weeks he was on a GFFL roster; Sleeper stat lines
+  scored with the shadow scorer's `score`/`normSlp`), shrunk toward the position's replacement level
+  by one game; the best legal lineup for each remaining regular-season week with that week's NFL
+  byes and IR players removed; the average of those weeks is the team's number. Order by it. One
+  method paragraph opens the section (build.mjs renders it as prose). Each entry names the roster's
+  strength, its weak spot and its worst bye week, with the numbers checked against raw averages.
 - **Spread the ribbing.** No owner is the butt of the same joke three columns running (Elan's bench
   ran six). Tom is more than an injury list. Each recap carries one sincere award, **Good Call of
   the Week**, rotating to whoever made the week's best decision, with the facts behind it.

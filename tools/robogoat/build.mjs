@@ -342,7 +342,10 @@ export function buildIssue(dir) {
       continue;
     }
     const lines = text.split("\n").filter((l) => l.trim());
-    if (sec.includes("power rankings")) {
+    // A paragraph in the rankings section that is not a numbered line is prose (the method note
+    // over the rest-of-season rankings, from Week 7 on). A mistyped ranking line falling through
+    // here still fails: rankingProblems then counts too few ranked teams against season.json.
+    if (sec.includes("power rankings") && /^\d+\./.test(lines[0])) {
       const rp = rankingProblems(lines, (season.rankings || {})[String(W)] || null, REC,
         BYNAME, Object.fromEntries(Object.keys(TEAMS).map((t) => [t, tm(t).owner])));
       if (rp.length) throw new Error(`${dir}: ` + rp.join("; "));

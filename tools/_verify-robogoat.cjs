@@ -706,6 +706,13 @@ async function kitChecks() {
   const ml2 = md0.split("\n"); ml2[rk[0]] = ml2[rk[0]].replace(/\((\w+), \d-\d\)\./, "($1, 9-9).");
   fs.writeFileSync(c3, ml2.join("\n"));
   check("build: a power-ranking record that differs from the issue's records fails the build", /^ERR .*9-9/s.test(build("week-3")), build("week-3").slice(0, 200));
+  // From Week 7 the rankings rank the rest of the season and open with a method paragraph (Perry,
+  // 2026-10-27). Prose there renders as a paragraph over the list; the list itself is unchanged.
+  const ml3 = md0.split("\n"); ml3.splice(rk[0], 0, "How I rank them now.", "");
+  fs.writeFileSync(c3, ml3.join("\n"));
+  const intro = build("week-3");
+  check("build: a prose paragraph in the power rankings renders before the ranked list, which keeps every team",
+    /<p>How I rank them now\.<\/p>\s*<ol class="ranks">/.test(intro) && (intro.match(/<li><span class="rk">/g) || []).length === rk.length, intro.slice(0, 200));
   fs.writeFileSync(c3, md0);
   check("build: restored, the copy builds again", same("week-3"));
   // Pairings kept in season.json (weeks 1-3) are the real ones: week 3's against its own issue.json.
