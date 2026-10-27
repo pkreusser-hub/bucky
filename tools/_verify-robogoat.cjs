@@ -669,6 +669,39 @@ async function kitChecks() {
       return [r.picks[2].map((x) => x.result), r.settled, r.warnings.length]; }, [["W", "W", ""], ["2:11=W"], 2]);
   await expect("rankings: movement is last week's place minus this week's (up positive)", () => A.rankMovement([9, 11, 5, 12], [9, 5, 12, 2]), [0, 1, 1, null]);
 
+  // ---- 3e. rest-of-season rankings (rankings.mjs; Perry, 2026-10-27) ----
+  // Replacement levels (25th percentile of 3+-game averages): QB 10 (of 10, 15, 20), RB 9 (of 9, 12,
+  // 30), WR 6 (of 6, 8). Rate = (season points + replacement) / (games + 1):
+  //   team 1: q1 KC (60+10)/4 = 17.5, q2 NE (30+10)/4 = 10, r1 WSH (36+9)/4 = 11.25, w1 NE (24+6)/4 = 7.5
+  //   team 2: q3 DAL (45+10)/4 = 13.75, r2 NE (27+9)/4 = 9, r3 on IR (left out), w2 KC (18+6)/4 = 6
+  // Slots QB, RB, WR, FLEX. Week 8 byes WAS (Washington, spelled WSH on the roster); Week 9 KC.
+  //   team 1: W8 17.5 + 7.5 = 25 (no RB, no FLEX; r1 off); W9 10 + 11.25 + 7.5 = 28.75 (q1 off) -> 26.875
+  //   team 2: W8 13.75 + 9 + 6 = 28.75; W9 13.75 + 9 = 22.75 (no WR; w2 off) -> 25.75
+  // They play each other both weeks, so each one's opponents average the other's number.
+  const RK = await safe(() => import(pathToFileURL(path.join(ROOT, "tools/robogoat/rankings.mjs")).href));
+  check("kit: rankings.mjs loads without running (no network on import)", typeof RK === "object" && typeof RK.restOfSeason === "function", typeof RK === "string" ? RK : "");
+  const SH = await safe(() => import(pathToFileURL(path.join(ROOT, "tools/_gffl_shadow_score.mjs")).href));
+  check("kit: the shadow scorer imports without running its main, and exports score/normSlp/resolvePid", typeof SH === "object" && ["score", "normSlp", "resolvePid"].every((k) => typeof SH[k] === "function"), typeof SH === "string" ? SH : "");
+  await expect("rankings: rate is shrunk one game toward replacement; ppg stays raw", () => { const r = RK.rateOf([10, 20], 5); return [r.games, r.ppg, r.rate.toFixed(4)]; }, [2, 15, "11.6667"]);
+  await expect("rankings: WSH and WAS are one team", () => [RK.canonTeam("WSH"), RK.canonTeam("was"), RK.canonTeam("KC")], ["WAS", "WAS", "KC"]);
+  const P = (team, key, pos, nfl, weeks, slot = "BENCH") => ({ team, key, name: key, pos, nfl, slot, weeks });
+  const ros = await safe(() => RK.restOfSeason({
+    teams: { 1: { owner: "Perry", name: "A" }, 2: { owner: "Elan", name: "B" } },
+    players: [P(1, "q1", "QB", "KC", [20, 20, 20]), P(1, "q2", "QB", "NE", [10, 10, 10]), P(1, "r1", "RB", "WSH", [12, 12, 12]), P(1, "w1", "WR", "NE", [8, 8, 8]),
+      P(2, "q3", "QB", "DAL", [15, 15, 15]), P(2, "r2", "RB", "NE", [9, 9, 9]), P(2, "r3", "RB", "NE", [30, 30, 30], "IR"), P(2, "w2", "WR", "KC", [6, 6, 6])],
+    slots: { QB: 1, RB: 1, WR: 1, FLEX: 1, BENCH: 7, IR: 3 },
+    sched: [{}, {}, {}, {}, {}, {}, {}, { g: [{ h: 1, a: 2 }] }, { g: [{ h: 2, a: 1 }] }],
+    byes: { 8: ["WAS"], 9: ["KC"] }, from: 8, to: 9 }));
+  check("rankings: averages, weekly points, holes, byes and opponents, hand-computed",
+    typeof ros === "object" && JSON.stringify(ros.order) === "[1,2]" && ros.teams[1].avg === 26.875 && ros.teams[2].avg === 25.75 &&
+    JSON.stringify(ros.teams[1].weekly.map((w) => [w.pts, w.holes, w.out])) === JSON.stringify([[25, ["RB", "FLEX"], ["r1"]], [28.75, ["FLEX"], ["q1"]]]) &&
+    JSON.stringify(ros.teams[2].weekly.map((w) => [w.pts, w.holes])) === JSON.stringify([[28.75, ["FLEX"]], [22.75, ["WR", "FLEX"]]]) &&
+    ros.teams[1].oppAvg === 25.75 && ros.teams[2].oppAvg === 26.875 && ros.teams[2].ir.map((p) => p.key).join() === "r3",
+    JSON.stringify(typeof ros === "object" ? Object.values(ros.teams).map((t) => [t.avg, t.weekly, t.oppAvg]) : ros));
+  await expect("rankings: a lineup entry carries the slot it fills, and keeps the roster slot beside it",
+    () => RK.bestLineup([{ key: "a", pos: "RB", rate: 9, slot: "BENCH" }, { key: "b", pos: "RB", rate: 8, slot: "RB" }], { RB: 1, FLEX: 1 }).lineup.map((p) => [p.key, p.slot, p.rosterSlot]),
+    [["a", "RB", "BENCH"], ["b", "FLEX", "RB"]]);
+
   // Real build, on a copy of the real issues in a temp tree: an agreeing column builds, a disagreeing one throws.
   const tree = fs.mkdtempSync(path.join(os.tmpdir(), "rg-build-"));
   const copy = (rel) => { const d = path.join(tree, "robogoat/2026", rel); fs.mkdirSync(d, { recursive: true });

@@ -12,7 +12,8 @@
 //   3. a preview's lineups are snapshotted to <work>/lineups.<time>.json and lineups.latest.json,
 //      and on a re-run the keyed diff against the previous snapshot is printed, by team, player and
 //      slot (snapshots are key-sorted, so key order never shows up as a change);
-//   4. prints where the leads (joke candidates), the mechanical drafts and the skeleton are.
+//   4. a recap also runs rankings.mjs into <work>/kit (the rest-of-season Power Rankings);
+//   5. prints where the leads (joke candidates), the mechanical drafts and the skeleton are.
 // --from-facts FILE skips the pull and reads an existing facts file (used by the suite).
 "use strict";
 
@@ -47,6 +48,11 @@ if (!factsFile) {
   const out = execFileSync(process.execPath, args, { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", maxBuffer: 64 << 20 });
   process.stdout.write(out);
   factsFile = join(kit, `facts-${SEASON}-w${WEEK}-${TYPE}.json`);
+  // A recap's Power Rankings rank the rest of the season (Perry, 2026-10-27): rankings.mjs.
+  if (TYPE === "recap") {
+    process.stdout.write("\n" + execFileSync(process.execPath, [join(ROOT, "tools/robogoat/rankings.mjs"), "--season", String(SEASON), "--week", String(WEEK), "--out", kit],
+      { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", maxBuffer: 64 << 20 }));
+  }
 }
 const facts = JSON.parse(readFileSync(factsFile, "utf8"));
 
@@ -70,4 +76,5 @@ const dir = resolve(factsFile, "..");
 if (facts.leads) console.log(`leads:    ${join(dir, "leads.md")} (${facts.leads.length} joke candidates; check each against the facts before using it)`);
 if (facts.drafts && Object.keys(facts.drafts).length) console.log(`drafts:   ${join(dir, "drafts.md")} (${Object.keys(facts.drafts).join(", ")}; edit for voice, the numbers are done)`);
 console.log(`skeleton: ${join(dir, "issue.skeleton.json")}`);
+if (TYPE === "recap" && existsSync(join(dir, "rankings.json"))) console.log(`rankings: ${join(dir, "rankings.json")} (the Power Rankings order and numbers; quote raw averages, not rates)`);
 if ((facts.newAnomalies || []).length) console.log(`\n${facts.newAnomalies.length} NEW scorer anomaly(ies): ${facts.newAnomalies.map((a) => `week ${a.week}: ${a.line}`).join(" | ")}`);

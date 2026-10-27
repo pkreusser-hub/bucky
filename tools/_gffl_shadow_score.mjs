@@ -37,7 +37,7 @@
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1135,7 +1135,12 @@ async function runLiveCompare({ season, week, teams, rosterByTeam, recomputed, r
   }
 }
 
-main().catch((e) => {
-  console.error("gffl shadow scorer crashed:", (e && e.stack) || e);
-  process.exit(1);
-});
+// Importable (tools/robogoat/rankings.mjs scores every rostered player's whole season with the same
+// arithmetic); run as a command, it does what it always did.
+export { score, normSlp, resolvePid, loadSleeperDirectory, loadStatsBucket };
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  main().catch((e) => {
+    console.error("gffl shadow scorer crashed:", (e && e.stack) || e);
+    process.exit(1);
+  });
+}
