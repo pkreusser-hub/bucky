@@ -3,6 +3,17 @@
   {
    "season": 2026,
    "week": 7,
+   "type": "recap",
+   "path": "2026/week-7/",
+   "published": "2026-10-27",
+   "headline": "Tom Beats Calvin with Calvin's Old Quarterback",
+   "description": "Tom beats Calvin with the quarterback Calvin released, Joe beats Isaac by 0.64 from 4 percent on Monday night, Elan wins the week I stop picking him, and Sandy's lineup goes to Japan.",
+   "subject": "RoboGoat: Tom beats Calvin with Calvin's old quarterback (Week 7 recap)",
+   "share": "2026/week-7/share.png"
+  },
+  {
+   "season": 2026,
+   "week": 7,
    "type": "preview",
    "path": "2026/week-7-preview/",
    "published": "2026-10-24",

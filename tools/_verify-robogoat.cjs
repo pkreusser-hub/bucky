@@ -199,9 +199,16 @@ const PICKS = { 2: "3-1", 3: "4-0" };
     // after the second, and at 1280px the fifth now sits below the fold, so it never loaded and
     // read as broken. A reader scrolls; so does the check, then waits for every image to settle.
     // "Every share thumbnail loads" is unchanged: a missing share.png still fails.
+    // RESTAGED 2026-10-27 (Week 7 recap, the ninth issue): scrolling through every image first and
+    // waiting afterwards hung the run. A lazy image that is scrolled past before it starts loading
+    // never fires load or error. The check now scrolls to each image in turn and waits for that one
+    // (capped at 5 s) before moving on, the way a reader's scroll would. A missing share.png still
+    // fails: it settles with naturalWidth 0 and is listed as broken below.
     await page.evaluate(async () => {
-      for (const i of document.images) i.scrollIntoView();
-      await Promise.all([...document.images].map((i) => i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; })));
+      for (const i of document.images) {
+        i.scrollIntoView();
+        if (!i.complete) await new Promise((r) => { i.onload = i.onerror = r; setTimeout(r, 5000); });
+      }
       scrollTo(0, 0);
     });
     const a = await page.evaluate(() => ({
