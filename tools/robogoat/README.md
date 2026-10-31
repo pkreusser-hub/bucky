@@ -42,7 +42,7 @@ on its own (not chained after other commands), or the rule will not match.
 robogoat/
   index.html, issues.json        archive (generated)
   robogoat.png, logos/           the portrait on every issue; team logos
-  <season>/season.json           picks + rankings (by hand), weeks.<n> (facts.mjs, written once)
+  <season>/season.json           picks + rankings (rankings.mjs), weeks.<n> (facts.mjs, written once)
   <season>/week-<n>/             a recap:   column.md issue.json wp.json index.html share.png
   <season>/week-<n>-preview/     a preview: column.md issue.json index.html share.png
 ```
@@ -90,7 +90,8 @@ robogoat/
    for the shape) and `allowTwoDecimals` (only values the column is about). `picksWeek` is already
    computed; leave it. Copy the charted game's series from `kit/wp.all.json` into `wp.json` as
    `{ "m_<home>_<away>": [...] }`.
-4. In `season.json`: add `rankings.N` in the column's power-ranking order (team ids). The arrows
+4. In `season.json`: add `rankings.N` in the column's power-ranking order (team ids), which is the
+   order `kit/rankings.json` printed. The arrows
    compare against `N-1`, and the build fails if the column's order or records differ. Pick
    results were filled by step 1.
 5. Build: `node tools/robogoat/build.mjs robogoat/2026/week-N`, then
@@ -178,7 +179,10 @@ rules.
   scoring (every game he played, not only the weeks he was on a GFFL roster; Sleeper stat lines
   scored with the shadow scorer's `score`/`normSlp`), shrunk toward the position's replacement level
   by one game; the best legal lineup for each remaining regular-season week with that week's NFL
-  byes and IR players removed; the average of those weeks is the team's number. Order by it. One
+  byes and IR players removed; the average of those weeks is the team's number. Order by it. `node tools/robogoat/rankings.mjs
+  --week N` does all of this (a recap's `week.mjs` runs it into `kit/rankings.json` and prints the
+  report); paste its `season.json rankings` line as `rankings.N`. Average the unrounded weeks: Week
+  7's hand run rounded each week first and printed three numbers 0.1 off. One
   method paragraph opens the section (build.mjs renders it as prose). Each entry names the roster's
   strength, its weak spot and its worst bye week, with the numbers checked against raw averages.
 - **Spread the ribbing.** No owner is the butt of the same joke three columns running (Elan's bench

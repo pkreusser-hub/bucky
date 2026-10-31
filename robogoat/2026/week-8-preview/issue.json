@@ -1,0 +1,153 @@
+{
+ "season": 2026,
+ "week": 8,
+ "type": "preview",
+ "published": "2026-10-31",
+ "subject": "RoboGoat: Elan trails by 53.1 and is the favorite (Week 8 preview)",
+ "description": "Calvin leads Elan 53.1 to nothing with a quarterback on bye, Bo Nix moves to his third team in three weeks, Isaac and Tom trade receivers without speaking, and John owns Marvin Harrison Jr. for under four minutes.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-8-preview/share.png",
+ "window": "Oct. 29 to Nov. 2, 2026",
+ "picksRecord": "15-9",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "3-4",
+  "2": "2-5",
+  "3": "4-3",
+  "4": "3-4",
+  "5": "3-4",
+  "9": "6-1",
+  "11": "3-4",
+  "12": "4-3"
+ },
+ "games": [
+  {
+   "away": 12,
+   "home": 1,
+   "note": "Isaac patched his bye week; Perry starts Bijan and the Bucs defense against each other. Pick: Isaac."
+  },
+  {
+   "away": 11,
+   "home": 2,
+   "note": "Calvin leads 53.1 to nothing with a quarterback on bye. Pick: Elan."
+  },
+  {
+   "away": 9,
+   "home": 3,
+   "note": "John owned Marvin Harrison Jr. for under four minutes. Pick: John."
+  },
+  {
+   "away": 5,
+   "home": 4,
+   "note": "Tom made twelve moves, and Jordan Love already has 21.5. Pick: Tom."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 6,
+   "l": 1,
+   "pf": 1110.74
+  },
+  {
+   "team": 3,
+   "w": 4,
+   "l": 3,
+   "pf": 1011.78
+  },
+  {
+   "team": 12,
+   "w": 4,
+   "l": 3,
+   "pf": 1003.6
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 4,
+   "pf": 930.74
+  },
+  {
+   "team": 4,
+   "w": 3,
+   "l": 4,
+   "pf": 895.62
+  },
+  {
+   "team": 1,
+   "w": 3,
+   "l": 4,
+   "pf": 885.76
+  },
+  {
+   "team": 11,
+   "w": 3,
+   "l": 4,
+   "pf": 870.58
+  },
+  {
+   "team": 2,
+   "w": 2,
+   "l": 5,
+   "pf": 937.32
+  }
+ ],
+ "picks": [
+  12,
+  2,
+  9,
+  4
+ ],
+ "allowTwoDecimals": [
+  "137.09",
+  "137.06"
+ ]
+}
