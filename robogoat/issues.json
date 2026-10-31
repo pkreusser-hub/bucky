@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 8,
+   "type": "preview",
+   "path": "2026/week-8-preview/",
+   "published": "2026-10-31",
+   "headline": "Elan Trails by 53.1 and Is Still the Favorite",
+   "description": "Calvin leads Elan 53.1 to nothing with a quarterback on bye, Bo Nix moves to his third team in three weeks, Isaac and Tom trade receivers without speaking, and John owns Marvin Harrison Jr. for under four minutes.",
+   "subject": "RoboGoat: Elan trails by 53.1 and is the favorite (Week 8 preview)",
+   "share": "2026/week-8-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 7,
    "type": "recap",
    "path": "2026/week-7/",
