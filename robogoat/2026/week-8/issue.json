@@ -1,0 +1,285 @@
+{
+ "season": 2026,
+ "week": 8,
+ "type": "recap",
+ "published": "2026-11-03",
+ "subject": "RoboGoat: Calvin beats Elan with one incomplete pass (Week 8 recap)",
+ "description": "Calvin fixes his quarterback, gets one incomplete pass from Lamar Jackson and beats Elan anyway, Joe Burrow scores 43.5 for Isaac, John scores 188.7, and Sandy loses by 3.06 with 46.7 on her bench.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-8/share.png",
+ "window": "Oct. 29 to Nov. 2, 2026",
+ "picksWeek": "3-1",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "3-5",
+  "2": "2-6",
+  "3": "4-4",
+  "4": "4-4",
+  "5": "3-5",
+  "9": "7-1",
+  "11": "4-4",
+  "12": "5-3"
+ },
+ "games": [
+  {
+   "away": 12,
+   "awayPts": 162.38,
+   "home": 1,
+   "homePts": 121.88,
+   "note": "Burrow scored 43.5. Isaac's bye-week patch all scored."
+  },
+  {
+   "away": 11,
+   "awayPts": 141.3,
+   "home": 2,
+   "homePts": 130,
+   "note": "Lamar Jackson threw one pass. Calvin's new defense scored 15.0."
+  },
+  {
+   "away": 9,
+   "awayPts": 188.66,
+   "home": 3,
+   "homePts": 109.2,
+   "note": "John's top score of the week. Swift's three TDs came against John's defense."
+  },
+  {
+   "away": 5,
+   "awayPts": 123.76,
+   "home": 4,
+   "homePts": 126.82,
+   "note": "Sandy started Love; Allgeier scored 36.6 on her bench."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 7,
+   "l": 1,
+   "pf": 1299.4
+  },
+  {
+   "team": 12,
+   "w": 5,
+   "l": 3,
+   "pf": 1165.98
+  },
+  {
+   "team": 3,
+   "w": 4,
+   "l": 4,
+   "pf": 1120.98
+  },
+  {
+   "team": 4,
+   "w": 4,
+   "l": 4,
+   "pf": 1022.44
+  },
+  {
+   "team": 11,
+   "w": 4,
+   "l": 4,
+   "pf": 1011.88
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 5,
+   "pf": 1054.5
+  },
+  {
+   "team": 1,
+   "w": 3,
+   "l": 5,
+   "pf": 1007.64
+  },
+  {
+   "team": 2,
+   "w": 2,
+   "l": 6,
+   "pf": 1067.32
+  }
+ ],
+ "bench": [
+  {
+   "team": 5,
+   "left": 46.68
+  },
+  {
+   "team": 9,
+   "left": 22.5
+  },
+  {
+   "team": 1,
+   "left": 21
+  },
+  {
+   "team": 4,
+   "left": 20
+  },
+  {
+   "team": 2,
+   "left": 19.5
+  },
+  {
+   "team": 3,
+   "left": 12.8
+  },
+  {
+   "team": 12,
+   "left": 4.4
+  },
+  {
+   "team": 11,
+   "left": 3.4
+  }
+ ],
+ "stars": {
+  "kick": "The week’s biggest numbers",
+  "title": "Burrow's 43.5 led the week",
+  "items": [
+   {
+    "key": "3915511",
+    "pts": "43.5",
+    "name": "Joe Burrow",
+    "line": "462 yds, 5 TD passes, OT TD run vs. Titans",
+    "team": 12
+   },
+   {
+    "key": "4239993",
+    "pts": "35.5",
+    "name": "Tee Higgins",
+    "line": "10 catches, 155 yds, 2 TD vs. Titans",
+    "team": 5
+   },
+   {
+    "key": "4882093",
+    "pts": "31.9",
+    "name": "Bhayshul Tuten",
+    "line": "39-yd TD run, a TD catch vs. Colts",
+    "team": 9
+   },
+   {
+    "key": "3916148",
+    "pts": "30.2",
+    "name": "Tony Pollard",
+    "line": "117 rush yds, 2 TD at Cincinnati",
+    "team": 4
+   },
+   {
+    "key": "4362628",
+    "pts": "28.6",
+    "name": "Ja'Marr Chase",
+    "line": "11 catches, 141 yds, TD vs. Titans",
+    "team": 11
+   },
+   {
+    "key": "4259545",
+    "pts": "26.9",
+    "name": "D'Andre Swift",
+    "line": "3 TD runs at Seattle, Monday night",
+    "team": 3
+   }
+  ]
+ },
+ "wp": {
+  "game": {
+   "home": 1,
+   "away": 12
+  },
+  "team": 12,
+  "kick": "Isaac vs. Perry",
+  "title": "The GOAT Kids’ chance to win, all weekend",
+  "aria": "The GOAT Kids win probability from Thursday night to Sunday night: 77 percent Thursday morning, 89 percent after Thursday's game, 98 percent by 2:11 p.m. Sunday, and a win by 40.5.",
+  "t0": "2026-10-29T23:00:00Z",
+  "t1": "2026-11-02T03:00:00Z",
+  "annotations": [
+   {
+    "at": {
+     "t": "2026-10-30T18:00:00Z",
+     "p": 0.64
+    },
+    "labels": [
+     {
+      "text": "89% after",
+      "anchor": "middle",
+      "cls": "small"
+     },
+     {
+      "text": "Thursday night",
+      "dyFs": 1,
+      "anchor": "middle",
+      "cls": "small"
+     }
+    ]
+   },
+   {
+    "at": {
+     "t": "2026-11-01T06:00:00Z",
+     "p": 0.4
+    },
+    "labels": [
+     {
+      "text": "Final: 162.4 to 121.9",
+      "anchor": "middle",
+      "cls": "strong"
+     }
+    ]
+   }
+  ]
+ },
+ "allowTwoDecimals": [
+  "126.82",
+  "123.76",
+  "3.06",
+  "170.44"
+ ]
+}
