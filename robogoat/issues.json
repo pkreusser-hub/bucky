@@ -3,6 +3,17 @@
   {
    "season": 2026,
    "week": 8,
+   "type": "recap",
+   "path": "2026/week-8/",
+   "published": "2026-11-03",
+   "headline": "Calvin Beats Elan with One Incomplete Pass",
+   "description": "Calvin fixes his quarterback, gets one incomplete pass from Lamar Jackson and beats Elan anyway, Joe Burrow scores 43.5 for Isaac, John scores 188.7, and Sandy loses by 3.06 with 46.7 on her bench.",
+   "subject": "RoboGoat: Calvin beats Elan with one incomplete pass (Week 8 recap)",
+   "share": "2026/week-8/share.png"
+  },
+  {
+   "season": 2026,
+   "week": 8,
    "type": "preview",
    "path": "2026/week-8-preview/",
    "published": "2026-10-31",
