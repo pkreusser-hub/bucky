@@ -845,3 +845,18 @@ at full scale. Not linked from games.html yet; it is on a branch awaiting previe
   `assets/vendor/three-r128*.js` and any other off-host request fails the run. Bite: seven mutants
   (tower pad 40, no group skip, Vulcan east of the Argos, Olympus at 1500 m, five Apollo towers,
   rivers allowed uphill, no camera clamp) each fail their checks.
+
+## Institute: Darrow's course (2026-11-04)
+`DARROW` in institute.html holds 30 stops in book order, chapters 19 to 44, taken from the fan
+wiki's chapter-cited summary of Darrow's year. A stop on a castle uses `at:`; others give map
+points and an `assume` note saying where they were placed and why. `via` points shape each leg;
+they are plausible routes, not described ones. `air:true` legs (to Olympus and back to Mars) are
+dashed and arc up to the summit.
+- The path is drawn on a 2D overlay canvas (`#route`), projected per frame, so it stays a
+  constant 3 px at any zoom. A place visited more than once gets one marker listing every visit
+  (Castle Mars: 1, 3, 5, 9, 19, 29).
+- **Drape on `sampleTerrain`, not `heightAt`.** The function under the 150 m grid has peaks the
+  grid rounds over; with `heightAt` the path sank 56 m into the mountains near Jupiter.
+- Suite **107/107**. Bite: HEAD crashes in the new section (82 earlier checks still pass); mutants
+  for a leg through the South Sea, the Apollo camp at 3.8 km, ignoring relief, heightAt draping and
+  an out-of-order chapter each fail their check.

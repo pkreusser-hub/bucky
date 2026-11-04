@@ -31,6 +31,13 @@
     letter-spacing:.14em;font-size:12px;text-transform:uppercase}
   .lbl::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:10px;background:rgba(255,255,255,.55)}
   .lbl.region::after,.lbl.water::after{display:none}
+  .lbl.stop{z-index:4;background:#c8402b;color:#fff;border:1.5px solid #fff;border-radius:999px;padding:0 6px;
+    font-size:11px;font-weight:700;line-height:17px;font-variant-numeric:tabular-nums;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .lbl.stop::after{display:none}
+  .lbl.stop.on{background:var(--gold);color:#221c10;border-color:#221c10}
+  canvas#route{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+  .tournav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+  .tournav .count{margin-left:auto;color:var(--ink-dim);font-size:12px;font-variant-numeric:tabular-nums}
 
   #hud{position:fixed;left:12px;top:12px;max-width:min(340px,calc(100vw - 24px));background:var(--panel);
     border:1px solid var(--line);border-radius:10px;padding:10px 12px;backdrop-filter:blur(6px)}
@@ -73,6 +80,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<canvas id="route"></canvas>
 <div id="labels"></div>
 
 <div id="hud">
@@ -98,6 +106,10 @@
     <button class="b" data-season="summer" aria-pressed="true">Summer</button>
     <button class="b" data-season="winter" aria-pressed="false">Winter</button>
     <button class="b" id="lblToggle" aria-pressed="true">Labels</button>
+  </div>
+  <div class="row"><span class="k">Darrow</span>
+    <button class="b" id="routeToggle" aria-pressed="true">Path</button>
+    <button class="b" id="tourStart">Follow his year</button>
   </div>
   <div id="hint">Drag to orbit, right-drag to pan, scroll to zoom. Click a name to fly there.</div>
   </div>
@@ -217,6 +229,42 @@ const REGIONS = [
   { id:"southsea",   name:"South Sea",     px:380, py:548, water:true, book:"A large body of water across the south of the grounds, where the Argos ends.", assume:"Shoreline traced from the map; the western shore under the inset is a guess." },
   { id:"furor",      name:"Furor",         px:640, py:152, water:true, small:true, book:"Flows west through the Highlands to meet the Metas between Phobos and Deimos (ch. 21).", assume:"55 m wide." },
   { id:"metas",      name:"Metas",         px:556, py:70,  water:true, small:true, book:"Flows south through the Highlands to meet the Furor between Phobos and Deimos (ch. 21).", assume:"55 m wide." },
+];
+
+/* Darrow's course through the war game, in book order (Red Rising ch. 19 to 44).
+   at: the landmark a stop sits on. via: map points passed through on the way from the previous
+   stop. air: reached on gravBoots. Where the book does not place an event, `assume` says so. */
+const DARROW = [
+ { at:"mars", ch:"19", when:"The night of the Passage", title:"The Passage", text:"Hooded and flown out from the Institute's main building, he wakes in a stone room beneath Castle Mars with Julian au Bellona. Only one of them may leave. He kills Julian and climbs up into the castle." },
+ { px:440, py:140, via:[[560,128],[500,135]], ch:"21", when:"Day 1", title:"Ambush on the plains", text:"On the orientation tour of Mars territory, Ceres students spring an ambush on the plains. Darrow and Cassius beat it off and win a feast for the house.", assume:"The book puts the fight on the plains near Ceres. The exact spot is a guess." },
+ { at:"mars", via:[[500,135],[560,128]], ch:"23", when:"Days 2 to 6", title:"The house splits", text:"The war game begins. House Mars breaks into factions under Darrow and Cassius, Titus, and Antonia. Darrow's band sleeps in the gatehouse." },
+ { at:"phobos", via:[[550,104]], ch:"23", when:"Day 6", title:"Flight to Phobos", text:"A parley with Vixus turns into an ambush by Titus. Darrow fights his way out and leads his band to Phobos Tower, which becomes their fort." },
+ { at:"mars", via:[[550,104]], ch:"25", when:"Day 30", title:"Watching the gatehouse", text:"He and Cassius creep up to the gatehouse and hear what Titus is doing to the captured Ceres girls. On the way back Fitchner drops down on gravBoots, and Darrow starts planning Titus's fall." },
+ { at:"phobos", via:[[550,104]], ch:"26", when:"Day 31", title:"Quinn is taken", text:"Quinn goes to Deimos to carry his apology to Antonia and is captured by Titus's band. Cassius tries to free her and is beaten." },
+ { px:690, py:190, via:[[540,128],[600,150],[650,168]], ch:"26", when:"Day 32", title:"Mustang and the lake", text:"Darrow and Cassius ride east and try to take a Minervan girl's horse. He names her Mustang. Her housemates chase them into a lake, while Roque lights the signal fire that draws Minerva onto Castle Mars.", assume:"The map draws no lake. It is placed on the plains west of Minerva." },
+ { at:"minerva", via:[[730,182]], ch:"27", when:"Day 32", title:"The Minervan standard", text:"Sevro pulls them out and leads them to Castle Minerva, emptied by its own raid on Mars. They steal the standard and carry off the cook, June." },
+ { at:"mars", via:[[700,140],[650,126]], ch:"27 to 29", when:"Days 32 to 34", title:"Titus falls", text:"With Antonia's help they beat the Minervan warband and trade the standard back for Castle Mars. Darrow learns that Titus is a Red in disguise and sentences him; Cassius carries it out. Darrow asks for horses as his first bounty." },
+ { at:"diana", via:[[640,182],[684,238]], ch:"30", when:"About day 62", title:"Into the Greatwoods", text:"A month later he and Sevro go into the Greatwoods to win an alliance with House Diana. Sevro lets slip that he knows who killed Julian." },
+ { at:"minerva", via:[[748,222]], ch:"31", when:"About day 70", title:"The dead horses", text:"After a week of assaults he sews the Howlers and six Diana students into the bellies of dead horses, beats Pax in a duel at the gate, and howls. The hidden soldiers run through the open gates and the castle falls." },
+ { px:788, py:236, via:[[778,200]], ch:"31", when:"About day 70", title:"He lets Mustang go", text:"He chases the fleeing Minervan Primus into the woods with Vixus and Cassandra, finds where she is hiding, and lets her go.", assume:"The woods are taken to be the north edge of the Greatwoods, south of Minerva." },
+ { at:"minerva", via:[[778,200]], ch:"32 to 33", when:"About days 70 to 76", title:"Betrayal", text:"Diana breaks the alliance, and Mars traps its war party inside Castle Minerva for five nights. The Jackal's envoy brings Cassius a holoCube. Antonia, Vixus and Cassandra murder Lea, and Cassius learns the truth about Julian.", assume:"Taken to be held from captured Castle Minerva, where the Diana war party was trapped." },
+ { px:540, py:44, via:[[722,108],[652,70],[590,48]], ch:"33", when:"About day 77", title:"Left for dead", text:"Cassius leads him out at night with a story that Roque has been found, forces a duel with an ionBlade, stabs him and leaves him in the wild.", assume:"The book gives no place. Put on the north edge of the Highlands, a ride from Minerva and close to where Mustang nurses him." },
+ { px:478, py:38, via:[[510,40]], ch:"34 to 35", when:"Months 3 to 5", title:"The North Woods", text:"Mustang finds him and nurses him through four weeks of coma. They hunt and live rough together; when she falls ill he tends her. Fitchner tracks him down and tells him the Proctors are rigging the game for the Jackal.", assume:"The fan wiki puts the recovery in the North Woods. The camp is placed in their eastern half." },
+ { px:300, py:46, via:[[420,52],[360,44]], ch:"35", when:"About month 5", title:"Oathbreakers", text:"He and Mustang move west through the woods lighting fires as bait. On the sixth night they catch their prey and recruit Milia of Juno, Dax and eight others: the start of an army drawn from every house." },
+ { at:"juno", via:[[290,110],[272,160]], ch:"35", when:"Late month 6", title:"Castle Juno raided", text:"The army raids abandoned Castle Juno for its cellars of food.", assume:"The House Juno record dates this to late in the sixth month. Its order among the other stops is inferred." },
+ { px:470, py:120, via:[[330,192],[410,128]], ch:"35", when:"Month 6", title:"The slave ambush", text:"Wearing wolf cloaks, they ambush a party of House Mars slaves and free a dozen Minervans and Dianans, Pax and Tactus among them.", assume:"No place is given. Put in Mars country between Ceres and the Highlands." },
+ { at:"mars", via:[[530,122]], ch:"35", when:"Month 6", title:"The mark on the door", text:"That night he slips into Castle Mars alone and carves his slingBlade into the doors of the keep." },
+ { at:"ceres", via:[[530,126],[450,146]], ch:"36", when:"End of month 6", title:"Ceres falls in a day", text:"The army takes Castle Ceres, which had held out for five months, in a single day. When Tactus assaults a Ceres girl, Darrow takes the whipping alongside him to punish him without splitting the army." },
+ { px:333, py:300, via:[[350,200],[328,250]], ch:"37", when:"Start of month 7", title:"South along the Argos", text:"He leads the army south toward Apollo, following the Argos for a few nights." },
+ { px:500, py:386, via:[[342,345],[420,382]], ch:"37 to 38", when:"Month 7", title:"The bloodback bear", text:"Proctor sabotage drives them into the Greatwoods. Proctor Apollo lures him from camp with Mustang's voice and sets a bloodback bear on him; he lives because he stumbles into a snare. Sevro and the Howlers, gone from House Mars, join him." },
+ { px:767, py:437, via:[[600,402],[700,422]], ch:"39", when:"Month 7", title:"Two kilometres out", text:"A week of raiding Apollo's holdings and freeing its slaves. Camped two kilometres from the castle, he keeps Proctors Apollo and Venus talking." },
+ { at:"apollo", ch:"39", when:"Month 7", title:"Castle Apollo", text:"Sevro and Tactus take the castle through its latrine holes while the Proctors are distracted, and the army captures Apollo's standard." },
+ { at:"bacchus", via:[[700,470],[600,482]], ch:"40", when:"Month 7", title:"The grape-juice castle", text:"Marching west for Jupiter, the army loots grape juice from an abandoned castle on the way.", assume:"The fan wiki reads this castle as Bacchus." },
+ { at:"jupiter", via:[[400,452],[310,432],[240,380],[214,300],[214,200],[195,130],[150,90]], ch:"40 to 41", when:"Month 7", title:"Castle Jupiter and the Jackal", text:"Four days' march from Apollo and a three-day siege take Castle Jupiter. Darrow sees through the Jackal's trap, pins his hand to a table, and makes him saw it off to go free. Pax dies shielding him." },
+ { px:165, py:150, via:[[130,100]], ch:"41", when:"Month 7", title:"Taken into the sky", text:"Chasing the Jackal through the mountains, he is seized by Proctor Apollo on gravBoots and carried up. The Proctor tells him they have taken Mustang.", assume:"The point in the mountains is a guess." },
+ { at:"olympus", air:true, ch:"42", when:"Month 7", title:"Olympus stormed", text:"He kills Proctor Apollo with his knifeRing, then uses the gravBoots from Apollo and Fitchner to lift his army up to Olympus. The Proctors are taken and Mustang is freed." },
+ { at:"mars", air:true, ch:"43", when:"Month 7", title:"Back to Castle Mars", text:"Told that Mustang is the Jackal's twin, he rushes back with the Howlers, breaks the siege of Castle Mars and takes back command of his house. Roque is alive.", assume:"The book does not say how they travelled. Drawn as a flight on the captured gravBoots." },
+ { at:"olympus", air:true, ch:"43 to 44", when:"End of the year", title:"Victory and graduation", text:"Mustang arrives with her brother bound and gagged. House Mars wins the year, and the whole student body gathers on Olympus to graduate." },
 ];
 
 /* ---------------- noise ---------------- */
@@ -802,7 +850,7 @@ function buildOlympus(){
   g.position.set(w.x, ground + OLYMPUS.float, w.z);
   g.userData = { ground, kind:"olympus" };
   world.add(g);
-  landmarks.olympus = { group:g, x:w.x, z:w.z, y:ground+OLYMPUS.float, kind:"olympus", def:OLYMPUS, ground };
+  landmarks.olympus = { group:g, x:w.x, z:w.z, y:ground+OLYMPUS.float, kind:"olympus", def:OLYMPUS, ground, topLocal: top };
 }
 
 /* ---------------- smoke at Vulcan ---------------- */
@@ -842,13 +890,13 @@ const v3 = new THREE.Vector3();
 function updateLabels(){
   const W = innerWidth, H = innerHeight, camDist = camera.position.distanceTo(controls.target);
   for (const it of labelItems){
-    if (!state.labels || (it.near && camDist > it.near)){ it.el.style.display = "none"; continue; }
+    if (!state.labels || (it.near && camDist > it.near) || (it.when && !it.when())){ it.el.style.display = "none"; continue; }
     it.getPos(v3); v3.project(camera);
     if (v3.z > 1 || v3.z < -1 || Math.abs(v3.x) > 1.2 || Math.abs(v3.y) > 1.2){ it.el.style.display = "none"; continue; }
     it.el.style.display = "";
     const x = (v3.x*.5+.5)*W, y = (-v3.y*.5+.5)*H;
     const w = it.el.offsetWidth, h = it.el.offsetHeight;
-    const dy = (it.kind === "region") ? -h/2 : -h - 10;
+    const dy = it.kind === "region" ? -h/2 : it.kind === "stop" ? 8 : -h - 10;
     it.el.style.transform = `translate(${Math.round(x - w/2)}px, ${Math.round(y + dy)}px)`;
   }
 }
@@ -894,6 +942,7 @@ function showAbout(){
       <li>Peaks reach about 2.8 km above the plains. The Highlands rise 300 to 900 m and the Postern Hills about 350 m.</li>
       <li>godTrees stand 70 to 110 m. Each one drawn in the Greatwoods stands for a stand of several.</li>
       <li>Where Olympus hangs is not stated. It is placed over the central plains here.</li>
+      <li>Darrow's path follows the events of chapters 19 to 44 in order. Where the book names a castle the stop sits on it; where it doesn't, the stop's panel says where it was placed and why. Lines between stops are plausible routes, not described ones.</li>
     </ul>
     <h3>Sources</h3>
     <ul>
@@ -902,7 +951,7 @@ function showAbout(){
     </ul>`;
   info.hidden = false;
 }
-document.getElementById("infoClose").onclick = () => { info.hidden = true; document.querySelectorAll(".lbl.on").forEach(e=>e.classList.remove("on")); };
+document.getElementById("infoClose").onclick = () => { info.hidden = true; route.playing = false; document.querySelectorAll(".lbl.on").forEach(e=>e.classList.remove("on")); };
 
 /* ---------------- camera moves ---------------- */
 let fly = null;
@@ -913,8 +962,10 @@ function flyTo(target, camPos, ms=1400){
 function flyToLandmark(id){
   const L = landmarks[id]; if (!L) return;
   const yT = (L.kind === "olympus" ? (L.ground + OLYMPUS.float)*state.ve + (1500 - 300) : L.y*state.ve + 30*state.ls);
-  const target = new THREE.Vector3(L.x, yT, L.z);
   const dist = L.kind === "olympus" ? 5200 : (L.kind === "region" ? 14000 : 520*Math.max(1, state.ls*.75));
+  flyToPoint(new THREE.Vector3(L.x, yT, L.z), dist);
+}
+function flyToPoint(target, dist){
   const dir = camera.position.clone().sub(controls.target).setY(0);
   if (dir.lengthSq() < 1) dir.set(0,0,1); dir.normalize();
   const camPos = target.clone().add(dir.multiplyScalar(dist*.8)).add(new THREE.Vector3(0, dist*.55, 0));
@@ -928,6 +979,159 @@ const VIEWS = {
   olympus(){ flyToLandmark("olympus"); showInfo(OLYMPUS); },
   about(){ showAbout(); },
 };
+
+/* ---------------- Darrow's course: path, stops, tour ---------------- */
+const route = { legs: [], visible: true, cur: -1, playing: false, playT: 0, anim: null, markers: [] };
+const LEG_STEP_PX = 1.5;
+function buildRoute(){
+  let total = 0;
+  DARROW.forEach((s, i) => {
+    s.n = i + 1;
+    if (s.at){
+      const d = s.at === "olympus" ? OLYMPUS : (HOUSES.find(h => h.id === s.at) || TOWERS.find(t => t.id === s.at));
+      s.px = d.px; s.py = d.py;
+    }
+    if (i === 0){ route.legs.push({ pts: [], km: 0, total: 0 }); return; }
+    const a = DARROW[i-1], line = [[a.px, a.py], ...(s.via || []), [s.px, s.py]];
+    const pts = []; let len = 0;
+    for (let k = 0; k < line.length-1; k++){
+      const [ax, ay] = line[k], [bx, by] = line[k+1], L = Math.hypot(bx-ax, by-ay), n = Math.max(1, Math.ceil(L/LEG_STEP_PX));
+      for (let j = 0; j < n; j++) pts.push({ px: ax+(bx-ax)*j/n, py: ay+(by-ay)*j/n, d: len + L*j/n });
+      len += L;
+    }
+    pts.push({ px: s.px, py: s.py, d: len });
+    // hug the surface that is drawn (the 150 m grid), not the finer height function under it,
+    // or the path dips into ridges the grid rounds over
+    for (const p of pts){ const w = toW(p.px, p.py); p.t = len ? p.d/len : 1; p.h = Math.max(0, sampleTerrain(w.x, w.z)); }
+    const km = len*M_PER_PX/1000; total += km;
+    route.legs.push({ pts, km, total, air: !!s.air, fromOly: a.at === "olympus", toOly: s.at === "olympus" });
+  });
+}
+function olyTopY(){ const L = landmarks.olympus; return L.group.position.y + L.topLocal + 25; }
+const ROUTE_LIFT = 22;     // metres above the ground, so the path never sinks into the terrain
+function routeY(leg, p){
+  const ground = p.h*state.ve + ROUTE_LIFT;
+  if (!leg.air) return ground;
+  const a = leg.pts[0], b = leg.pts[leg.pts.length-1];
+  const yA = leg.fromOly ? olyTopY() : a.h*state.ve + ROUTE_LIFT;
+  const yB = leg.toOly ? olyTopY() : b.h*state.ve + ROUTE_LIFT;
+  return Math.max(ground, lerp(yA, yB, p.t) + Math.sin(Math.PI*p.t)*700);
+}
+function stopWorld(s){
+  const w = toW(s.px, s.py);
+  return { x: w.x, z: w.z, y: s.at === "olympus" ? olyTopY() : Math.max(0, sampleTerrain(w.x, w.z))*state.ve + ROUTE_LIFT };
+}
+
+const routeCanvas = document.getElementById("route"), rctx = routeCanvas.getContext("2d");
+function sizeRoute(){
+  const d = Math.min(devicePixelRatio || 1, 2);
+  routeCanvas.width = Math.round(innerWidth*d); routeCanvas.height = Math.round(innerHeight*d);
+  rctx.setTransform(d, 0, 0, d, 0, 0);
+}
+const pv = new THREE.Vector3();
+function project(x, y, z){
+  pv.set(x, y, z).project(camera);
+  if (pv.z > 1 || pv.z < -1) return null;
+  return [(pv.x*.5+.5)*innerWidth, (-pv.y*.5+.5)*innerHeight];
+}
+function tracePath(leg, uptoT){
+  rctx.beginPath(); let pen = false;
+  for (const p of leg.pts){
+    if (p.t > uptoT) break;
+    const w = toW(p.px, p.py), s = project(w.x, routeY(leg, p), w.z);
+    if (!s){ pen = false; continue; }
+    if (!pen){ rctx.moveTo(s[0], s[1]); pen = true; } else rctx.lineTo(s[0], s[1]);
+  }
+}
+function drawRoute(now){
+  rctx.clearRect(0, 0, innerWidth, innerHeight);
+  if (!route.visible) return;
+  const upto = route.cur < 0 ? Infinity : route.cur;
+  rctx.lineJoin = rctx.lineCap = "round";
+  for (let i = 1; i < route.legs.length; i++){
+    const leg = route.legs[i], walked = i <= upto;
+    let t = 1;
+    if (route.anim && route.anim.leg === i) t = clamp((now - route.anim.t0)/route.anim.ms, 0, 1);
+    for (const pass of [0, 1]){
+      if (walked && t < 1){ // the leg being walked right now: faint whole leg, then the bright part
+        tracePath(leg, 1); rctx.setLineDash(leg.air ? [7, 6] : []);
+        rctx.lineWidth = 2; rctx.strokeStyle = "rgba(232,72,48,.3)"; if (pass) rctx.stroke();
+      }
+      tracePath(leg, walked ? t : 1);
+      rctx.setLineDash(leg.air ? [7, 6] : []);
+      if (pass === 0){ rctx.lineWidth = walked ? 5.5 : 3.5; rctx.strokeStyle = walked ? "rgba(25,12,6,.55)" : "rgba(25,12,6,.18)"; }
+      else { rctx.lineWidth = walked ? 3 : 2; rctx.strokeStyle = walked ? "rgba(232,72,48,.96)" : "rgba(232,72,48,.38)"; }
+      rctx.stroke();
+    }
+    if (walked && t < 1){
+      const p = leg.pts[Math.min(leg.pts.length-1, Math.floor(t*(leg.pts.length-1)))];
+      const w = toW(p.px, p.py), s = project(w.x, routeY(leg, p), w.z);
+      if (s){ rctx.setLineDash([]); rctx.beginPath(); rctx.arc(s[0], s[1], 6, 0, Math.PI*2);
+        rctx.fillStyle = "#ffd36b"; rctx.fill(); rctx.lineWidth = 2; rctx.strokeStyle = "#3a1a10"; rctx.stroke(); }
+    }
+  }
+}
+
+/* one marker per place; a place he came back to lists every visit (Castle Mars: 1, 3, 5 ...) */
+function buildStopMarkers(){
+  const groups = new Map();
+  for (const s of DARROW){ const k = s.px + "," + s.py; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(s); }
+  for (const list of groups.values()){
+    const first = list[0];
+    const it = addLabel(list.map(s => s.n).join(" · "), "stop",
+      v => { const w = stopWorld(first); v.set(w.x, w.y, w.z); },
+      () => { const next = list.find(s => s.n-1 > route.cur) || list[0]; tourGo(next.n-1); });
+    it.when = () => route.visible;
+    it.el.title = list.map(s => `${s.n}. ${s.title}`).join("\n");
+    route.markers.push({ it, list });
+  }
+}
+function refreshStopMarkers(){
+  for (const m of route.markers) m.it.el.classList.toggle("on", m.list.some(s => s.n-1 === route.cur));
+}
+function showStop(s){
+  const leg = route.legs[s.n-1];
+  const legTxt = s.n === 1 ? "Start of the year" : `${leg.km.toFixed(1)} km from the last stop${leg.air ? " by gravBoots" : ""}, ${leg.total.toFixed(0)} km so far`;
+  infoBody.innerHTML =
+    `<h2>${s.n}. ${esc(s.title)}</h2>` +
+    `<div class="where">Red Rising ch. ${esc(s.ch)}. ${esc(s.when)}. ${legTxt}.</div>` +
+    `<h3>What happens</h3><p>${esc(s.text)}</p>` +
+    (s.assume ? `<h3>Assumed for the map</h3><p>${esc(s.assume)}</p>` : "") +
+    `<div class="tournav"><button class="b" id="tourPrev" ${s.n === 1 ? "disabled" : ""}>Previous</button>` +
+    `<button class="b" id="tourPlay" aria-pressed="${route.playing}">${route.playing ? "Pause" : "Play"}</button>` +
+    `<button class="b" id="tourNext" ${s.n === DARROW.length ? "disabled" : ""}>Next</button>` +
+    `<span class="count">Stop ${s.n} of ${DARROW.length}</span></div>`;
+  info.hidden = false;
+  document.getElementById("tourPrev").onclick = () => { route.playing = false; tourGo(route.cur - 1); };
+  document.getElementById("tourNext").onclick = () => { route.playing = false; tourGo(route.cur + 1); };
+  document.getElementById("tourPlay").onclick = () => {
+    route.playing = !route.playing; route.playT = performance.now();
+    if (route.playing && route.cur >= DARROW.length-1) tourGo(0); else showStop(DARROW[route.cur]);
+  };
+}
+function tourGo(i){
+  i = clamp(i, 0, DARROW.length-1);
+  const prev = route.cur; route.cur = i; route.playT = performance.now();
+  if (!route.visible) setRouteVisible(true);
+  route.anim = (i > 0 && i === prev + 1) ? { leg: i, t0: performance.now(), ms: 1600 } : null;
+  const s = DARROW[i], w = stopWorld(s);
+  flyToPoint(new THREE.Vector3(w.x, w.y, w.z), s.at === "olympus" ? 7500 : 5200);
+  if (fly) fly.ms = 1600;
+  showStop(s); refreshStopMarkers();
+  if (i === DARROW.length-1) route.playing = false;
+}
+function tickTour(now){
+  if (route.playing && now - route.playT > 5200){
+    if (route.cur < DARROW.length-1) tourGo(route.cur + 1); else route.playing = false;
+  }
+}
+function setRouteVisible(v){
+  route.visible = v;
+  document.getElementById("routeToggle").setAttribute("aria-pressed", String(v));
+  if (!v){ route.playing = false; route.cur = -1; route.anim = null; refreshStopMarkers(); }
+}
+document.getElementById("routeToggle").onclick = () => setRouteVisible(!route.visible);
+document.getElementById("tourStart").onclick = () => { route.playing = false; tourGo(0); };
 
 /* ---------------- toggles ---------------- */
 function applyVE(){
@@ -970,7 +1174,7 @@ function updateHud(){
   needle.setAttribute("transform", `rotate(${THREE.MathUtils.radToDeg(az)})`);
 }
 
-function resize(){ renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); }
+function resize(){ renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); sizeRoute(); }
 addEventListener("resize", resize);
 
 /* ---------------- build ---------------- */
@@ -987,11 +1191,13 @@ function frame(now){
   if (camera.position.y < floor) camera.position.y = floor;
   animSmoke(dt);
   renderer.render(scene, camera);
+  drawRoute(now); tickTour(now);
   updateLabels(); updateHud();
   requestAnimationFrame(frame);
 }
 
 function build(){
+  const t0 = performance.now();
   buildTerrain();
   buildWater();
   for (const H of HOUSES) placeLandmark(H, "house");
@@ -999,6 +1205,8 @@ function build(){
   buildOlympus();
   buildTrees();
   buildSmoke();
+  buildRoute();
+  buildStopMarkers();
 
   for (const H of HOUSES){
     const L = landmarks[H.id];
@@ -1022,13 +1230,14 @@ function build(){
   camera.position.copy(OVERVIEW.p); controls.target.copy(OVERVIEW.t); controls.update();
   if (innerWidth < 640) document.getElementById("hudToggle").click();
   document.getElementById("loading").hidden = true;
+  window.__institute.buildMs = performance.now() - t0;
   window.__institute.ready = true;
   requestAnimationFrame(frame);
 }
 
 /* test/inspection hook */
 window.__institute = {
-  ready:false, M_PER_PX, HOUSES, TOWERS, OLYMPUS, RIVERS, REGIONS, counts, landmarks, state,
+  ready:false, M_PER_PX, DARROW, route, tourGo, stopWorld, routeY, setRouteVisible, POSTERN, HOUSES, TOWERS, OLYMPUS, RIVERS, REGIONS, counts, landmarks, state,
   toW, heightAt, sampleTerrain, sdPoly, SEA, GREATWOODS, MOUNTAINS, HIGHLANDS,
   riverXAt(id, py){ const p = RIV[id].pts; for (let k=0;k<p.length-1;k++){ const [ax,ay]=p[k],[bx,by]=p[k+1]; if ((py-ay)*(py-by) <= 0 && ay!==by) return ax + (bx-ax)*(py-ay)/(by-ay); } return null; },
   distanceKm(a, b){ const A = landmarks[a], B = landmarks[b]; return Math.hypot(A.x-B.x, A.z-B.z)/1000; },

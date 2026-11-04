@@ -257,6 +257,76 @@ function serve(){
     ok(under.length === 0, "every castle fly-to ends above the ground" + (under.length ? ": " + under.join(", ") : ""));
 
     /* ------------------------------------------------------------------ */
+    section("Darrow's course (Red Rising ch. 19 to 44)");
+    const dr = await page.evaluate(() => {
+      const I = window.__institute, F = { x0: 12, x1: 850, y0: 12, y1: 612 };
+      const where = id => id === "olympus" ? I.OLYMPUS : (I.HOUSES.find(h => h.id === id) || I.TOWERS.find(t => t.id === id));
+      const stops = I.DARROW.map(s => ({ n: s.n, at: s.at || null, px: s.px, py: s.py, ch: s.ch, air: !!s.air, title: s.title,
+        onLandmark: s.at ? (where(s.at).px === s.px && where(s.at).py === s.py) : null }));
+      const legs = I.route.legs.map(l => ({ km: l.km, total: l.total, air: !!l.air, n: l.pts.length }));
+      // every point of every walked leg: inside the grounds, out of the South Sea
+      const wet = [], outside = [];
+      I.route.legs.forEach((l, i) => { if (l.air) return; for (const p of l.pts){
+        if (I.sdPoly(p.px, p.py, I.SEA) < 0) { wet.push(i+1); break; }
+        if (p.px < F.x0 || p.px > F.x1 || p.py < F.y0 || p.py > F.y1) { outside.push(i+1); break; } } });
+      return { stops, legs, wet, outside };
+    });
+    const S = dr.stops;
+    ok(S.length === 30, `30 stops (got ${S.length})`);
+    ok(S[0].at === "mars" && /^19/.test(S[0].ch), "it starts with the Passage beneath Castle Mars (ch. 19)");
+    ok(S[S.length-1].at === "olympus", "it ends on Olympus");
+    const chs = S.map(s => parseInt(s.ch, 10));
+    ok(chs.every((c, i) => i === 0 || c >= chs[i-1]), "stops run in book order (chapters never go backwards)");
+    ok(S.filter(s => s.at).every(s => s.onLandmark), "every stop tagged to a castle sits exactly on that castle");
+    ok(dr.wet.length === 0, "no walked leg crosses the South Sea" + (dr.wet.length ? ": legs " + dr.wet.join(", ") : ""));
+    ok(dr.outside.length === 0, "no walked leg leaves the grounds" + (dr.outside.length ? ": legs " + dr.outside.join(", ") : ""));
+    // ch. 39: the army camps two kilometres from Castle Apollo.
+    // Hand-computed: camp (767,437) to Apollo (797,445) = sqrt(30^2 + 8^2) = 31.05 px -> 2.018 km
+    const camp = S.find(s => /Two kilometres/.test(s.title));
+    const campKm = Math.hypot(camp.px - 797, camp.py - 445) * 65 / 1000;
+    ok(near(campKm, 2.0, 0.25), `the camp before Apollo is two kilometres out (${campKm.toFixed(3)} km)`);
+    // ch. 40: Apollo to Jupiter in four days. Straight line 50.9 km (hand-computed above); the march
+    // has to be at least that, and no more than 25 km a day.
+    const iApollo = S.findIndex(s => s.at === "apollo"), iJup = S.findIndex(s => s.at === "jupiter");
+    const march = dr.legs.slice(iApollo + 1, iJup + 1).reduce((a, l) => a + l.km, 0);
+    ok(march >= 50.9 && march <= 100, `Apollo to Jupiter march is ${march.toFixed(1)} km, ${(march/4).toFixed(1)} km a day`);
+    ok(dr.legs.every((l, i) => i === 0 || near(l.total, dr.legs[i-1].total + l.km, 1e-9)), "the running total adds up leg by leg");
+    ok(S.filter(s => s.air).every(s => ["olympus","mars"].includes(s.at)) && S.find(s => s.at === "olympus").air, "Olympus is only ever reached through the air");
+
+    const drape = async () => page.evaluate(() => {
+      const I = window.__institute, ve = I.state.ve; let worst = Infinity, at = "";
+      I.route.legs.forEach((l, i) => { if (l.air) return; for (const p of l.pts){
+        const w = I.toW(p.px, p.py), gap = I.routeY(l, p) - Math.max(0, I.sampleTerrain(w.x, w.z))*ve;
+        if (gap < worst){ worst = gap; at = `leg ${i+1} at ${p.px.toFixed(0)},${p.py.toFixed(0)}`; } } });
+      const L = I.route.legs[I.DARROW.findIndex(s => s.at === "olympus")], end = L.pts[L.pts.length-1];
+      const O = I.landmarks.olympus, top = O.group.position.y + O.topLocal;
+      return { worst, at, olyGap: I.routeY(L, end) - top };
+    });
+    let dp = await drape();
+    ok(dp.worst > 5, `x1: the path rides above the drawn ground everywhere (lowest ${dp.worst.toFixed(1)} m, ${dp.at})`);
+    ok(near(dp.olyGap, 25, 0.5), `x1: the flight lands on Olympus's summit (${dp.olyGap.toFixed(1)} m above it)`);
+    await page.evaluate(() => window.__institute.setVE(3));
+    dp = await drape();
+    ok(dp.worst > 5, `x3 relief: path still above the ground (lowest ${dp.worst.toFixed(1)} m)`);
+    ok(near(dp.olyGap, 25, 0.5), `x3 relief: the flight still lands on the summit (${dp.olyGap.toFixed(1)} m)`);
+    await page.evaluate(() => window.__institute.setVE(1));
+
+    const marsMarker = await page.evaluate(() => [...document.querySelectorAll(".lbl.stop")].map(e => e.textContent).find(t => /^1 /.test(t)));
+    ok(marsMarker === "1 · 3 · 5 · 9 · 19 · 29", `Castle Mars carries every visit on one marker ("${marsMarker}")`);
+    await page.click("#tourStart");
+    let panel = (await page.textContent("#infoBody")).replace(/\s+/g, " ");
+    ok(/1\. The Passage/.test(panel) && /Stop 1 of 30/.test(panel) && /ch\. 19/.test(panel), "Follow his year opens on stop 1 with its chapter");
+    await page.click("#tourNext");
+    panel = (await page.textContent("#infoBody")).replace(/\s+/g, " ");
+    ok(/Stop 2 of 30/.test(panel) && /Assumed for the map/.test(panel), "Next steps to stop 2 and shows what was assumed");
+    ok(await page.evaluate(() => document.querySelector(".lbl.stop.on") !== null && window.__institute.route.cur === 1), "the current stop's marker is highlighted");
+    const markerShown = () => page.evaluate(() => [...document.querySelectorAll(".lbl.stop")].some(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; }));
+    await page.click("#routeToggle"); await frames();
+    ok(!(await markerShown()), "hiding the path hides its stop markers (measured boxes)");
+    await page.click("#routeToggle"); await page.evaluate(() => window.__institute.VIEWS.map()); await page.waitForTimeout(1800); await frames();
+    ok(await markerShown(), "showing it brings them back");
+
+    /* ------------------------------------------------------------------ */
     section("hygiene");
     ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
     ok(offHost.length === 0, "no off-host requests besides the routed three.js files" + (offHost.length ? ": " + offHost.join(", ") : ""));
