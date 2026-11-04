@@ -27,7 +27,7 @@ ones in the same file.
 | `farmgpt.html`, `farmgpt.mjs`, `storytime.html`, `dungeon.html` | [docs/farmgpt.md](docs/farmgpt.md) |
 | `castlekruzer.html`, `assets/farmstead/fs-*.js` | [docs/castle-kruzer.md](docs/castle-kruzer.md) |
 | `farmkart.html`, `farmkart-editor.html`, `assets/farmkart-*.js` | [docs/farm-kart.md](docs/farm-kart.md) |
-| `barnyardbistro.html`, `farmparty.html`, `hayhem.html`, `farm3d.html`, `goatcare.html`, `games.html` | [docs/games.md](docs/games.md) |
+| `barnyardbistro.html`, `farmparty.html`, `hayhem.html`, `farm3d.html`, `goatcare.html`, `games.html`, `institute.html` | [docs/games.md](docs/games.md) |
 | anything under `assets/cast/` — Tripo, rigs, sprite bakes | [docs/cast-and-3d.md](docs/cast-and-3d.md) |
 | `sunday.html`, `assets/sunday/sd-*` | [docs/sunday.md](docs/sunday.md) |
 | preview servers, screenshot rigs | [docs/tooling.md](docs/tooling.md) |
