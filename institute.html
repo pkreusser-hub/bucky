@@ -1,0 +1,1042 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>The Institute Grounds</title>
+<meta name="description" content="A scale 3D model of the Institute war-game grounds on Mars from Red Rising, built from the book's map and the descriptions in the text.">
+<style>
+  :root{
+    --ink:#f4efe6; --ink-dim:#c9c1b4; --panel:rgba(22,20,18,.86); --line:rgba(255,255,255,.14);
+    --gold:#d8b45a; --accent:#e0c27a;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{margin:0;height:100%;overflow:hidden;background:#9db4c6;color:var(--ink);
+    font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+  .lbl{position:absolute;left:0;top:0;white-space:nowrap;pointer-events:auto;cursor:pointer;
+    transform-origin:0 0;will-change:transform;user-select:none}
+  .lbl.region{z-index:1} .lbl.minor{z-index:2} .lbl.house,.lbl.olympus{z-index:3}
+  .lbl.house{background:rgba(20,18,16,.78);border:1px solid var(--line);border-radius:999px;
+    padding:2px 9px 2px 6px;font-size:12px;font-weight:600;letter-spacing:.02em;display:flex;gap:6px;align-items:center}
+  .lbl.house i{width:9px;height:9px;border-radius:50%;display:inline-block;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+  .lbl.house:hover,.lbl.house.on{background:rgba(70,55,25,.92);border-color:var(--gold)}
+  .lbl.minor{background:rgba(20,18,16,.6);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--ink-dim)}
+  .lbl.region{font-size:12px;font-weight:700;letter-spacing:.28em;text-transform:uppercase;color:#fff;
+    text-shadow:0 1px 3px rgba(0,0,0,.85),0 0 10px rgba(0,0,0,.45)}
+  .lbl.region.water{color:#e3f1ff;font-style:italic;letter-spacing:.18em}
+  .lbl.olympus{background:rgba(245,238,222,.92);color:#2b2620;border-radius:4px;padding:3px 9px;font-weight:700;
+    letter-spacing:.14em;font-size:12px;text-transform:uppercase}
+  .lbl::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:10px;background:rgba(255,255,255,.55)}
+  .lbl.region::after,.lbl.water::after{display:none}
+
+  #hud{position:fixed;left:12px;top:12px;max-width:min(340px,calc(100vw - 24px));background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:10px 12px;backdrop-filter:blur(6px)}
+  #hud h1{margin:0;font-size:15px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  #hud p.sub{margin:2px 0 8px;color:var(--ink-dim);font-size:12px}
+  .row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center}
+  .row{margin-top:5px;gap:4px}
+  .row .k{font-size:10px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.08em;min-width:54px}
+  button.b{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink);
+    padding:3px 8px;border-radius:6px;font:inherit;font-size:12px;cursor:pointer}
+  button.b:hover{border-color:var(--gold)}
+  button.b[aria-pressed="true"]{background:var(--gold);color:#221c10;border-color:var(--gold);font-weight:600}
+
+  #info{position:fixed;right:12px;top:12px;width:min(380px,calc(100vw - 24px));max-height:calc(100% - 24px);
+    overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;backdrop-filter:blur(6px)}
+  #info h2{margin:0 0 2px;font-size:17px;color:var(--accent)}
+  #info .where{color:var(--ink-dim);font-size:12px;margin-bottom:8px}
+  #info h3{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);margin:12px 0 4px}
+  #info p,#info li{margin:0 0 6px}
+  #info ul{padding-left:18px;margin:0}
+  #info a{color:var(--accent)}
+  #info .x{position:absolute;right:8px;top:6px}
+
+  #scale{position:fixed;left:12px;bottom:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:6px 10px 8px;font-size:12px}
+  #scale .bar{height:6px;border:2px solid #fff;border-top:0;margin-top:3px}
+  #compass{position:fixed;right:12px;bottom:14px;width:46px;height:46px;border-radius:50%;background:var(--panel);
+    border:1px solid var(--line);display:grid;place-items:center}
+  #compass svg{width:34px;height:34px}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;background:#1b1917;color:var(--ink);
+    font-size:14px;letter-spacing:.2em;text-transform:uppercase;z-index:9}
+  #hint{color:var(--ink-dim);font-size:11px;margin-top:8px}
+  @media (max-width:640px){
+    #hud{padding:8px 10px}
+    #hud p.sub{display:none}
+    #info{top:auto;bottom:70px;max-height:46%}
+    .row .k{min-width:0;width:100%}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="labels"></div>
+
+<div id="hud">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h1>The Institute</h1><button class="b" id="hudToggle" aria-expanded="true">Hide</button></div>
+  <div id="hudBody">
+  <p class="sub">The war-game grounds on Mars, from the map and text of <em>Red Rising</em>. Full scale: 54.5 by 39&nbsp;km.</p>
+  <div class="row"><span class="k">View</span>
+    <button class="b" data-view="overview">Overview</button>
+    <button class="b" data-view="map">Map</button>
+    <button class="b" data-view="olympus">Olympus</button>
+    <button class="b" data-view="about">Sources</button>
+  </div>
+  <div class="row"><span class="k">Castles</span>
+    <button class="b" data-ls="1" aria-pressed="true">True size</button>
+    <button class="b" data-ls="5" aria-pressed="false">Enlarge x5</button>
+  </div>
+  <div class="row"><span class="k">Relief</span>
+    <button class="b" data-ve="1" aria-pressed="true">x1</button>
+    <button class="b" data-ve="2" aria-pressed="false">x2</button>
+    <button class="b" data-ve="3" aria-pressed="false">x3</button>
+  </div>
+  <div class="row"><span class="k">Season</span>
+    <button class="b" data-season="summer" aria-pressed="true">Summer</button>
+    <button class="b" data-season="winter" aria-pressed="false">Winter</button>
+    <button class="b" id="lblToggle" aria-pressed="true">Labels</button>
+  </div>
+  <div id="hint">Drag to orbit, right-drag to pan, scroll to zoom. Click a name to fly there.</div>
+  </div>
+</div>
+
+<aside id="info" hidden>
+  <button class="b x" id="infoClose" aria-label="Close">Close</button>
+  <div id="infoBody"></div>
+</aside>
+
+<div id="scale"><span id="scaleTxt">10 km</span><div class="bar" id="scaleBar" style="width:100px"></div></div>
+<div id="compass" title="North"><svg viewBox="-20 -20 40 40" id="compassSvg"><g id="needle"><path d="M0,-15 L5,2 L0,-2 L-5,2Z" fill="#e05a3a"/><path d="M0,15 L5,2 L0,-2 L-5,2Z" fill="#ddd"/><text x="0" y="-16" font-size="7" fill="#fff" text-anchor="middle" dy="-1">N</text></g></svg></div>
+<div id="loading">Raising the valley</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
+<script>
+"use strict";
+/* =====================================================================================
+   THE INSTITUTE GROUNDS — scale model.
+
+   Everything is laid out in "map pixels": coordinates traced by hand off the map printed
+   in Red Rising (868 x 633 px scan, inner frame x 12..850, y 12..612; north is up).
+   One map pixel = M_PER_PX metres. World axes: +x east, +z south, +y up, metres.
+   ===================================================================================== */
+const M_PER_PX = 65;
+const CX = 430, CY = 312;                  // map pixel at world origin
+const FRAME = { x0: 12, x1: 850, y0: 12, y1: 612 };
+const toW = (px, py) => ({ x: (px - CX) * M_PER_PX, z: (py - CY) * M_PER_PX });
+const toPx = (x, z) => ({ px: x / M_PER_PX + CX, py: z / M_PER_PX + CY });
+
+/* ---------------- traced geography (map pixels) ---------------- */
+const MOUNTAINS = [[-200,-200],[198,-200],[200,40],[186,90],[172,140],[186,190],[206,232],[178,262],[196,302],[206,352],[192,400],[176,446],[150,476],[-200,476]];
+const HIGHLANDS = [[448,-200],[702,-200],[722,60],[702,130],[704,200],[690,252],[620,262],[560,262],[518,250],[462,222],[444,160],[452,80]];
+const POSTERN   = [[778,-200],[1100,-200],[1100,262],[818,244],[806,182],[784,92]];
+const NORTHWOODS= [[226,-30],[506,-30],[500,46],[442,82],[356,88],[262,62]];
+const GREATWOODS= [[540,252],[650,232],[760,232],[880,232],[880,505],[700,505],[625,492],[560,480],[505,472],[472,442],[452,402],[472,370],[520,340],[540,300]];
+const SEA       = [[140,474],[232,468],[290,478],[322,487],[380,491],[432,490],[470,482],[505,476],[546,490],[590,502],[620,515],[640,538],[650,560],
+                   [626,564],[600,553],[575,558],[540,574],[500,594],[466,640],[120,640],[138,560],[146,500]];
+// Rivers: polylines flowing downstream. w = width in metres (assumed; the map draws them far wider than life).
+const RIVERS = [
+  { id:"argos",  name:"Argos River", w:150, depth:7, pts:[[352,24],[352,60],[348,120],[338,172],[318,205],[306,250],[304,300],[322,345],[322,400],[310,445],[305,482]] },
+  { id:"westtrib", name:"Western tributary", w:80, depth:4, pts:[[206,24],[212,40],[235,90],[270,140],[298,180],[318,205]] },
+  { id:"metas",  name:"River Metas", w:55, depth:3, pts:[[548,24],[545,50],[538,105],[525,152]] },
+  { id:"furor",  name:"River Furor", w:55, depth:3, pts:[[702,142],[650,138],[612,136],[570,146],[525,152]] },
+  { id:"easttrib", name:"Highlands tributary", w:85, depth:4, pts:[[525,152],[480,158],[430,162],[385,164],[338,172]] },
+  { id:"venusbrook", name:"Southern brook", w:40, depth:3, pts:[[598,606],[596,580],[602,557]] },
+];
+
+/* Twelve houses. Seven are labelled on the book's map. Five markers are unlabelled; four
+   are assigned from the text (see notes) and Venus takes the one left over. */
+const HOUSES = [
+  { id:"mars",    name:"House Mars",    px:597, py:115, col:"#b8382c", pad:140,
+    where:"Northern Highlands",
+    book:"Castle Mars stands in the Highlands in the north of the grounds. The house also holds two outlying towers, Phobos and Deimos, on the western side of the Highlands, with the meeting of the Furor and the Metas between them (Red Rising ch. 21). Early in the year its warbands raid Ceres daily; later it is besieged by Jupiter, Pluto and Apollo.",
+    assume:"Square curtain wall about 170 by 140 m, 16 m walls, a 40 m keep with a great hall, set on a shelf of the Highlands just north of the Furor." },
+  { id:"minerva", name:"House Minerva", px:763, py:165, col:"#7d5ab5", pad:130,
+    where:"Northeast, at the western edge of the Postern Hills",
+    book:"On the plains at the western foot of the Postern Hills, east of the Highlands and north of Diana. Olive trees and gardens wind between sandstone columns on the ground level; the third level holds the command room with the map, the war table and a statue of Minerva. It has its own stable and a hidden back gate. Mars and Diana take it with soldiers hidden inside dead horses.",
+    assume:"Three stepped sandstone tiers, each 12 m tall, inside a low octagonal wall." },
+  { id:"ceres",   name:"House Ceres",   px:375, py:150, col:"#c99a2e", pad:160,
+    where:"Plains beside the Argos",
+    book:"Out in the open beside the Argos, where the tributary from the Highlands joins it. Orchards, ovens and horses let it shrug off sieges; it holds out for about six months until Darrow's army takes it.",
+    assume:"A low twelve-sided wall with granaries and ovens inside, orchards in rows outside." },
+  { id:"jupiter", name:"House Jupiter", px:115, py:60,  col:"#4a7fb5", pad:170,
+    where:"Northwest mountains",
+    book:"In the mountains of the northwest corner, in low passes just south of the northernmost peaks. Jupiter becomes a northern superpower, takes Juno and Vulcan, and wars on Mars. Pluto seizes the empty castle to ambush Darrow.",
+    assume:"The largest fortress on the grounds, 220 by 160 m in grey granite, filling the pass." },
+  { id:"juno",    name:"House Juno",    px:268, py:205, col:"#2f8f8a", pad:120,
+    where:"West bank of the Argos",
+    book:"On the west bank of the Argos where the western tributary joins it, west of Ceres and Mars. Deep cellars full of salted beef, cheese, fish and smoked horsemeat. Conquered by Jupiter; Darrow's army later raids it for food.",
+    assume:"A square slate fortress with a squat keep." },
+  { id:"diana",   name:"House Diana",   px:727, py:275, col:"#4f8a3b", pad:0,
+    where:"Northern Greatwoods",
+    book:"Hidden in the northern Greatwoods, southeast of the Highlands and southwest of Minerva. It is built up in the branches of the godTrees rather than on the ground. Bloodback bears, boar and deer roam the woods around it.",
+    assume:"Platforms 60 to 75 m up in six 130 m godTrees, linked by rope bridges." },
+  { id:"apollo",  name:"House Apollo",  px:797, py:445, col:"#e2b93b", pad:140,
+    where:"Southeast edge of the Greatwoods",
+    book:"Near the southeastern edge of the Greatwoods, north of the South Sea. Tall, white and ornate: six grand spiralling towers around a round cobblestone plaza. The Howlers get in through its latrine holes and open the gates.",
+    assume:"Towers 80 m tall around a 120 m plaza, joined by a white curtain wall." },
+  { id:"pluto",   name:"House Pluto",   px:122, py:235, col:"#5b5566", pad:0,
+    where:"Western mountains (underground)",
+    book:"A fortress dug into the low mountains in the middle of the western range, near Vulcan. Colder, harder country; its students dress warmer and ride smaller horses. When Vulcan attacks, the Jackal collapses the tunnels and the house is sealed underground for nearly a month.",
+    assume:"Map marker: the unlabelled castle in the mountains. Shown as tunnel mouths and vents in the mountainside; the fortress itself is below ground." },
+  { id:"vulcan",  name:"House Vulcan",  px:290, py:315, col:"#d0652a", pad:130,
+    where:"West shore of the Argos",
+    book:"In the foothills on the western shore of the Argos, near Pluto, with forges for making weapons. In an earlier year Vulcan dammed the Argos between its own castle and the one opposite, then let the water go on an attacking army.",
+    assume:"Map marker: the unlabelled castle west of the Argos. Black stone with a forge hall and three smoking chimneys." },
+  { id:"mercury", name:"House Mercury", px:365, py:360, col:"#9aa7b3", pad:120,
+    where:"East shore of the Argos",
+    book:"Somewhere in the south; the house is driven out of its castle and wanders as a band of vagabonds until Tactus hunts it down.",
+    assume:"Map marker: the unlabelled castle across the Argos from Vulcan, as the fan wiki reads it. Pale stone, slender towers." },
+  { id:"bacchus", name:"House Bacchus", px:490, py:450, col:"#8a2f5a", pad:130,
+    where:"Southwest edge of the Greatwoods, on the South Sea",
+    book:"Has cellars for grape juice, which Darrow's army drinks on the march to Jupiter. Conquered early; Apollo holds many of its students as slaves, which puts it near Apollo.",
+    assume:"Map marker: the unlabelled castle on the north shore of the South Sea, as the fan wiki reads it. Ochre walls with vineyards around them." },
+  { id:"venus",   name:"House Venus",   px:597, py:590, col:"#d7869a", pad:120,
+    where:"South shore of the South Sea",
+    book:"In the south. Holds out for six months, losing students to Apollo, until Tactus takes it after Olympus falls.",
+    assume:"The map shows exactly twelve castle markers. With the other eleven placed, this one, on the far shore of the South Sea, is the only one left, so it is Venus here. The fan wiki guesses the western shore instead, under the map's inset, which would make thirteen. Rose marble with a domed hall." },
+];
+const TOWERS = [
+  { id:"phobos", name:"Phobos", px:495, py:100, book:"Outpost tower of House Mars on the western side of the Highlands, north of where the Furor and Metas meet (ch. 21).", assume:"A 38 m round tower inside a small walled yard." },
+  { id:"deimos", name:"Deimos", px:535, py:195, book:"Outpost tower of House Mars on the western side of the Highlands, south of where the Furor and Metas meet (ch. 21).", assume:"A 38 m round tower inside a small walled yard." },
+];
+const OLYMPUS = { id:"olympus", name:"Olympus", px:470, py:290, float:2000,
+  book:"An artificial mountain floating two kilometres above the grounds. A bone-pale marble citadel sits at the top of its incline, and the Proctors watch the year's game from it (Red Rising ch. 42). Darrow's army storms it to free Mustang.",
+  assume:"The book does not fix where it hangs; it is placed here over the open plains between the Argos and the Greatwoods. 2.2 km across, 1.5 km from summit to the tip of its underside." };
+const REGIONS = [
+  { id:"mountains",  name:"Mountains",     px:95,  py:285, book:"A range along the whole western edge. Jupiter holds the northern passes; Pluto lies under the low mountains in the middle; Vulcan sits in the southern foothills.", assume:"Peaks to about 2.8 km above the plains, snow above about 2.2 km. The map's inset hides the southwest corner, so the range is assumed to run down to the South Sea." },
+  { id:"northwoods", name:"North Woods",   px:400, py:45,  book:"Woods at the head of the Argos, between the western tributary and the Highlands. Mustang nurses Darrow back to health here.", assume:"Ordinary conifers, 20 to 30 m." },
+  { id:"highlands",  name:"Highlands",     px:640, py:42,  book:"Hill country in the north holding Castle Mars and the towers Phobos and Deimos. The Furor runs west and the Metas south through it.", assume:"Ridges 300 to 900 m above the plains." },
+  { id:"postern",    name:"Postern Hills", px:815, py:90, book:"Hills along the northeastern edge, with Minerva on the plains at their western foot.", assume:"Rolling hills up to about 350 m." },
+  { id:"greatwoods", name:"Greatwoods",    px:690, py:370, book:"A large forest filling the east of the grounds, split from the Argos by open plains. Its godTrees grow as tall as buildings, block out the sun, and spread their roots like tentacles (ch. 30).", assume:"godTrees 70 to 110 m tall. At this scale every tree drawn stands for a stand of several." },
+  { id:"argos",      name:"Argos River",   px:296, py:268, water:true, book:"Runs north to south down the middle of the grounds and ends in the South Sea. Tributaries join it from the western mountains and from the Highlands.", assume:"150 m wide. The map draws every river far wider than life." },
+  { id:"southsea",   name:"South Sea",     px:380, py:548, water:true, book:"A large body of water across the south of the grounds, where the Argos ends.", assume:"Shoreline traced from the map; the western shore under the inset is a guess." },
+  { id:"furor",      name:"Furor",         px:640, py:152, water:true, small:true, book:"Flows west through the Highlands to meet the Metas between Phobos and Deimos (ch. 21).", assume:"55 m wide." },
+  { id:"metas",      name:"Metas",         px:556, py:70,  water:true, small:true, book:"Flows south through the Highlands to meet the Furor between Phobos and Deimos (ch. 21).", assume:"55 m wide." },
+];
+
+/* ---------------- noise ---------------- */
+function hash(ix, iy){
+  let h = (Math.imul(ix|0, 374761393) + Math.imul(iy|0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function vnoise(x, y){
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const sx = fx*fx*(3-2*fx), sy = fy*fy*(3-2*fy);
+  const a = hash(ix,iy), b = hash(ix+1,iy), c = hash(ix,iy+1), d = hash(ix+1,iy+1);
+  return a + (b-a)*sx + (c-a)*sy + (a-b-c+d)*sx*sy;
+}
+function fbm(x, y, o){ let s=0, a=.5, f=1, n=0; for (let i=0;i<o;i++){ s+=a*vnoise(x*f+i*31.7,y*f-i*17.3); n+=a; a*=.5; f*=2.03; } return s/n; }
+function ridged(x, y, o){ let s=0, a=.5, f=1, n=0; for (let i=0;i<o;i++){ let v = 1-Math.abs(vnoise(x*f+i*17.3,y*f-i*9.1)*2-1); v*=v; s+=a*v; n+=a; a*=.5; f*=2.1; } return s/n; }
+const clamp = (v,a,b) => v<a?a:v>b?b:v;
+const lerp = (a,b,t) => a+(b-a)*t;
+function smooth(e0, e1, x){ const t = clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+
+/* signed distance to polygon (negative inside), map px */
+function sdPoly(px, py, v){
+  let d = (px-v[0][0])**2 + (py-v[0][1])**2, s = 1;
+  for (let i=0, j=v.length-1; i<v.length; j=i, i++){
+    const ex = v[j][0]-v[i][0], ey = v[j][1]-v[i][1], wx = px-v[i][0], wy = py-v[i][1];
+    const t = clamp((wx*ex+wy*ey)/(ex*ex+ey*ey),0,1);
+    const bx = wx-ex*t, by = wy-ey*t; const dd = bx*bx+by*by; if (dd<d) d = dd;
+    const c1 = py>=v[i][1], c2 = py<v[j][1], c3 = ex*wy>ey*wx;
+    if ((c1&&c2&&c3)||(!c1&&!c2&&!c3)) s = -s;
+  }
+  return s*Math.sqrt(d);
+}
+
+/* ---------------- terrain height ----------------
+   baseHeight: everything except rivers and castle pads. Heights in metres above sea level. */
+function baseHeight(px, py, out){
+  // plains: a gentle fall from north to south, toward the sea the Argos runs into
+  let h = 22 + clamp((470-py)/460,0,1)*150 + (fbm(px/60, py/60, 4)-.5)*40;
+  const dm = sdPoly(px,py,MOUNTAINS), mm = smooth(18,-30,dm);
+  if (mm > 0){
+    let peak = 450 + ridged(px/42, py/42, 5)*2350;
+    peak *= lerp(1, .5, smooth(330, 470, py));                 // the range lowers toward the sea
+    peak *= 1 - .45*Math.exp(-(((px-122)**2+(py-235)**2)/(2*30*30)));  // Pluto's "low mountains"
+    h += mm*peak;
+  }
+  const dh = sdPoly(px,py,HIGHLANDS), mh = smooth(14,-22,dh);
+  if (mh > 0) h += mh*(140 + ridged(px/28+50, py/28, 4)*700);
+  const dp = sdPoly(px,py,POSTERN), mp = smooth(16,-28,dp);
+  if (mp > 0) h += mp*(60 + fbm(px/24, py/24, 4)*300);
+  // sea and shore
+  const ds = sdPoly(px,py,SEA);
+  if (ds < 14){
+    if (ds > 0) h = lerp(3 + ds*.6, h, smooth(0, 14, ds));
+    else h = lerp(3, -42 - fbm(px/30,py/30,3)*25, smooth(0, -22, ds));
+  }
+  // the canyon: the grounds sit in a terraformed arm of the Valles Marineris
+  const dOut = Math.max(FRAME.x0-px, px-FRAME.x1, FRAME.y0-py, py-FRAME.y1);
+  if (dOut > -12){
+    // a steep cliff about 1.5 km deep into the margin, then the high desert plateau
+    const edge = dOut + (fbm(px/9, py/9, 3)-.5)*16;
+    const rim = 3500 + (fbm(px/40, py/40, 4)-.5)*500 + ridged(px/14, py/14, 3)*120*smooth(30, 60, dOut);
+    const wall = (Math.pow(smooth(-4, 22, edge), 1.35)*.85 + smooth(14, 40, edge)*.15)*rim;
+    if (wall > h) h = lerp(h, wall, smooth(-12, 4, dOut));
+  }
+  if (out){ out.mm = mm; out.mh = mh; out.mp = mp; out.ds = ds; out.dOut = dOut;
+    out.dg = sdPoly(px,py,GREATWOODS); out.dn = sdPoly(px,py,NORTHWOODS); }
+  return h;
+}
+
+/* river water levels: sample each river downstream, level never rises */
+const RIVER_STEP = 1;   // px
+for (const r of RIVERS){
+  const s = [];
+  for (let k=0; k<r.pts.length-1; k++){
+    const [ax,ay] = r.pts[k], [bx,by] = r.pts[k+1];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx-ax, by-ay)/RIVER_STEP));
+    for (let i=0; i<n; i++) s.push([ax+(bx-ax)*i/n, ay+(by-ay)*i/n]);
+  }
+  s.push(r.pts[r.pts.length-1].slice());
+  r.samples = s;
+}
+function levelAtPolyline(r, px, py){   // nearest sample
+  let best=Infinity, bi=0;
+  for (let i=0;i<r.samples.length;i++){ const d=(r.samples[i][0]-px)**2+(r.samples[i][1]-py)**2; if (d<best){best=d;bi=i;} }
+  return r.levels[bi];
+}
+function computeLevels(r, floorAtEnd){
+  let prev = Infinity; r.levels = [];
+  for (const [px,py] of r.samples){ const v = Math.min(prev, baseHeight(px,py)-2.5); r.levels.push(v); prev = v; }
+  r.levels[r.levels.length-1] = Math.min(r.levels[r.levels.length-1], r.levels[r.levels.length-2]);
+  if (floorAtEnd != null) for (let i=0;i<r.levels.length;i++) r.levels[i] = Math.max(r.levels[i], floorAtEnd);
+}
+const RIV = Object.fromEntries(RIVERS.map(r => [r.id, r]));
+computeLevels(RIV.argos);
+RIV.argos.levels = RIV.argos.levels.map(v => Math.max(v, .4));      // meets the sea at sea level
+computeLevels(RIV.easttrib, levelAtPolyline(RIV.argos, 338, 172));
+computeLevels(RIV.westtrib, levelAtPolyline(RIV.argos, 318, 205));
+computeLevels(RIV.metas,    levelAtPolyline(RIV.easttrib, 525, 152));
+computeLevels(RIV.furor,    levelAtPolyline(RIV.easttrib, 525, 152));
+computeLevels(RIV.venusbrook, .4);
+
+/* nearest river point: distance in metres + water level there */
+function nearestRiver(px, py){
+  let best = { d: Infinity, level: 0, r: null };
+  for (const r of RIVERS){
+    const p = r.pts;
+    for (let k=0;k<p.length-1;k++){
+      const ax=p[k][0], ay=p[k][1], ex=p[k+1][0]-ax, ey=p[k+1][1]-ay;
+      const t = clamp(((px-ax)*ex+(py-ay)*ey)/(ex*ex+ey*ey),0,1);
+      const d = Math.hypot(px-ax-ex*t, py-ay-ey*t)*M_PER_PX;
+      if (d < best.d){ best.d = d; best.r = r; best.qx = ax+ex*t; best.qy = ay+ey*t; }
+    }
+  }
+  if (best.r && best.d < 600) best.level = levelAtPolyline(best.r, best.qx, best.qy);
+  return best;
+}
+
+function carve(h, px, py){
+  const n = nearestRiver(px, py);
+  if (!n.r || n.d > n.r.w/2 + 260) return h;
+  const half = n.r.w/2;
+  const bed = n.level - n.r.depth;
+  // banks: pulled down to just above the water within ~250 m, to the bed inside the channel
+  const bank = Math.min(h, n.level + 1.2 + Math.max(0, n.d-half)*0.06);
+  let out = lerp(h, bank, smooth(half+260, half+20, n.d));
+  out = lerp(out, Math.min(out, bed), smooth(half*1.05, half*.55, n.d));
+  return out;
+}
+
+/* castle pads are flattened at the height of the carved terrain at their centre */
+const PADS = [];
+function heightAt(px, py, out){
+  let h = carve(baseHeight(px, py, out), px, py);
+  for (const p of PADS){
+    const d = Math.hypot(px-p.px, py-p.py)*M_PER_PX;
+    if (d < p.r*1.9) h = lerp(h, p.h, smooth(p.r*1.9, p.r*1.05, d));
+  }
+  return h;
+}
+for (const H of HOUSES) if (H.pad) PADS.push({ px:H.px, py:H.py, r:H.pad, h: carve(baseHeight(H.px,H.py),H.px,H.py) });
+// a pad must be wider than the 150 m terrain grid or the drawn surface never shows it (towers floated 25 m at r=40)
+for (const T of TOWERS) PADS.push({ px:T.px, py:T.py, r:120, h: carve(baseHeight(T.px,T.py),T.px,T.py) });
+
+/* =====================================================================================
+   three.js scene
+   ===================================================================================== */
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, logarithmicDepthBuffer:true, preserveDrawingBuffer:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const SKY = new THREE.Color("#a9bfcf");
+scene.background = SKY;
+scene.fog = new THREE.Fog(SKY, 60000, 190000);
+const camera = new THREE.PerspectiveCamera(48, 1, 2, 400000);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = .08;
+controls.screenSpacePanning = false;
+controls.maxPolarAngle = Math.PI*0.495;
+controls.minDistance = 40; controls.maxDistance = 160000;
+
+scene.add(new THREE.HemisphereLight(0xdfe9f3, 0x6b5a45, .75));
+const sun = new THREE.DirectionalLight(0xfff1dc, 1.05);
+sun.position.set(-0.55, 0.62, -0.35).multiplyScalar(1000);  // late-day sun from the northwest-ish, so south faces shade
+scene.add(sun);
+
+const world = new THREE.Group(); scene.add(world);
+const state = { ve: 1, ls: 1, season: "summer", labels: true };
+const veObjects = [];   // {obj, baseY, kind}
+
+/* ---------------- terrain mesh ---------------- */
+const MARGIN_PX = 190;
+const EXT = { x0: FRAME.x0-MARGIN_PX, x1: FRAME.x1+MARGIN_PX, y0: FRAME.y0-MARGIN_PX, y1: FRAME.y1+MARGIN_PX };
+const GRID_M = 150;
+const terrainW = (EXT.x1-EXT.x0)*M_PER_PX, terrainD = (EXT.y1-EXT.y0)*M_PER_PX;
+const NX = Math.round(terrainW/GRID_M), NZ = Math.round(terrainD/GRID_M);
+let terrain, terrainGeo, colorsSummer, colorsWinter, heights;
+
+function buildTerrain(){
+  const geo = new THREE.PlaneGeometry(terrainW, terrainD, NX, NZ);
+  geo.rotateX(-Math.PI/2);
+  const c0 = toW((EXT.x0+EXT.x1)/2, (EXT.y0+EXT.y1)/2);
+  geo.translate(c0.x, 0, c0.z);
+  const pos = geo.attributes.position, n = pos.count;
+  heights = new Float32Array(n);
+  const masks = new Array(n);
+  const o = {};
+  for (let i=0;i<n;i++){
+    const { px, py } = toPx(pos.getX(i), pos.getZ(i));
+    const h = heightAt(px, py, o);
+    heights[i] = h; pos.setY(i, h);
+    masks[i] = { mm:o.mm, mh:o.mh, mp:o.mp, ds:o.ds, dOut:o.dOut, dg:o.dg, dn:o.dn, px, py };
+  }
+  geo.computeVertexNormals();
+  const nrm = geo.attributes.normal;
+  colorsSummer = new Float32Array(n*3); colorsWinter = new Float32Array(n*3);
+  const C = (h) => new THREE.Color(h);
+  const P = {
+    grass1:C("#8f9c55"), grass2:C("#b0a965"), wood:C("#3f5a2d"), nwood:C("#475c36"), heather:C("#7e7650"),
+    hill:C("#93995c"), rock:C("#8a7f72"), rockDark:C("#655b52"), snow:C("#f1f1ee"), sand:C("#cdb98b"),
+    seabed:C("#5d7166"), wallA:C("#a85b38"), wallB:C("#8a462c"), wallC:C("#c4804f"), rim:C("#b58258"),
+    wsnow:C("#e9edf0"), wsnowShade:C("#c9d1d8"), wwood:C("#3c4a3c"),
+  };
+  const tmp = new THREE.Color(), tmp2 = new THREE.Color();
+  for (let i=0;i<n;i++){
+    const m = masks[i], h = heights[i], slope = 1 - nrm.getY(i);
+    const nz = fbm(m.px/9, m.py/9, 3);
+    // summer
+    tmp.copy(P.grass1).lerp(P.grass2, clamp(nz*1.6-.4,0,1));
+    tmp.lerp(P.hill, m.mp*.8);
+    tmp.lerp(P.heather, m.mh*.85);
+    tmp.lerp(P.wood, smooth(3,-4,m.dg));
+    tmp.lerp(P.nwood, smooth(3,-4,m.dn));
+    tmp.lerp(P.rock, clamp(m.mm*1.1 - .1 + (h>900? .2:0),0,1));
+    tmp.lerp(P.rockDark, smooth(.18,.45,slope)*.8);
+    if (m.ds < 5 && h < 7) tmp.lerp(P.sand, smooth(7,2,h));
+    if (h < 0) tmp.copy(P.seabed);
+    const snowLine = 2150 + (nz-.5)*500;
+    if (h > snowLine) tmp.lerp(P.snow, smooth(snowLine, snowLine+250, h)*(1-smooth(.35,.6,slope)*.6));
+    if (m.dOut > -4){ // canyon wall strata
+      const band = .5 + .5*Math.sin(h/85 + nz*2.5);
+      tmp2.copy(P.wallA).lerp(band>.5? P.wallC : P.wallB, Math.abs(band-.5)*1.6);
+      if (h > 3400) tmp2.lerp(P.rim, smooth(3400,3700,h));
+      tmp.lerp(tmp2, smooth(-4, 8, m.dOut));
+    }
+    colorsSummer[i*3]=tmp.r; colorsSummer[i*3+1]=tmp.g; colorsSummer[i*3+2]=tmp.b;
+    // winter: snow over everything but steep rock, forests and water
+    const w = tmp2.copy(tmp);
+    if (h >= 0 && m.dOut < 2){          // the valley's weather stops at the canyon walls
+      const forest = Math.max(smooth(3,-4,m.dg), smooth(3,-4,m.dn));
+      w.lerp(P.wsnow, (1-smooth(.3,.55,slope))*.92);
+      w.lerp(P.wsnowShade, (nz-.3)*.4);
+      w.lerp(P.wwood, forest*.55);
+    }
+    colorsWinter[i*3]=w.r; colorsWinter[i*3+1]=w.g; colorsWinter[i*3+2]=w.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colorsSummer.slice(), 3));
+  const mat = new THREE.MeshLambertMaterial({ vertexColors:true });
+  terrain = new THREE.Mesh(geo, mat);
+  terrainGeo = geo;
+  world.add(terrain);
+}
+
+/* bilinear sample of the built terrain (what is actually drawn), in metres */
+function sampleTerrain(x, z){
+  const c0 = toW(EXT.x0, EXT.y0);
+  const gx = (x - c0.x)/terrainW*NX, gz = (z - c0.z)/terrainD*NZ;
+  const ix = clamp(Math.floor(gx),0,NX-1), iz = clamp(Math.floor(gz),0,NZ-1), fx = gx-ix, fz = gz-iz;
+  const at = (a,b) => heights[b*(NX+1)+a];
+  return lerp(lerp(at(ix,iz),at(ix+1,iz),fx), lerp(at(ix,iz+1),at(ix+1,iz+1),fx), fz);
+}
+
+/* ---------------- water ---------------- */
+function buildWater(){
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(terrainW, terrainD).rotateX(-Math.PI/2),
+    new THREE.MeshPhongMaterial({ color:0x3e6d86, shininess:60, specular:0x6688aa }));
+  const c0 = toW((EXT.x0+EXT.x1)/2, (EXT.y0+EXT.y1)/2);
+  sea.position.set(c0.x, 0, c0.z);
+  world.add(sea);
+  const rmat = new THREE.MeshPhongMaterial({ color:0x4a7c96, shininess:30, specular:0x223344, side:THREE.DoubleSide,
+    polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2 });
+  for (const r of RIVERS){
+    const s = r.samples, pos = [], idx = [];
+    for (let i=0;i<s.length;i++){
+      const a = s[Math.max(0,i-1)], b = s[Math.min(s.length-1,i+1)];
+      let dx = b[0]-a[0], dy = b[1]-a[1]; const L = Math.hypot(dx,dy)||1; dx/=L; dy/=L;
+      const half = r.w/2/M_PER_PX;
+      const w = toW(s[i][0], s[i][1]), y = r.levels[i] + .3;
+      pos.push(w.x - dy*half*M_PER_PX, y, w.z + dx*half*M_PER_PX, w.x + dy*half*M_PER_PX, y, w.z - dx*half*M_PER_PX);
+      if (i>0){ const k = i*2; idx.push(k-2,k-1,k, k-1,k+1,k); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, rmat); m.userData.veScale = true;
+    world.add(m);
+  }
+}
+
+/* ---------------- trees ---------------- */
+let treeSets = [];
+function scatter(poly, count, seed, fn){
+  let xs = poly.map(p=>p[0]), ys = poly.map(p=>p[1]);
+  const x0 = Math.max(Math.min(...xs), FRAME.x0+2), x1 = Math.min(Math.max(...xs), FRAME.x1-2);
+  const y0 = Math.max(Math.min(...ys), FRAME.y0+2), y1 = Math.min(Math.max(...ys), FRAME.y1-2);
+  let s = seed, placed = 0, tries = 0;
+  const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+  while (placed < count && tries < count*8){
+    tries++;
+    const px = x0 + rnd()*(x1-x0), py = y0 + rnd()*(y1-y0);
+    const d = sdPoly(px, py, poly);
+    if (d > 0) continue;
+    if (d > -6 && rnd() < .6) continue;             // thin out at the edges
+    if (nearestRiver(px,py).d < 160) continue;
+    if (sdPoly(px,py,SEA) < 3) continue;
+    let nearCastle = false;
+    for (const H of HOUSES) if (Math.hypot(px-H.px, py-H.py)*M_PER_PX < (H.id==="diana"? 260 : H.pad*2.2)) nearCastle = true;
+    if (nearCastle) continue;
+    fn(px, py, rnd); placed++;
+  }
+}
+function buildTrees(){
+  const trunkGeo = new THREE.CylinderGeometry(.6, 1, 1, 6); trunkGeo.translate(0,.5,0);
+  const crownGeo = new THREE.IcosahedronGeometry(1, 1);
+  const coneGeo = new THREE.ConeGeometry(1, 1, 7); coneGeo.translate(0,.5,0);
+  const barkMat = new THREE.MeshLambertMaterial({ color:0x4e3a28 });
+  const leafMat = new THREE.MeshLambertMaterial({ color:0xffffff });
+  const godT = [], pines = [];
+  scatter(GREATWOODS, 15000, 7, (px,py,rnd) => godT.push({ px, py, h: 70+rnd()*40, r: 26+rnd()*16, c: rnd() }));
+  scatter(NORTHWOODS, 7000, 11, (px,py,rnd) => pines.push({ px, py, h: 20+rnd()*12, r: 6+rnd()*3, c: rnd() }));
+  // stray trees on the plains and along rivers
+  scatter([[FRAME.x0,FRAME.y0],[FRAME.x1,FRAME.y0],[FRAME.x1,FRAME.y1],[FRAME.x0,FRAME.y1]], 2500, 23, (px,py,rnd) => {
+    const o = {}; baseHeight(px,py,o);
+    if (o.mm > .2 || o.dg < 8 || o.dn < 6) return;
+    pines.push({ px, py, h: 14+rnd()*10, r: 7+rnd()*3, c: rnd(), round:true });
+  });
+  for (const T of godT) T.y = heightAt(T.px, T.py);
+  for (const T of pines) T.y = heightAt(T.px, T.py);
+
+  const gTrunk = new THREE.InstancedMesh(trunkGeo, barkMat, godT.length);
+  const gCrown = new THREE.InstancedMesh(crownGeo, leafMat, godT.length);
+  const pCone  = new THREE.InstancedMesh(coneGeo, leafMat, pines.length);
+  const col = new THREE.Color();
+  godT.forEach((T,i) => { col.setHSL(.27+T.c*.06, .42, .2+T.c*.08); gCrown.setColorAt(i, col); });
+  pines.forEach((T,i) => { col.setHSL(T.round? .2+T.c*.05 : .33+T.c*.05, .35, .22+T.c*.07); pCone.setColorAt(i, col); });
+  treeSets = [{ list:godT, trunk:gTrunk, crown:gCrown }, { list:pines, cone:pCone }];
+  for (const m of [gTrunk, gCrown, pCone]) world.add(m);
+  placeTrees();
+}
+function placeTrees(){
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
+  const [g, pn] = treeSets, ve = state.ve;
+  g.list.forEach((T,i) => {
+    const w = toW(T.px,T.py), y = T.y*ve;
+    m4.compose(p.set(w.x,y-2,w.z), q, sc.set(T.r*.12, T.h*.7, T.r*.12)); g.trunk.setMatrixAt(i, m4);
+    m4.compose(p.set(w.x,y+T.h*.68,w.z), q, sc.set(T.r, T.h*.42, T.r)); g.crown.setMatrixAt(i, m4);
+  });
+  pn.list.forEach((T,i) => {
+    const w = toW(T.px,T.py);
+    m4.compose(p.set(w.x,T.y*ve-1,w.z), q, sc.set(T.r, T.h, T.r)); pn.cone.setMatrixAt(i, m4);
+  });
+  g.trunk.instanceMatrix.needsUpdate = g.crown.instanceMatrix.needsUpdate = pn.cone.instanceMatrix.needsUpdate = true;
+}
+
+/* ---------------- castle kit (merged per material) ---------------- */
+const MAT = {};
+function mat(hex, extra){ const k = hex + (extra? JSON.stringify(extra):""); return MAT[k] || (MAT[k] = new THREE.MeshLambertMaterial(Object.assign({ color:hex }, extra||{}))); }
+function Kit(){
+  const parts = new Map();
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
+  const add = (geo, hex, x,y,z, ry=0, sx=1,sy=1,sz=1, rx=0, rz=0) => {
+    m4.compose(p.set(x,y,z), q.setFromEuler(e.set(rx,ry,rz)), s.set(sx,sy,sz));
+    let g = geo.index ? geo.toNonIndexed() : geo.clone();
+    g.applyMatrix4(m4);
+    for (const k of Object.keys(g.attributes)) if (!["position","normal","uv"].includes(k)) g.deleteAttribute(k);
+    if (!parts.has(hex)) parts.set(hex, []); parts.get(hex).push(g);
+  };
+  const K = {
+    box(w,h,d,hex,x,y,z,ry=0){ add(new THREE.BoxGeometry(w,h,d), hex, x, y+h/2, z, ry); },
+    cyl(r,h,hex,x,y,z,seg=14,rt){ add(new THREE.CylinderGeometry(rt==null?r:rt, r, h, seg), hex, x, y+h/2, z); },
+    cone(r,h,hex,x,y,z,seg=14){ add(new THREE.ConeGeometry(r,h,seg), hex, x, y+h/2, z); },
+    dome(r,hex,x,y,z){ add(new THREE.SphereGeometry(r,16,8,0,Math.PI*2,0,Math.PI/2), hex, x, y, z); },
+    ball(r,hex,x,y,z,sy=1){ add(new THREE.IcosahedronGeometry(r,1), hex, x, y, z, 0, 1, sy, 1); },
+    geo(g,hex,x,y,z,ry=0){ add(g,hex,x,y,z,ry); },
+    // straight wall with merlons
+    wall(x1,z1,x2,z2,h,t,hex,merlon=true){
+      const L = Math.hypot(x2-x1,z2-z1), ry = -Math.atan2(z2-z1, x2-x1);
+      add(new THREE.BoxGeometry(L,h,t), hex, (x1+x2)/2, h/2, (z1+z2)/2, ry);
+      if (!merlon) return;
+      const n = Math.floor(L/5);
+      for (let i=0;i<n;i++){
+        const f = (i+.5)/n, x = lerp(x1,x2,f), z = lerp(z1,z2,f);
+        add(new THREE.BoxGeometry(2.4,2.2,t*.5), hex, x, h+1.1, z, ry);
+      }
+    },
+    tower(x,z,r,h,hex,roof){
+      K.cyl(r,h,hex,x,0,z,16);
+      if (roof) K.cone(r*1.2, r*1.6, roof, x, h, z, 16);
+      else for (let i=0;i<10;i++){ const a=i/10*Math.PI*2; add(new THREE.BoxGeometry(2.4,2.4,1.6), hex, x+Math.cos(a)*(r-.7), h+1.2, z+Math.sin(a)*(r-.7), -a); }
+    },
+    ring(pts,h,t,hex,towerR,towerH,roof){
+      for (let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; K.wall(a[0],a[1],b[0],b[1],h,t,hex); }
+      if (towerR) for (const a of pts) K.tower(a[0],a[1],towerR,towerH,hex,roof);
+    },
+    flag(x,y,z,hex){ K.cyl(.35,12,"#3a2f25",x,y,z,5); K.box(.4,5,9,hex,x,y+6.5,z+4.6); },
+    build(){
+      const g = new THREE.Group();
+      for (const [hex, list] of parts){
+        const merged = THREE.BufferGeometryUtils.mergeBufferGeometries(list);
+        const emissive = hex === "#ff8a2a";
+        g.add(new THREE.Mesh(merged, emissive ? new THREE.MeshBasicMaterial({ color:hex }) : mat(hex)));
+      }
+      return g;
+    },
+  };
+  return K;
+}
+const poly = (n, r, rot=0) => Array.from({length:n}, (_,i) => { const a = rot + i/n*Math.PI*2; return [Math.cos(a)*r, Math.sin(a)*r]; });
+const rect = (hx, hz) => [[-hx,-hz],[hx,-hz],[hx,hz],[-hx,hz]];
+
+const counts = { apolloTowers:0, dianaPlatforms:0, plutoPortals:0, vulcanChimneys:0 };
+const BUILD = {
+  mars(K){
+    K.box(168,.8,138,"#8c7b63",0,0,0);
+    K.ring(rect(84,69),16,5,"#77726b",9.5,26);
+    K.box(26,22,22,"#6b6660",0,0,69); K.box(8,10,24,"#2a2622",0,0,70);      // gatehouse, south
+    K.box(50,40,36,"#625d57",0,0,-18);                                       // keep
+    for (const [x,z] of rect(23,16)) K.tower(x,z-18,4.5,46,"#625d57","#3c3a3a");
+    K.box(46,14,18,"#6f6a63",-14,0,32);                                       // great hall
+    K.geo(new THREE.CylinderGeometry(10.5,10.5,46,3).rotateZ(Math.PI/2), "#4a3a30", -14, 17.5, 32);
+    K.box(30,8,12,"#7a6a52",44,0,28);                                         // stables
+    K.flag(0,40,-18,"#b8382c");
+  },
+  phobos(K){ K.ring(poly(8,18),6,2.5,"#77726b"); K.tower(0,0,10,38,"#6f6a63","#3c3a3a"); K.flag(0,53,0,"#b8382c"); },
+  minerva(K){
+    K.ring(poly(8,110,Math.PI/8),9,4,"#c2a56f",6,15,"#8e5a3a");
+    K.box(110,12,80,"#cfae74",0,0,0);
+    for (let i=0;i<=11;i++){ for (const z of [-42,42]) K.cyl(1.7,12,"#e2c995",-55+i*10,0,z,10); }
+    for (let i=0;i<=8;i++){ for (const x of [-57,57]) K.cyl(1.7,12,"#e2c995",x,0,-40+i*10,10); }
+    K.box(82,12,58,"#d4b47c",0,12,0);
+    K.box(54,12,38,"#dabb85",0,24,0);
+    K.cyl(2.5,3,"#c9a13b",0,36,0,10); K.ball(2.4,"#c9a13b",0,42,0,1.6);     // Minerva on the roof
+    for (let i=0;i<26;i++){ const a=i/26*Math.PI*2, r=78+(i%3)*6; K.cyl(.6,4,"#5b4630",Math.cos(a)*r,0,Math.sin(a)*r,5); K.ball(4.2,"#6f7a48",Math.cos(a)*r,6,Math.sin(a)*r,.8); }
+    K.box(40,8,14,"#8a6a48",58,0,64,-Math.PI/4);                              // stable
+    K.flag(0,36,18,"#7d5ab5");
+  },
+  ceres(K){
+    K.ring(poly(12,84),9,4,"#b69a6c",5,13,"#8a5a2a");
+    for (const [x,z] of [[-28,-20],[-8,-30],[14,-26]]){ K.cyl(8,14,"#c7a873",x,0,z,14); K.cone(9.5,8,"#9a6a35",x,14,z); }
+    K.box(48,9,16,"#bd9e6c",8,0,18); K.geo(new THREE.CylinderGeometry(9,9,48,3).rotateZ(Math.PI/2), "#9a6a35", 8, 13.5, 18);
+    for (const x of [-36,-24]){ K.box(9,5,9,"#9e7e5c",x,0,26); K.cyl(1.4,9,"#6d5b48",x,5,26,6); }
+    K.box(34,7,12,"#8a6a48",42,0,-30);                                       // stables
+    for (let row=0; row<6; row++) for (let i=0;i<10;i++) for (const side of [-1,1]){
+      const x = side*(112 + row*13), z = -60 + i*13;
+      K.cyl(.5,3,"#5b4630",x,0,z,5); K.ball(4,"#5f8a3a",x,5,z,.85);
+    }
+    K.flag(0,14,-30,"#c99a2e");
+  },
+  jupiter(K){
+    K.box(216,.8,156,"#7d7a72",0,0,0);
+    K.ring([[-108,-78],[0,-86],[108,-78],[108,78],[0,84],[-108,78]],24,7,"#7b8592",12,36,"#3e4a5a");
+    K.box(44,70,40,"#6d7784",0,0,-12); K.tower(0,-12,11,92,"#6d7784","#3e4a5a");
+    K.box(70,20,30,"#77818e",-40,0,32); K.box(70,20,30,"#77818e",40,0,32);
+    K.box(30,30,30,"#6d7784",0,0,84);                                         // gatehouse
+    K.flag(0,94,-12,"#4a7fb5");
+  },
+  juno(K){
+    K.ring(rect(70,70),16,5,"#666b74",9,24,"#2f6b6b");
+    K.box(46,24,46,"#5c616a",0,0,-6); K.cone(30,14,"#2f6b6b",0,24,-6,4);
+    K.box(22,20,20,"#5c616a",0,0,70);
+    K.flag(0,38,-6,"#2f8f8a");
+  },
+  vulcan(K){
+    K.ring(rect(76,60),18,5.5,"#3c3734",9,27);
+    K.box(60,14,30,"#2f2b29",-6,0,4);
+    for (const x of [-26,-6,14]){ K.cyl(4,44,"#2a2624",x,0,4,10,3); K.cyl(3.1,1.2,"#ff8a2a",x,44,4,10); counts.vulcanChimneys++; }
+    K.box(24,22,22,"#3c3734",0,0,60);
+    K.flag(40,27,-60,"#d0652a");
+  },
+  mercury(K){
+    const pts = poly(5,82,-Math.PI/2);
+    K.ring(pts,14,4.5,"#b6ae98",6,40,"#9aa6b2");
+    K.cyl(22,20,"#c4bca6",0,0,0,24); K.dome(22,"#9aa6b2",0,20,0);
+    K.flag(0,42,0,"#9aa7b3");
+  },
+  apollo(K){
+    K.cyl(60,.7,"#bdb6a7",0,0,0,40);                                          // cobblestone plaza
+    for (let i=0;i<40;i++){ const a=i/40*Math.PI*2; K.box(1,.4,58,"#a49d8e",Math.cos(a)*30,.5,Math.sin(a)*30,-a); }
+    const tp = poly(6,58,Math.PI/6);
+    for (let i=0;i<6;i++){ const a=tp[i], b=tp[(i+1)%6]; K.wall(a[0],a[1],b[0],b[1],14,4,"#ece7dc"); }
+    for (const [x,z] of tp){
+      K.cyl(7.5,80,"#f3efe6",x,0,z,18,6);
+      const pts = []; for (let k=0;k<=160;k++){ const t=k/160, a=t*Math.PI*2*5; pts.push(new THREE.Vector3(Math.cos(a)*(7.6-t*1.4), t*78, Math.sin(a)*(7.6-t*1.4))); }
+      K.geo(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 220, 1.1, 6, false), "#d4b04c", x, 0, z);
+      K.cone(8.5,18,"#f3efe6",x,80,z,18); K.cyl(.5,6,"#d4b04c",x,98,z,6);
+      counts.apolloTowers++;
+    }
+    K.box(18,20,10,"#ece7dc",0,0,-60);                                        // gate faces the woods
+    K.flag(0,1,0,"#e2b93b");
+  },
+  diana(K){
+    const trees = [[0,0],[52,18],[-40,34],[24,-52],[-48,-30],[70,-34]];
+    trees.forEach(([x,z],i) => {
+      K.cyl(6.5,132,"#4b3626",x,0,z,10,3.2);
+      for (let r=0;r<5;r++){ const a=r/5*Math.PI*2+i; K.geo(new THREE.CylinderGeometry(1.2,2.6,26,6).rotateZ(Math.PI/2.6), "#4b3626", x+Math.cos(a)*10, 3, z+Math.sin(a)*10, -a); }
+      const py = 60 + (i%3)*7;
+      K.cyl(17,2,"#7a5a38",x,py,z,18); counts.dianaPlatforms++;
+      K.box(10,7,8,"#6a4c30",x+5,py+2,z); K.cone(8,5,"#4a5a2a",x+5,py+9,z,4);
+      K.ball(40,"#355a2a",x,118,z,.6); K.ball(28,"#3e6430",x+12,100,z-8,.6);
+    });
+    const links = [[0,1],[0,2],[0,3],[0,4],[3,5],[1,5]];
+    for (const [a,b] of links){
+      const A = trees[a], B = trees[b], pa = 61+(a%3)*7, pb = 61+(b%3)*7;
+      const L = Math.hypot(B[0]-A[0],B[1]-A[1]);
+      const g = new THREE.BoxGeometry(L,.5,1.6);
+      g.rotateZ(Math.atan2(pb-pa, L)); g.rotateY(-Math.atan2(B[1]-A[1], B[0]-A[0]));
+      K.geo(g, "#8a6a40", (A[0]+B[0])/2, (pa+pb)/2, (A[1]+B[1])/2);
+    }
+  },
+  pluto(K, H){
+    // tunnel mouths face downhill (east); the fortress is underground
+    const dirs = [[-10,0],[0,0],[10,0]];
+    dirs.forEach(([dz],i) => {
+      const x = [-60, 0, 70][i], z = [-90, 10, 95][i];
+      const gy = heightAt(H.px + x/M_PER_PX, H.py + z/M_PER_PX) - H.y;
+      K.box(16,16,12,"#4d4a50",x,gy-2,z); K.box(9,10,13,"#0d0c0e",x,gy-2,z+.2); counts.plutoPortals++;
+    });
+    for (const [x,z] of [[-30,-40],[30,50],[-10,120]]){ const gy = heightAt(H.px + x/M_PER_PX, H.py + z/M_PER_PX) - H.y; K.cyl(2.2,5,"#3e3b42",x,gy-1,z,8); }
+    K.flag(0, heightAt(H.px, H.py+10/M_PER_PX)-H.y+14, 10, "#5b5566");
+  },
+  bacchus(K){
+    K.ring(rect(64,58),13,4.5,"#b98b5a",7,20,"#7a2f3a");
+    K.box(40,18,32,"#a87a4c",0,0,-6); K.dome(14,"#7a2f3a",0,18,-6);
+    for (let r=0;r<14;r++) for (const side of [-1,1]) K.box(1.4,1.6,110,"#4f7a32",side*(90+r*7),0,0);
+    K.flag(0,32,-6,"#8a2f5a");
+  },
+  venus(K){
+    K.ring(poly(8,70,Math.PI/8),12,4,"#d9b8aa",6,26,"#b07a84");
+    K.cyl(24,16,"#e6cbc0",0,0,0,28); K.dome(24,"#c99aa2",0,16,0);
+    for (let i=0;i<16;i++){ const a=i/16*Math.PI*2; K.ball(5,"#6f8f4a",Math.cos(a)*48,3,Math.sin(a)*48,.7); }
+    K.flag(0,40,0,"#d7869a");
+  },
+};
+BUILD.deimos = BUILD.phobos;
+
+const landmarks = {};   // id -> {group, x, z, y, kind}
+function placeLandmark(def, kind){
+  const w = toW(def.px, def.py);
+  const y = def.pad || kind==="tower" ? PADS.find(p => p.px===def.px && p.py===def.py).h : heightAt(def.px, def.py);
+  def.y = y;
+  const K = Kit(); BUILD[def.id](K, def);
+  const g = K.build(); g.position.set(w.x, y, w.z); g.userData = { baseY:y, kind };
+  world.add(g);
+  landmarks[def.id] = { group:g, x:w.x, z:w.z, y, kind, def };
+}
+
+/* ---------------- Olympus ---------------- */
+function buildOlympus(){
+  const w = toW(OLYMPUS.px, OLYMPUS.py);
+  const ground = heightAt(OLYMPUS.px, OLYMPUS.py);
+  const g = new THREE.Group();
+  const R = 1100;
+  // underside: an inverted, broken cone of pale rock
+  const under = new THREE.ConeGeometry(R, 1150, 40, 14, true);
+  under.rotateX(Math.PI); under.translate(0, 1150/2, 0);           // apex at y=0, rim at y=1150
+  const p = under.attributes.position;
+  for (let i=0;i<p.count;i++){
+    const x=p.getX(i), y=p.getY(i), z=p.getZ(i), a=Math.atan2(z,x);
+    const k = 1 + (fbm(a*3+5, y/180, 3)-.5)*.5*(y/1150);
+    p.setX(i, x*k); p.setZ(i, z*k);
+    if (y < 1) p.setY(i, y);                                        // keep the tip at exactly the float height
+  }
+  under.computeVertexNormals();
+  g.add(new THREE.Mesh(under, new THREE.MeshPhongMaterial({ color:0xa89c8a, flatShading:true, shininess:4, side:THREE.DoubleSide })));
+  // top: a cap that rises in an incline toward the north side
+  const OLY_TOP = 620;    // summit plateau above the rim; the citadel stands on it
+  const cap = new THREE.RingGeometry(0.001, R*1.02, 96, 40);
+  cap.rotateX(-Math.PI/2);
+  const cp = cap.attributes.position;
+  const peakAt = (x,z) => { const d = Math.hypot(x*1.05, z+300); return Math.max(0, 1 - d/1350); };
+  for (let i=0;i<cp.count;i++){
+    const x=cp.getX(i), z=cp.getZ(i), rr = Math.hypot(x,z)/R;
+    const ang = Math.atan2(z,x), wob = 1 + (fbm(ang*3+5, 1150/180, 3)-.5)*.5;
+    if (rr > .99){ cp.setX(i, x*wob); cp.setZ(i, z*wob); }
+    const pk = peakAt(x,z);
+    cp.setY(i, 1150 + OLY_TOP*Math.pow(pk,1.25)*(pk>.93? 0 : 1) + (pk>.93? OLY_TOP*Math.pow(.93,1.25) : 0) + (ridged(x/160,z/160,3)-.4)*90*Math.sin(Math.PI*clamp(pk*1.2,0,1)));
+  }
+  cap.computeVertexNormals();
+  const capColors = new Float32Array(cp.count*3), cc = new THREE.Color();
+  const grassC = new THREE.Color("#7f8e55"), rockC = new THREE.Color("#c9bfa9");
+  for (let i=0;i<cp.count;i++){ cc.copy(grassC).lerp(rockC, smooth(1250, 1550, cp.getY(i) + (fbm(cp.getX(i)/70, cp.getZ(i)/70, 2)-.5)*160)); capColors.set([cc.r,cc.g,cc.b], i*3); }
+  cap.setAttribute("color", new THREE.BufferAttribute(capColors,3));
+  g.add(new THREE.Mesh(cap, new THREE.MeshLambertMaterial({ vertexColors:true })));
+  // the citadel, bone-pale marble, at the top of the incline
+  const K = Kit(); const top = 1150 + OLY_TOP*Math.pow(.93,1.25);
+  const cz = -300;
+  K.box(170,6,130,"#e9e2d2",0,top-6,cz);
+  K.box(120,44,80,"#efe8d8",0,top,cz);
+  for (let i=0;i<=12;i++) for (const z of [cz-44, cz+44]) K.cyl(2.6,40,"#f6f1e6",-60+i*10,top,z,10);
+  K.dome(30,"#f6f1e6",0,top+44,cz);
+  for (const [x,z] of rect(80,62)) { K.cyl(10,90,"#efe8d8",x,top-6,z+cz,18); K.cone(11,24,"#e3dac6",x,top+84,z+cz,18); }
+  K.box(60,24,40,"#e9e2d2",-130,top-40,cz+120); K.box(60,24,40,"#e9e2d2",130,top-60,cz+150);
+  for (let i=0;i<14;i++){ K.box(30,3,8,"#e3dac6",0,top-6-i*7,cz+70+i*12); }   // stair down the incline
+  const cit = K.build(); cit.scale.setScalar(1.6); cit.position.set(0, top*(1-1.6), cz*(1-1.6)); g.add(cit);
+  g.position.set(w.x, ground + OLYMPUS.float, w.z);
+  g.userData = { ground, kind:"olympus" };
+  world.add(g);
+  landmarks.olympus = { group:g, x:w.x, z:w.z, y:ground+OLYMPUS.float, kind:"olympus", def:OLYMPUS, ground };
+}
+
+/* ---------------- smoke at Vulcan ---------------- */
+const puffs = [];
+function buildSmoke(){
+  const L = landmarks.vulcan, gm = new THREE.SphereGeometry(1, 8, 6);
+  for (let i=0;i<36;i++){
+    const m = new THREE.Mesh(gm, new THREE.MeshLambertMaterial({ color:0x6f6a66, transparent:true, opacity:.5, depthWrite:false }));
+    m.userData = { cx: [-26,-6,14][i%3], t: i/36 };
+    L.group.add(m); puffs.push(m);
+  }
+}
+function animSmoke(dt){
+  for (const m of puffs){
+    m.userData.t = (m.userData.t + dt*.08) % 1;
+    const t = m.userData.t;
+    m.position.set(m.userData.cx + t*40, 45 + t*120, 4 + t*12);
+    m.scale.setScalar(4 + t*18);
+    m.material.opacity = .55*(1-t);
+  }
+}
+
+/* ---------------- labels ---------------- */
+const labelsEl = document.getElementById("labels");
+const labelItems = [];
+function addLabel(text, kind, getPos, onClick, color, near){
+  const el = document.createElement("div");
+  el.className = "lbl " + kind;
+  if (kind === "house"){ const i = document.createElement("i"); i.style.background = color; el.append(i, document.createTextNode(text)); }
+  else el.textContent = text;
+  el.addEventListener("click", onClick);
+  labelsEl.appendChild(el);
+  const item = { el, getPos, kind, near };
+  labelItems.push(item); return item;
+}
+const v3 = new THREE.Vector3();
+function updateLabels(){
+  const W = innerWidth, H = innerHeight, camDist = camera.position.distanceTo(controls.target);
+  for (const it of labelItems){
+    if (!state.labels || (it.near && camDist > it.near)){ it.el.style.display = "none"; continue; }
+    it.getPos(v3); v3.project(camera);
+    if (v3.z > 1 || v3.z < -1 || Math.abs(v3.x) > 1.2 || Math.abs(v3.y) > 1.2){ it.el.style.display = "none"; continue; }
+    it.el.style.display = "";
+    const x = (v3.x*.5+.5)*W, y = (-v3.y*.5+.5)*H;
+    const w = it.el.offsetWidth, h = it.el.offsetHeight;
+    const dy = (it.kind === "region") ? -h/2 : -h - 10;
+    it.el.style.transform = `translate(${Math.round(x - w/2)}px, ${Math.round(y + dy)}px)`;
+  }
+}
+
+/* ---------------- info panel ---------------- */
+const info = document.getElementById("info"), infoBody = document.getElementById("infoBody");
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" })[c]); }
+function showInfo(def, extra){
+  const w = toW(def.px, def.py);
+  const ref = landmarks.mars;
+  const dist = ref && def.id !== "mars" ? `${(Math.hypot(w.x-ref.x, w.z-ref.z)/1000).toFixed(1)} km from Castle Mars. ` : "";
+  infoBody.innerHTML =
+    `<h2>${esc(def.name)}</h2>` +
+    `<div class="where">${esc(def.where || "")}${def.where ? ". " : ""}${dist}Map point ${def.px}, ${def.py}.` +
+    (def.y != null ? ` Ground ${Math.round(def.y)} m above the sea.` : "") + `</div>` +
+    `<h3>What the books say</h3><p>${esc(def.book)}</p>` +
+    `<h3>Assumed for the model</h3><p>${esc(def.assume)}</p>` + (extra || "");
+  info.hidden = false;
+}
+function showAbout(){
+  infoBody.innerHTML = `
+    <h2>Sources and assumptions</h2>
+    <div class="where">How the model was put together</div>
+    <h3>Layout</h3>
+    <p>Every castle, river, wood and range is traced from the map printed in <em>Red Rising</em> (Del Rey), which marks seven castles by sigil and five without one. Where the map and the text are silent, the fan-maintained Red Rising Wiki's reading of the text decides, with its chapter citations.</p>
+    <h3>Scale</h3>
+    <p>The books give no width for the grounds, so the scale was set from a trip they describe. In the first month House Mars raids Ceres every day, so the march between them has to be a day's work there and back. On the map that leg is 225 px. At 65 m a pixel it comes to 14.6 km each way: a hard march, but one a day can hold. The whole map then measures 54.5 by 39 km.</p>
+    <p>The other fixed number is Olympus, which floats 2 km above the grounds (ch. 42). The grounds lie in a terraformed arm of the Valles Marineris, 80 km east of Agea (Golden Son ch. 39). The canyon walls around the edge are drawn 3.3 to 4 km high, about right for that canyon.</p>
+    <h3>Twelve castles, twelve markers</h3>
+    <ul>
+      <li>Named on the map: Jupiter, Juno, Ceres, Mars, Minerva, Diana, Apollo.</li>
+      <li>Pluto: the unlabelled marker in the mountains, which are low in the middle of the range and lie near Vulcan.</li>
+      <li>Vulcan: the unlabelled marker on the west shore of the Argos, in the foothills near Pluto.</li>
+      <li>Mercury: the unlabelled marker across the river from Vulcan.</li>
+      <li>Bacchus: the unlabelled marker at the southwest edge of the Greatwoods, close to Apollo, which holds its students as slaves.</li>
+      <li>Venus: the last marker left, on the south shore of the South Sea. This one is my assumption. The wiki puts it on the west shore instead, under the map's inset.</li>
+    </ul>
+    <h3>Other assumptions</h3>
+    <ul>
+      <li>The inset in the map's southwest corner hides the land there. The mountains are carried down to a western shore of the South Sea.</li>
+      <li>The map draws rivers several hundred metres wide. They are drawn here at 150 m for the Argos and 40 to 85 m for the rest.</li>
+      <li>Castle sizes are sized for about fifty survivors of the Passage, plus horses, slaves and stores: 120 to 220 m across. Use "Enlarge x5" to pick them out from far away.</li>
+      <li>Peaks reach about 2.8 km above the plains. The Highlands rise 300 to 900 m and the Postern Hills about 350 m.</li>
+      <li>godTrees stand 70 to 110 m. Each one drawn in the Greatwoods stands for a stand of several.</li>
+      <li>Where Olympus hangs is not stated. It is placed over the central plains here.</li>
+    </ul>
+    <h3>Sources</h3>
+    <ul>
+      <li>Pierce Brown, <em>Red Rising</em> (2014), the map and chapters 16 to 42. <em>Golden Son</em> (2015), chapter 39.</li>
+      <li><a href="https://red-rising.fandom.com/wiki/The_Institute" target="_blank" rel="noopener">Red Rising Wiki: The Institute</a>, and the pages for each house.</li>
+    </ul>`;
+  info.hidden = false;
+}
+document.getElementById("infoClose").onclick = () => { info.hidden = true; document.querySelectorAll(".lbl.on").forEach(e=>e.classList.remove("on")); };
+
+/* ---------------- camera moves ---------------- */
+let fly = null;
+function groundUnder(p){ return Math.max(0, sampleTerrain(p.x, p.z))*state.ve; }
+function flyTo(target, camPos, ms=1400){
+  fly = { t0: performance.now(), ms, fromP: camera.position.clone(), fromT: controls.target.clone(), toP: camPos, toT: target };
+}
+function flyToLandmark(id){
+  const L = landmarks[id]; if (!L) return;
+  const yT = (L.kind === "olympus" ? (L.ground + OLYMPUS.float)*state.ve + (1500 - 300) : L.y*state.ve + 30*state.ls);
+  const target = new THREE.Vector3(L.x, yT, L.z);
+  const dist = L.kind === "olympus" ? 5200 : (L.kind === "region" ? 14000 : 520*Math.max(1, state.ls*.75));
+  const dir = camera.position.clone().sub(controls.target).setY(0);
+  if (dir.lengthSq() < 1) dir.set(0,0,1); dir.normalize();
+  const camPos = target.clone().add(dir.multiplyScalar(dist*.8)).add(new THREE.Vector3(0, dist*.55, 0));
+  camPos.y = Math.max(camPos.y, groundUnder(camPos) + 60);     // never end inside a mountain
+  flyTo(target, camPos);
+}
+const OVERVIEW = { t: new THREE.Vector3(-7000,0,2500), p: new THREE.Vector3(-9000, 30000, 46000) };
+const VIEWS = {
+  overview(){ flyTo(OVERVIEW.t.clone(), OVERVIEW.p.clone()); },
+  map(){ flyTo(new THREE.Vector3(0,0,0), new THREE.Vector3(0, 62000, 1)); },
+  olympus(){ flyToLandmark("olympus"); showInfo(OLYMPUS); },
+  about(){ showAbout(); },
+};
+
+/* ---------------- toggles ---------------- */
+function applyVE(){
+  terrain.scale.y = state.ve;
+  for (const ch of world.children) if (ch.userData.veScale) ch.scale.y = state.ve;
+  for (const id in landmarks){
+    const L = landmarks[id];
+    if (!L.group) continue;               // region entries are label anchors only
+    if (L.kind === "olympus") L.group.position.y = (L.ground + OLYMPUS.float)*state.ve;
+    else L.group.position.y = L.y*state.ve;
+  }
+  placeTrees();
+}
+function applyLS(){
+  for (const id in landmarks){ const L = landmarks[id]; if (L.kind === "house" || L.kind === "tower") L.group.scale.setScalar(state.ls); }
+}
+function applySeason(){
+  terrainGeo.attributes.color.array.set(state.season === "winter" ? colorsWinter : colorsSummer);
+  terrainGeo.attributes.color.needsUpdate = true;
+  scene.background.set(state.season === "winter" ? "#b7c3cc" : "#a9bfcf"); scene.fog.color.copy(scene.background);
+}
+function pressGroup(attr, val){ document.querySelectorAll(`[data-${attr}]`).forEach(b => b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val)))); }
+document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => VIEWS[b.dataset.view]());
+document.querySelectorAll("[data-ve]").forEach(b => b.onclick = () => { state.ve = +b.dataset.ve; pressGroup("ve", state.ve); applyVE(); });
+document.querySelectorAll("[data-ls]").forEach(b => b.onclick = () => { state.ls = +b.dataset.ls; pressGroup("ls", state.ls); applyLS(); });
+document.querySelectorAll("[data-season]").forEach(b => b.onclick = () => { state.season = b.dataset.season; pressGroup("season", state.season); applySeason(); });
+document.getElementById("hudToggle").onclick = (e) => { const body = document.getElementById("hudBody"); body.hidden = !body.hidden; e.currentTarget.textContent = body.hidden ? "Show" : "Hide"; e.currentTarget.setAttribute("aria-expanded", String(!body.hidden)); };
+document.getElementById("lblToggle").onclick = (e) => { state.labels = !state.labels; e.currentTarget.setAttribute("aria-pressed", String(state.labels)); };
+
+/* ---------------- scale bar + compass ---------------- */
+const scaleTxt = document.getElementById("scaleTxt"), scaleBar = document.getElementById("scaleBar"), needle = document.getElementById("needle");
+function updateHud(){
+  const dist = camera.position.distanceTo(controls.target);
+  const mPerPx = 2*dist*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))/innerHeight;
+  const target = mPerPx*120, pow = Math.pow(10, Math.floor(Math.log10(target)));
+  const nice = [1,2,5,10].map(k=>k*pow).filter(v=>v<=target).pop() || pow;
+  scaleBar.style.width = Math.round(nice/mPerPx) + "px";
+  scaleTxt.textContent = nice >= 1000 ? `${nice/1000} km` : `${nice} m`;
+  const az = Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z);
+  needle.setAttribute("transform", `rotate(${THREE.MathUtils.radToDeg(az)})`);
+}
+
+function resize(){ renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); }
+addEventListener("resize", resize);
+
+/* ---------------- build ---------------- */
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(.1, (now-last)/1000); last = now;
+  if (fly){
+    const t = clamp((now - fly.t0)/fly.ms, 0, 1), e = t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+    camera.position.lerpVectors(fly.fromP, fly.toP, e); controls.target.lerpVectors(fly.fromT, fly.toT, e);
+    if (t >= 1) fly = null;
+  }
+  controls.update();
+  const floor = groundUnder(camera.position) + 25;                // keep the camera out of the terrain
+  if (camera.position.y < floor) camera.position.y = floor;
+  animSmoke(dt);
+  renderer.render(scene, camera);
+  updateLabels(); updateHud();
+  requestAnimationFrame(frame);
+}
+
+function build(){
+  buildTerrain();
+  buildWater();
+  for (const H of HOUSES) placeLandmark(H, "house");
+  for (const T of TOWERS) placeLandmark(T, "tower");
+  buildOlympus();
+  buildTrees();
+  buildSmoke();
+
+  for (const H of HOUSES){
+    const L = landmarks[H.id];
+    const it = addLabel(H.name.replace("House ",""), "house", v => v.set(L.x, (L.y + (H.id==="diana"?135:H.id==="apollo"?100:H.id==="jupiter"?95:50)*state.ls)*1 + L.y*(state.ve-1), L.z),
+      () => { document.querySelectorAll(".lbl.on").forEach(e=>e.classList.remove("on")); it.el.classList.add("on"); showInfo(H); flyToLandmark(H.id); }, H.col);
+  }
+  for (const T of TOWERS){
+    const L = landmarks[T.id];
+    addLabel(T.name, "minor", v => v.set(L.x, L.y*state.ve + 55*state.ls, L.z), () => { showInfo(T); flyToLandmark(T.id); }, null, 22000);
+  }
+  const O = landmarks.olympus;
+  addLabel("Olympus", "olympus", v => v.set(O.x, (O.ground+OLYMPUS.float)*state.ve + 1950, O.z - 300), () => VIEWS.olympus());
+  for (const R of REGIONS){
+    const w = toW(R.px, R.py);
+    const y = Math.max(0, heightAt(R.px, R.py));
+    landmarks["region:"+R.id] = { x:w.x, z:w.z, y, kind:"region", def:R };
+    addLabel(R.name, "region" + (R.water ? " water" : ""), v => v.set(w.x, y*state.ve + 200, w.z), () => { showInfo(R); flyToLandmark("region:"+R.id); }, null, R.small ? 22000 : 0);
+  }
+
+  resize();
+  camera.position.copy(OVERVIEW.p); controls.target.copy(OVERVIEW.t); controls.update();
+  if (innerWidth < 640) document.getElementById("hudToggle").click();
+  document.getElementById("loading").hidden = true;
+  window.__institute.ready = true;
+  requestAnimationFrame(frame);
+}
+
+/* test/inspection hook */
+window.__institute = {
+  ready:false, M_PER_PX, HOUSES, TOWERS, OLYMPUS, RIVERS, REGIONS, counts, landmarks, state,
+  toW, heightAt, sampleTerrain, sdPoly, SEA, GREATWOODS, MOUNTAINS, HIGHLANDS,
+  riverXAt(id, py){ const p = RIV[id].pts; for (let k=0;k<p.length-1;k++){ const [ax,ay]=p[k],[bx,by]=p[k+1]; if ((py-ay)*(py-by) <= 0 && ay!==by) return ax + (bx-ax)*(py-ay)/(by-ay); } return null; },
+  distanceKm(a, b){ const A = landmarks[a], B = landmarks[b]; return Math.hypot(A.x-B.x, A.z-B.z)/1000; },
+  setVE(v){ document.querySelector(`[data-ve="${v}"]`).click(); },
+  setLS(v){ document.querySelector(`[data-ls="${v}"]`).click(); },
+  camera, controls, renderer, scene, VIEWS, flyToLandmark,
+};
+setTimeout(build, 30);
+</script>
+</body>
+</html>

@@ -824,3 +824,24 @@ skills loaded by the opus build agent), Fable spec+review, one polish pass.
   JOIN card); lobby heartbeats use merge-setDoc, so one landing after the delete recreates a stub doc;
   farmparty's `clearPage` doesn't dispose per-page materials; hayhaul's bare localStorage calls can
   kill its rAF loop in private mode.
+
+# The Institute grounds — scale model from Red Rising (2026-11-04)
+`institute.html`: a standalone three r128 page modelling the war-game valley from *Red Rising*
+at full scale. Not linked from games.html yet; it is on a branch awaiting preview approval.
+- **Source of the layout**: the map printed in the book (seven named castle sigils, five
+  unlabelled markers), traced by hand into map-pixel polygons and polylines at the top of the
+  script. The fan wiki's chapter-cited reading assigns Pluto, Vulcan, Mercury and Bacchus to four
+  unlabelled markers. Venus takes the fifth (south shore of the South Sea), because the map shows
+  exactly twelve markers. The wiki guesses the hidden west shore for Venus instead.
+- **Scale is 65 m per map pixel** (54.47 × 39.00 km). The books give no width; the figure comes
+  from Mars raiding Ceres daily (225 px → 14.6 km each way). Olympus floats 2000 m (ch. 42).
+- **Gotchas found by the suite**: a flattened pad smaller than the 150 m terrain grid never
+  reaches the drawn surface (Phobos/Deimos floated 25 m at r=40, now r=120). Region entries in
+  `landmarks` have no `group`, so the relief toggle crashed until it skipped them. Fly-to could
+  end with the camera inside a mountain, so camera position is now clamped above `sampleTerrain`.
+  `offsetParent` is always null for `position:fixed` elements, so a hidden-panel check written
+  that way passes vacuously; the suite measures the box instead.
+- `node tools/_verify-institute.cjs` **86/86**, hermetic: the jsdelivr three files are fulfilled from
+  `assets/vendor/three-r128*.js` and any other off-host request fails the run. Bite: seven mutants
+  (tower pad 40, no group skip, Vulcan east of the Argos, Olympus at 1500 m, five Apollo towers,
+  rivers allowed uphill, no camera clamp) each fail their checks.
