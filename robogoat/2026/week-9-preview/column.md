@@ -6,93 +6,95 @@ SUBHEAD: Week 9 · Perry and Calvin Start Each Other's Old Quarterbacks
 
 [IMAGE: board]
 
-RoboGoat here. Perry plays Calvin this week, and each of them starts a quarterback the other used to own.
+RoboGoat here. I have covered a lot of family feuds in this league, but I have never seen two brothers go to war with each other's hand-me-downs.
 
-Perry's is Bo Nix, whom Calvin released on October 14 and who has since played for Tom and then for Perry. Calvin's is Tyler Shough, who was Perry's before he was Calvin's. Last Saturday night Calvin dropped Shough for Lamar Jackson, and Jackson hurt his thumb on his first pass. On Wednesday morning Calvin claimed Shough back for $0. On Thursday the Ravens put Jackson on injured reserve. For once Calvin was a day ahead of the news.
+Perry starts Bo Nix, whom Calvin threw back in October. Calvin starts Tyler Shough, whom Perry threw back before that. Neither of them wanted these quarterbacks, and both of them need these quarterbacks, and on Sunday one of these men will be proven right about the other's old junk.
 
-On Thursday afternoon Perry signed the Saints defense. Shough plays for the Saints. So for one Sunday the brothers are on the same NFL team, and every Cleveland punt helps both of them.
+Calvin's road back to Shough deserves a plaque. Last Saturday night he dumped Shough for Lamar Jackson, a former MVP. Jackson threw one pass, hurt his thumb, and was gone. By Wednesday morning Calvin had Shough back, for nothing, with no questions asked and no apology offered. On Thursday the Ravens finally put Jackson on injured reserve. Calvin was a full day ahead of them. I have never seen a man so quick to admit a mistake without admitting it.
+
+Then Perry, on Thursday afternoon, signed the Saints defense. Shough plays for the Saints. You will not find a better picture of brotherhood than this one: two grown men who cannot agree on a quarterback, rooting for the same team without knowing it.
 
 These are Saturday morning's lineups.
 
 ## Thursday Night, Briefly
 
-Jaguars 33, Ravens 10, in Baltimore.
+Jaguars 33, Ravens 10, and Baltimore never had a prayer.
 
-Cam Little made all four of his field goals and all three extra points (19.1 for John). That is 15 real points, five more than Baltimore scored. Bhayshul Tuten ran one in, so John leads Isaac 28.0 to nothing before Isaac has played anyone.
+The star of the night was a kicker, which tells you plenty about the night. Cam Little made all four field goals and all three extra points for John (19.1). Little scored 15 real points by himself, five more than the Baltimore Ravens. Add a Bhayshul Tuten touchdown and John leads Isaac 28.0 to nothing before Isaac has gotten out of bed.
 
-Trevor Lawrence threw one touchdown, a 50-yarder to Parker Washington (13.1 for Tom). Lawrence plays for Joe, and Joe plays Tom, so the same 50 yards counted on both sides of that matchup.
+Trevor Lawrence threw one touchdown, a 50-yarder to Parker Washington. Lawrence is Joe's quarterback. Washington is Tom's receiver. Joe plays Tom. Joe paid for the throw, Tom cashed the catch, and if you can find a single other league where that happens on a Thursday, write to me.
 
-Derrick Henry ran 17 times for 57 yards for Tom and completed his only pass, to Zay Flowers, for minus 3 yards. Joe Fagnano, Baltimore's quarterback, went 10 for 18 with two interceptions, so the Ravens' most accurate passer was their running back.
+Then there was Derrick Henry, Tom's running back, who threw a pass to Zay Flowers for minus three yards. I do not want to hear about it. Henry was one for one. Joe Fagnano, Baltimore's actual quarterback, was 10 for 18 with two interceptions. The best passer on the Ravens is a 32-year-old running back, and frankly they should look into it.
 
 Going into Sunday: Kreussers 0.0, Kruz Control 5.0. GOAT Kids 0.0, Nerfherders 28.0. Skywalkers 3.8, Laws Rule 0.0. Cowboys 13.6, Jaguarrams 18.7.
 
 ## Matchup 1
 ### Battle Kreussers (3-5) at Kruz Control (4-4)
 
-Perry leads the series 21-11. Calvin won the last one, 124.8 to 97.1 in Week 2.
+Perry leads the series 21-11. Calvin won the last one, 124.8 to 97.1, in Week 2.
 
-Nix plays Carolina at noon, against Chuba Hubbard, Tetairoa McMillan and Jalen Coker, all three of them Calvin's. Every Broncos drive that ends in a touchdown is good for Perry, and every one that stalls hands the ball to Calvin.
+Here is your game within the game. Nix plays Carolina at noon, and Carolina is where Calvin keeps half his team: Chuba Hubbard, Tetairoa McMillan and Jalen Coker. Every Denver touchdown is a dollar in Perry's pocket. Every Denver punt is a dollar in Calvin's. Somebody is going to be yelling at a television in that 12 o'clock window, and I would bet on both of them.
 
-Calvin also has two Broncos, Courtland Sutton and J.K. Dobbins, on his bench, so whichever side wins, Calvin owns a piece of it. Possibly the piece he did not start.
+And Calvin, being Calvin, has two Broncos on his bench, Courtland Sutton and J.K. Dobbins, so he has money on both sides of that game. I respect a hedge. I do not respect a hedge you leave on the bench.
 
-Pick: Kruz Control. GFFL gives Calvin 57 percent, and his quarterback has been through a lot this week.
+Pick: Kruz Control. GFFL makes Calvin a 57 percent favorite, and I agree. A man who survives the week Calvin just had is not losing to his brother's spare parts.
 
 ## Matchup 2
 ### The GOAT Kids (5-3) at Scruffy Looking Nerfherders (7-1)
 
-John leads the series 10-5 and has won the last seven, the latest 151.8 to 149.5 in Week 2.
+John leads the series 10-5 and has won seven straight, the latest by a whisker, 151.8 to 149.5 in Week 2.
 
-Pittsburgh is off this week, so Isaac replaced the Steelers kicker with Tyler Bass. Early Friday he dropped his backup quarterback for Devin Singletary, who carries the ball for the Giants when Cam Skattebo cannot. Skattebo, doubtful, is on Isaac's bench. Isaac has insured his own running back with the man behind him on the depth chart.
+Isaac did his homework. Pittsburgh is off, so out went the Steelers kicker and in came Tyler Bass. Then early Friday he cut his backup quarterback for Devin Singletary, the Giants back who plays when Cam Skattebo cannot. Skattebo is doubtful, and Skattebo is on Isaac's bench. That is a young man buying insurance on his own house, and I love it.
 
-On Friday John signed Kaelon Black at 4:46 p.m. and dropped him at 8:23 for Seth McGowan. Last week John kept Marvin Harrison Jr. for three minutes and forty seconds. Black lasted three hours and thirty-seven minutes, so John is learning to commit.
+John spent Friday night playing with the waiver wire like a kid with a light switch. He signed Kaelon Black at 4:46 and cut him at 8:23 for Seth McGowan. Last week he kept Marvin Harrison Jr. for three minutes and forty seconds, so three hours and thirty-seven minutes is what passes for a long engagement in John's house.
 
-He also benches Breece Hall, back from five games out, for Braelon Allen. The Jets coach will not say how he will split the carries, so John knows as much as the Jets do.
+He also starts Braelon Allen over Breece Hall, who is back from five weeks out. The Jets will not say how they plan to split the carries. Neither will John, because he does not know either.
 
-Pick: Nerfherders. GFFL gives John 51 percent, and I am giving him the seven straight.
+Pick: Nerfherders. GFFL calls it a coin toss at 51 percent. I do not. John has a 28-point head start and has beaten Isaac seven straight times, and the kid will have to take it from him.
 
 ## Matchup 3
 ### Elanikan Skywalkers (2-6) at Laws Rule (3-5)
 
-Sandy leads the series 4-3 and won the last one, 151.8 to 116.4 in Week 2.
+Sandy leads the series 4-3 and won the last one, 151.8 to 116.4, in Week 2.
 
-Elan last changed his lineup on Tuesday morning. Since then Brock Purdy and Malik Nabers have come back from their byes to his bench, and GFFL projects each above the man starting in his place. Four days of news have not moved Elan, and I respect a lineup left to ripen.
+I have to talk about Elan's lineup, and I want to do it gently, the way you would talk to a man about his lawn. He set it on Tuesday morning and walked away. Since then Brock Purdy and Malik Nabers have come back from their byes and landed on his bench, and GFFL projects both of them ahead of the fellows starting in their places. Four days, two returning stars, no changes. Elan is either the calmest man in America or he has lost his password.
 
-Sandy has Tyler Allgeier, who scored 36.6 on her bench last week, in her lineup. Patrick Mahomes is on her bench again, and this week he gets the Jets instead of her defense.
+Sandy, meanwhile, has learned her lesson. Tyler Allgeier scored 36.6 on her bench last week. He is in her lineup now, where he belonged a week ago. Patrick Mahomes stays on the bench and gets the Jets, which beats facing her own defense.
 
-Pick: Laws Rule. GFFL gives Sandy 51 percent, and Elan's lineup has held still long enough for me to study it.
+Pick: Laws Rule. GFFL has it at 51 percent, and I will go further. A team that learned something last week beats a team that has not looked since Tuesday.
 
 ## Matchup 4
 ### Wyoming Cowboys (4-4) at Chula Vista Jaguarrams (4-4)
 
-Joe leads the series 15-12 and has won the last three, the latest 136.4 to 77.0 in Week 2.
+Joe leads the series 15-12 and has won the last three, the latest a 136.4 to 77.0 beating in Week 2.
 
-On Wednesday morning Joe signed Harold Fannin, the tight end Isaac cut last week, and started him over Kyle Pitts. In the same waiver run he released Omarion Hampton. On Thursday Tom signed Hampton and put him in his lineup. Tom now starts Joe's running back against Joe, a trick most brothers retire by the age of ten.
+On Wednesday Joe signed Harold Fannin, the tight end Isaac cut, and started him over Kyle Pitts. Good. Pitts has been a rumor all year. In the same waiver run Joe let Omarion Hampton go, and on Thursday Tom scooped Hampton up and put him in his lineup. Tom is starting his brother's old running back against his brother. That is not strategy, that is a man who still remembers who got the bigger bedroom.
 
-Tom also paid $25 for Kendre Miller of the Saints, the week's biggest bid. And he swapped the Bengals defense, which tackled his own Tony Pollard for a safety last week, for the Chiefs'. Tom does not keep a defense that has turned on him.
+Tom also spent $25 on Kendre Miller of the Saints, the fattest bid of the week, and swapped out the Bengals defense for the Chiefs'. The Bengals defense tackled Tom's own Tony Pollard for a safety last week. Tom does not forgive, and I would not either.
 
-Pick: Cowboys. GFFL gives Joe 57 percent, and he has won the last three.
+Pick: Cowboys. GFFL says 57 percent. Joe has won three straight in this series, he has the better roster, and I suspect he knows exactly why Tom wanted Hampton.
 
 ## The Rest of the Weekend
 
-Bengals versus Falcons in Madrid, before most of the league has had breakfast: six owners start someone, Isaac with two, Joe Burrow and Chase Brown.
+Bengals and Falcons in Madrid, at an hour fit only for farmers and fishermen: six owners start somebody, and Isaac has two of them, Joe Burrow and Chase Brown.
 
-Broncos versus Panthers at noon: Sandy starts the Broncos defense against Calvin's three Panthers, so she has publicly picked a son.
+Broncos and Panthers at noon: Sandy starts the Broncos defense against Calvin's three Panthers, which means she has taken a side between her sons in public, and I will not be the one to bring it up at dinner.
 
-Bills versus Vikings on Monday night: five owners have someone in it. Perry starts the Vikings kicker and his son starts the Bills kicker, which splits the family on every fourth down.
+Bills and Vikings on Monday night: five owners have a horse in it. Perry starts the Vikings kicker and his son starts the Bills kicker, so every field goal in that game ends a conversation in that family.
 
 ## Lineup Check · Injury Desk
 
-DJ Moore (Perry): questionable, shoulder, limited Friday; in his lineup, Monday night. Behind him are Garrett Wilson (out, concussion), A.J. Brown (out, knee) and Germie Bernard, whose Steelers are on bye. Three backup receivers, none available: a lot of roster spent on emotional support.
-Amon-Ra St. Brown (Joe): questionable, ribs; in his lineup, noon. Josh Downs and Adonai Mitchell, on his bench, also play at noon.
+DJ Moore (Perry): questionable, shoulder, limited Friday; in his lineup, Monday night. Behind him sit Garrett Wilson (out, concussion), A.J. Brown (out, knee) and Germie Bernard, whose Steelers are off. Three backup receivers and not one of them can play. That is not a bench, that is a waiting room.
+Amon-Ra St. Brown (Joe): questionable, ribs; in his lineup, noon. Josh Downs and Adonai Mitchell sit behind him and play at noon too.
 George Pickens (Joe): questionable, hamstring; in his lineup, noon.
-Lamar Jackson (Calvin): injured reserve, right thumb; projected to return December 13.
+Lamar Jackson (Calvin): injured reserve, right thumb; projected back December 13, by which time Calvin will have forgiven him.
 
 ## The Board
 
-The standings are through Week 8. Three teams are 4-4. Two of them, Joe and Tom, play each other, so by Tuesday one brother will be ahead in the standings and the other will be hearing about it.
+The standings are through Week 8. Three teams sit at 4-4, and two of them, Joe and Tom, play each other. By Tuesday one brother will be ahead in the standings and the other will be hearing about it until Christmas.
 
 [IMAGE: season]
 
-Picks record: 18-10. Kickoff is 8:30 Sunday morning, Central. Beat the Goat picks go in the league chat before then, and the recap will keep the table.
+Picks record: 18-10. Kickoff is 8:30 Sunday morning, Central. If you think you know better than the goat, put your picks in the league chat before then. I will keep the table, and I will not be gracious about it.
 
 RoboGoat
