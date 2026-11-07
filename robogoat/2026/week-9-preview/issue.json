@@ -1,0 +1,149 @@
+{
+ "season": 2026,
+ "week": 9,
+ "type": "preview",
+ "published": "2026-11-07",
+ "subject": "RoboGoat: Perry and Calvin start each other's old QBs (Week 9 preview)",
+ "description": "Perry and Calvin each start the other's old quarterback, Calvin re-signs Tyler Shough after Lamar Jackson's one pass, Cam Little kicks John to a 28.0 head start, and Tom starts the running back Joe released.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-9-preview/share.png",
+ "window": "Nov. 5 to 9, 2026",
+ "picksRecord": "18-10",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "3-5",
+  "2": "2-6",
+  "3": "4-4",
+  "4": "4-4",
+  "5": "3-5",
+  "9": "7-1",
+  "11": "4-4",
+  "12": "5-3"
+ },
+ "games": [
+  {
+   "away": 1,
+   "home": 11,
+   "note": "Brothers, each starting the other's old quarterback. Pick: Calvin."
+  },
+  {
+   "away": 12,
+   "home": 9,
+   "note": "John leads 28.0 to nothing after Thursday. Pick: John."
+  },
+  {
+   "away": 2,
+   "home": 5,
+   "note": "Purdy and Nabers are back, on Elan's bench. Pick: Sandy."
+  },
+  {
+   "away": 3,
+   "home": 4,
+   "note": "Tom starts the running back Joe released. Pick: Joe."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 7,
+   "l": 1,
+   "pf": 1299.4
+  },
+  {
+   "team": 12,
+   "w": 5,
+   "l": 3,
+   "pf": 1165.98
+  },
+  {
+   "team": 3,
+   "w": 4,
+   "l": 4,
+   "pf": 1120.98
+  },
+  {
+   "team": 4,
+   "w": 4,
+   "l": 4,
+   "pf": 1022.44
+  },
+  {
+   "team": 11,
+   "w": 4,
+   "l": 4,
+   "pf": 1011.88
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 5,
+   "pf": 1054.5
+  },
+  {
+   "team": 1,
+   "w": 3,
+   "l": 5,
+   "pf": 1007.64
+  },
+  {
+   "team": 2,
+   "w": 2,
+   "l": 6,
+   "pf": 1067.32
+  }
+ ],
+ "picks": [
+  11,
+  9,
+  5,
+  3
+ ]
+}
