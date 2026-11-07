@@ -98,13 +98,20 @@ async function openTeamView(id) {
     <div class="g-body"><div class="t-hero" id="t-hero"><div class="skel-card" style="background:transparent;border:0"><i class="row"></i></div></div><div class="tab-body" id="t-body"></div></div>`;
   $('#t-back').onclick = goBack;
   requestAnimationFrame(() => $('#t-back')?.focus({ preventScroll: true }));
-  try {
-    const [info, sched] = await Promise.all([getJSON(`${API}/teams/${id}`), getJSON(`${API}/teams/${id}/schedule`)]);
-    if (!T || T.id !== id) return;
-    T.team = info.team;
-    T.sched = sched.events || [];
-    renderTeam();
-  } catch { $('#t-body').innerHTML = '<div class="empty"><h3>Can’t load this team</h3><p>Check your connection and try again.</p></div>'; }
+  // The schedule carries the team too (name, colour, logo, record, standing), and it is the only
+  // one of the two ESPN sends CORS headers on: since about 2026-11, teams/{id} comes back without
+  // Access-Control-Allow-Origin and the browser refuses it. That call is now optional; what it
+  // adds (the full record, the second colour) is merged in when it does load.
+  const [info, sched] = await Promise.allSettled([getJSON(`${API}/teams/${id}`), getJSON(`${API}/teams/${id}/schedule`)]);
+  if (!T || T.id !== id) return;
+  const team = { ...(sched.value?.team || {}), ...(info.value?.team || {}) };
+  if (sched.status !== 'fulfilled' || !team.id) {
+    $('#t-body').innerHTML = '<div class="empty"><h3>Can’t load this team</h3><p>Check your connection and try again.</p></div>';
+    return;
+  }
+  T.team = team;
+  T.sched = sched.value.events || [];
+  renderTeam();
 }
 function closeTeamView() {
   if (!T) return;
@@ -119,7 +126,7 @@ function renderTeam() {
   const tm = { id: t.id, abbr: t.abbreviation, color: hex(t.color, '#555555'), alt: hex(t.alternateColor, '#999999') };
   const col = teamInk(tm);
   const light = lum(col) <= 0.42;
-  const rec = t.record?.items?.find((i) => i.type === 'total')?.summary || '';
+  const rec = t.record?.items?.find((i) => i.type === 'total')?.summary || t.recordSummary || '';
   $('#t-hero').innerHTML = `<div class="t-hero-in ${light ? 'on-light' : 'on-dark'}" style="background:${col}">
     ${logoImg(tm, 72, 't-logo', light)}
     <div class="t-id"><h2>${esc(t.location || t.displayName)}</h2><p>${esc(t.name || '')}</p>
