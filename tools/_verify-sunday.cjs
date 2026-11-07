@@ -3487,6 +3487,34 @@ async function main() {
       MOCK = null;
     }
 
+    // 2026-11-07, user: clicking a team showed "Can't load this team". ESPN's teams/{id} now answers
+    // 200 with no Access-Control-Allow-Origin, so the browser refuses it, and the page needed it AND the
+    // schedule. The fake here refuses it the same way (200, JSON, no CORS header) and serves a real
+    // captured schedule (tools/fixtures/sunday/team-12-schedule.json), which carries the team too.
+    section("Team page: loads from the schedule when ESPN refuses teams/{id}");
+    {
+      const sched = JSON.parse(fs.readFileSync(path.join(FIX, "team-12-schedule.json"), "utf8"));
+      const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+      const teamAsks = [];
+      MOCK = (u) => /site\.api\.espn\.com.*\/teams\/12\/schedule/.test(u) ? json(JSON.stringify(sched))
+        : /site\.api\.espn\.com.*\/teams\/12(\?|$)/.test(u) ? (teamAsks.push(u), { status: 200, contentType: "application/json", body: JSON.stringify({ team: { id: "12" } }) })
+        : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify(sbFixture)) : null;
+      await page.setViewport({ width: 390, height: 844 });
+      await page.goto(BASE + "/sunday.html#t12", { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => { const b = document.getElementById("t-body"); return b && b.textContent.trim().length > 0; }, { timeout: 15000 }).catch(() => {});
+      const tp = await page.evaluate(() => {
+        const norm = (el) => (el ? el.textContent.replace(/\s+/g, " ").trim() : "");
+        return { hero: norm(document.getElementById("t-hero")), body: norm(document.getElementById("t-body")).slice(0, 80), rows: document.querySelectorAll("#t-body .lrow.sched").length };
+      }).catch((e) => ({ err: e.message.split("\n")[0] }));
+      // Hand-counted from the fixture: every event whose first competition has KC and an opponent.
+      const want = sched.events.filter((e) => { const c = e.competitions?.[0]; return c && c.competitors.some((x) => x.team.id === "12") && c.competitors.some((x) => x.team.id !== "12"); }).length;
+      ok(teamAsks.length > 0, `the page still asks teams/12 (what it adds is used when it loads) (${teamAsks.length} asks)`);
+      ok(!/can.t load/i.test(tp.body || "") && tp.rows === want, `with teams/12 refused, the team page draws from the schedule: ${tp.rows} games listed, ${want} in the fixture ("${tp.err || tp.body}")`);
+      ok(/Kansas City/.test(tp.hero) && /Chiefs/.test(tp.hero) && /5-2/.test(tp.hero) && /2nd in AFC West/.test(tp.hero), `…and its header reads the schedule's team: name, record 5-2 (recordSummary) and "2nd in AFC West" ("${tp.hero}")`);
+      await page.setViewport({ width: 800, height: 600 });
+      MOCK = null;
+    }
+
     section("Console");
     ok(consoleErrors.length === 0, `no uncaught page errors${consoleErrors.length ? " (" + consoleErrors.slice(0, 3).join(" | ") + ")" : ""}`);
 

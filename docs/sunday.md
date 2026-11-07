@@ -1794,3 +1794,36 @@ punt elsewhere.
   `_verify-sunday.cjs` **419/419** (+1); on HEAD the new check fails, the other 418 pass. Its
   "called from visibilitychange" check is a source-proximity regex (`sideArrive()` within 400 chars),
   so the explanatory comment sits above the listener, not inside it.
+
+## Team pages load from the schedule; ESPN refuses teams/{id} (2026-11-07)
+
+User, with a screenshot: clicking a team shows "Can't load this team".
+
+Cause: ESPN's `site.api.espn.com/.../teams/{id}` now answers 200 with no
+`Access-Control-Allow-Origin` header, for both NFL and college. The browser refuses a cross-site
+read without it. Checked three times with a cache-busting query: the header was missing every time.
+`teams/{id}/schedule` and the scoreboard still send `*`. `openTeamView` needed both calls through
+`Promise.all`, so one refusal blanked the page.
+
+Fix (`sd-features.js`):
+- The schedule response carries the team too: id, name, location, colour, logo, `recordSummary`
+  and `standingSummary`. The page now draws from it.
+- `teams/{id}` is still asked for, through `Promise.allSettled`, and merged over the schedule's
+  team when it loads. It adds `record.items` and `alternateColor`; `renderTeam` already falls back
+  for both, and the record now falls back to `recordSummary`.
+- The error is shown only if the schedule fails. It is also guarded by `T.id`, so a late failure
+  from a team you've left can't overwrite the page you're on. The 2026-10-11 review flagged that.
+
+Saturday (on Railway, not in this repo) has the same `openTeamView`. The same change fixes it
+there, and it also loses its `#rank` badge on the team header until ESPN sends the header again,
+because the schedule's team carries no rank.
+
+Fixture: `tools/fixtures/sunday/team-12-schedule.json`, the real KC schedule captured 2026-11-07
+with links, venue, tickets, notes and leaders stripped. The fake refuses `teams/12` the way ESPN
+does now: 200, JSON, no CORS header.
+
+Cache-bust ?v=20261107a.
+
+VERIFY: sunday 422/422. New: 3 checks under "Team page". Bite: main's `sd-features.js` scores
+420/422. It shows "Can't load this team" with 0 of 17 games, exactly the screenshot. Every
+pre-existing check passes.
