@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 9,
+   "type": "preview",
+   "path": "2026/week-9-preview/",
+   "published": "2026-11-07",
+   "headline": "Perry and Calvin Start Each Other's Old Quarterbacks",
+   "description": "Perry and Calvin each start the other's old quarterback, Calvin re-signs Tyler Shough after Lamar Jackson's one pass, Cam Little kicks John to a 28.0 head start, and Tom starts the running back Joe released.",
+   "subject": "RoboGoat: Perry and Calvin start each other's old QBs (Week 9 preview)",
+   "share": "2026/week-9-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 8,
    "type": "recap",
    "path": "2026/week-8/",
