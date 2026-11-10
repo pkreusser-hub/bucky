@@ -5,26 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The GFFL — Goat Fantasy Football League</title>
 <meta name="description" content="The Goat Fantasy Football League — fast, clean, ours.">
-<meta name="theme-color" content="#0c1017">
-<!-- FALL THEME, TEST MODE (2026-11-10, Perry, after the fall mockup: "lets do that" — try it on
-     the real GFFL). Off for everyone by default. ?theme=fall turns it on for this browser and
-     remembers it (localStorage "gffl-theme"); ?theme=default turns it off again. It runs here,
-     before the stylesheet paints, so the page never flashes navy first. The theme itself is the
-     :root[data-theme="fall"] token block in the stylesheet: values only, no new token names. -->
+<meta name="theme-color" content="#1b130e">
+<!-- FALL THEME, THE DEFAULT (2026-11-10). Test mode first (Perry, after the fall mockup: "lets do
+     that"), then, the same day: "lets make it the default". RESTAGED from off-by-default: fall
+     now paints for everyone, and the navy theme is the opt-out. ?theme=default (or navy, or off)
+     switches this browser back to navy and remembers it (localStorage "gffl-theme" = "default");
+     ?theme=fall clears that. It runs here, before the stylesheet paints, so the page never
+     flashes the other theme first. The theme itself is the :root[data-theme="fall"] token block
+     in the stylesheet: values only, no new token names, so navy is still the :root base. -->
 <script>
 (function () {
-  var K = "gffl-theme", q = null, on = false;
+  var K = "gffl-theme", q = null, navy = false;
   try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
-  if (q === "fall") on = true;
+  var wantNavy = q === "default" || q === "navy" || q === "off";
   try {
-    if (q === "fall") localStorage.setItem(K, "fall");
-    else if (q === "default" || q === "off") localStorage.removeItem(K);
-    else on = localStorage.getItem(K) === "fall";
-  } catch (e) {}
-  if (!on) return;
-  document.documentElement.setAttribute("data-theme", "fall");
+    if (q === "fall") localStorage.removeItem(K);
+    else if (wantNavy) localStorage.setItem(K, "default");
+    navy = wantNavy || (q !== "fall" && localStorage.getItem(K) === "default");
+  } catch (e) { navy = wantNavy; }
   var m = document.querySelector('meta[name="theme-color"]');
-  if (m) m.setAttribute("content", "#1b130e");
+  if (navy) { if (m) m.setAttribute("content", "#0c1017"); return; }
+  document.documentElement.setAttribute("data-theme", "fall");
 })();
 </script>
 <!-- ITEM 33 (2026-08-10, user: "hide the browser bar at the top so it truly behaves like an
@@ -48,7 +49,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20261019a">
+<meta name="gffl-v" content="20261110a">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against the live /gffl-version.txt (a ~10 byte file, fetched
      no-store) and replace if this snapshot is stale. Browser tabs skip — they already
@@ -149,7 +150,7 @@
        move independently of body copy, and so it's one place to extend to other score readouts. */
     --font-num:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   }
-  /* FALL THEME (test mode; see the switch in <head>). Same token NAMES, autumn VALUES: a bark-brown
+  /* FALL THEME (the default since 2026-11-10; see the switch in <head>). Same token NAMES, autumn VALUES: a bark-brown
      ground for the navy, burnt orange for the red, harvest gold, cream ink, rust for the
      "selected" fills that --blue drives. Measured against --card, every text token reads at
      least as well as the navy theme's: mut 6.80:1 (navy 5.65), faint 4.12 (2.94), accent 5.36
@@ -2586,9 +2587,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20261019a"></script>
-  <script src="assets/league/lg-data.js?v=20261019a"></script>
-  <script src="assets/league/lg-ui.js?v=20261019a"></script>
+  <script src="assets/league/lg-core.js?v=20261110a"></script>
+  <script src="assets/league/lg-data.js?v=20261110a"></script>
+  <script src="assets/league/lg-ui.js?v=20261110a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

@@ -8103,7 +8103,8 @@ async function openDetails(page, id) {
     ok((await page.evaluate(() => document.getElementById("rosterCard").hidden)), "…and row-click no longer triggers the add/claim flow");
     await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
     const moveBtnStyle = await page.$eval(".faMoveBtn", (b) => getComputedStyle(b).borderColor);
-    ok(moveBtnStyle === "rgb(213, 10, 10)", "the MOVE button is accent-outlined (--accent #d50a0a), distinct from an ordinary button's --border-card outline (" + moveBtnStyle + ")");
+    // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+    ok(moveBtnStyle === "rgb(224, 120, 42)", "the MOVE button is accent-outlined (--accent, fall #e0782a), distinct from an ordinary button's --border-card outline (" + moveBtnStyle + ")");
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
     await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
     ok(/Claim F\. Agent/.test(await page.$eval("#rosterCard", (e) => e.textContent)), "the MOVE button still opens the claim/add flow, exactly as before");
@@ -10537,7 +10538,8 @@ async function openDetails(page, id) {
           // vs not", now against either hue.
           const sh = getComputedStyle(g).boxShadow || "";
           return g && { ball: g.classList.contains("hasball"),
-                        ring: /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/.test(sh),
+                        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+                        ring: /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/.test(sh),
                         rz: g.classList.contains("rz"),
                         h: Math.round(g.getBoundingClientRect().height) };
         };
@@ -10633,7 +10635,8 @@ async function openDetails(page, id) {
         // RESTAGED 2026-09-17: fixture PHI is in the red zone, so the picture
         // ring is --accent, not gold. Either hue still proves "the face is
         // ringed, the card is not". TU owns the gold↔red flip.
-        const hl = (s) => /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/.test(s || "");
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const hl = (s) => /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/.test(s || "");
         const cellFor = (nm) => [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
         const read = (nm) => {
           const g = cellFor(nm); if (!g) return null;
@@ -13228,7 +13231,8 @@ async function openDetails(page, id) {
       await bootSim(page);
       const none = (await evalOr(page, () => ({
         ball: document.querySelectorAll(".pcellgrid.hasball").length,
-        rings: [...document.querySelectorAll(".pcellgrid")].filter((g) => /rgb\(255, 182, 18\)/.test(getComputedStyle(g).boxShadow || "")).length,
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        rings: [...document.querySelectorAll(".pcellgrid")].filter((g) => /rgb\(232, 176, 74\)/.test(getComputedStyle(g).boxShadow || "")).length,
       }))) || {};
       ok(none.ball === 0 && none.rings === 0, "under the replay nobody is ringed — a historical slate carries no drive to read (" + JSON.stringify(none) + ")");
       ok(errors.length === 0, "0 page errors");
@@ -13391,10 +13395,13 @@ async function openDetails(page, id) {
         return { liveAb: col(live, ".scteam b"), livePts: col(live, ".scpts"), upAb: col(up, ".scteam b"),
           state: col(live, ".scstate.live"), buttonBox: live ? getComputedStyle(live).textTransform : "" };
       })) || {};
-      ok(cardInk.liveAb === cardInk.upAb && !/213, 10, 10/.test(cardInk.liveAb || ""),
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+      ok(cardInk.liveAb === cardInk.upAb && !/224, 120, 42/.test(cardInk.liveAb || ""),
         "a LIVE card's team abbrev reads the same ink as an upcoming one — the whole card is not red (" + cardInk.liveAb + " vs " + cardInk.upAb + ")");
-      ok(!/213, 10, 10/.test(cardInk.livePts || ""), "…nor is its score (" + cardInk.livePts + ")");
-      ok(/213, 10, 10/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+      ok(!/224, 120, 42/.test(cardInk.livePts || ""), "…nor is its score (" + cardInk.livePts + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+      ok(/224, 120, 42/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
       ok(cardInk.buttonBox === "none", "…and the card being a <button> did not inherit the base button rule's uppercase");
       ok(await clickIn(page, ".scchip.live"), "the live game's chip is tappable");
       // RESTAGED 2026-09-23: this wait used to be satisfied by the header ALREADY on screen. Scores
@@ -13748,7 +13755,8 @@ async function openDetails(page, id) {
       const preHead = (await evalOr(page, () => {
         const big = [...document.querySelectorAll(".nflbig")].map((e) => e.textContent.trim());
         const q = document.querySelector(".nflmid .nflq");
-        return { big, qCls: q ? q.className : "", qRed: q ? /rgb\(213, 10, 10\)/.test(getComputedStyle(q).color) : null,
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        return { big, qCls: q ? q.className : "", qRed: q ? /rgb\(224, 120, 42\)/.test(getComputedStyle(q).color) : null,
           chip: (document.querySelector("#nflChip") || {}).textContent || "",
           venueCount: (((document.querySelector("main") || {}).textContent || "").match(/Empower Field/g) || []).length };
       })) || {};
@@ -15680,8 +15688,12 @@ async function openDetails(page, id) {
       ok(m.display === "standalone", "display is standalone — that is what removes the browser bar (" + m.display + ")");
       const startAbs = man ? new URL(m.start_url, man.base).pathname : "";
       ok(startAbs === "/league.html", "start_url resolves to the LEAGUE, not to \"/\" (" + startAbs + ")");
-      ok(m.theme_color === "#0c1017" && m.background_color === "#0c1017",
-        "theme + splash take the league's own dark background token, so nothing flashes cream (" + m.theme_color + "/" + m.background_color + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): the fall theme is the default, so
+      // the splash and status bar take its ground, #1b130e (--bg under data-theme="fall"), not
+      // navy #0c1017. The rule this guards is unchanged: the splash matches the app's own dark
+      // background, so nothing flashes cream or the other theme.
+      ok(m.theme_color === "#1b130e" && m.background_color === "#1b130e",
+        "theme + splash take the league's default dark background (the fall --bg), so nothing flashes cream (" + m.theme_color + "/" + m.background_color + ")");
       ok(/GFFL/.test(m.name || "") && /GFFL/.test(m.short_name || ""), "…and it is named as the league (" + m.name + " / " + m.short_name + ")");
       // No explicit scope, DELIBERATELY: the default is the start_url's own directory ("/"), so
       // the League page's Draft link (a real <a href> out to ffdraft.html) stays inside the
@@ -16248,7 +16260,8 @@ async function openDetails(page, id) {
       ok(!!card && card.phase === "live", "a mocked now 2h past draftAt shows the LIVE state (" + JSON.stringify(card && card.phase) + ")");
       ok(card.joinText === "Draft is LIVE — join ▶", "…exact copy: \"Draft is LIVE — join ▶\" (" + card.joinText + ")");
       ok(card.joinHref === "ffdraft.html", "…still the same Draft link (ffdraft.html)");
-      ok(card.joinBg === "rgb(213, 10, 10)", "…styled in the app's own LIVE colour, var(--accent) (" + card.joinBg + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+      ok(card.joinBg === "rgb(224, 120, 42)", "…styled in the app's own LIVE colour, var(--accent) (" + card.joinBg + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -16973,7 +16986,8 @@ async function openDetails(page, id) {
       // every size and moved the colour onto the crest disc beside them (asserted just above).
       // The identity guarantee stands — it just lives in the crest now, and the name must be
       // the app's own ink.
-      ok(home.nameCol === "rgb(233, 237, 244)", "…with the team NAME in the sheet's neutral ink — identity is the crest's job now (" + home.nameCol + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+      ok(home.nameCol === "rgb(243, 231, 211)", "…with the team NAME in the sheet's neutral ink — identity is the crest's job now (" + home.nameCol + ")");
       ok(home.nameEdge === "none", "…and no edge treatment on names anywhere since the pass (" + home.nameEdge + ")");
       ok(home.cardCrests === 2 && home.cardNames === 2, "every matchup card on the league home carries both crests and both stylized names");
       ok(/216, 31, 38/.test(home.headerAv), "…and the persistent header avatar wears the viewer's own team colour (" + home.headerAv + ")");
@@ -28847,7 +28861,8 @@ async function openDetails(page, id) {
         // RESTAGED 2026-09-17: the fixture's possessing PHI drive is in the
         // red zone, so the bar is --accent, not gold. The gutter is about
         // SPACE, not hue — either token still names the painted edge.
-        const hlRe = /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const hlRe = /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/;
         const inkRect = (el) => {
           const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
           if (!n) return null;
@@ -28951,7 +28966,8 @@ async function openDetails(page, id) {
       const desk = (await evalOr(page, () => {
         // RESTAGED 2026-09-17: fixture is in the red zone, so the face ring
         // is accent. Either hue still proves "the picture is ringed, the card is not".
-        const hl = (s) => /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/.test(s || "");
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const hl = (s) => /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/.test(s || "");
         const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
         if (!g) return null;
         const shot = g.querySelector(".mushot");
@@ -29000,8 +29016,10 @@ async function openDetails(page, id) {
       await clickIn(page, ".mucard.mine");
       await waitOr(page, ".muhead", 9000);
       const phone = (await evalOr(page, () => {
-        const GOLD = /rgb\(255, 182, 18\)/;
-        const ACCENT = /rgb\(213, 10, 10\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const GOLD = /rgb\(232, 176, 74\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const ACCENT = /rgb\(224, 120, 42\)/;
         const read = (nm) => {
           const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
           if (!g) return null;
@@ -29036,8 +29054,10 @@ async function openDetails(page, id) {
       ok(phone.rusher && !phone.rusher.ball && !phone.rusher.rz && !phone.rusher.accent,
         "…and nobody on DAL is highlighted");
       const afterClear = (await evalOr(page, () => {
-        const GOLD = /rgb\(255, 182, 18\)/;
-        const ACCENT = /rgb\(213, 10, 10\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const GOLD = /rgb\(232, 176, 74\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const ACCENT = /rgb\(224, 120, 42\)/;
         const g = window.__GFFL__.D.S.games.get("PHI");
         g.rz = false;
         window.__GFFL__.UI.renderMatchup(true);
@@ -29066,8 +29086,10 @@ async function openDetails(page, id) {
       await clickIn(page, ".mucard.mine");
       await waitOr(page, ".muhead", 9000);
       const desk = (await evalOr(page, () => {
-        const GOLD = /rgb\(255, 182, 18\)/;
-        const ACCENT = /rgb\(213, 10, 10\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const GOLD = /rgb\(232, 176, 74\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const ACCENT = /rgb\(224, 120, 42\)/;
         const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
         if (!g) return null;
         const shot = g.querySelector(".mushot");
@@ -29095,8 +29117,10 @@ async function openDetails(page, id) {
       await clickIn(page, '.bnav button[data-v="team"]');
       await waitOr(page, ".lrow", 9000);
       const locker = (await evalOr(page, () => {
-        const GOLD = /rgb\(255, 182, 18\)/;
-        const ACCENT = /rgb\(213, 10, 10\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const GOLD = /rgb\(232, 176, 74\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
+        const ACCENT = /rgb\(224, 120, 42\)/;
         const row = [...document.querySelectorAll(".lrow")].find((r) => /P\. Passer/.test(r.textContent));
         if (!row) return null;
         const sh = getComputedStyle(row).boxShadow || "";
@@ -33863,11 +33887,12 @@ const sz = await evalOr(page, () => {
   // sha-256 of each file under the version it shipped as; the bytes on disk must be the bytes
   // recorded for the current gffl-v. Changed a file? Bump the version in all four places, then
   // `node tools/_gffl_asset_versions.mjs --record`.
-  // ---- FT1 · fall theme, test mode (2026-11-10, Perry, after the fall mockup: "lets do that").
-  // Off by default for everyone; ?theme=fall turns it on and remembers it in this browser;
-  // ?theme=default turns it off. Expected values are the hex tokens written in league.html's
-  // :root[data-theme="fall"] block, and the contrast floor is hand-computed WCAG ratios.
-  if (section("FT1 · fall theme — off by default, ?theme=fall on and remembered, ?theme=default off, contrast")) {
+  // ---- FT1 · fall theme (2026-11-10). First test mode, off by default (Perry, after the fall
+  // mockup: "lets do that"); RESTAGED the same day to the default (Perry: "lets make it the
+  // default"). Now fall paints with no parameter; ?theme=default switches this browser to navy
+  // and remembers it; ?theme=fall clears that. Expected values are the hex tokens written in
+  // league.html's :root[data-theme="fall"] block, and the contrast floor is hand-computed WCAG.
+  if (section("FT1 · fall theme — the default, ?theme=default opts out and is remembered, ?theme=fall returns, contrast")) {
     const lum = (hex) => {
       const c = hex.replace("#", "").match(/../g).map((x) => parseInt(x, 16) / 255)
         .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
@@ -33891,28 +33916,27 @@ const sz = await evalOr(page, () => {
     };
     const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
     await go(page, "");
-    const d = (await read(page)) || {};
-    ok(d.attr === null && d.bg === "#0c1017" && d.body === "rgb(12, 16, 23)" && d.meta === "#0c1017" && d.headerBottom === "1px" && d.stored === null,
-      "FT1 default boot: no theme attribute, the navy tokens, navy theme-color, the 1px header rule (" + JSON.stringify(d) + ")");
-    await go(page, "&theme=fall");
     const f = (await read(page)) || {};
-    ok(f.attr === "fall" && f.bg === "#1b130e" && f.card === "#2a1d14" && f.accent === "#e0782a" && f.body === "rgb(27, 19, 14)" && f.meta === "#1b130e" && f.headerBottom === "0px" && f.stored === "fall",
-      "FT1 ?theme=fall: the fall tokens paint the body, theme-color follows, the stripe replaces the header rule, the choice is stored (" + JSON.stringify(f) + ")");
-    await go(page, "");
-    const r = (await read(page)) || {};
-    ok(r.attr === "fall" && r.bg === "#1b130e", "FT1 a later visit with no parameter stays fall (" + JSON.stringify({ attr: r.attr, bg: r.bg }) + ")");
-    // contrast on the live fall tokens; navy's own ratios (mut 5.65, faint 2.94, accent 3.19) are the floor to beat
+    ok(f.attr === "fall" && f.bg === "#1b130e" && f.card === "#2a1d14" && f.accent === "#e0782a" && f.body === "rgb(27, 19, 14)" && f.meta === "#1b130e" && f.headerBottom === "0px" && f.stored === null,
+      "FT1 default boot is fall: the fall tokens paint the body, the fall theme-color, the stripe replaces the header rule, nothing stored (" + JSON.stringify(f) + ")");
     if (f.card) {
       const rs = { ink: ratio(f.ink, f.card), mut: ratio(f.mut, f.card), faint: ratio(f.faint, f.card), accent: ratio(f.accent, f.card), inkOnBlue: ratio(f.ink, f.blue) };
       ok(rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
         "FT1 fall contrast on --card: ink, mut, accent and ink-on-blue clear AA, faint beats navy's 2.94 (" + JSON.stringify(Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, v.toFixed(2)]))) + ")");
     }
     await go(page, "&theme=default");
-    const o = (await read(page)) || {};
+    const d = (await read(page)) || {};
+    ok(d.attr === null && d.bg === "#0c1017" && d.body === "rgb(12, 16, 23)" && d.meta === "#0c1017" && d.headerBottom === "1px" && d.stored === "default",
+      "FT1 ?theme=default: navy tokens, navy theme-color, the 1px header rule, and the choice is stored (" + JSON.stringify(d) + ")");
     await go(page, "");
-    const o2 = (await read(page)) || {};
-    ok(o.attr === null && o.bg === "#0c1017" && o.stored === null && o2.attr === null && o2.bg === "#0c1017",
-      "FT1 ?theme=default turns it off, and it stays off on the next visit (" + JSON.stringify({ o, o2: { attr: o2.attr, bg: o2.bg } }) + ")");
+    const d2 = (await read(page)) || {};
+    ok(d2.attr === null && d2.bg === "#0c1017", "FT1 a later visit with no parameter stays navy (" + JSON.stringify({ attr: d2.attr, bg: d2.bg }) + ")");
+    await go(page, "&theme=fall");
+    const r = (await read(page)) || {};
+    await go(page, "");
+    const r2 = (await read(page)) || {};
+    ok(r.attr === "fall" && r.stored === null && r2.attr === "fall" && r2.bg === "#1b130e",
+      "FT1 ?theme=fall clears the opt-out, and fall stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr, bg: r2.bg } }) + ")");
     ok(errors.length === 0, "FT1 0 page errors (" + errors.join(" | ") + ")");
     await ctx.close();
   }
