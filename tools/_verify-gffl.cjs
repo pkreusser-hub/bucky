@@ -15680,8 +15680,12 @@ async function openDetails(page, id) {
       ok(m.display === "standalone", "display is standalone — that is what removes the browser bar (" + m.display + ")");
       const startAbs = man ? new URL(m.start_url, man.base).pathname : "";
       ok(startAbs === "/league.html", "start_url resolves to the LEAGUE, not to \"/\" (" + startAbs + ")");
-      ok(m.theme_color === "#0c1017" && m.background_color === "#0c1017",
-        "theme + splash take the league's own dark background token, so nothing flashes cream (" + m.theme_color + "/" + m.background_color + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): the fall theme is the default, so
+      // the splash and status bar take its ground, #1b130e (--bg under data-theme="fall"), not
+      // navy #0c1017. The rule this guards is unchanged: the splash matches the app's own dark
+      // background, so nothing flashes cream or the other theme.
+      ok(m.theme_color === "#1b130e" && m.background_color === "#1b130e",
+        "theme + splash take the league's default dark background (the fall --bg), so nothing flashes cream (" + m.theme_color + "/" + m.background_color + ")");
       ok(/GFFL/.test(m.name || "") && /GFFL/.test(m.short_name || ""), "…and it is named as the league (" + m.name + " / " + m.short_name + ")");
       // No explicit scope, DELIBERATELY: the default is the start_url's own directory ("/"), so
       // the League page's Draft link (a real <a href> out to ffdraft.html) stays inside the
@@ -33863,11 +33867,12 @@ const sz = await evalOr(page, () => {
   // sha-256 of each file under the version it shipped as; the bytes on disk must be the bytes
   // recorded for the current gffl-v. Changed a file? Bump the version in all four places, then
   // `node tools/_gffl_asset_versions.mjs --record`.
-  // ---- FT1 · fall theme, test mode (2026-11-10, Perry, after the fall mockup: "lets do that").
-  // Off by default for everyone; ?theme=fall turns it on and remembers it in this browser;
-  // ?theme=default turns it off. Expected values are the hex tokens written in league.html's
-  // :root[data-theme="fall"] block, and the contrast floor is hand-computed WCAG ratios.
-  if (section("FT1 · fall theme — off by default, ?theme=fall on and remembered, ?theme=default off, contrast")) {
+  // ---- FT1 · fall theme (2026-11-10). First test mode, off by default (Perry, after the fall
+  // mockup: "lets do that"); RESTAGED the same day to the default (Perry: "lets make it the
+  // default"). Now fall paints with no parameter; ?theme=default switches this browser to navy
+  // and remembers it; ?theme=fall clears that. Expected values are the hex tokens written in
+  // league.html's :root[data-theme="fall"] block, and the contrast floor is hand-computed WCAG.
+  if (section("FT1 · fall theme — the default, ?theme=default opts out and is remembered, ?theme=fall returns, contrast")) {
     const lum = (hex) => {
       const c = hex.replace("#", "").match(/../g).map((x) => parseInt(x, 16) / 255)
         .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
@@ -33891,28 +33896,27 @@ const sz = await evalOr(page, () => {
     };
     const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
     await go(page, "");
-    const d = (await read(page)) || {};
-    ok(d.attr === null && d.bg === "#0c1017" && d.body === "rgb(12, 16, 23)" && d.meta === "#0c1017" && d.headerBottom === "1px" && d.stored === null,
-      "FT1 default boot: no theme attribute, the navy tokens, navy theme-color, the 1px header rule (" + JSON.stringify(d) + ")");
-    await go(page, "&theme=fall");
     const f = (await read(page)) || {};
-    ok(f.attr === "fall" && f.bg === "#1b130e" && f.card === "#2a1d14" && f.accent === "#e0782a" && f.body === "rgb(27, 19, 14)" && f.meta === "#1b130e" && f.headerBottom === "0px" && f.stored === "fall",
-      "FT1 ?theme=fall: the fall tokens paint the body, theme-color follows, the stripe replaces the header rule, the choice is stored (" + JSON.stringify(f) + ")");
-    await go(page, "");
-    const r = (await read(page)) || {};
-    ok(r.attr === "fall" && r.bg === "#1b130e", "FT1 a later visit with no parameter stays fall (" + JSON.stringify({ attr: r.attr, bg: r.bg }) + ")");
-    // contrast on the live fall tokens; navy's own ratios (mut 5.65, faint 2.94, accent 3.19) are the floor to beat
+    ok(f.attr === "fall" && f.bg === "#1b130e" && f.card === "#2a1d14" && f.accent === "#e0782a" && f.body === "rgb(27, 19, 14)" && f.meta === "#1b130e" && f.headerBottom === "0px" && f.stored === null,
+      "FT1 default boot is fall: the fall tokens paint the body, the fall theme-color, the stripe replaces the header rule, nothing stored (" + JSON.stringify(f) + ")");
     if (f.card) {
       const rs = { ink: ratio(f.ink, f.card), mut: ratio(f.mut, f.card), faint: ratio(f.faint, f.card), accent: ratio(f.accent, f.card), inkOnBlue: ratio(f.ink, f.blue) };
       ok(rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
         "FT1 fall contrast on --card: ink, mut, accent and ink-on-blue clear AA, faint beats navy's 2.94 (" + JSON.stringify(Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, v.toFixed(2)]))) + ")");
     }
     await go(page, "&theme=default");
-    const o = (await read(page)) || {};
+    const d = (await read(page)) || {};
+    ok(d.attr === null && d.bg === "#0c1017" && d.body === "rgb(12, 16, 23)" && d.meta === "#0c1017" && d.headerBottom === "1px" && d.stored === "default",
+      "FT1 ?theme=default: navy tokens, navy theme-color, the 1px header rule, and the choice is stored (" + JSON.stringify(d) + ")");
     await go(page, "");
-    const o2 = (await read(page)) || {};
-    ok(o.attr === null && o.bg === "#0c1017" && o.stored === null && o2.attr === null && o2.bg === "#0c1017",
-      "FT1 ?theme=default turns it off, and it stays off on the next visit (" + JSON.stringify({ o, o2: { attr: o2.attr, bg: o2.bg } }) + ")");
+    const d2 = (await read(page)) || {};
+    ok(d2.attr === null && d2.bg === "#0c1017", "FT1 a later visit with no parameter stays navy (" + JSON.stringify({ attr: d2.attr, bg: d2.bg }) + ")");
+    await go(page, "&theme=fall");
+    const r = (await read(page)) || {};
+    await go(page, "");
+    const r2 = (await read(page)) || {};
+    ok(r.attr === "fall" && r.stored === null && r2.attr === "fall" && r2.bg === "#1b130e",
+      "FT1 ?theme=fall clears the opt-out, and fall stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr, bg: r2.bg } }) + ")");
     ok(errors.length === 0, "FT1 0 page errors (" + errors.join(" | ") + ")");
     await ctx.close();
   }

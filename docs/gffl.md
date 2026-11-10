@@ -11476,3 +11476,33 @@ No lg-*.js change, so no version bump.
 remembered without the parameter, contrast from the live tokens, `?theme=default` clears, 0
 page errors). **Bite** (HEAD's `league.html`): FT1 3 pass / 3 fail, exactly the three fall
 checks. Full `_verify-gffl.cjs` **4479/4479**.
+
+---
+
+## 2026-11-10 — Fall is the default
+
+Perry, after trying the test link: "lets make it the default". **This inverts the entry
+above's off-by-default decision.** Fall now paints for everyone with no parameter; navy is the
+opt-out.
+
+**Switch:** `?theme=default` (or `navy`, or `off`) switches a browser to navy and remembers it
+(`localStorage["gffl-theme"] = "default"`); `?theme=fall` clears that. The static
+`theme-color` meta and `league.webmanifest`'s `theme_color`/`background_color` are the fall
+ground `#1b130e`, so the installed app's status bar and splash match; the head script sets
+the meta back to navy `#0c1017` for an opt-out. Navy stays the `:root` base, so removing the
+`data-theme` attribute is all the opt-out does.
+
+**Version bumped to 20261110a** (gffl-v, gffl-version.txt and the three ?v= strings) and
+recorded with `node tools/_gffl_asset_versions.mjs --record`, so installed home-screen apps,
+which keep a snapshot of league.html, fetch the new page. No lg-*.js bytes changed.
+
+**Restaged**, reasons at the checks: FT1 (default boot is fall; `?theme=default` paints navy
+and is stored; remembered; `?theme=fall` clears it), and the manifest check (theme and splash
+are the fall ground, still "the app's own dark background, nothing flashes").
+
+**Still not themed:** lg-core.js's team-colour contrast loop measures against navy
+`PAL_PAGE`/`PAL_SURFACE` (the fall ground is close in luminance, 0.0075 against 0.0055), the
+`.conflictflag` chip and the football field.
+
+**VERIFY:** `--only FT1,AVG,BTP` **91/91**. **Bite** (HEAD's test-mode `league.html`, the
+restaged FT1): 2 pass / 4 fail, exactly the four default-fall checks.
