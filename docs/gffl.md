@@ -11506,3 +11506,5 @@ are the fall ground, still "the app's own dark background, nothing flashes").
 
 **VERIFY:** `--only FT1,AVG,BTP` **91/91**. **Bite** (HEAD's test-mode `league.html`, the
 restaged FT1): 2 pass / 4 fail, exactly the four default-fall checks.
+
+**Then the full battery found 13 more** checks comparing computed colours against navy's literal accent, gold and ink (`rgb(213, 10, 10)`, `rgb(255, 182, 18)`, `rgb(233, 237, 244)`). All 20 literals in sections AD, AG, AH, AL, AM, TT, TU and Y now read the fall tokens, with the reason at each line. The KC team-colour fixture stays. `--only` those sections plus FT1: **576/576**. Full `_verify-gffl.cjs` **4479/4479**.
