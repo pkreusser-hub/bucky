@@ -11475,4 +11475,4 @@ No lg-*.js change, so no version bump.
 **VERIFY:** new section **FT1** (6 checks: default off, `?theme=fall` paints and stores,
 remembered without the parameter, contrast from the live tokens, `?theme=default` clears, 0
 page errors). **Bite** (HEAD's `league.html`): FT1 3 pass / 3 fail, exactly the three fall
-checks.
+checks. Full `_verify-gffl.cjs` **4479/4479**.
