@@ -49,7 +49,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20261110a">
+<meta name="gffl-v" content="20261110b">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against the live /gffl-version.txt (a ~10 byte file, fetched
      no-store) and replace if this snapshot is stale. Browser tabs skip — they already
@@ -204,6 +204,17 @@
      really there, not to the width alone — an earlier cut keyed it to width and put the crest
      in the middle of every desktop screen that had not loaded its data yet.) */
   header .hcrest { margin-left:auto; flex:0 0 auto; display:block; height:34px; width:auto; }
+  /* the fall banner: hidden unless the fall theme is on (the house [hidden] lesson applies the
+     other way here: an author display rule is the switch, so it lives on the theme selector).
+     Centred in the space between the wordmark and the crest by its own auto margins; the words
+     drop on a very narrow phone and the turkey stays. Cream on rust reads 7.69:1. */
+  header .fallbanner { display:none; }
+  :root[data-theme="fall"] header .fallbanner { display:flex; align-items:center; gap:6px; margin:0 auto;
+    flex:0 1 auto; min-width:0; height:30px; padding:0 14px 0 10px; background:var(--blue); color:var(--ink);
+    clip-path:polygon(0 0, 100% 0, calc(100% - 8px) 50%, 100% 100%, 0 100%, 8px 50%); }
+  header .fallbanner .turkey { flex:0 0 auto; display:block; }
+  header .fallbanner .fbtext { font:600 14px/1 var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; }
+  @media (max-width:359px) { header .fallbanner .fbtext { display:none; } }
   #hWeekYear { font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--mut); white-space:nowrap; }
   #hAvatar { width:32px; height:32px; border-radius:50%; flex:0 0 auto; overflow:hidden; cursor:pointer;
              background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
@@ -2526,6 +2537,26 @@
 <body>
   <header>
     <span class="wordmark">The <span class="accentword">GFFL</span></span>
+    <!-- FALL BANNER (2026-11-10, Perry: "lets add a little turkey themed fall banner between gffl
+         and the logo"). A rust ribbon with a drawn turkey; fall theme only (hidden under navy).
+         Decorative, so aria-hidden: the wordmark already names the page. -->
+    <span class="fallbanner" aria-hidden="true">
+      <svg class="turkey" viewBox="0 0 40 32" width="36" height="29">
+        <path d="M20 20 L6 10 A16 16 0 0 1 10 5 Z" fill="#8a3b1e"></path>
+        <path d="M20 20 L10 5 A16 16 0 0 1 16 2.5 Z" fill="#e0782a"></path>
+        <path d="M20 20 L16 2.5 A16 16 0 0 1 24 2.5 Z" fill="#e8b04a"></path>
+        <path d="M20 20 L24 2.5 A16 16 0 0 1 30 5 Z" fill="#e0782a"></path>
+        <path d="M20 20 L30 5 A16 16 0 0 1 34 10 Z" fill="#8a3b1e"></path>
+        <ellipse cx="20" cy="22" rx="9" ry="8" fill="#9a6236"></ellipse>
+        <circle cx="20" cy="13" r="4.2" fill="#d2a476"></circle>
+        <circle cx="18.6" cy="12.2" r="0.9" fill="#1b130e"></circle>
+        <circle cx="21.4" cy="12.2" r="0.9" fill="#1b130e"></circle>
+        <path d="M19 14.2 L21 14.2 L20 16 Z" fill="#e8b04a"></path>
+        <path d="M21 15 q1.4 1.6 0.2 3.4 q-1 -1.4 -0.2 -3.4 Z" fill="#c0392b"></path>
+        <path d="M16.5 29.5 v2 M23.5 29.5 v2" stroke="#e8b04a" stroke-width="1.4" stroke-linecap="round"></path>
+      </svg>
+      <span class="fbtext">Gobble Gobble</span>
+    </span>
     <span class="sub">G.O.A.T. Fantasy Football League</span>
     <span class="hmeta" id="hMeta" hidden>
       <span id="hWeekYear"></span>
@@ -2587,9 +2618,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20261110a"></script>
-  <script src="assets/league/lg-data.js?v=20261110a"></script>
-  <script src="assets/league/lg-ui.js?v=20261110a"></script>
+  <script src="assets/league/lg-core.js?v=20261110b"></script>
+  <script src="assets/league/lg-data.js?v=20261110b"></script>
+  <script src="assets/league/lg-ui.js?v=20261110b"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing
