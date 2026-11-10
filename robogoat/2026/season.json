@@ -130,19 +130,19 @@
   "9": [
    {
     "team": 11,
-    "result": ""
+    "result": "W"
    },
    {
     "team": 9,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 5,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 3,
-    "result": ""
+    "result": "W"
    }
   ]
  },
@@ -792,6 +792,78 @@
      "name": "Ja'Marr Chase",
      "pos": "WR",
      "pts": 28.6
+    }
+   ]
+  },
+  "9": {
+   "bench": {
+    "1": 1.3,
+    "2": 11.8,
+    "3": 5.58,
+    "4": 42.38,
+    "5": 6.32,
+    "9": 13.7,
+    "11": 13.7,
+    "12": 16.6
+   },
+   "scores": {
+    "1": 139.58,
+    "2": 167.98,
+    "3": 103.98,
+    "4": 87.78,
+    "5": 96.96,
+    "9": 135.56,
+    "11": 151.5,
+    "12": 174.04
+   },
+   "games": [
+    {
+     "away": 1,
+     "home": 11
+    },
+    {
+     "away": 12,
+     "home": 9
+    },
+    {
+     "away": 2,
+     "home": 5
+    },
+    {
+     "away": 3,
+     "home": 4
+    }
+   ],
+   "top": [
+    {
+     "team": 11,
+     "name": "Kenneth Walker III",
+     "pos": "RB",
+     "pts": 37.3
+    },
+    {
+     "team": 12,
+     "name": "CeeDee Lamb",
+     "pos": "WR",
+     "pts": 31.5
+    },
+    {
+     "team": 2,
+     "name": "Puka Nacua",
+     "pos": "WR",
+     "pts": 31
+    },
+    {
+     "team": 12,
+     "name": "Matthew Golden",
+     "pos": "WR",
+     "pts": 30.4
+    },
+    {
+     "team": 1,
+     "name": "Christian Watson",
+     "pos": "WR",
+     "pts": 29.6
     }
    ]
   }
