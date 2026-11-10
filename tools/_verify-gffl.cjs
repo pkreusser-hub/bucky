@@ -33941,6 +33941,66 @@ const sz = await evalOr(page, () => {
     await ctx.close();
   }
 
+  // ---- FT2 · the turkey banner (2026-11-10, Perry: "lets add a little turkey themed fall banner
+  // between gffl and the logo"). Geometry, not the markup: on screen under fall, gone under navy,
+  // left edge past the wordmark and right edge short of the crest, no header overflow, the words
+  // drop below 360px and the turkey stays. Cream text on the rust ribbon is hand-computed AA.
+  if (section("FT2 · fall banner — a turkey ribbon between the wordmark and the crest, fall only")) {
+    const lum = (hex) => {
+      const c = hex.replace("#", "").match(/../g).map((x) => parseInt(x, 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    const geo = (page) => evalOr(page, () => {
+      const q = (s) => document.querySelector(s), r = (el) => (el ? el.getBoundingClientRect() : null);
+      const b = q("header .fallbanner"), w = q("header .wordmark"), c = q("header .hcrest"), h = q("header");
+      const tx = b && b.querySelector(".fbtext"), tk = b && b.querySelector(".turkey");
+      let ink = null;
+      if (tx && tx.offsetParent !== null) { const rg = document.createRange(); rg.selectNodeContents(tx); const rr = rg.getBoundingClientRect(); ink = { l: rr.left, r: rr.right, w: rr.width }; }
+      return {
+        shown: !!b && b.offsetParent !== null, b: r(b) && { l: r(b).left, r: r(b).right, t: r(b).top, bt: r(b).bottom },
+        wR: r(w) && r(w).right, cL: r(c) && r(c).left, hT: r(h) && r(h).top, hB: r(h) && r(h).bottom,
+        hOver: h ? h.scrollWidth - h.clientWidth : null, docOver: document.documentElement.scrollWidth - window.innerWidth,
+        text: tx ? tx.textContent.replace(/\s+/g, " ").trim() : null, textShown: !!tx && tx.offsetParent !== null, ink,
+        turkey: tk ? tk.getBoundingClientRect().width : 0,
+        bg: b ? getComputedStyle(b).backgroundColor : null, fg: b ? getComputedStyle(b).color : null,
+      };
+    });
+    const go = async (page, extra) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + extra, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    };
+    let lastFall = {};
+    for (const W of [390, 1280]) {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: W, height: 844 } });
+      await go(page, "&theme=fall");
+      const g = (await geo(page)) || {};
+      lastFall = g;
+      ok(g.shown && g.b && g.b.l > g.wR && g.b.r < g.cL && g.b.t >= g.hT && g.b.bt <= g.hB && g.hOver === 0 && g.docOver <= 0,
+        "FT2 @" + W + " fall: the banner is on screen, between the wordmark and the crest, inside the header, no overflow (" + JSON.stringify(g) + ")");
+      ok(g.text === "Gobble Gobble" && g.textShown && g.ink && g.ink.l >= g.b.l && g.ink.r <= g.b.r && g.turkey >= 30,
+        "FT2 @" + W + " the turkey is drawn and the words sit inside the ribbon (" + JSON.stringify({ text: g.text, ink: g.ink, b: g.b, turkey: g.turkey }) + ")");
+      await go(page, "&theme=default");
+      const n = (await geo(page)) || {};
+      ok(n.shown === false, "FT2 @" + W + " navy: the banner is not on screen (" + JSON.stringify({ shown: n.shown }) + ")");
+      await go(page, "&theme=fall"); // leave the stored choice cleared for later sections
+      ok(errors.length === 0, "FT2 @" + W + " 0 page errors (" + errors.join(" | ") + ")");
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await newTestPage(browser, fullSeed(), { vw: { width: 340, height: 700 } });
+      await go(page, "&theme=fall");
+      const g = (await geo(page)) || {};
+      ok(g.shown && !g.textShown && g.turkey >= 30 && g.b.l > g.wR && g.b.r < g.cL && g.hOver === 0,
+        "FT2 @340 the words drop, the turkey stays, still between wordmark and crest with no overflow (" + JSON.stringify(g) + ")");
+      await ctx.close();
+    }
+    // The ribbon paints --blue #7a2e1c under --ink #f3e7d3; hand-computed, that is 7.69:1.
+    ok(lastFall.bg === "rgb(122, 46, 28)" && lastFall.fg === "rgb(243, 231, 211)" && Math.abs(ratio("#f3e7d3", "#7a2e1c") - 7.69) < 0.01,
+      "FT2 the ribbon is cream on rust, 7.69:1 (" + JSON.stringify({ bg: lastFall.bg, fg: lastFall.fg }) + ")");
+  }
+
   if (section("AVG · lg-*.js bytes match the recorded hashes for the current gffl-v")) {
     const crypto = require("crypto");
     const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");

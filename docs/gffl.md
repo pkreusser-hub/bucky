@@ -11508,3 +11508,26 @@ are the fall ground, still "the app's own dark background, nothing flashes").
 restaged FT1): 2 pass / 4 fail, exactly the four default-fall checks.
 
 **Then the full battery found 13 more** checks comparing computed colours against navy's literal accent, gold and ink (`rgb(213, 10, 10)`, `rgb(255, 182, 18)`, `rgb(233, 237, 244)`). All 20 literals in sections AD, AG, AH, AL, AM, TT, TU and Y now read the fall tokens, with the reason at each line. The KC team-colour fixture stays. `--only` those sections plus FT1: **576/576**. Full `_verify-gffl.cjs` **4479/4479**.
+
+## 2026-11-10 — The turkey banner
+
+Perry: "lets add a little turkey themed fall banner between gffl and the logo". A rust ribbon
+(`--blue` under the fall theme, `#7a2e1c`) with notched ends, a drawn SVG turkey and the words
+"Gobble Gobble", in `<header>` between the wordmark and the crest. Decorative, so
+`aria-hidden`. No emoji: the turkey is inline SVG.
+
+**Fall only.** `header .fallbanner { display:none }` is the base; only
+`:root[data-theme="fall"] header .fallbanner` turns it on, so `?theme=default` hides it.
+
+**Layout.** `margin:0 auto` centres it in the slack between the wordmark and the crest on a
+phone. On a desktop `.sub` has `flex:1` and takes the slack first, so the ribbon sits just right
+of the wordmark. Below 360px the words drop and the turkey stays (at 340px the ribbon is 60px
+wide). Cream on rust is 7.69:1.
+
+**Version bumped to 20261110b** and recorded. No lg-*.js bytes changed.
+
+**VERIFY:** new section FT2 checks geometry at 390, 1280 and 340. The ribbon must be on screen,
+left of the crest and right of the wordmark, inside the header, with no overflow. The words
+(measured with a `Range`) must sit inside the ribbon, the ribbon must be hidden under navy, and
+the computed colours must give 7.69:1. `--only FT1,FT2,AVG` **23/23**. **Bite** (HEAD's
+`league.html`): FT2 fails 6 of 6; FT1's 4 still pass.
