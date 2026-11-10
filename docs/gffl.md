@@ -11531,3 +11531,4 @@ left of the crest and right of the wordmark, inside the header, with no overflow
 (measured with a `Range`) must sit inside the ribbon, the ribbon must be hidden under navy, and
 the computed colours must give 7.69:1. `--only FT1,FT2,AVG` **23/23**. **Bite** (HEAD's
 `league.html`): FT2 fails 6 of 6; FT1's 4 still pass.
+Full `_verify-gffl.cjs` **4489/4489**.
