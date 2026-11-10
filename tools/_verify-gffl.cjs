@@ -33863,6 +33863,60 @@ const sz = await evalOr(page, () => {
   // sha-256 of each file under the version it shipped as; the bytes on disk must be the bytes
   // recorded for the current gffl-v. Changed a file? Bump the version in all four places, then
   // `node tools/_gffl_asset_versions.mjs --record`.
+  // ---- FT1 · fall theme, test mode (2026-11-10, Perry, after the fall mockup: "lets do that").
+  // Off by default for everyone; ?theme=fall turns it on and remembers it in this browser;
+  // ?theme=default turns it off. Expected values are the hex tokens written in league.html's
+  // :root[data-theme="fall"] block, and the contrast floor is hand-computed WCAG ratios.
+  if (section("FT1 · fall theme — off by default, ?theme=fall on and remembered, ?theme=default off, contrast")) {
+    const lum = (hex) => {
+      const c = hex.replace("#", "").match(/../g).map((x) => parseInt(x, 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    const read = (page) => evalOr(page, () => {
+      const cs = getComputedStyle(document.documentElement), t = (n) => cs.getPropertyValue(n).trim().toLowerCase();
+      return {
+        attr: document.documentElement.getAttribute("data-theme"),
+        bg: t("--bg"), card: t("--card"), ink: t("--ink"), mut: t("--mut"), faint: t("--faint"), accent: t("--accent"), blue: t("--blue"),
+        body: getComputedStyle(document.body).backgroundColor,
+        meta: (document.querySelector('meta[name="theme-color"]') || {}).content,
+        headerBottom: (() => { const h = document.querySelector("header"); return h ? getComputedStyle(h).borderBottomWidth : null; })(),
+        stored: (() => { try { return localStorage.getItem("gffl-theme"); } catch (e) { return "ERR"; } })(),
+      };
+    });
+    const go = async (page, extra) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + extra, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    };
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
+    await go(page, "");
+    const d = (await read(page)) || {};
+    ok(d.attr === null && d.bg === "#0c1017" && d.body === "rgb(12, 16, 23)" && d.meta === "#0c1017" && d.headerBottom === "1px" && d.stored === null,
+      "FT1 default boot: no theme attribute, the navy tokens, navy theme-color, the 1px header rule (" + JSON.stringify(d) + ")");
+    await go(page, "&theme=fall");
+    const f = (await read(page)) || {};
+    ok(f.attr === "fall" && f.bg === "#1b130e" && f.card === "#2a1d14" && f.accent === "#e0782a" && f.body === "rgb(27, 19, 14)" && f.meta === "#1b130e" && f.headerBottom === "0px" && f.stored === "fall",
+      "FT1 ?theme=fall: the fall tokens paint the body, theme-color follows, the stripe replaces the header rule, the choice is stored (" + JSON.stringify(f) + ")");
+    await go(page, "");
+    const r = (await read(page)) || {};
+    ok(r.attr === "fall" && r.bg === "#1b130e", "FT1 a later visit with no parameter stays fall (" + JSON.stringify({ attr: r.attr, bg: r.bg }) + ")");
+    // contrast on the live fall tokens; navy's own ratios (mut 5.65, faint 2.94, accent 3.19) are the floor to beat
+    if (f.card) {
+      const rs = { ink: ratio(f.ink, f.card), mut: ratio(f.mut, f.card), faint: ratio(f.faint, f.card), accent: ratio(f.accent, f.card), inkOnBlue: ratio(f.ink, f.blue) };
+      ok(rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
+        "FT1 fall contrast on --card: ink, mut, accent and ink-on-blue clear AA, faint beats navy's 2.94 (" + JSON.stringify(Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, v.toFixed(2)]))) + ")");
+    }
+    await go(page, "&theme=default");
+    const o = (await read(page)) || {};
+    await go(page, "");
+    const o2 = (await read(page)) || {};
+    ok(o.attr === null && o.bg === "#0c1017" && o.stored === null && o2.attr === null && o2.bg === "#0c1017",
+      "FT1 ?theme=default turns it off, and it stays off on the next visit (" + JSON.stringify({ o, o2: { attr: o2.attr, bg: o2.bg } }) + ")");
+    ok(errors.length === 0, "FT1 0 page errors (" + errors.join(" | ") + ")");
+    await ctx.close();
+  }
+
   if (section("AVG · lg-*.js bytes match the recorded hashes for the current gffl-v")) {
     const crypto = require("crypto");
     const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
