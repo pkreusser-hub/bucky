@@ -3,6 +3,17 @@
   {
    "season": 2026,
    "week": 9,
+   "type": "recap",
+   "path": "2026/week-9/",
+   "published": "2026-11-10",
+   "headline": "Tom Benches Jordan Love's 39.2 and Loses to Joe",
+   "description": "Tom benches Jordan Love's 39.2 and loses to Joe by 16.2, Isaac ends John's seven-game run from 28 points down, Elan scores 168.0 after a Saturday lineup change, and Calvin's quarterback beats Perry's.",
+   "subject": "RoboGoat: Tom benches Jordan Love's 39.2 and loses to Joe (Week 9 recap)",
+   "share": "2026/week-9/share.png"
+  },
+  {
+   "season": 2026,
+   "week": 9,
    "type": "preview",
    "path": "2026/week-9-preview/",
    "published": "2026-11-07",
