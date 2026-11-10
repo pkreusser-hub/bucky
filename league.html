@@ -6,6 +6,27 @@
 <title>The GFFL — Goat Fantasy Football League</title>
 <meta name="description" content="The Goat Fantasy Football League — fast, clean, ours.">
 <meta name="theme-color" content="#0c1017">
+<!-- FALL THEME, TEST MODE (2026-11-10, Perry, after the fall mockup: "lets do that" — try it on
+     the real GFFL). Off for everyone by default. ?theme=fall turns it on for this browser and
+     remembers it (localStorage "gffl-theme"); ?theme=default turns it off again. It runs here,
+     before the stylesheet paints, so the page never flashes navy first. The theme itself is the
+     :root[data-theme="fall"] token block in the stylesheet: values only, no new token names. -->
+<script>
+(function () {
+  var K = "gffl-theme", q = null, on = false;
+  try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
+  if (q === "fall") on = true;
+  try {
+    if (q === "fall") localStorage.setItem(K, "fall");
+    else if (q === "default" || q === "off") localStorage.removeItem(K);
+    else on = localStorage.getItem(K) === "fall";
+  } catch (e) {}
+  if (!on) return;
+  document.documentElement.setAttribute("data-theme", "fall");
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute("content", "#1b130e");
+})();
+</script>
 <!-- ITEM 33 (2026-08-10, user: "hide the browser bar at the top so it truly behaves like an
      app, like bucky does"). The league gets its OWN manifest, deliberately not the family app's
      manifest.webmanifest: that one's start_url is "/", so installing from here would put a Bucky
@@ -128,6 +149,26 @@
        move independently of body copy, and so it's one place to extend to other score readouts. */
     --font-num:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   }
+  /* FALL THEME (test mode; see the switch in <head>). Same token NAMES, autumn VALUES: a bark-brown
+     ground for the navy, burnt orange for the red, harvest gold, cream ink, rust for the
+     "selected" fills that --blue drives. Measured against --card, every text token reads at
+     least as well as the navy theme's: mut 6.80:1 (navy 5.65), faint 4.12 (2.94), accent 5.36
+     (3.19), green 4.96 (3.84), green-lt 6.57 (5.03), gold 8.36, ink 13.38; ink on --blue 7.69.
+     Not covered yet: lg-core.js's team-colour contrast loop still measures against the navy
+     PAL_PAGE/PAL_SURFACE, the .conflictflag chip and the football field keep their own colours. */
+  :root[data-theme="fall"] {
+    --bg:#1b130e; --bg-page:#120c08; --tabbar:#1f150e; --band:#24180f;
+    --card:#2a1d14; --nested:#33241a; --nested2:#20160f;
+    --border-card:#44301f; --divider:#44301f; --divider2:#33241a; --border-hover:#5c4129;
+    --ink:#f3e7d3; --ink2:#dccab0; --mut:#b8a48c; --faint:#8f7d66;
+    --accent:#e0782a; --green:#6f9a3e; --gold:#e8b04a; --blue:#7a2e1c;
+    --green-lt:#86b155;
+    --row-hover:#241911; --row-hover2:#2e2016;
+  }
+  /* the flannel stripe under the header, fall only: it replaces the 1px bottom border */
+  :root[data-theme="fall"] header { border-bottom:0;
+    background-image:repeating-linear-gradient(90deg, #8a3b1e 0 14px, #c8662b 14px 18px, #8a3b1e 18px 32px, #5a3b22 32px 36px);
+    background-size:100% 4px; background-repeat:no-repeat; background-position:bottom; }
   * { box-sizing:border-box; }
   html,body { margin:0; }
   html { background:var(--bg-page); }

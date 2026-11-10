@@ -11447,3 +11447,32 @@ formula, restaged, and `--only UG` is **9/9** (+1 new check). `--only D,AQ,TF,TH
 robogoat **370/370**, sports **301/301**. **Bite** (HEAD's `lg-data.js`, the new suite): D, AQ, TF,
 TH and UH3 **151 pass / 18 fail**, UG **8 / 1**: exactly the 19 restaged checks fail, and every
 other check passes.
+
+---
+
+## 2026-11-10 — Fall theme, test mode (off by default)
+
+Perry, after the fall mockup on the design canvas: "lets do that" — try it on the real GFFL
+without the family seeing it.
+
+**Switch:** `league.html?theme=fall` turns it on in that browser and remembers it
+(`localStorage["gffl-theme"]`); `?theme=default` (or `off`) turns it off. A tiny inline script
+in `<head>` sets `data-theme="fall"` on `<html>` before the stylesheet paints, so there is no
+navy flash. Nobody sees it without the link. An installed home-screen app keeps its own
+storage on iOS, so test it in a browser tab.
+
+**Theme:** a `:root[data-theme="fall"]` block with autumn VALUES for the existing token names
+(the same pure token swap the ffdraft retheme used): bark-brown ground `#1b130e`, cards
+`#2a1d14`, cream ink `#f3e7d3`, burnt-orange accent `#e0782a`, harvest gold `#e8b04a`, rust
+`#7a2e1c` for the selected fills `--blue` drives. A four-colour flannel stripe replaces the
+header's 1px bottom rule. Every text token reads at least as well as navy against `--card`:
+mut 6.80:1 (navy 5.65), faint 4.12 (2.94), accent 5.36 (3.19), green 4.96 (3.84), ink 13.38.
+
+**Not themed yet:** lg-core.js's team-colour contrast loop still measures against the navy
+`PAL_PAGE`/`PAL_SURFACE`, the `.conflictflag` chip and the football field keep their colours.
+No lg-*.js change, so no version bump.
+
+**VERIFY:** new section **FT1** (6 checks: default off, `?theme=fall` paints and stores,
+remembered without the parameter, contrast from the live tokens, `?theme=default` clears, 0
+page errors). **Bite** (HEAD's `league.html`): FT1 3 pass / 3 fail, exactly the three fall
+checks. Full `_verify-gffl.cjs` **4479/4479**.
