@@ -180,3 +180,27 @@ reload keeps state, promotion fires once; no emoji in headings/buttons/nav (norm
 | 7 | optional Firestore sync / dad view | later |
 
 Nothing reaches `main` without the user's preview approval.
+
+## 2026-11-11 — after the dad's first phone playtest of PR #182
+
+**Stuck Play on lesson 1 (fixed).** Every rank-1 watch play opened with two callouts before the
+snap (t -1.0 and -0.5; the clock starts at -1.2). A press ran 0.2 s, then 0.5 s, of a frozen
+pre-snap picture, stopped again, and the button went back to reading "Play". With Reduce Motion
+on, each press also waited 1.2 s before its first key-frame step. Now: before the snap nobody
+moves, so a lesson's Play goes straight to the next pre-snap note or straight to the snap; reduced
+motion steps at once; stopped on a note the button reads "Next". Suite B16 presses through every
+watch step like a user (a visible change within 400 ms per press, normal and reduced motion).
+
+**Coach bubbles and the camera** (the dad: "text should be in bubbles with visible arrows to where
+the student should be looking, and we should zoom in and out when drawing attention to
+something"). Chalk-talk cards are runs of 1-4 bubbles (`say: [{focus, text}]`, 3-4 sentences per
+card in all, 1-2 per bubble); callouts, walkthrough prompts and puzzle feedback are bubbles too.
+A focus is a list of `CS.focusOf` tokens: player ids, groups (`ol`, `dl`, `lb`, `line`, `backs`
+bracketed; `db`, `receivers` an arrow each) and field features (`hash:L|R`, `hashes`,
+`sideline:L|R`, `numbers:L|R`, `los`, `ball`, `goal`, `yl:N`, `redzone`, `field`, `boundary`).
+Walkthrough `look` tokens point at where to look, never at the answer. Puzzle prompts stay in the
+panel (pointing would give the answer away); a tap puzzle's feedback points at the player, a
+choice question's at what it is about, a pure fact question's stays in the panel. The camera is
+pure (`CS.camFrame`, `CS.camLerp`, `CS.ease`), eases 480 ms, cuts under reduced motion, frames a
+target to at most 55% of the view's height so its bubble has room, and zooms out whenever the play
+runs. The canvas backing store now follows device pixels so zoomed art stays nearest-neighbour crisp.

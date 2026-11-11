@@ -7,8 +7,8 @@
    13-15-year-old who knows the NFL from fantasy; 3-4 sentences per chalk-talk card, real coaching
    words, each one explained the first time it appears.
 
-   unit = { id, title, blurb, play, cards:[{title, text, teaches, focus?, play?}],
-            walk:[{prompt, find, answer}], puzzles:[...] }
+   unit = { id, title, blurb, play, cards:[{title, teaches, say:[{focus, text}], text, play?}],
+            walk:[{prompt, look, find, answer}], puzzles:[...] }
    puzzles are tap (cs-pz-tap.js) or choice (cs-pz-choice.js). The first two of every set use the
    unit's own play (the taught example); the rest are variants on other plays. */
 (function (root) {
@@ -43,13 +43,13 @@
   // Lesson plays (one per unit, with callouts).
   P('r1-field', { name: 'Red zone, left hash', formation: 'gun-2x2', defense: 'c3-nickel', teams: { off: 'KC', def: 'LV' }, hash: 'L', spot: 82, dist: 10, to: 'Z', throwT: 1.2, catchT: 2.0,
     callouts: [
-      { t: -1.0, focus: 'C', text: 'The ball is on the left hash. Left is the top of the screen.' },
+      { t: -1.0, focus: ['ball', 'hash:L'], text: 'The ball is on the left hash. Left is the top of the screen.' },
       { t: -0.5, focus: 'Z', text: 'More grass on his side: Z is on the field side.' },
-      { t: 1.6, focus: 'Z', text: 'Opponent\'s 18-yard line: inside the 20, so this is the red zone.' },
+      { t: 1.6, focus: 'redzone', text: 'Opponent\'s 18-yard line: inside the 20, so this is the red zone.' },
     ] });
   P('r1-los', { name: 'Seven on the line', formation: 'i-form', defense: 'c3-43-over', teams: { off: 'PHI', def: 'WSH' }, home: 'def', spot: 40, to: 'Y', assign: { Y: { route: 'curl' }, Z: { route: 'post' } }, throwT: 1.5, catchT: 2.2,
     callouts: [
-      { t: -1.0, focus: 'C', text: 'The blue line runs through the ball. That is the line of scrimmage.' },
+      { t: -1.0, focus: 'los', text: 'The blue line runs through the ball. That is the line of scrimmage.' },
       { t: -0.5, focus: 'Y', text: 'Seven men stand on the line. Y is the last one on the right, so he is eligible.' },
       { t: 0.6, focus: 'RT', text: 'The right tackle is on the line but not at the end of it. He can\'t catch a pass.' },
     ] });
@@ -108,6 +108,14 @@
   P('r1-g-4', { formation: 'pistol', defense: 'c2-43-over', teams: { off: 'JAX', def: 'TEN' }, hash: 'L', spot: 61, to: 'H' });
   P('r1-g-5', { formation: 'gun-2x2', mirror: true, defense: 'c2-nickel', teams: { off: 'DEN', def: 'LAC' }, spot: 43, to: 'H' });
 
+  /* ── helpers for writing lessons ── A chalk-talk card is a short run of coach bubbles, each
+     pointing at its own thing on the field (CS.focusOf tokens: a player id, a group, or a field
+     feature). The card's sentences are the bubbles' sentences, 3-4 in all; `text` is them joined. */
+  const card = (title, teaches, ...say) => {
+    const s = say.map(([focus, text]) => ({ focus: CS.toArr(focus), text }));
+    return { title, teaches, say: s, text: s.map((b) => b.text).join(' ') };
+  };
+
   /* ── helpers for writing puzzles ── */
   const tap = (id, play, prompt, find, answer, tags, why, extra) => ({ id, type: 'tap', play, prompt, find, answer, tags, why, ...(extra || {}) });
   const choice = (id, play, prompt, q, options, answer, tags, why, extra) => ({ id, type: 'choice', play, prompt, q, options: options.map(([t, v]) => ({ t, v })), answer, tags, why, ...(extra || {}) });
@@ -119,14 +127,26 @@
     {
       id: 'r1-u1', title: 'The field', blurb: 'Hashes, numbers, field and boundary, the red zone.', play: 'r1-field',
       cards: [
-        { title: 'The field', teaches: ['field:size'], text: 'A football field is 100 yards from goal line to goal line, with a 10-yard end zone at each end, so 120 yards in all. It is 53 1/3 yards wide. Lines cross it every 5 yards and the numbers mark every 10. On our field the offense always attacks to the right.' },
-        { title: 'Hash marks', teaches: ['field:hash'], focus: ['C'], text: 'The two rows of short lines down the middle are the hash marks. In the NFL they sit 70 feet 9 inches in from each sideline, just 18 feet 6 inches apart. Every play starts with the ball on a hash or between them.' },
-        { title: 'Field and boundary', teaches: ['field:sides'], focus: ['Z'], text: 'When the ball sits on a hash, one side of it has more grass. The wide side is called the field and the short side is the boundary. Defenses often set their call by field and boundary, and a throw to the field side is a longer throw.' },
-        { title: 'Numbers and the red zone', teaches: ['field:numbers', 'field:redzone'], text: 'The big yard numbers are painted 12 to 14 yards in from each sideline, so a player lined up "on the numbers" is about 13 yards from the sideline. The red zone is the area from the opponent\'s 20-yard line to the goal line. It is a coaching and TV word, not a rule.' },
+        card('The field', ['field:size'],
+          ['goal', 'A football field is 100 yards from goal line to goal line, with a 10-yard end zone at each end, so 120 yards in all.'],
+          [['sideline:L', 'sideline:R'], 'It is 53 1/3 yards wide.'],
+          ['numbers:R', 'Lines cross it every 5 yards and the numbers mark every 10.'],
+          ['los', 'On our field the offense always attacks to the right.']),
+        card('Hash marks', ['field:hash'],
+          ['hashes', 'The two rows of short lines down the middle are the hash marks.'],
+          ['hashes', 'In the NFL they sit 70 feet 9 inches in from each sideline, just 18 feet 6 inches apart.'],
+          ['ball', 'Every play starts with the ball on a hash or between them.']),
+        card('Field and boundary', ['field:sides'],
+          ['field', 'When the ball sits on a hash, one side of it has more grass.'],
+          [['field', 'boundary'], 'The wide side is called the field and the short side is the boundary.'],
+          ['Z', 'Defenses often set their call by field and boundary, and a throw to the field side is a longer throw.']),
+        card('Numbers and the red zone', ['field:numbers', 'field:redzone'],
+          ['numbers:L', 'The big yard numbers are painted 12 to 14 yards in from each sideline, so a player lined up "on the numbers" is about 13 yards from the sideline.'],
+          ['redzone', 'The red zone is the area from the opponent\'s 20-yard line to the goal line. It is a coaching and TV word, not a rule.']),
       ],
       walk: [
-        { prompt: 'The ball sits on the left hash. Tap the player who snaps it.', find: { role: 'C' }, answer: 'C' },
-        { prompt: 'Tap the receiver on the field side, the one with more grass: Z.', find: { role: 'Z' }, answer: 'Z' },
+        { prompt: 'The ball sits on the left hash. Tap the player who snaps it.', look: ['hash:L'], find: { role: 'C' }, answer: 'C' },
+        { prompt: 'Tap the receiver on the field side, the one with more grass: Z.', look: ['field'], find: { role: 'Z' }, answer: 'Z' },
       ],
       puzzles: [
         choice('r1-u1-p1', 'r1-field', 'The ball is on the left hash. Which side is the field side?', 'fieldSide', SIDE_OPTS, 1, ['field:sides'], 'The wide side of the hash is the field. With the ball on the left hash, that is the right.'),
@@ -143,13 +163,23 @@
     {
       id: 'r1-u2', title: 'The line', blurb: 'The line of scrimmage, seven on the line, who may catch a pass.', play: 'r1-los',
       cards: [
-        { title: 'The line of scrimmage', teaches: ['los:los'], focus: ['C'], text: 'The line of scrimmage, or LOS, is an imaginary line through the nose of the ball, one for each team. The space between the two lines, the length of the ball, is the neutral zone. Nobody but the snapper may be in the neutral zone when the ball is snapped. On our field the offense\'s LOS is the blue line.' },
-        { title: 'Seven on the line', teaches: ['los:seven'], text: 'The offense must have at least 7 players on the line of scrimmage at the snap, and no more than 4 in the backfield, the area behind the line. In Coach School every formation has exactly 7 on the line and 4 off it. To check, count the players standing level with the ball.' },
-        { title: 'Eligible receivers', teaches: ['los:eligible'], focus: ['X', 'Y'], text: 'Only eligible receivers may catch a forward pass. They are the two players at the ends of the line, plus every player in the backfield. The linemen in between wear numbers 50 to 79 and are ineligible unless they report to the referee. A receiver on the line with another man outside him is covered up, and that makes him ineligible too.' },
+        card('The line of scrimmage', ['los:los'],
+          ['ball', 'The line of scrimmage, or LOS, is an imaginary line through the nose of the ball, one for each team.'],
+          ['los', 'The space between the two lines, the length of the ball, is the neutral zone.'],
+          ['C', 'Nobody but the snapper may be in the neutral zone when the ball is snapped.'],
+          ['los', 'On our field the offense\'s LOS is the blue line.']),
+        card('Seven on the line', ['los:seven'],
+          ['line', 'The offense must have at least 7 players on the line of scrimmage at the snap, and no more than 4 in the backfield, the area behind the line.'],
+          ['backs', 'In Coach School every formation has exactly 7 on the line and 4 off it.'],
+          ['line', 'To check, count the players standing level with the ball.']),
+        card('Eligible receivers', ['los:eligible'],
+          [['X', 'Y'], 'Only eligible receivers may catch a forward pass. They are the two players at the ends of the line, plus every player in the backfield.'],
+          ['ol', 'The linemen in between wear numbers 50 to 79 and are ineligible unless they report to the referee.'],
+          ['line', 'A receiver on the line with another man outside him is covered up, and that makes him ineligible too.']),
       ],
       walk: [
-        { prompt: 'Tap the eligible receiver at the right end of the line.', find: { lineEnd: 'R' }, answer: 'Y' },
-        { prompt: 'Tap the eligible receiver at the left end of the line.', find: { lineEnd: 'L' }, answer: 'X' },
+        { prompt: 'Tap the eligible receiver at the right end of the line.', look: ['line'], find: { lineEnd: 'R' }, answer: 'Y' },
+        { prompt: 'Tap the eligible receiver at the left end of the line.', look: ['line'], find: { lineEnd: 'L' }, answer: 'X' },
       ],
       puzzles: [
         tap('r1-u2-p1', 'r1-los', 'Tap the player at the right end of the line.', { lineEnd: 'R' }, 'Y', ['los:eligible'], 'Y, the tight end, is the last man on the line on the right, so he is eligible.'),
@@ -166,15 +196,26 @@
     {
       id: 'r1-u3', title: 'The offensive line', blurb: 'Left tackle, left guard, center, right guard, right tackle.', play: 'r1-ol',
       cards: [
-        { title: 'Five up front', teaches: ['ol:names'], focus: ['LT', 'LG', 'C', 'RG', 'RT'], text: 'The offensive line, or OL, is the five big men in the middle. From the offense\'s left to its right, top to bottom on our field, they are the left tackle, left guard, center, right guard and right tackle: LT, LG, C, RG, RT. The guards stand next to the center, and the tackles are the bookends on the outside. Nearly every play is a rule for these five.' },
-        { title: 'The center', teaches: ['ol:center'], focus: ['C'], text: 'The center snaps the ball to the quarterback. He stands right on the ball, so he is the easiest lineman to find. In Coach School each lineman stands 1.5 yards from the next, measured from the center out.' },
-        { title: 'Left and right', teaches: ['ol:names'], focus: ['LT'], text: 'In Coach School, left and right always mean the offense\'s left and right, as if you were the quarterback looking downfield. Our offense attacks to the right, so its left is the top of the screen. The left tackle is always the top man of the five.' },
-        { title: 'The blind side', teaches: ['ol:blind'], focus: ['LT'], text: 'A right-handed quarterback throws with his back to the left side of the field. That side is his blind side, and the left tackle protects it. That is why the left tackle is traditionally the premium pass protector.' },
+        card('Five up front', ['ol:names'],
+          ['ol', 'The offensive line, or OL, is the five big men in the middle.'],
+          ['ol', 'From the offense\'s left to its right, top to bottom on our field, they are the left tackle, left guard, center, right guard and right tackle: LT, LG, C, RG, RT.'],
+          [['LT', 'RT'], 'The guards stand next to the center, and the tackles are the bookends on the outside.'],
+          ['ol', 'Nearly every play is a rule for these five.']),
+        card('The center', ['ol:center'],
+          ['C', 'The center snaps the ball to the quarterback. He stands right on the ball, so he is the easiest lineman to find.'],
+          ['ol', 'In Coach School each lineman stands 1.5 yards from the next, measured from the center out.']),
+        card('Left and right', ['ol:names'],
+          ['QB', 'In Coach School, left and right always mean the offense\'s left and right, as if you were the quarterback looking downfield.'],
+          ['sideline:L', 'Our offense attacks to the right, so its left is the top of the screen.'],
+          ['LT', 'The left tackle is always the top man of the five.']),
+        card('The blind side', ['ol:blind'],
+          ['QB', 'A right-handed quarterback throws with his back to the left side of the field.'],
+          ['LT', 'That side is his blind side, and the left tackle protects it. That is why the left tackle is traditionally the premium pass protector.']),
       ],
       walk: [
-        { prompt: 'Tap the center.', find: { role: 'C' }, answer: 'C' },
-        { prompt: 'Tap the left tackle.', find: { role: 'LT' }, answer: 'LT' },
-        { prompt: 'Tap the right guard.', find: { role: 'RG' }, answer: 'RG' },
+        { prompt: 'Tap the center.', look: ['ol'], find: { role: 'C' }, answer: 'C' },
+        { prompt: 'Tap the left tackle.', look: ['ol'], find: { role: 'LT' }, answer: 'LT' },
+        { prompt: 'Tap the right guard.', look: ['ol'], find: { role: 'RG' }, answer: 'RG' },
       ],
       puzzles: [
         tap('r1-u3-p1', 'r1-ol', 'Tap the center.', { role: 'C' }, 'C', ['ol:center'], 'The center is the lineman on the ball.'),
@@ -191,14 +232,22 @@
     {
       id: 'r1-u4', title: 'Backs and tight ends', blurb: 'Quarterback, tailback, fullback, the tight end.', play: 'r1-backs',
       cards: [
-        { title: 'The quarterback', teaches: ['bk:qb'], focus: ['QB'], text: 'The quarterback, or QB, takes the snap. Under center, he stands right behind the center with his hands under him, about a yard back. In the shotgun he stands about 5 yards back, and in the pistol about 4.' },
-        { title: 'Tailback and fullback', teaches: ['bk:rb'], focus: ['FB', 'RB'], text: 'Running back, halfback and tailback are three names for the same job. In an I-formation, where the backs stand in a line behind the quarterback, the deep back is called the tailback. The fullback is a blocking back who lines up in front of him. Both count as backs when coaches count who is on the field.' },
-        { title: 'The tight end', teaches: ['bk:te'], focus: ['Y'], text: 'The tight end, or TE, blocks and catches. Lined up next to a tackle he is inline (also called attached); split out away from the line he is flexed (detached). In Coach School the tight end wears the letter Y.' },
+        card('The quarterback', ['bk:qb'],
+          ['QB', 'The quarterback, or QB, takes the snap. Under center, he stands right behind the center with his hands under him, about a yard back.'],
+          ['QB', 'In the shotgun he stands about 5 yards back, and in the pistol about 4.']),
+        card('Tailback and fullback', ['bk:rb'],
+          ['RB', 'Running back, halfback and tailback are three names for the same job.'],
+          ['RB', 'In an I-formation, where the backs stand in a line behind the quarterback, the deep back is called the tailback.'],
+          ['FB', 'The fullback is a blocking back who lines up in front of him.'],
+          [['FB', 'RB'], 'Both count as backs when coaches count who is on the field.']),
+        card('The tight end', ['bk:te'],
+          ['Y', 'The tight end, or TE, blocks and catches. Lined up next to a tackle he is inline (also called attached); split out away from the line he is flexed (detached).'],
+          ['Y', 'In Coach School the tight end wears the letter Y.']),
       ],
       walk: [
-        { prompt: 'Tap the fullback.', find: { role: 'FB' }, answer: 'FB' },
-        { prompt: 'Tap the tailback.', find: { role: 'RB' }, answer: 'RB' },
-        { prompt: 'Tap the tight end.', find: { role: 'TE' }, answer: 'Y' },
+        { prompt: 'Tap the fullback.', look: ['backs'], find: { role: 'FB' }, answer: 'FB' },
+        { prompt: 'Tap the tailback.', look: ['backs'], find: { role: 'RB' }, answer: 'RB' },
+        { prompt: 'Tap the tight end.', look: ['ol'], find: { role: 'TE' }, answer: 'Y' },
       ],
       puzzles: [
         tap('r1-u4-p1', 'r1-backs', 'Tap the fullback.', { role: 'FB' }, 'FB', ['bk:rb'], 'The fullback is the back in front, between the quarterback and the tailback.'),
@@ -215,14 +264,22 @@
     {
       id: 'r1-u5', title: 'X, Z and the slot', blurb: 'Split end, flanker, slot: who stands where.', play: 'r1-wr',
       cards: [
-        { title: 'Letters for receivers', teaches: ['wr:xz'], focus: ['X', 'Z'], text: 'Receivers get letters so a play call can give each one his job. X is the split end: he stands on the line, usually on the side away from the tight end. Z is the flanker: he stands about a yard off the line, usually on the tight end\'s side. Letters vary by team; Coach School uses X, Z, Y and H.' },
-        { title: 'Spotting X and Z', teaches: ['wr:xz'], focus: ['X', 'Z'], text: 'Look at their feet. X stands level with the linemen, and Z stands about a yard behind that line. A man on the line can be jammed (pressed) right at the snap and may not go in motion, which means moving when the ball is snapped. A man a yard off gets a cleaner start and may go in motion.' },
-        { title: 'The slot', teaches: ['wr:slot'], focus: ['H'], text: 'A slot receiver lines up between the outside receiver and the line. Coach School letters him H; some teams use F or A, or just say the slot. He stands off the line, so he is an eligible receiver.' },
+        card('Letters for receivers', ['wr:xz'],
+          [['X', 'Z', 'H'], 'Receivers get letters so a play call can give each one his job.'],
+          ['X', 'X is the split end: he stands on the line, usually on the side away from the tight end.'],
+          ['Z', 'Z is the flanker: he stands about a yard off the line, usually on the tight end\'s side. Letters vary by team; Coach School uses X, Z, Y and H.']),
+        card('Spotting X and Z', ['wr:xz'],
+          [['X', 'Z'], 'Look at their feet. X stands level with the linemen, and Z stands about a yard behind that line.'],
+          ['X', 'A man on the line can be jammed (pressed) right at the snap and may not go in motion, which means moving when the ball is snapped.'],
+          ['Z', 'A man a yard off gets a cleaner start and may go in motion.']),
+        card('The slot', ['wr:slot'],
+          ['H', 'A slot receiver lines up between the outside receiver and the line.'],
+          ['H', 'Coach School letters him H; some teams use F or A, or just say the slot. He stands off the line, so he is an eligible receiver.']),
       ],
       walk: [
-        { prompt: 'Tap X, the split end.', find: { role: 'X' }, answer: 'X' },
-        { prompt: 'Tap Z, the flanker.', find: { role: 'Z' }, answer: 'Z' },
-        { prompt: 'Tap H, the slot.', find: { role: 'H' }, answer: 'H' },
+        { prompt: 'Tap X, the split end.', look: ['los'], find: { role: 'X' }, answer: 'X' },
+        { prompt: 'Tap Z, the flanker.', look: ['los'], find: { role: 'Z' }, answer: 'Z' },
+        { prompt: 'Tap H, the slot.', look: ['ol'], find: { role: 'H' }, answer: 'H' },
       ],
       puzzles: [
         tap('r1-u5-p1', 'r1-wr', 'Tap X, the split end.', { role: 'X' }, 'X', ['wr:xz'], 'X is on the line, away from the tight end.'),
@@ -238,14 +295,24 @@
     {
       id: 'r1-u6', title: 'The defense', blurb: 'Ends and tackles, Sam, Mike and Will, corners and safeties.', play: 'r1-def',
       cards: [
-        { title: 'The defensive line', teaches: ['def:dl'], focus: ['DE-L', 'DT-L', 'DT-R', 'DE-R'], text: 'The defensive line, or DL, lines up across from the offensive line. The ends (DE) play on the outside and the tackles (DT) play inside. A tackle lined up head-up on the center, right in front of him, is the nose tackle. Edge is the name for whoever rushes from outside the tackle, an end or an outside linebacker.' },
-        { title: 'Sam, Mike and Will', teaches: ['def:lb'], focus: ['SAM', 'MIKE', 'WILL'], text: 'Linebackers (LB) stand a few yards behind the defensive line. In Coach School the Sam is the strong-side linebacker, on the tight end\'s side; the Mike is the middle linebacker; the Will is the weak-side linebacker. Some teams name them by field and boundary instead, or use names like Jack, Buck or Rover.' },
-        { title: 'Defensive backs', teaches: ['def:db'], focus: ['CB-L', 'CB-R', 'FS', 'SS'], text: 'Defensive backs (DB) are the last line. Cornerbacks cover the wide receivers. The free safety usually plays deep in the middle or to the weak side, and the strong safety usually lines up on the tight end\'s side and helps more against the run. A fifth defensive back is a nickel back, who usually covers a slot, and a sixth is a dime.' },
+        card('The defensive line', ['def:dl'],
+          ['dl', 'The defensive line, or DL, lines up across from the offensive line. The ends (DE) play on the outside and the tackles (DT) play inside.'],
+          ['C', 'A tackle lined up head-up on the center, right in front of him, is the nose tackle.'],
+          [['DE-L', 'DE-R'], 'Edge is the name for whoever rushes from outside the tackle, an end or an outside linebacker.']),
+        card('Sam, Mike and Will', ['def:lb'],
+          ['lb', 'Linebackers (LB) stand a few yards behind the defensive line.'],
+          [['SAM', 'MIKE', 'WILL'], 'In Coach School the Sam is the strong-side linebacker, on the tight end\'s side; the Mike is the middle linebacker; the Will is the weak-side linebacker.'],
+          ['lb', 'Some teams name them by field and boundary instead, or use names like Jack, Buck or Rover.']),
+        card('Defensive backs', ['def:db'],
+          ['db', 'Defensive backs (DB) are the last line.'],
+          [['CB-L', 'CB-R'], 'Cornerbacks cover the wide receivers.'],
+          [['FS', 'SS'], 'The free safety usually plays deep in the middle or to the weak side, and the strong safety usually lines up on the tight end\'s side and helps more against the run.'],
+          ['db', 'A fifth defensive back is a nickel back, who usually covers a slot, and a sixth is a dime.']),
       ],
       walk: [
-        { prompt: 'Tap the Mike linebacker.', find: { role: 'MIKE' }, answer: 'MIKE' },
-        { prompt: 'Tap the Sam linebacker.', find: { role: 'SAM' }, answer: 'SAM' },
-        { prompt: 'Tap the free safety.', find: { role: 'FS' }, answer: 'FS' },
+        { prompt: 'Tap the Mike linebacker.', look: ['lb'], find: { role: 'MIKE' }, answer: 'MIKE' },
+        { prompt: 'Tap the Sam linebacker.', look: ['Y'], find: { role: 'SAM' }, answer: 'SAM' },
+        { prompt: 'Tap the free safety.', look: ['lb'], find: { role: 'FS' }, answer: 'FS' },
       ],
       puzzles: [
         tap('r1-u6-p1', 'r1-def', 'Tap the Mike linebacker.', { role: 'MIKE' }, 'MIKE', ['def:lb'], 'The Mike is the middle linebacker.'),
@@ -262,13 +329,21 @@
     {
       id: 'r1-u7', title: 'Formation strength', blurb: 'Which side is strong, and why the defense cares.', play: 'r1-str',
       cards: [
-        { title: 'The strong side', teaches: ['str:rule'], focus: ['Y'], text: 'Formation strength is the side where the offense has more. In Coach School the strength is the tight end\'s side. With no tight end, or one on each side, it is the side with more receivers. If that is still even, it is the field side, the wide side of the hash.' },
-        { title: 'Count it', teaches: ['str:rule'], text: 'To find it, count the eligible players on each side of the ball. Teams vary: some defenses always set their strength to the field, or to the side with more receivers. Coach School uses the tight end rule first.' },
-        { title: 'The defense follows it', teaches: ['str:defense'], focus: ['SAM', 'SS'], text: 'The defense names its strong-side players by this call. If the tight end lines up on the left, the Sam and the strong safety line up on the left too. Find the tight end first and you know where the Sam will be.' },
+        card('The strong side', ['str:rule'],
+          ['Y', 'Formation strength is the side where the offense has more. In Coach School the strength is the tight end\'s side.'],
+          [['X', 'Z', 'H'], 'With no tight end, or one on each side, it is the side with more receivers.'],
+          ['hashes', 'If that is still even, it is the field side, the wide side of the hash.']),
+        card('Count it', ['str:rule'],
+          ['ball', 'To find it, count the eligible players on each side of the ball.'],
+          ['lb', 'Teams vary: some defenses always set their strength to the field, or to the side with more receivers.'],
+          ['Y', 'Coach School uses the tight end rule first.']),
+        card('The defense follows it', ['str:defense'],
+          [['SAM', 'SS'], 'The defense names its strong-side players by this call. If the tight end lines up on the left, the Sam and the strong safety line up on the left too.'],
+          [['Y', 'SAM'], 'Find the tight end first and you know where the Sam will be.']),
       ],
       walk: [
-        { prompt: 'The strength is the tight end\'s side. Tap the tight end.', find: { role: 'TE' }, answer: 'Y' },
-        { prompt: 'Now tap the Sam, who goes to the strong side.', find: { role: 'SAM' }, answer: 'SAM' },
+        { prompt: 'The strength is the tight end\'s side. Tap the tight end.', look: ['line'], find: { role: 'TE' }, answer: 'Y' },
+        { prompt: 'Now tap the Sam, who goes to the strong side.', look: ['Y'], find: { role: 'SAM' }, answer: 'SAM' },
       ],
       puzzles: [
         choice('r1-u7-p1', 'r1-str', 'Which side is the strong side?', 'strength', SIDE_OPTS, 0, ['str:rule'], 'The tight end is on the left, so the left is strong.'),

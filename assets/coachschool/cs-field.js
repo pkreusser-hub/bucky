@@ -73,7 +73,7 @@
   // panel is short, gives it most of the screen.
   const PY = 15;
   const HK = 6;                      // world pixels per yard of height (the ball in the air)
-  const Y0 = -9, Y1 = -9 + 400 / 14;   // the window, in yards from the line of scrimmage (28.6 yd)
+  const Y0 = CS.VIEW.Y0, Y1 = CS.VIEW.Y1;   // the window, in yards from the line of scrimmage (28.6 yd; cs-core owns it)
   const MT = 22, MB = 14;            // turf above the far (offense's left) sideline / below the near one
   const FH = Math.round(CS.FIELD_W * PY);
   const W = Math.round((Y1 - Y0) * PX); // 400
@@ -495,9 +495,13 @@
     const g = canvas.getContext('2d');
     canvas.width = W; canvas.height = H;
     const reduceMQ = root.matchMedia ? root.matchMedia('(prefers-reduced-motion: reduce)') : null;
-    const st = { play: null, c: null, t: 0, playing: false, speed: 1, raf: 0, last: 0, acc: 0, kits: null, art: null, pal: {}, nums: {}, drawn: {}, marks: [], callout: true };
+    const reduced = () => !!(reduceMQ && reduceMQ.matches);
+    const FULL = { cx: W / 2, cy: H / 2, z: 1 };
+    const st = { play: null, c: null, t: 0, playing: false, speed: 1, raf: 0, last: 0, acc: 0, kits: null, art: null, pal: {}, nums: {}, drawn: {}, marks: [], callout: true,
+      cam: { ...FULL }, camA: null, say: null, sayN: 0, shown: 0, place: null, note: null, geom: null, bw: 0, bh: 0 };
     const PRE = -1.2;
-    const calloutEl = opts.calloutEl || null;
+    const CAM_MS = 480;                  // the camera's ease in or out (the brief: 400-600 ms)
+    const bubbleEl = opts.bubbleEl || null, tailsEl = opts.tailsEl || null;
 
     function setPlay(play, o) {
       o = o || {};
@@ -511,6 +515,7 @@
       st.art = fieldArt(CS.num(play.spot, 25), off, def);
       st.pal = {}; st.nums = {}; st.marks = []; st.drawn = {};
       st.callout = o.callouts !== false;
+      st.cam = { ...FULL }; st.camA = null; st.say = null; st.note = null; st.place = null;
       st.c.all.forEach((p, i) => {
         const side = p.team === 'off' ? 'o' : 'd';
         st.pal[p.id] = raPalette(st.kit[p.team], i, side);
@@ -522,9 +527,13 @@
       draw();
     }
 
+    /* ── coordinates ── World px -> CSS px goes through the camera, so every tap, hit-test and
+       bubble is right while zoomed. sx, sy: CSS px per world px at zoom 1. */
     const toCss = () => { const r = canvas.getBoundingClientRect(); return { r, sx: r.width / W, sy: r.height / H }; };
-    function yardToScreen(x, y) { const { r, sx, sy } = toCss(); return { x: r.left + wx(y) * sx, y: r.top + wy(x) * sy }; }
-    function screenToYard(px, py) { const { r, sx, sy } = toCss(); return { x: ((py - r.top) / sy - MT) / PY, y: (px - r.left) / sx / PX + Y0 }; }
+    function w2c(X, Y) { const { r, sx, sy } = toCss(), c = st.cam; return { x: r.left + ((X - c.cx) * c.z + W / 2) * sx, y: r.top + ((Y - c.cy) * c.z + H / 2) * sy }; }
+    function c2w(px, py) { const { r, sx, sy } = toCss(), c = st.cam; return { X: ((px - r.left) / sx - W / 2) / c.z + c.cx, Y: ((py - r.top) / sy - H / 2) / c.z + c.cy }; }
+    function yardToScreen(x, y) { return w2c(wx(y), wy(x)); }
+    function screenToYard(px, py) { const w = c2w(px, py); return { x: (w.Y - MT) / PY, y: w.X / PX + Y0 }; }
     // The painted box of a player's sprite as last drawn, in world pixels.
     function bodyBox(id) {
       const d = st.drawn[id];
@@ -538,17 +547,18 @@
     // across the centre's, and a tap on the centre's chest is still the centre's (phase-2 suite,
     // B10). Two axes equally near (two men in one column, a helmet over the legs of the man above)
     // go to the one whose FEET are just below the tap, never to the neighbour whose head reaches
-    // up there. Outside every box, the nearest body axis within HIT_R CSS px wins.
+    // up there. Outside every box, the nearest body axis within HIT_R CSS px wins. Distances are
+    // CSS px at the current zoom (kx, ky), so the radius is the same size under the finger zoomed or not.
     function hitTest(px, py) {
       if (!st.play) return null;
-      const { r, sx, sy } = toCss();
-      const X = (px - r.left) / sx, Y = (py - r.top) / sy;
+      const { sx, sy } = toCss(), kx = sx * st.cam.z, ky = sy * st.cam.z;
+      const { X, Y } = c2w(px, py);
       const ids = Object.keys(st.drawn);
       let best = null, ba = Infinity, bk = Infinity, bh = Infinity;
       for (const id of ids) {
         const b = bodyBox(id);
         if (!b || X < b.x0 || X >= b.x1 || Y < b.y0 || Y > b.fy + 2) continue;
-        const ax = Math.hypot((X - b.fx) * sx, (Y - clamp(Y, b.y0, b.fy)) * sy);   // CSS px to his axis
+        const ax = Math.hypot((X - b.fx) * kx, (Y - clamp(Y, b.y0, b.fy)) * ky);   // CSS px to his axis
         const k = b.fy - Y, key = k >= 0 ? k : 0.5 - k, h = Math.abs(X - b.fx);
         const nearer = ax < ba - 0.5, tie = Math.abs(ax - ba) <= 0.5;
         if (nearer || (tie && (key < bk || (key === bk && h < bh)))) { ba = Math.min(ba, ax); bk = key; bh = h; best = id; }
@@ -559,7 +569,7 @@
         const b = bodyBox(id);
         if (!b) continue;
         const cy = clamp(Y, b.y0, b.fy), cx = clamp(X, b.x0, b.x1);
-        const d = Math.hypot((X - cx) * sx, (Y - cy) * sy);
+        const d = Math.hypot((X - cx) * kx, (Y - cy) * ky);
         if (d < bd) { bd = d; best = id; }
       }
       if (!ids.length) {                                         // nothing drawn yet: the feet alone
@@ -571,12 +581,12 @@
       }
       return bd <= HIT_R ? best : null;
     }
-    // A player's painted box in CSS px (the suite taps its centre; the UI never needs it).
+    // A player's painted box in CSS px, through the camera.
     function spriteRect(id) {
       const b = bodyBox(id);
       if (!b) return null;
-      const { r, sx, sy } = toCss();
-      return { left: r.left + b.x0 * sx, right: r.left + b.x1 * sx, top: r.top + b.y0 * sy, bottom: r.top + b.y1 * sy, feetX: r.left + b.fx * sx, feetY: r.top + b.fy * sy };
+      const a = w2c(b.x0, b.y0), z = w2c(b.x1, b.y1), f = w2c(b.fx, b.fy);
+      return { left: a.x, right: z.x, top: a.y, bottom: z.y, feetX: f.x, feetY: f.y };
     }
 
     function activeCallout() {
@@ -600,11 +610,24 @@
       g.strokeStyle = col; g.lineWidth = 2;
       g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
     }
+    // The canvas backing store matches the device pixels it is shown on, so a zoomed-in camera
+    // draws the 8-bit art nearest-neighbour into real pixels instead of the browser stretching
+    // (and blurring) a 400 px canvas afterwards. Below one device pixel per art pixel the art is
+    // filtered down instead (the source's raSizeCanvas rule), as the browser did before.
+    function backing() {
+      const r = canvas.getBoundingClientRect();
+      if (!(r.width > 0 && r.height > 0)) return;
+      const dpr = root.devicePixelRatio || 1, bw = Math.round(r.width * dpr), bh = Math.round(r.height * dpr);
+      if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+    }
 
     function draw() {
       if (!st.play) return;
-      const c = st.c, t = st.t, play = st.play;
-      g.imageSmoothingEnabled = false;
+      backing();
+      const c = st.c, t = st.t, play = st.play, cam = st.cam, ax = canvas.width / W, ay = canvas.height / H;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.imageSmoothingEnabled = ax * cam.z < 0.999;
+      g.setTransform(ax * cam.z, 0, 0, ay * cam.z, canvas.width / 2 - cam.cx * cam.z * ax, canvas.height / 2 - cam.cy * cam.z * ay);
       g.drawImage(st.art, 0, 0);
       const S = (q) => [wx(q.y), wy(q.x)];
       // Line of scrimmage (blue) and line to gain (yellow), as on TV.
@@ -692,22 +715,20 @@
       } });
       items.sort((p, q) => p.y - q.y).forEach((it) => it.draw());
 
-      // Chalk over the players: marks the lesson asked for, the callout's spotlight, the callout text.
-      const pulse = reduceMQ && reduceMQ.matches ? 0 : Math.sin(t * 6) * 1.5;
+      // Chalk over the players: marks the lesson asked for, rings on the players a coach bubble is
+      // talking about, and (the engine demo only, which has no bubble layer) the callout on the canvas.
+      const pulse = reduced() ? 0 : Math.sin(t * 6) * 1.5;
       for (const m of st.marks) ring(m.id, m.kind, m.kind === 'focus' ? pulse : 0);
-      const k = activeCallout();
-      if (k && drawn[k.focus]) ring(k.focus, 'focus', pulse);
-      if (calloutEl) {
-        // The callout is real text in the page (the body font, readable on a phone), laid over
-        // the field on the far side from the player it talks about.
-        const txt = k ? k.text : '';
-        if (calloutEl.textContent !== txt) calloutEl.textContent = txt;
-        calloutEl.hidden = !k;
-        if (k && drawn[k.focus]) calloutEl.dataset.at = drawn[k.focus].sy > H / 2 ? 'top' : 'bottom';
-      } else if (k && drawn[k.focus]) {
-        // No overlay element: draw it on the canvas, still in the body font (user, 2026-11-11:
-        // "the 8 bit text is going to be hard to read, we can use normal font"). The pixel font
-        // is kept for the field's yard numbers and the jersey numbers only.
+      if (st.say) {
+        const kind = st.say.tone === 'bad' ? 'bad' : st.say.tone === 'good' ? 'good' : 'focus';
+        for (const id of sayPlayers()) if (drawn[id] && !st.marks.some((m) => m.id === id)) ring(id, kind, pulse);
+      }
+      const k = bubbleEl ? null : activeCallout();
+      if (k && drawn[k.focus]) {
+        ring(k.focus, 'focus', pulse);
+        // Drawn in the body font, never the pixel font (user, 2026-11-11: "the 8 bit text is going
+        // to be hard to read, we can use normal font"), in screen space over the camera.
+        g.setTransform(ax, 0, 0, ay, 0, 0);
         const f = drawn[k.focus], FS = 15;
         g.font = `600 ${FS}px Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif`;
         const words = String(k.text).split(/\s+/), lines = [];
@@ -720,27 +741,200 @@
         g.fillStyle = '#f4f1e6'; g.textBaseline = 'top';
         lines.forEach((s2, i) => g.fillText(s2, 16, top + 7 + i * lh));
       }
+      renderCoach();
       if (opts.onFrame) opts.onFrame(st.t, k);
     }
 
+    /* ── coach bubbles ── HTML text over the field (the body font), with an SVG layer under it for
+       the arrows, the bracket round a group and the glow on a field feature. A bubble is hidden
+       while the camera is still moving and placed once it settles; one that follows a moving
+       player (a puzzle's answer while the play runs) is re-placed every frame, keeping its spot
+       while that spot still works. */
+    const TONE = { note: '#ffe14d', prompt: '#ffe14d', good: '#4be37a', bad: '#ff5a4d' };
+    function sayPlayers() {
+      const out = [];
+      for (const tok of st.say.focus) { const f = CS.focusOf(st.play, tok, st.t); if (f && (f.kind === 'player' || (f.kind === 'group' && !f.bracket))) out.push(...f.ids); }
+      return out;
+    }
+    function focusGeom(tokens) {
+      const { r } = toCss(), out = [];
+      const rel = (p) => ({ x: p.x - r.left, y: p.y - r.top });
+      const relRect = (q) => ({ l: q.left - r.left, r: q.right - r.left, t: q.top - r.top, b: q.bottom - r.top });
+      for (const tok of tokens) {
+        const f = CS.focusOf(st.play, tok, st.t);
+        if (!f) continue;
+        if (f.kind === 'player' || (f.kind === 'group' && !f.bracket)) {
+          for (const id of f.ids) {
+            const q = spriteRect(id);
+            if (q) out.push({ tok, id, kind: 'player', rect: relRect(q), pt: { x: (q.left + q.right) / 2 - r.left, y: (q.top + q.bottom) / 2 - r.top } });
+          }
+        } else if (f.kind === 'group') {
+          let R = null;
+          for (const id of f.ids) {
+            const q = spriteRect(id);
+            if (!q) continue;
+            const a = relRect(q);
+            R = R ? { l: Math.min(R.l, a.l), r: Math.max(R.r, a.r), t: Math.min(R.t, a.t), b: Math.max(R.b, a.b) } : a;
+          }
+          if (R) out.push({ tok, kind: 'group', ids: f.ids, rect: { l: R.l - 5, r: R.r + 5, t: R.t - 5, b: R.b + 5 }, pt: null });
+        } else {
+          for (const m of f.marks) {
+            const p = rel(yardToScreen(m.at.x, m.at.y)), a = rel(yardToScreen(m.box.x0, m.box.y0)), b = rel(yardToScreen(m.box.x1, m.box.y1));
+            out.push({ tok, kind: 'feature', pt: p, hl: m.hl, rect: { l: Math.min(a.x, b.x), r: Math.max(a.x, b.x), t: Math.min(a.y, b.y), b: Math.max(a.y, b.y) } });
+          }
+        }
+      }
+      // Only what the camera shows can be pointed at.
+      return out.filter((q) => (q.pt ? q.pt.x >= 0 && q.pt.x <= r.width && q.pt.y >= 0 && q.pt.y <= r.height : q.rect.r > 0 && q.rect.l < r.width && q.rect.b > 0 && q.rect.t < r.height));
+    }
+    function fillBubble(s) {
+      const el = bubbleEl;
+      el.textContent = '';
+      const bt = document.createElement('span'); bt.className = 'bt';
+      const parts = s.parts || [s.text || ''];
+      for (const part of parts) {
+        if (typeof part === 'string') bt.appendChild(document.createTextNode(part));
+        else if (part && part.text) { const e = document.createElement(part.tag || 'b'); e.textContent = part.text; if (part.cls) e.className = part.cls; bt.appendChild(e); }
+      }
+      el.appendChild(bt);
+      if (s.n) { const n = document.createElement('small'); n.className = 'bn'; n.textContent = s.n; el.appendChild(n); }
+      el.dataset.tone = s.tone || 'note';
+    }
+    function renderCoach() {
+      st.geom = null;
+      if (!bubbleEl) return;
+      const s = st.say;
+      if (!s || (st.camA && !reduced())) { bubbleEl.hidden = true; if (tailsEl) tailsEl.innerHTML = ''; return; }
+      const { r } = toCss(), BW = r.width, BH = r.height;
+      if (!(BW > 0)) return;
+      if (st.shown !== s.key) { fillBubble(s); st.shown = s.key; st.place = null; st.bw = 0; }
+      bubbleEl.hidden = false;
+      const w = Math.round(Math.min(BW - 12, 300));
+      if (st.bw !== w) { bubbleEl.style.width = w + 'px'; st.bw = w; st.bh = bubbleEl.offsetHeight; }
+      const T = focusGeom(s.focus);
+      const tids = new Set(T.flatMap((q) => q.ids || (q.id ? [q.id] : [])));
+      const avoid = [];
+      for (const id of Object.keys(st.drawn)) { if (tids.has(id)) continue; const q = spriteRect(id); if (q) avoid.push({ l: q.left - r.left, r: q.right - r.left, t: q.top - r.top, b: q.bottom - r.top }); }
+      const pl = CS.placeBubble({ W: BW, H: BH, w, h: st.bh, targets: T.map((q) => ({ rect: q.rect, pt: q.pt })), avoid, pad: 6, gap: 38, prev: st.place });
+      st.place = pl;
+      bubbleEl.style.left = pl.x + 'px'; bubbleEl.style.top = pl.y + 'px';
+      const B = { x: pl.x, y: pl.y, w, h: st.bh }, bcx = B.x + w / 2, bcy = B.y + B.h / 2;
+      for (const q of T) if (q.kind === 'group') {     // a group's arrow lands on the side of its bracket that faces the bubble
+        const R = q.rect;
+        if (B.y + B.h <= R.t) q.pt = { x: clamp(bcx, R.l + 6, R.r - 6), y: R.t };
+        else if (B.y >= R.b) q.pt = { x: clamp(bcx, R.l + 6, R.r - 6), y: R.b };
+        else q.pt = { x: B.x + w <= R.l ? R.l : R.r, y: clamp(bcy, R.t + 6, R.b - 6) };
+      }
+      const col = TONE[s.tone] || TONE.note;
+      let svg = '';
+      const P = (n) => n.toFixed(1);
+      for (const q of T) {
+        const h = q.hl;
+        if (h && h.kind === 'hline') { const y = yardToScreen(h.x, 0).y - r.top; svg += `<line x1="0" x2="${P(BW)}" y1="${P(y)}" y2="${P(y)}" stroke="rgba(255,225,77,.5)" stroke-width="7"/>`; }
+        else if (h && h.kind === 'vline') { const x = yardToScreen(0, h.y).x - r.left; svg += `<line y1="0" y2="${P(BH)}" x1="${P(x)}" x2="${P(x)}" stroke="rgba(255,225,77,.5)" stroke-width="7"/>`; }
+        else if (h && h.kind === 'rect') {
+          const a = yardToScreen(h.x0, h.y0), b = yardToScreen(h.x1, h.y1), x0 = Math.min(a.x, b.x) - r.left, y0 = Math.min(a.y, b.y) - r.top;
+          const fill = h.tone === 'red' ? 'rgba(255,80,60,.2)' : 'rgba(255,225,77,.14)', line = h.tone === 'red' ? 'rgba(255,120,100,.9)' : 'rgba(255,225,77,.8)';
+          svg += `<rect x="${P(x0)}" y="${P(y0)}" width="${P(Math.abs(b.x - a.x))}" height="${P(Math.abs(b.y - a.y))}" fill="${fill}" stroke="${line}" stroke-width="2" stroke-dasharray="6 4"/>`;
+          // A region that has a name (field, boundary) wears it in its corner, so two lit regions are told apart.
+          if (h.label) svg += `<text x="${P(x0 + 8)}" y="${P(y0 + 20)}" class="rlab" fill="${line}">${h.label}</text>`;
+        } else if (h && h.kind === 'ring') {
+          const a = yardToScreen(h.x - h.rx, h.y - h.ry), b = yardToScreen(h.x + h.rx, h.y + h.ry), rx = P(Math.abs(b.x - a.x) / 2), ry = P(Math.abs(b.y - a.y) / 2);
+          svg += `<ellipse cx="${P(q.pt.x)}" cy="${P(q.pt.y)}" rx="${rx}" ry="${ry}" fill="none" stroke="rgba(10,14,20,.7)" stroke-width="5"/><ellipse cx="${P(q.pt.x)}" cy="${P(q.pt.y)}" rx="${rx}" ry="${ry}" fill="none" stroke="${col}" stroke-width="2.5"/>`;
+        }
+        if (q.kind === 'group') {
+          const R = q.rect, box = `x="${P(R.l)}" y="${P(R.t)}" width="${P(R.r - R.l)}" height="${P(R.b - R.t)}" rx="6" fill="none"`;
+          svg += `<rect ${box} stroke="rgba(10,14,20,.75)" stroke-width="5"/><rect ${box} stroke="${col}" stroke-width="2.5" stroke-dasharray="7 4"/>`;
+        }
+      }
+      for (const q of T) {
+        const tl = CS.tailOf(B, q.pt, q.kind === 'player' ? 9 : 2);
+        q.tail = tl;
+        const dx = tl.x1 - tl.x0, dy = tl.y1 - tl.y0, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, hl = Math.min(12, L * 0.6);
+        const bx = tl.x1 - ux * hl, by = tl.y1 - uy * hl, nx = -uy * 6.5, ny = ux * 6.5;
+        const head = `${P(tl.x1)},${P(tl.y1)} ${P(bx + nx)},${P(by + ny)} ${P(bx - nx)},${P(by - ny)}`;
+        svg += `<line x1="${P(tl.x0)}" y1="${P(tl.y0)}" x2="${P(bx)}" y2="${P(by)}" stroke="rgba(10,14,20,.8)" stroke-width="7" stroke-linecap="round"/>`;
+        svg += `<polygon points="${head}" fill="rgba(10,14,20,.8)" stroke="rgba(10,14,20,.8)" stroke-width="4" stroke-linejoin="round"/>`;
+        svg += `<line x1="${P(tl.x0)}" y1="${P(tl.y0)}" x2="${P(bx)}" y2="${P(by)}" stroke="${col}" stroke-width="3.5" stroke-linecap="round"/>`;
+        svg += `<polygon points="${head}" fill="${col}"/>`;
+      }
+      if (tailsEl) tailsEl.innerHTML = svg;
+      const pg = (p) => ({ x: p.x + r.left, y: p.y + r.top }), pr = (q) => ({ l: q.l + r.left, r: q.r + r.left, t: q.t + r.top, b: q.b + r.top });
+      st.geom = {
+        box: { l: r.left, r: r.right, t: r.top, b: r.bottom }, ok: pl.ok, tone: s.tone || 'note',
+        bubble: { l: r.left + B.x, r: r.left + B.x + w, t: r.top + B.y, b: r.top + B.y + B.h },
+        targets: T.map((q) => ({ tok: q.tok, id: q.id || null, ids: q.ids || null, kind: q.kind, pt: pg(q.pt), rect: pr(q.rect), tail: { x0: q.tail.x0 + r.left, y0: q.tail.y0 + r.top, x: q.tail.x1 + r.left, y: q.tail.y1 + r.top } })),
+      };
+    }
+
+    /* ── the camera ── */
+    function camTo(to, instant) {
+      to = CS.camClamp(to, W, H);
+      const c = st.cam;
+      if (Math.abs(c.z - to.z) < 1e-3 && Math.hypot(c.cx - to.cx, c.cy - to.cy) < 0.5) { st.cam = to; st.camA = null; return; }
+      if (instant || reduced()) { st.cam = to; st.camA = null; return; }   // reduced motion: a cut, not an ease
+      st.camA = { from: { ...c }, to, t0: performance.now(), dur: CAM_MS };
+      loop();
+    }
+    // The world-pixel box of everything a bubble points at, framed with a margin.
+    function frameOf(tokens) {
+      let R = null;
+      const add = (x0, x1, y0, y1) => { R = R ? { x0: Math.min(R.x0, x0), x1: Math.max(R.x1, x1), y0: Math.min(R.y0, y0), y1: Math.max(R.y1, y1) } : { x0, x1, y0, y1 }; };
+      for (const tok of tokens) {
+        const f = CS.focusOf(st.play, tok, st.t);
+        if (!f) continue;
+        if (f.ids) for (const id of f.ids) { const b = bodyBox(id); if (b) add(b.x0, b.x1, b.y0, b.fy); }
+        else { const fr = f.frame; add(wx(fr.y0), wx(fr.y1), wy(fr.x0), wy(fr.x1)); }
+      }
+      return R ? CS.camFrame(R, W, H, { margin: 36, zmax: 3, step: 0.25, fill: 0.55 }) : { ...FULL };
+    }
+    // Say something: {text | parts, focus, tone, zoom, frame, n}. zoom true frames the focus (and
+    // `frame`, extra tokens that must stay in view); false eases back to the whole window.
+    function say(b) {
+      st.sayN++;
+      st.say = b ? { ...b, focus: CS.toArr(b.focus), key: st.sayN } : null;
+      if (b && b.zoom) camTo(frameOf(st.say.focus.concat(CS.toArr(b.frame))));
+      else if (b && b.zoom === false) camTo(FULL);
+      draw();
+    }
+
+    /* ── playback ── one rAF loop moves the camera and the clock and draws once a frame. */
+    function loop() { if (!st.raf) st.raf = requestAnimationFrame(frame); }
+    function frame(now) {
+      st.raf = 0;
+      if (st.camA) {
+        const u = (now - st.camA.t0) / st.camA.dur;
+        if (u >= 1) { st.cam = st.camA.to; st.camA = null; } else st.cam = CS.camLerp(st.camA.from, st.camA.to, Math.max(0, u));
+      }
+      if (st.playing) advance(now);
+      draw();
+      if (st.playing || st.camA) loop();
+    }
     function seek(t) {
       st.t = clamp(t, PRE, st.c ? st.c.T : 0);
+      st.note = null;
+      if (st.say && st.say.src === 'callout') st.say = null;
       draw();
       return st.t;
     }
-    // Watch mode stops the clock on each callout until he presses play again (plan: "timed
-    // callouts that pause"). Returns the first callout time inside (from, to], if any.
+    // Watch mode stops the clock on each callout until he presses again (plan: "timed callouts
+    // that pause"). Returns the first callout time inside (from, to], if any.
     function nextStop(from, to) {
       if (!opts.pauseAtCallouts || !st.callout) return null;
       const ks = (st.play.callouts || []).map((k) => k.t).filter((v) => v > from + 1e-6 && v <= to).sort((a, b) => a - b);
       return ks.length ? ks[0] : null;
     }
-    function tick(now) {
-      st.raf = 0;
-      if (!st.playing) return;
+    // Stopped on a note: the camera eases in on what it talks about and the bubble points at it.
+    function stopAt(tk) {
+      const k = (st.play.callouts || []).find((q) => Math.abs(q.t - tk) < 1e-6);
+      st.playing = false; st.note = k || null;
+      if (k) say({ text: k.text, focus: k.focus, tone: 'note', zoom: true, src: 'callout' });
+      if (opts.onState) opts.onState();
+    }
+    function advance(now) {
       const dt = Math.min(0.05, (now - st.last) / 1000);
       st.last = now;
-      if (reduceMQ && reduceMQ.matches) {
+      if (reduced()) {
         // Reduced motion: no tweening. Hold each key frame (snap, throw, catch, each callout) and step.
         st.acc += dt * st.speed;
         if (st.acc >= 1.2) {
@@ -748,32 +942,43 @@
           const nx = st.keys.find((v) => v > st.t + 1e-6);
           const stop = nx == null ? null : nextStop(st.t, nx);
           st.t = nx == null ? st.c.T : nx;
-          draw();
-          if (stop != null) { pause(); return; }
+          if (stop != null) return stopAt(stop);
         }
       } else {
         const to = Math.min(st.c.T, st.t + dt * st.speed), stop = nextStop(st.t, to);
         st.t = stop == null ? to : stop;
-        draw();
-        if (stop != null) { pause(); return; }
+        if (stop != null) return stopAt(stop);
       }
-      if (st.t >= st.c.T) { st.playing = false; if (opts.onState) opts.onState(); if (opts.onEnd) opts.onEnd(); return; }
-      st.raf = requestAnimationFrame(tick);
+      if (st.t >= st.c.T) { st.playing = false; if (opts.onState) opts.onState(); if (opts.onEnd) opts.onEnd(); }
     }
     function play() {
       if (!st.play) return;
       if (st.t >= st.c.T) st.t = PRE;
-      if (reduceMQ && reduceMQ.matches) { const k0 = st.keys.filter((v) => v <= st.t + 1e-6).pop(); st.t = k0 == null ? PRE : k0; draw(); }
-      st.playing = true; st.last = performance.now(); st.acc = 0;
-      if (!st.raf) st.raf = requestAnimationFrame(tick);
+      st.note = null;
+      if (st.say && st.say.src === 'callout') st.say = null;
+      camTo(FULL);                                           // the play runs zoomed out
+      // REGRESSION (dad's playtest, PR #182): every lesson play opened with notes before the snap,
+      // so a press ran a few tenths of a second of a frozen picture and stopped again. Before the
+      // snap nobody moves, so a lesson goes straight to the next pre-snap note, or straight to the
+      // snap, never through dead time. (The engine demo keeps its real-time clock.)
+      if (opts.pauseAtCallouts && st.callout && st.t < st.c.snapT) {
+        const nx = nextStop(st.t, st.c.snapT);
+        if (nx != null) { st.t = nx; return stopAt(nx); }
+        st.t = st.c.snapT;
+      }
+      if (reduced()) {
+        const k0 = st.keys.filter((v) => v <= st.t + 1e-6).pop(); st.t = k0 == null ? PRE : k0;
+        st.acc = 1.2;                                        // the first step lands at once, not 1.2 s after the press
+      } else st.acc = 0;
+      st.playing = true; st.last = performance.now();
+      draw();
+      loop();
       if (opts.onState) opts.onState();
     }
-    function pause() { st.playing = false; if (st.raf) cancelAnimationFrame(st.raf); st.raf = 0; if (opts.onState) opts.onState(); }
+    function pause() { st.playing = false; if (opts.onState) opts.onState(); }
     function sizeHint() {
-      // Hard pixel edges while every canvas pixel gets at least a device pixel; below that the
-      // browser filters instead of dropping whole rows (the source's raSizeCanvas rule).
-      const r = canvas.getBoundingClientRect(), dev = r.width * (root.devicePixelRatio || 1);
-      canvas.style.imageRendering = dev > 0 && dev < W * 0.95 ? 'auto' : 'pixelated';
+      // The backing store follows the device pixels (backing()), so the browser never rescales it.
+      canvas.style.imageRendering = 'pixelated';
     }
     // Size the canvas (or the wrapper it fills) to the largest W:H box that fits inside `box`, so
     // the field grows into whatever height the screen leaves it and never pushes the page to scroll.
@@ -786,21 +991,26 @@
       el.style.width = w + 'px'; el.style.height = h + 'px';
       if (el !== canvas) { canvas.style.width = '100%'; canvas.style.height = '100%'; }
       sizeHint();
+      st.bw = 0;
+      draw();
     }
     canvas.addEventListener('pointerdown', (e) => {
       const id = hitTest(e.clientX, e.clientY);
       if (opts.onTap) opts.onTap(id, e);
     });
-    root.addEventListener('resize', () => { sizeHint(); draw(); });
+    root.addEventListener('resize', () => { sizeHint(); st.bw = 0; draw(); });
     sizeHint();
 
     const api = {
-      setPlay, seek, start: play, pause, draw, hitTest, yardToScreen, screenToYard, sizeHint, fit, spriteRect,
+      setPlay, seek, start: play, pause, draw, hitTest, yardToScreen, screenToYard, sizeHint, fit, spriteRect, say,
       setSpeed: (s) => { st.speed = s; if (opts.onState) opts.onState(); },
       setMarks: (m) => { st.marks = (m || []).slice(); draw(); },
       get t() { return st.t; }, get play() { return st.play; }, get playing() { return st.playing; }, get speed() { return st.speed; },
-      get T() { return st.c ? st.c.T : 0; }, get keys() { return st.keys.slice(); }, get reduced() { return !!(reduceMQ && reduceMQ.matches); },
+      get T() { return st.c ? st.c.T : 0; }, get keys() { return st.keys.slice(); }, get reduced() { return reduced(); },
       get marks() { return st.marks.slice(); }, get canvas() { return canvas; },
+      get camera() { return { ...st.cam }; }, get camAnimating() { return !!st.camA; }, get atNote() { return !!st.note; },
+      get saying() { return st.say ? { text: st.say.text || null, focus: st.say.focus.slice(), tone: st.say.tone || 'note', src: st.say.src || null } : null; },
+      get coach() { return st.geom ? JSON.parse(JSON.stringify(st.geom)) : null; },
       PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT },
     };
     return api;

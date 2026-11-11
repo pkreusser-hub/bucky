@@ -101,11 +101,23 @@
   .fieldwrap { position:relative; flex:0 0 auto; }
   .fieldwrap canvas { display:block; width:100%; height:100%; border-radius:6px; background:#1d7a2a; touch-action:manipulation; cursor:pointer;
     -webkit-tap-highlight-color:transparent; }   /* Android Chrome washes a tapped canvas in translucent blue: the whole field went teal on every answer (plate review, phase 2) */
-  .callout { position:absolute; left:6px; right:6px; top:6px; z-index:2; margin:0; padding:7px 10px 7px 12px; border-radius:6px; pointer-events:none;
-             background:rgba(6,10,16,.9); border-left:3px solid #ffe14d; color:#f4f1e6; font:600 15px/1.35 var(--font-body); }
-  .callout[data-at="bottom"] { top:auto; bottom:6px; }
+  /* Coach bubbles (the dad, after the first playtest: "text should be in bubbles with visible
+     arrows to where the student should be looking"). The field places them; the SVG layer under
+     them carries the arrows, brackets and glows. Neither takes taps: a tap goes through to the field. */
+  .tails { position:absolute; inset:0; width:100%; height:100%; z-index:2; pointer-events:none; overflow:visible; }
+  .tails .rlab { font:700 14px var(--font-display); letter-spacing:1.5px; text-transform:uppercase; paint-order:stroke; stroke:rgba(7,11,17,.85); stroke-width:4px; }
+  .bubble { position:absolute; left:6px; top:6px; z-index:3; margin:0; padding:8px 11px 9px; border-radius:9px; pointer-events:none;
+            background:rgba(7,11,17,.95); border:2px solid #ffe14d; color:#f6f3ea; font:600 15.5px/1.38 var(--font-body);
+            box-shadow:0 4px 14px rgba(0,0,0,.45); }
+  .bubble[data-tone="good"] { border-color:var(--good); }
+  .bubble[data-tone="bad"] { border-color:var(--bad); }
+  .bubble b { color:#ffe14d; font-weight:700; }
+  .bubble[data-tone="good"] b { color:var(--good); }
+  .bubble[data-tone="bad"] b { color:#ff8a7f; }
+  .bubble .bn { display:block; margin-top:3px; font:600 11px var(--font-display); letter-spacing:1.5px; color:#9aa5b8; text-transform:uppercase; }
   .panel { flex:0 0 auto; margin-top:8px; }
   .panel h3 { margin-bottom:4px; }
+  .panel p:empty { display:none; }
   .panel p { margin:0; color:var(--ink); font:15px/1.45 var(--font-body); }
   .panel .prompt { font:600 16px/1.35 var(--font-body); }
   .fb { margin-top:6px; padding:8px 10px; border-radius:var(--radius-sm); background:var(--nested); font:15px/1.4 var(--font-body); }
@@ -204,7 +216,8 @@
     <div class="stbox" id="stBox">
       <div class="fieldwrap" id="fieldWrap">
         <canvas id="cs-stage" width="400" height="836" role="img" aria-label="Play diagram. Tap a player to answer."></canvas>
-        <p class="callout" id="callout" aria-live="polite" hidden></p>
+        <svg class="tails" id="tails" aria-hidden="true"></svg>
+        <p class="bubble" id="bubble" aria-live="polite" hidden></p>
       </div>
     </div>
     <div class="panel" id="stPanel">

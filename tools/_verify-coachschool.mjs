@@ -281,8 +281,14 @@ console.log('\n[A6] rank 1 content');
   for (const u of U) {
     const p = L.PLAYS[u.play];
     check(u.cards.length >= 3 && u.cards.length <= 5, `${u.id}: 3-5 chalk-talk cards (${u.cards.length})`);
-    const counts = u.cards.map((c) => SENT(c.text));
-    check(counts.every((n) => n >= 3 && n <= 4), `${u.id}: every card is 3-4 sentences (${counts.join(',')})`);
+    // RESTAGED (coach bubbles): a card's words now live in its bubbles (c.say); c.text is only their
+    // join. The 3-4 sentence rule is counted over what is actually shown, bubble by bubble, so it
+    // can't pass on a stale c.text; and no single bubble may carry more than 2 sentences, or the
+    // split into short pointed bubbles would mean nothing.
+    const counts = u.cards.map((c) => (c.say || []).reduce((n, b) => n + SENT(b.text), 0));
+    check(counts.every((n) => n >= 3 && n <= 4), `${u.id}: every card is 3-4 sentences across its bubbles (${counts.join(',')})`);
+    const fat = u.cards.flatMap((c) => (c.say || []).filter((b) => SENT(b.text) < 1 || SENT(b.text) > 2).map((b) => c.title + ': ' + b.text.slice(0, 30)));
+    check(fat.length === 0, `${u.id}: every bubble is 1-2 sentences ${fat.join(' | ')}`);
     check(!!p && (p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${u.id}: its play ${u.play} carries 2-3 callouts`);
     const walkBad = u.walk.filter((w) => !CS.checkPuzzle({ id: 'walk', type: 'tap', play: u.play, find: w.find, answer: w.answer }, w.answer) || CS.validatePuzzle({ id: 'walk', type: 'tap', play: u.play, prompt: w.prompt, find: w.find, answer: w.answer, tags: [] }).length);
     check(u.walk.length >= 2 && walkBad.length === 0, `${u.id}: ${u.walk.length}-step walkthrough, each step one right player`);
@@ -336,6 +342,67 @@ console.log('\n[A6] rank 1 content');
   check(CS.unitOpen(s1, U, 1) && !CS.unitOpen(s1, U, 2) && s1.units['r1-u1'].best === 7, 'finishing unit 1 opens unit 2 only');
   const sAll = CS.applyLog(s0, U.map((u, i) => ({ t: T0 + i, kind: 'unit', unit: u.id, score: 6 })));
   check(CS.gameDayOpen(sAll, U), 'all 7 units done opens Game Day');
+  // A7. Coach bubbles point at something (the dad: "visible arrows to where the student should be
+  // looking"). Every rank-1 chalk-talk bubble, every lesson callout and every walkthrough prompt has a
+  // focus, and every token resolves on its own play: players that exist, groups with members, field
+  // features that are in the camera's window.
+  {
+    const unresolved = [];
+    const tryTok = (play, tok, t, where) => { const r = CS.focusOf(play, tok, t); if (!r) unresolved.push(`${where}:${tok}`); else if (r.ids && r.ids.some((id) => !CS.compile(play).byId[id])) unresolved.push(`${where}:${tok}(ids)`); else if (r.marks && r.marks.some((m) => !(m.at.y > CS.VIEW.Y0 && m.at.y < CS.VIEW.Y1 && m.at.x >= 0 && m.at.x <= CS.FIELD_W))) unresolved.push(`${where}:${tok}(off-window)`); };
+    let nB = 0, nC = 0, nW = 0;
+    for (const u of U) {
+      for (const c of u.cards) {
+        const play = L.PLAYS[c.play || u.play];
+        if (!(c.say && c.say.length)) unresolved.push(`${u.id}:${c.title}: no bubbles`);
+        for (const b of c.say || []) { nB++; if (!b.focus.length) unresolved.push(`${u.id}:${c.title}: a bubble points at nothing`); for (const tok of b.focus) tryTok(play, tok, -1.2, u.id + ':' + c.title); }
+      }
+      const lp = L.PLAYS[u.play];
+      for (const k of lp.callouts) { nC++; const fs2 = Array.isArray(k.focus) ? k.focus : [k.focus]; if (!fs2.length) unresolved.push(`${lp.id}@${k.t}: nothing`); for (const tok of fs2) tryTok(lp, tok, k.t, lp.id + '@' + k.t); }
+      for (const w of u.walk) { nW++; if (!(w.look && w.look.length)) unresolved.push(`${u.id} walk: no look`); for (const tok of w.look || []) tryTok(lp, tok, -1.2, u.id + ' walk'); if ((w.look || []).includes(w.answer)) unresolved.push(`${u.id} walk points at its own answer ${w.answer}`); }
+    }
+    check(nB >= 60 && nC === 21 && nW === 18 && unresolved.length === 0, `every one of ${nB} chalk-talk bubbles, ${nC} callouts and ${nW} walkthrough prompts points at something that resolves (none at its own answer) ${unresolved.slice(0, 6).join(', ')}`);
+    // The resolver itself, by hand. r1-field: ball on the left hash at the opponent's 18 (spot 82).
+    const RF = L.PLAYS['r1-field'];
+    const hl = CS.focusOf(RF, 'hash:L', -1.2), rz = CS.focusOf(RF, 'redzone', -1.2), nm = CS.focusOf(RF, 'numbers:L', -1.2), fsd = CS.focusOf(RF, 'field', -1.2);
+    check(hl.marks[0].at.x === 23.58 && Math.abs((82 + hl.marks[0].at.y) % 5) > 0, `hash:L points at a real tick on x 23.58 (yard line ${82 + hl.marks[0].at.y}, not a 5-yard line)`);
+    // Red zone: opponent's 20 = absolute 80 = y 80 - 82 = -2; goal line 100 - 82 = 18; the window ends at 19.57.
+    check(rz.marks[0].at.y === -2 && rz.marks[0].hl.y0 === -2 && rz.marks[0].hl.y1 === 18, `redzone runs from the 20 (y -2) to the goal line (y 18) (${rz.marks[0].hl.y0}..${rz.marks[0].hl.y1})`);
+    // Far numbers centred on x 13; nearest 10-yard line to the LOS in the window is absolute 80 (the "20"): y -2.
+    check(nm.marks[0].at.x === 13 && nm.marks[0].at.y === -2, `numbers:L is the far-side "20" at (13, -2) (${nm.marks[0].at.x}, ${nm.marks[0].at.y})`);
+    // Ball on the left hash: the field (wide) side is the right, x from 23.58 + 1.5 to 53.33.
+    check(Math.abs(fsd.frame.x0 - 25.08) < 1e-9 && fsd.frame.x1 === 53.33, `field side with the ball on the left hash is x 25.08..53.33 (${fsd.frame.x0}..${fsd.frame.x1})`);
+    check(CS.focusOf(L.PLAYS['r1-ol'], 'field', -1.2) === null && CS.focusOf(L.PLAYS['r1-ol'], 'redzone', -1.2) === null && CS.focusOf(RF, 'nobody', -1.2) === null, 'no field side with the ball in the middle, no red zone at the own 25, unknown tokens resolve to null');
+    const ol = CS.focusOf(L.PLAYS['r1-ol'], 'ol', -1.2);
+    check(ol.bracket && JSON.stringify(ol.ids.slice().sort()) === JSON.stringify(['C', 'LG', 'LT', 'RG', 'RT']), 'the OL group is the five linemen, bracketed');
+    // The camera, by hand. W 400, H 836. A rect x 100..140, y 400..490 with a 40 px margin:
+    // 400 / (40 + 80) = 3.33, 836 / (90 + 80) = 4.92 -> 3.33, capped at zmax 3, stepped to 3.
+    // Centre (120, 445); at z 3 the half view is 66.7 x 139.3, so the centre is already legal.
+    const cf = CS.camFrame({ x0: 100, x1: 140, y0: 400, y1: 490 }, 400, 836, { margin: 40, zmax: 3, step: 0.25 });
+    check(cf.z === 3 && cf.cx === 120 && cf.cy === 445, `camFrame zooms a 40x90 px box to z 3 centred on it (${JSON.stringify(cf)})`);
+    // A wide box: 400 / (300 + 80) = 1.05 -> floor to the 0.25 step -> 1.
+    check(CS.camFrame({ x0: 50, x1: 350, y0: 100, y1: 140 }, 400, 836, { margin: 40 }).z === 1, 'a box nearly the window wide gets no zoom');
+    // fill 0.55: a tall column (the seven on the line, 300 px) may take at most 55% of the view's height:
+    // 0.55 * 836 / 300 = 1.53 -> step 1.5 (without fill it would be 836 / 380 = 2.2 -> 2, leaving no room for its bubble).
+    check(CS.camFrame({ x0: 120, x1: 140, y0: 100, y1: 400 }, 400, 836, { margin: 40, fill: 0.55 }).z === 1.5 && CS.camFrame({ x0: 120, x1: 140, y0: 100, y1: 400 }, 400, 836, { margin: 40 }).z === 2, 'fill keeps a tall target to 55% of the view (z 1.5, not 2)');
+    // A corner box clamps: x 0..20, y 0..20 at z 3 -> centre clamped to (66.67, 139.33).
+    const cc = CS.camFrame({ x0: 0, x1: 20, y0: 0, y1: 20 }, 400, 836, { margin: 40 });
+    check(near(cc.cx, 400 / 6, 1e-9) && near(cc.cy, 836 / 6, 1e-9), `a corner target clamps the camera inside the world (${cc.cx.toFixed(2)}, ${cc.cy.toFixed(2)})`);
+    check(CS.ease(0) === 0 && CS.ease(1) === 1 && CS.ease(0.5) === 0.5 && near(CS.ease(0.25), 0.0625, 1e-12), 'ease: 0, 1, 0.5 -> 0.5, 0.25 -> 4 * 0.25^3 = 0.0625');
+    const A = { cx: 200, cy: 418, z: 1 }, Bc = { cx: 120, cy: 445, z: 3 }, mid = CS.camLerp(A, Bc, 0.5);
+    check(near(mid.z, Math.sqrt(3), 1e-12) && mid.cx === 160 && near(mid.cy, 431.5, 1e-9), `camLerp halfway: zoom sqrt(3) (geometric), centre halfway (${mid.z.toFixed(4)}, ${mid.cx}, ${mid.cy})`);
+    // Bubble placement: a 300 x 600 box, a target in the middle; the bubble avoids it and stays inside.
+    const tgt = { rect: { l: 140, r: 160, t: 290, b: 330 }, pt: { x: 150, y: 310 } };
+    const pb = CS.placeBubble({ W: 300, H: 600, w: 260, h: 80, targets: [tgt], avoid: [], pad: 6, gap: 38 });
+    const inter = (b, r) => b.x < r.r && b.x + 260 > r.l && b.y < r.b && b.y + 80 > r.t;
+    check(pb.ok && !inter(pb, tgt.rect) && pb.x >= 6 && pb.y >= 6 && pb.x + 260 <= 294 && pb.y + 80 <= 594, `placeBubble keeps off its target and inside the box (${pb.x}, ${pb.y})`);
+    // A target hugging the top: the only room is below it.
+    const top = { rect: { l: 100, r: 200, t: 0, b: 520 }, pt: { x: 150, y: 260 } };
+    const pt2 = CS.placeBubble({ W: 300, H: 600, w: 260, h: 60, targets: [top], avoid: [], pad: 6, gap: 38 });
+    check(pt2.ok && pt2.y >= 520, `a target filling the top 520 px puts the bubble under it (y ${pt2.y})`);
+    const tl = CS.tailOf({ x: 20, y: 100, w: 200, h: 60 }, { x: 150, y: 260 }, 9);
+    check(tl.y0 === 160 && tl.x0 === 150 && near(Math.hypot(150 - tl.x1, 260 - tl.y1), 9, 1e-9), `tailOf leaves the bubble's bottom edge and stops 9 px short (${JSON.stringify(tl)})`);
+  }
+
   // Reading text is never drawn with the 8-bit font (dad's directive): no pixel-text helper left in the drawing code.
   const fieldSrc = fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-field.js'), 'utf8'), uiSrc = fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-ui.js'), 'utf8');
   check(!/pixText\s*\(/.test(fieldSrc) && !/pixText\s*\(/.test(uiSrc), 'no pixText( in cs-field.js or cs-ui.js: callouts, cards and prompts use the body font');
@@ -511,6 +578,10 @@ async function sectionB() {
     });
     const fits = (L) => L.sh <= L.ih && L.sw <= L.iw && L.fh >= 200 && L.panelClip <= 1 && L.actBottom <= L.ih;
     const mode = (pg) => pg.evaluate(() => window.__CS__.ui.mode);
+    // Coach bubbles (phase 2b): the camera eases for ~0.5 s before a bubble shows; wait it out.
+    const still = (pg) => pg.waitForFunction(() => !window.__CS__.field.camAnimating, { timeout: 5000 }).then(() => settle(pg, 30));
+    // The words a player is shown after an answer: the coach bubble when there is one, else the panel line.
+    const fbText = (pg) => pg.evaluate(() => { const b = document.getElementById('bubble'); const t = b && b.offsetParent !== null ? b.textContent : document.getElementById('stFb').innerText; return t.replace(/\s+/g, ' ').trim(); });
     const settle = (pg, ms = 120) => pg.evaluate((ms) => new Promise((r) => setTimeout(r, ms)), ms);
     // A real touch on a player's painted sprite: the centre of his opaque bounding box.
     const tapPlayer = async (pg, id, where = 'centre') => {
@@ -520,6 +591,7 @@ async function sectionB() {
       await settle(pg, 60);
       return { x, y };
     };
+    const measure2 = (pg) => pg.evaluate(() => { const g = window.__CS__.coach; return g ? { tone: g.tone, targets: g.targets, text: document.getElementById('bubble').textContent.replace(/\s+/g, ' ') } : null; });
     const visibleSmall = (pg) => pg.evaluate(() => [...document.querySelectorAll('button, a, input')].filter((e) => e.offsetParent !== null && !e.closest('[hidden]')).map((e) => { const r = e.getBoundingClientRect(); return { id: e.id || e.className || e.textContent.trim().slice(0, 12), w: Math.round(r.width), h: Math.round(r.height) }; }).filter((r) => r.w < 44 || r.h < 44));
     const EMOJI2 = /\p{Extended_Pictographic}/u;
     const textEmoji = (pg) => pg.evaluate(() => document.body.innerText).then((t) => EMOJI2.test(t));
@@ -558,10 +630,13 @@ async function sectionB() {
       for (const u of unitIds) {
         await pl.evaluate((id) => { location.hash = '#unit/' + id; }, u.id);
         await settle(pl);
-        for (let i = 0; i < u.cards; i++) {
+        // RESTAGED (coach bubbles): a card is now a run of 1-4 bubbles and Next walks them, so the
+        // step count is the number of bubbles, not cards. Every bubble screen is held to the same fit rule.
+        for (let i = 0; i < 40; i++) {
+          const mc = await mode(pl);
+          if (mc.kind !== 'card') break;
           const L = await layout(pl); steps++; minField = Math.min(minField, L.fh);
-          if (!fits(L)) bad.push(`${u.id} card ${i + 1}: ${JSON.stringify(L)}`);
-          if (u.id === 'r1-u3' && i === 0) await plate(pl, 'cs2-chalk-card.png');
+          if (!fits(L)) bad.push(`${u.id} card step ${mc.step} bubble ${mc.bubble}: ${JSON.stringify(L)}`);
           await pl.evaluate(() => window.__CS__.ui.next()); await settle(pl, 40);
         }
         const mw = await mode(pl);
@@ -580,9 +655,11 @@ async function sectionB() {
         for (let j = 0; j < u.walk.length; j++) {
           const Lk = await layout(pl); steps++; minField = Math.min(minField, Lk.fh);
           if (!fits(Lk)) bad.push(`${u.id} walk ${j + 1}: ${JSON.stringify(Lk)}`);
+          await still(pl);
           await tapPlayer(pl, u.walk[j]); walkTaps++;
-          const got = await pl.evaluate(() => document.getElementById('stFb').className);
-          if (/good/.test(got)) walkOk++;
+          // RESTAGED (coach bubbles): "Right." is now a green bubble on the player, not the panel line.
+          const got = await pl.evaluate(() => window.__CS__.saying);
+          if (got && got.tone === 'good') walkOk++;
           await pl.evaluate(() => window.__CS__.ui.next()); await settle(pl, 60);
         }
         const mp = await mode(pl);
@@ -654,7 +731,8 @@ async function sectionB() {
       const pz0 = await px.evaluate(() => { const m = window.__CS__.ui.mode, pz = window.CS.RANK_DATA[0].units[2].puzzles[0]; return { id: m.pz, type: pz.type, truth: window.CS.puzzleTypes.tap.truth(pz), xp: window.__CS__.ui.state.xp }; });
       check(pz0.id === 'r1-u3-p1' && pz0.type === 'tap' && pz0.xp === 0, `the OL puzzle set opens on its first tap puzzle from a clean state (${pz0.id}, xp ${pz0.xp})`);
       await tapPlayer(px, pz0.truth);
-      const a1 = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText }));
+      const a1 = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode }));
+      a1.fb = await fbText(px);
       check(a1.xp === 10 && a1.m.done && a1.m.ok, `a real touch on the ${pz0.truth} sprite pays exactly +10 XP (xp ${a1.xp}; "${a1.fb.replace(/\s+/g, ' ').slice(0, 60)}")`);
       check(await px.evaluate(() => window.__CS__.playing), 'after the answer, the play runs');
       await px.evaluate(() => window.__CS__.ui.next()); await settle(px, 60);
@@ -663,14 +741,17 @@ async function sectionB() {
       if (pz1.type === 'tap') {
         const wrongId = pz1.truth === 'LG' ? 'RG' : 'LG';
         await tapPlayer(px, wrongId);
-        const w = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText.replace(/\s+/g, ' '), marks: window.__CS__.field.marks }));
+        // RESTAGED (coach bubbles): the miss is told in a red bubble on the man he tapped; fbText reads it.
+        const w = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, marks: window.__CS__.field.marks }));
+        w.fb = await fbText(px);
         check(w.xp === 10 && !w.m.done && w.m.tryNo === 2 && /One more try/.test(w.fb) && w.marks.some((k) => k.id === wrongId && k.kind === 'bad'), `a first wrong tap names the pick, rings it red, pays nothing, keeps the question open ("${w.fb}")`);
         if (PLATES) { await plate(px, 'cs2-wrong-first-try.png'); }
         await tapPlayer(px, pz1.truth);
       } else {
         const wrongI = pz1.answer === 0 ? 1 : 0;
         await px.evaluate((i) => document.getElementById('stOpts').children[i].click(), wrongI); await settle(px, 40);
-        const w = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText.replace(/\s+/g, ' ') }));
+        const w = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode }));
+        w.fb = await fbText(px);
         check(w.xp === 10 && !w.m.done && w.m.tryNo === 2 && /One more try/.test(w.fb), `a first wrong option pays nothing and keeps the question open ("${w.fb}")`);
         await px.evaluate((i) => document.getElementById('stOpts').children[i].click(), pz1.answer); await settle(px, 40);
       }
@@ -685,7 +766,8 @@ async function sectionB() {
       } else {
         await px.evaluate(() => window.__CS__.ui.answer(false)); await settle(px, 30); await px.evaluate(() => window.__CS__.ui.answer(false)); await settle(px, 30);
       }
-      const a3 = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText.replace(/\s+/g, ' '), good: window.__CS__.field.marks.filter((k) => k.kind === 'good').length, playing: window.__CS__.playing }));
+      const a3 = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, good: window.__CS__.field.marks.filter((k) => k.kind === 'good').length, playing: window.__CS__.playing }));
+      a3.fb = await fbText(px);
       check(a3.xp === 15 && a3.m.done && a3.m.ok === false && /^The answer: /.test(a3.fb) && (pz2.type !== 'tap' || a3.good === 1), `two misses: +0, the reveal names the answer ("${a3.fb.slice(0, 50)}"), the play runs (${a3.playing})`);
       await px.evaluate(() => window.__CS__.seek(-0.4));
       await plate(px, 'cs2-wrong-reveal.png');
@@ -698,15 +780,18 @@ async function sectionB() {
     }
 
     // B12. Callouts are reading text: an HTML overlay in the body font, big enough, inside the field, text inside its box.
+    // RESTAGED (coach bubbles): the overlay is now the coach bubble (#bubble), placed by the field next to
+    // what it talks about, instead of the #callout strip pinned to the top or bottom edge. Same rules.
     console.log('\n[B12] callouts in the body font');
     {
       const { page: pc, errors: ec } = await open(PHONE, { hash: '#unit/r1-u3', storage: USER });
       await settle(pc);
-      for (let i = 0; i < 4; i++) { const m = await mode(pc); if (m.kind === 'watch') break; await pc.evaluate(() => window.__CS__.ui.next()); await settle(pc, 40); }
+      // RESTAGED: up to 40 presses to reach the watch step (was 4): a card is now a run of bubbles.
+      for (let i = 0; i < 40; i++) { const m = await mode(pc); if (m.kind === 'watch') break; await pc.evaluate(() => window.__CS__.ui.next()); await settle(pc, 40); }
       await pc.evaluate(() => window.__CS__.ui.next());
-      await pc.waitForFunction(() => { const c = document.getElementById('callout'); return c.offsetParent !== null && c.textContent.length > 0; }, { timeout: 4000 });
+      await pc.waitForFunction(() => { const c = document.getElementById('bubble'); return window.__CS__.field.atNote && c.offsetParent !== null && c.textContent.length > 0; }, { timeout: 4000 });
       const co = await pc.evaluate(() => {
-        const el = document.getElementById('callout'), cs = getComputedStyle(el), body = getComputedStyle(document.body).getPropertyValue('--font-body').trim();
+        const el = document.getElementById('bubble'), cs = getComputedStyle(el), body = getComputedStyle(document.body).getPropertyValue('--font-body').trim();
         const rg = document.createRange(); rg.selectNodeContents(el); const ink = rg.getBoundingClientRect(), box = el.getBoundingClientRect(), cv = document.getElementById('cs-stage').getBoundingClientRect();
         return { ff: cs.fontFamily, body, fs: parseFloat(cs.fontSize), ink: { l: ink.left, r: ink.right, t: ink.top, b: ink.bottom }, box: { l: box.left, r: box.right, t: box.top, b: box.bottom }, cv: { l: cv.left, r: cv.right, t: cv.top, b: cv.bottom }, text: el.textContent, playing: window.__CS__.playing };
       });
@@ -716,9 +801,10 @@ async function sectionB() {
       check(co.ink.l >= co.box.l - 0.5 && co.ink.r <= co.box.r + 0.5 && co.ink.t >= co.box.t - 0.5 && co.ink.b <= co.box.b + 0.5, 'the callout text (measured with a Range) sits inside its box');
       check(co.box.l >= co.cv.l - 0.5 && co.box.r <= co.cv.r + 0.5 && co.box.t >= co.cv.t - 0.5 && co.box.b <= co.cv.b + 0.5, 'the callout box sits inside the field');
       check(!co.playing, `the watch step stops at the note ("${co.text.slice(0, 40)}")`);
-      // The panel text and options are the body font too.
+      // The panel text and options are the body font too (RESTAGED: the chalk talk itself moved into
+      // bubbles; the panel's one line is now the watch step's instruction).
       const ff = await pc.evaluate(() => ({ p: getComputedStyle(document.getElementById('stText')).fontFamily, body: getComputedStyle(document.body).getPropertyValue('--font-body').trim() }));
-      check(first(ff.p) === first(ff.body), 'the chalk-talk panel text is the body font');
+      check(first(ff.p) === first(ff.body), 'the panel text is the body font');
       check(ec.length === 0, 'zero page errors on the callout');
       await pc.close();
     }
@@ -849,6 +935,216 @@ async function sectionB() {
       check(kit.length >= 20 && worst.dist >= 22, `on all ${kit.length} rank-1 plays the two teams' sprites differ (worst ${worst.id}: ${worst.dist.toFixed(0)}, need 22)`);
       check(ek.length === 0, 'zero page errors through the film room');
       await pk.close();
+    }
+
+    // B16. REGRESSION, from the dad's phone playtest of PR #182: "I got stuck on the first lesson -- when
+    // hitting play nothing happens." Every lesson play opened with two callouts BEFORE the snap
+    // (t -1.0 and -0.5, the clock starting at -1.2), so a press of Play ran 0.2 s and then 0.5 s of a
+    // frozen pre-snap picture and stopped again, and the button went back to reading "Play". With
+    // Reduce Motion on (common on iPhones) each press waited a further 1.2 s before its first step.
+    // Driven like a user: a real click on the main button of every rank-1 watch step. Each press must
+    // change something he can see within 400 ms (the camera moved, a new note appeared, or a player
+    // moved half a yard), the play must reach its end within (#callouts + 2) presses, and while it is
+    // stopped on a note the button must say "Next", not "Play".
+    console.log('\n[B16] every press on a watch step visibly does something');
+    for (const reduced of [false, true]) {
+      const { page: pw, errors: ew } = await open(PHONE, { hash: '#map', storage: USER, reduced });
+      const units = await pw.evaluate(() => window.CS.RANK_DATA[0].units.map((u) => ({ id: u.id, k: (window.CS.lib.PLAYS[u.play].callouts || []).length })));
+      const snap = () => pw.evaluate(() => {
+        const C = window.__CS__, f = C.field, cam = f.camera ? { ...f.camera } : null;
+        const notes = [...document.querySelectorAll('#callout, .bubble')].filter((e) => e.offsetParent !== null).map((e) => e.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
+        const P = C.play ? window.CS.poseAt(C.play, C.t).players : {};
+        return { cam, notes, pose: P, t: C.t, T: C.T, playing: C.playing, label: document.getElementById('btnMain').textContent.replace(/\s+/g, ' ').trim(), animating: !!(f.camAnimating) };
+      });
+      const changed = (a, b) => {
+        const cam = a.cam && b.cam && (Math.abs(a.cam.z - b.cam.z) > 0.01 || Math.hypot(a.cam.cx - b.cam.cx, a.cam.cy - b.cam.cy) > 1);
+        const note = !!b.notes && b.notes !== a.notes;
+        const moved = Object.keys(b.pose).some((id) => a.pose[id] && Math.hypot(b.pose[id].x - a.pose[id].x, b.pose[id].y - a.pose[id].y) >= 0.5);
+        return cam || note || moved;
+      };
+      const dead = [], slow = [], liars = [];
+      for (const u of units) {
+        await pw.evaluate((id) => { location.hash = '#unit/' + id; }, u.id); await settle(pw);
+        for (let i = 0; i < 40; i++) { const m = await mode(pw); if (m.kind === 'watch') break; await pw.evaluate(() => window.__CS__.ui.next()); await settle(pw, 20); }
+        let presses = 0, end = false;
+        while (!end && presses < u.k + 4) {
+          const before = await snap();
+          await pw.click('#btnMain'); presses++;
+          let seen = false;
+          const t0 = Date.now();
+          while (Date.now() - t0 < 400) { await settle(pw, 25); if (changed(before, await snap())) { seen = true; break; } }
+          if (!seen) dead.push(`${u.id} press ${presses} (t ${before.t.toFixed(2)})`);
+          // Let it run to its next stop: a note or the end.
+          let s = await snap();
+          for (let w = 0; w < 300 && (s.playing || s.animating); w++) { await settle(pw, 50); s = await snap(); }
+          end = s.t >= s.T - 1e-6;
+          if (!end && s.notes && s.label !== 'Next') liars.push(`${u.id} press ${presses}: stopped on a note, button reads "${s.label}"`);
+        }
+        if (!end || presses > u.k + 2) slow.push(`${u.id}: ${end ? 'ended' : 'NOT ended'} after ${presses} presses (${u.k} callouts)`);
+      }
+      const tag = reduced ? ' (reduced motion)' : '';
+      check(dead.length === 0, `every press of the main button on a rank-1 watch step changes the picture within 400 ms${tag} ${dead.slice(0, 6).join(', ')}`);
+      check(slow.length === 0, `every rank-1 watch play reaches its end within callouts + 2 presses${tag} ${slow.slice(0, 4).join(' | ')}`);
+      check(liars.length === 0, `stopped on a note, the main button reads "Next"${tag} ${liars.slice(0, 3).join(' | ')}`);
+      check(ew.length === 0, `zero page errors pressing through the watch steps${tag} ${JSON.stringify(ew.slice(0, 3))}`);
+      await pw.close();
+    }
+
+    // B17. Coach bubbles and the camera, on every rank-1 chalk-talk bubble, watch note and walkthrough
+    // prompt. Geometry the eye checks, measured: the bubble sits inside the field and off the controls,
+    // covers none of its own targets, its text (a Range) fits inside it, and each arrow ends within
+    // 12 px of its target's screen point, which is inside the field and outside the bubble. The target
+    // points are recomputed here independently of the field's own bookkeeping: a player's from his
+    // sprite box, a feature's from CS.focusOf's yards through yardToScreen, a group's must lie on the
+    // edge of the union of its members' sprites. After every zoom the yardToScreen -> hitTest round trip
+    // still returns every player whose feet are on screen, and screenToYard still inverts it.
+    console.log('\n[B17] coach bubbles and the camera');
+    {
+      const { page: pb, errors: eb } = await open(PHONE, { hash: '#map', storage: USER });
+      const measure = () => pb.evaluate(() => {
+        const C = window.__CS__, CS = window.CS, g = C.coach, el = document.getElementById('bubble');
+        if (!g) return { none: true, saying: C.saying };
+        const bt = el.querySelector('.bt'), rg = document.createRange(); rg.selectNodeContents(bt);
+        const ink = rg.getBoundingClientRect(), box = el.getBoundingClientRect(), act = document.getElementById('stActions').getBoundingClientRect();
+        const exp = g.targets.map((t) => {
+          if (t.kind === 'player') { const q = C.spriteRect(t.id); return { kind: 'player', x: (q.left + q.right) / 2, y: (q.top + q.bottom) / 2 }; }
+          if (t.kind === 'group') {
+            let U = null; for (const id of t.ids) { const q = C.spriteRect(id); U = U ? { l: Math.min(U.l, q.left), r: Math.max(U.r, q.right), t: Math.min(U.t, q.top), b: Math.max(U.b, q.bottom) } : { l: q.left, r: q.right, t: q.top, b: q.bottom }; }
+            const inX = t.pt.x >= U.l - 8 && t.pt.x <= U.r + 8, inY = t.pt.y >= U.t - 8 && t.pt.y <= U.b + 8;
+            const edge = Math.min(Math.abs(t.pt.x - U.l), Math.abs(t.pt.x - U.r), Math.abs(t.pt.y - U.t), Math.abs(t.pt.y - U.b));
+            return { kind: 'group', onEdge: inX && inY && edge <= 8 };
+          }
+          const f = CS.focusOf(C.play, t.tok, C.t); let best = null;
+          for (const m of f.marks) { const p = C.yardToScreen(m.at.x, m.at.y), d = Math.hypot(p.x - t.pt.x, p.y - t.pt.y); if (!best || d < best.d) best = { kind: 'feature', x: p.x, y: p.y, d }; }
+          return best;
+        });
+        // Camera round trip: every player whose feet are on the field box.
+        const pose = CS.poseAt(C.play, C.t).players, rt = [];
+        for (const [id, q] of Object.entries(pose)) {
+          const s2 = C.yardToScreen(q.x, q.y);
+          if (s2.x < g.box.l + 2 || s2.x > g.box.r - 2 || s2.y < g.box.t + 2 || s2.y > g.box.b - 2) continue;
+          const back = C.screenToYard(s2.x, s2.y);
+          rt.push({ id, hit: C.hitTest(s2.x, s2.y), err: Math.hypot(back.x - q.x, back.y - q.y) });
+        }
+        return { g, ink: { l: ink.left, r: ink.right, t: ink.top, b: ink.bottom }, box: { l: box.left, r: box.right, t: box.top, b: box.bottom }, act: { l: act.left, r: act.right, t: act.top, b: act.bottom }, fs: parseFloat(getComputedStyle(el).fontSize), exp, rt, cam: C.camera, text: el.textContent };
+      });
+      const hit = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+      const probs = [], rtBad = [];
+      let n = 0, zoomed = 0, rtN = 0;
+      const audit = (where, m) => {
+        n++;
+        if (m.none) { probs.push(`${where}: no bubble on screen (${JSON.stringify(m.saying)})`); return; }
+        const { g } = m, B = g.bubble, X = g.box;
+        if (m.cam.z > 1.01) zoomed++;
+        if (!g.targets.length) probs.push(`${where}: the bubble points at nothing`);
+        if (!g.ok) probs.push(`${where}: placement found no clean spot`);
+        if (B.l < X.l - 0.5 || B.r > X.r + 0.5 || B.t < X.t - 0.5 || B.b > X.b + 0.5) probs.push(`${where}: bubble leaves the field ${JSON.stringify(B)} ${JSON.stringify(X)}`);
+        if (Math.abs(m.box.l - B.l) > 1 || Math.abs(m.box.t - B.t) > 1) probs.push(`${where}: the bubble element is not where the field placed it`);
+        if (hit(m.box, m.act)) probs.push(`${where}: bubble covers the controls`);
+        if (m.ink.l < m.box.l - 0.5 || m.ink.r > m.box.r + 0.5 || m.ink.t < m.box.t - 0.5 || m.ink.b > m.box.b + 0.5) probs.push(`${where}: text overflows its bubble`);
+        if (m.fs < 15) probs.push(`${where}: bubble text ${m.fs}px`);
+        g.targets.forEach((t, i) => {
+          if (hit(B, t.rect)) probs.push(`${where}: bubble covers its target ${t.tok}`);
+          const d = Math.hypot(t.tail.x - t.pt.x, t.tail.y - t.pt.y);
+          if (d > 12) probs.push(`${where}: arrow to ${t.tok} ends ${d.toFixed(1)} px from it`);
+          if (Math.hypot(t.tail.x - t.tail.x0, t.tail.y - t.tail.y0) < 14) probs.push(`${where}: arrow to ${t.tok} is too short to see`);
+          if (t.pt.x < X.l || t.pt.x > X.r || t.pt.y < X.t || t.pt.y > X.b) probs.push(`${where}: ${t.tok} is off the field box`);
+          if (t.pt.x > B.l && t.pt.x < B.r && t.pt.y > B.t && t.pt.y < B.b) probs.push(`${where}: ${t.tok}'s point is under the bubble`);
+          const e = m.exp[i];
+          if (!e) probs.push(`${where}: ${t.tok} did not resolve independently`);
+          else if (e.kind === 'group' ? !e.onEdge : Math.hypot(e.x - t.pt.x, e.y - t.pt.y) > 1.5) probs.push(`${where}: ${t.tok} point disagrees with the independent one ${JSON.stringify(e)} vs ${JSON.stringify(t.pt)}`);
+        });
+        rtN += m.rt.length;
+        for (const r of m.rt) if (r.hit !== r.id || r.err > 1e-6) rtBad.push(`${where}:${r.id}->${r.hit}`);
+      };
+      const units = await pb.evaluate(() => window.CS.RANK_DATA[0].units.map((u) => ({ id: u.id, walk: u.walk.map((w) => w.answer) })));
+      for (const u of units) {
+        await pb.evaluate((id) => { location.hash = '#unit/' + id; }, u.id); await settle(pb);
+        for (let i = 0; i < 40; i++) {
+          const mc = await mode(pb);
+          if (mc.kind !== 'card') break;
+          await still(pb);
+          audit(`${u.id} card ${mc.step + 1}.${mc.bubble + 1}`, await measure());
+          if (u.id === 'r1-u1' && mc.step === 1 && mc.bubble === 0) await plate(pb, 'cs3-card-hash-marks.png');
+          if (u.id === 'r1-u3' && mc.step === 0 && mc.bubble === 0) await plate(pb, 'cs3-card-ol-group.png');
+          await pb.evaluate(() => window.__CS__.ui.next()); await settle(pb, 30);
+        }
+        // Watch: the main button, a note at a time.
+        for (let p = 0; p < 6; p++) {
+          await pb.click('#btnMain');
+          if (u.id === 'r1-u1' && p === 0) { await settle(pb, 230); await plate(pb, 'cs3-watch-mid-zoom.png'); }
+          await pb.waitForFunction(() => !window.__CS__.playing && !window.__CS__.field.camAnimating, { timeout: 15000 }); await settle(pb, 40);
+          if (await pb.evaluate(() => window.__CS__.field.atNote)) {
+            audit(`${u.id} note ${p + 1}`, await measure());
+            if (u.id === 'r1-u1' && p === 0) await plate(pb, 'cs3-watch-zoomed.png');
+            if (u.id === 'r1-u1' && p === 2) {
+              // The play running zoomed out: one press on from the last note, partway down the field.
+              await pb.click('#btnMain'); await settle(pb, 650);
+              const z = await pb.evaluate(() => ({ z: window.__CS__.camera.z, playing: window.__CS__.playing }));
+              check(z.z === 1, `the play runs with the camera zoomed all the way out (z ${z.z}, playing ${z.playing})`);
+              await plate(pb, 'cs3-play-running.png');
+              await pb.waitForFunction(() => !window.__CS__.playing && !window.__CS__.field.camAnimating, { timeout: 15000 });
+            }
+          }
+          if ((await mode(pb)).ended) break;
+        }
+        await pb.evaluate(() => window.__CS__.ui.next()); await settle(pb, 60);
+        for (let j = 0; j < u.walk.length; j++) {
+          await still(pb);
+          audit(`${u.id} walk ${j + 1}`, await measure());
+          if (u.id === 'r1-u3' && j === 0) await plate(pb, 'cs3-walk-prompt.png');
+          await tapPlayer(pb, u.walk[j]); await still(pb);
+          audit(`${u.id} walk ${j + 1} right`, await measure());
+          await pb.evaluate(() => window.__CS__.ui.next()); await settle(pb, 60);
+        }
+      }
+      check(n >= 120 && probs.length === 0, `${n} coach bubbles (${zoomed} zoomed): inside the field, off the controls, off their targets, text fits, every arrow ends within 12 px of its target ${probs.slice(0, 5).join(' | ')}`);
+      check(zoomed >= 60, `the camera zooms in on what a bubble points at (${zoomed} of ${n} bubbles shown zoomed)`);
+      check(rtN >= 500 && rtBad.length === 0, `after every zoom, yardToScreen -> hitTest returns each of ${rtN} on-screen players and screenToYard inverts it ${rtBad.slice(0, 5).join(', ')}`);
+      // A real tap while zoomed: the walkthrough's first prompt on the OL is zoomed; tap the centre's sprite.
+      await pb.evaluate(() => { location.hash = '#unit/r1-u3'; }); await settle(pb);
+      for (let i = 0; i < 40; i++) { const mc = await mode(pb); if (mc.kind === 'walk') break; if (mc.kind === 'watch') { await pb.evaluate(() => { const C = window.__CS__; C.field.pause(); C.seek(C.T - 0.02); C.field.start(); }); await settle(pb, 300); } await pb.evaluate(() => window.__CS__.ui.next()); await settle(pb, 30); }
+      await still(pb);
+      const zt = await pb.evaluate(() => window.__CS__.camera.z);
+      await tapPlayer(pb, 'RG');
+      const wrongZ = await measure2(pb);
+      await tapPlayer(pb, 'C');
+      const rightZ = await measure2(pb);
+      check(zt > 1.5 && wrongZ && wrongZ.tone === 'bad' && /right guard/i.test(wrongZ.text) && rightZ && rightZ.tone === 'good' && /center/i.test(rightZ.text), `zoomed in (z ${zt}), a real tap on the right guard is read as the right guard and a tap on the centre as the centre`);
+      check(eb.length === 0, `zero page errors through the bubbles ${JSON.stringify(eb.slice(0, 3))}`);
+      await pb.close();
+    }
+
+    // B18. Reduced motion: the camera cuts instead of easing, and the bubble is there at once.
+    console.log('\n[B18] reduced motion: cuts, not eases');
+    {
+      const { page: pr, errors: er } = await open(PHONE, { hash: '#unit/r1-u1', storage: USER, reduced: true });
+      await settle(pr);
+      const seen = await pr.evaluate(() => new Promise((res) => {
+        const C = window.__CS__, zs = new Set(), t0 = performance.now();
+        let shownAt = null;
+        const iv = () => { zs.add(C.camera.z.toFixed(3)); const b = document.getElementById('bubble'); if (shownAt === null && b.offsetParent !== null && b.textContent) shownAt = performance.now() - t0; if (performance.now() - t0 < 700) requestAnimationFrame(iv); else res({ zs: [...zs], shownAt, anim: C.field.camAnimating, z: C.camera.z }); };
+        C.ui.next(); requestAnimationFrame(iv);                 // card 1 bubble 1 -> bubble 2: a new focus
+      }));
+      check(seen.zs.length <= 2 && !seen.anim && seen.shownAt !== null && seen.shownAt < 100, `reduced motion: the camera jumps straight to its framing (zooms seen ${seen.zs.join(', ')}) and the bubble shows within 100 ms (${seen.shownAt && seen.shownAt.toFixed(0)} ms)`);
+      check(er.length === 0, 'zero page errors with reduced motion on the stage');
+      await pr.close();
+    }
+
+    // B19. A puzzle's wrong answer is told in a red bubble on the man he tapped (plate).
+    console.log('\n[B19] puzzle feedback bubbles');
+    {
+      const { page: pz, errors: ez } = await open(PHONE, { hash: '#unit/r1-u3/puzzles', storage: USER });
+      await settle(pz);
+      await tapPlayer(pz, 'LG'); await settle(pz, 80);
+      const m = await measure2(pz);
+      check(m && m.tone === 'bad' && m.targets.length === 1 && m.targets[0].id === 'LG' && /left guard/i.test(m.text) && /One more try/.test(m.text), `a wrong tap gets a red bubble pointing at the left guard ("${m && m.text}")`);
+      await plate(pz, 'cs3-puzzle-wrong.png');
+      await tapPlayer(pz, 'C'); await settle(pz, 80);
+      const m2 = await measure2(pz);
+      check(m2 && m2.tone === 'good' && m2.targets[0].id === 'C' && /\+5 XP/.test(m2.text), `right on the second try: a green bubble on the centre with its +5 XP ("${m2 && m2.text.slice(0, 40)}")`);
+      check(ez.length === 0, 'zero page errors on the puzzle bubbles');
+      await pz.close();
     }
   } finally {
     await browser.close();

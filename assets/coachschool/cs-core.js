@@ -396,7 +396,11 @@
       if (c.catchT == null) e.push(`${L}: a throw needs a catch`);
     }
     e.push(...spacingErrors(c.all, L), ...boundsErrors(c.all, L));
-    for (const k of play.callouts || []) if (!c.byId[k.focus]) e.push(`${L}: callout focus ${k.focus} is not on the field`);
+    for (const k of play.callouts || []) {
+      const fs = CS.toArr(k.focus);
+      if (!fs.length) e.push(`${L}: callout at ${k.t} points at nothing`);
+      for (const f of fs) if (!CS.focusOf(play, f, k.t)) e.push(`${L}: callout focus ${f} is not on the field`);
+    }
     if (play.hash != null && !['L', 'R', 'M'].includes(play.hash)) e.push(`${L}: hash must be L, R or M`);
     // CS convention (fact sheet, rank 1): Sam is the strong-side linebacker and the strong safety
     // lines up to the strength. A defense drawn for strength right, played against a strength-left
@@ -457,6 +461,154 @@
   CS.yardLineOf = (spot) => (spot < 50 ? 'own ' + spot : spot > 50 ? 'opp ' + (100 - spot) : 'midfield');
   // Red zone (fact sheet): from the opponent's 20 to the goal line.
   CS.inRedZone = (spot) => spot >= 80 && spot < 100;
+
+  /* ── what a coach points at ── The dad, after his first playtest: "rather than all text being at
+     the bottom, text should be in bubbles with visible arrows to where the student should be
+     looking, and we should zoom in and out when drawing attention to something." A bubble's focus
+     is a list of tokens: a player id ('C', 'Z', 'MIKE'), a group ('ol', 'dl', 'lb', 'line', 'backs'
+     get a bracket; 'db', 'receivers' get an arrow each), or a field feature ('hash:L', 'hash:R',
+     'hashes', 'sideline:L', 'sideline:R', 'numbers:L', 'numbers:R', 'los', 'ball', 'goal', 'yl:20',
+     'redzone', 'field', 'boundary'). CS.focusOf resolves one token to yards; the renderer turns
+     those into screen points. Pure: the suite resolves every lesson's focus in Node. */
+  CS.VIEW = { Y0: -9, Y1: -9 + 400 / 14 };   // the camera's full window along the field, yards from the LOS
+  CS.toArr = (f) => (f == null ? [] : Array.isArray(f) ? f.slice() : [f]);
+  const GROUPS = {
+    ol: { bracket: true, pick: (c) => c.off.filter((p) => CS.OL.includes(p.pos)) },
+    dl: { bracket: true, pick: (c) => c.def.filter((p) => CS.DL.includes(p.pos)) },
+    lb: { bracket: true, pick: (c) => c.def.filter((p) => p.pos === 'LB') },
+    line: { bracket: true, pick: (c) => CS.lineOf(c) },
+    backs: { bracket: true, pick: (c) => c.off.filter((p) => ['QB', 'RB', 'FB'].includes(p.pos)) },
+    db: { bracket: false, pick: (c) => c.def.filter((p) => ['CB', 'S', 'NB'].includes(p.pos)) },
+    receivers: { bracket: false, pick: (c) => c.off.filter((p) => p.pos === 'WR' || p.pos === 'TE') },
+  };
+  CS.FOCUS_GROUPS = Object.keys(GROUPS);
+  CS.focusOf = (play, token, t) => {
+    const c = CS.compile(play), P = CS.poseAt(play, num(t, -1.2)), spot = num(play.spot, 25);
+    const { Y0, Y1 } = CS.VIEW, FW = CS.FIELD_W, pts = Object.values(P.players);
+    const box = (x, y, rx, ry) => ({ x0: x - rx, x1: x + rx, y0: y - ry, y1: y + ry });
+    const bounds = (qs) => ({ x0: Math.min(...qs.map((q) => q.x)), x1: Math.max(...qs.map((q) => q.x)), y0: Math.min(...qs.map((q) => q.y)), y1: Math.max(...qs.map((q) => q.y)) });
+    const free = (x, y, r) => pts.every((q) => Math.hypot(q.x - x, q.y - y) >= r);
+    const range = (a, b, s) => { const o = []; for (let v = a; v <= b + 1e-9; v += s) o.push(Math.round(v * 100) / 100); return o; };
+    const pick = (cands, pref, ok) => { let best = null; for (const v of cands) if (ok(v) && (best === null || Math.abs(v - pref) < Math.abs(best - pref))) best = v; return best; };
+    const inView = (y) => y > Y0 + 0.5 && y < Y1 - 0.5;
+    const feature = (marks, frame) => ({ token, kind: 'feature', marks, frame });
+    if (typeof token !== 'string') return null;
+    if (c.byId[token]) { const q = P.players[token]; return { token, kind: 'player', ids: [token], frame: box(q.x, q.y, 1, 1) }; }
+    if (GROUPS[token]) {
+      const ids = GROUPS[token].pick(c).map((p) => p.id);
+      if (!ids.length) return null;
+      return { token, kind: 'group', ids, bracket: GROUPS[token].bracket, frame: bounds(ids.map((id) => P.players[id])) };
+    }
+    // A hash row: an arrow to one tick of it, a yard from nobody, as near the middle of the window as that allows.
+    const hashY = (xs) => {
+      const ys = range(Math.ceil(Y0 + 2), Math.floor(Y1 - 2), 1).filter((y) => { const a = spot + y; return a > 0 && a < 100 && Math.abs(a % 5) > 1e-6; });
+      return pick(ys, 7, (y) => xs.every((x) => free(x, y, 1.6))) ?? pick(ys, 7, () => true);
+    };
+    const hashMark = (x, y) => ({ at: { x, y }, box: box(x, y, 0.6, 2.5), hl: { kind: 'hline', x } });
+    if (token === 'hash:L' || token === 'hash:R') { const x = token === 'hash:L' ? CS.HASH_L : CS.HASH_R, y = hashY([x]); return feature([hashMark(x, y)], box(x, y, 3, 5)); }
+    if (token === 'hashes') { const y = hashY([CS.HASH_L, CS.HASH_R]); return feature([hashMark(CS.HASH_L, y), hashMark(CS.HASH_R, y)], { x0: CS.HASH_L - 2, x1: CS.HASH_R + 2, y0: y - 5, y1: y + 5 }); }
+    if (token === 'sideline:L' || token === 'sideline:R') {
+      const x = token === 'sideline:L' ? 0 : FW, xi = token === 'sideline:L' ? 1.5 : FW - 1.5;
+      const y = pick(range(Math.ceil(Y0 + 3), Math.floor(Y1 - 3), 1), 5, (v) => free(xi, v, 2)) ?? 5;
+      return feature([{ at: { x, y }, box: box(x, y, 0.6, 2.5), hl: { kind: 'hline', x } }], { x0: Math.min(x, xi) - 2, x1: Math.max(x, xi) + 2, y0: y - 6, y1: y + 6 });
+    }
+    if (token === 'numbers:L' || token === 'numbers:R') {
+      // Fact sheet: numerals 12-14 yd in; the far set is centred on x 13, the near set's bottom is at 12 yd (x 41.33), 1.6 yd tall.
+      const x = token === 'numbers:L' ? 13 : FW - 12.8;
+      const ys = range(10, 90, 10).map((a) => a - spot).filter((y) => y > Y0 + 1.5 && y < Y1 - 1.5);
+      if (!ys.length) return null;
+      const y = pick(ys, 0, () => true);
+      return feature([{ at: { x, y }, box: box(x, y, 0.9, 1.4), hl: { kind: 'ring', x, y, rx: 1.1, ry: 1.6 } }], box(x, y, 4, 5));
+    }
+    if (token === 'los') {
+      const x = pick(range(2, FW - 2, 0.5), c.ballX - 9, (v) => pts.every((q) => Math.abs(q.y) >= 2 || Math.abs(q.x - v) >= 2.2)) ?? 4;
+      return feature([{ at: { x, y: 0 }, box: box(x, 0, 2, 0.6), hl: { kind: 'vline', y: 0 } }], box(x, 0, 5, 5));
+    }
+    if (token === 'ball') { const b = P.ball; return feature([{ at: { x: b.x, y: b.y }, box: box(b.x, b.y, 0.6, 0.6), hl: { kind: 'ring', x: b.x, y: b.y, rx: 0.9, ry: 0.9 } }], box(b.x, b.y, 3, 4)); }
+    const lineAt = (y) => { const x = pick(range(2, FW - 2, 0.5), 40, (v) => free(v, y, 2.2)) ?? 40; return { at: { x, y }, box: box(x, y, 2, 0.6), hl: { kind: 'vline', y } }; };
+    const yl = token === 'goal' ? 100 : /^yl:\d+$/.test(token) ? 100 - Number(token.slice(3)) : null;
+    if (yl != null) { const y = yl - spot; if (!inView(y)) return null; const m = lineAt(y); return feature([m], box(m.at.x, y, 5, 5)); }
+    if (token === 'redzone') {
+      const y20 = 80 - spot, yg = 100 - spot, y0 = Math.max(Y0, y20), y1 = Math.min(Y1, yg);
+      if (!(y1 > y0 + 1)) return null;
+      const m = inView(y20) ? lineAt(y20) : { at: { x: 40, y: (y0 + y1) / 2 }, box: box(40, (y0 + y1) / 2, 1.2, 1.2) };
+      m.hl = { kind: 'rect', x0: 0, x1: FW, y0, y1, tone: 'red' };
+      return feature([m], { x0: 0, x1: FW, y0, y1 });
+    }
+    if (token === 'field' || token === 'boundary') {
+      const fs = CS.fieldSide(c);
+      if (!fs) return null;                                    // ball in the middle: no field side to show
+      const side = token === 'field' ? fs : fs === 'L' ? 'R' : 'L';
+      const x0 = side === 'L' ? 0 : c.ballX + 1.5, x1 = side === 'L' ? c.ballX - 1.5 : FW, xm = (x0 + x1) / 2;
+      const y = pick(range(Math.ceil(Y0 + 3), Math.floor(Y1 - 3), 0.5), 8, (v) => free(xm, v, 2.5)) ?? 8;
+      return feature([{ at: { x: xm, y }, box: box(xm, y, 1.2, 1.2), hl: { kind: 'rect', x0, x1, y0: Y0, y1: Y1, label: token === 'field' ? 'Field' : 'Boundary' } }], { x0, x1, y0: Y0, y1: Y1 });
+    }
+    return null;
+  };
+
+  /* ── the camera ── World pixels; {cx, cy} is the centre of the view, z the zoom (1 = the whole
+     window). Pure, so the renderer's rAF loop only ever asks "where is the camera at u". */
+  CS.ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);   // ease-in-out cubic
+  CS.camClamp = (cam, W, H) => {
+    const z = Math.max(1, cam.z), hw = W / (2 * z), hh = H / (2 * z);
+    return { cx: clamp(cam.cx, hw, W - hw), cy: clamp(cam.cy, hh, H - hh), z };
+  };
+  // Zoom eases geometrically (equal ratios per frame read as an even speed); the centre eases linearly.
+  CS.camLerp = (a, b, u) => {
+    const e = CS.ease(u);
+    return { cx: a.cx + (b.cx - a.cx) * e, cy: a.cy + (b.cy - a.cy) * e, z: a.z * Math.pow(b.z / a.z, e) };
+  };
+  // Frame a world-pixel rect with a margin: the largest zoom that shows it whole, no more than
+  // zmax, rounded DOWN to a `step` so the pixel art scales by tidy amounts. `fill` caps how much of
+  // the view's height the rect may take, leaving room above or below it for the bubble that talks about it.
+  CS.camFrame = (r, W, H, o) => {
+    o = o || {};
+    const m = num(o.margin, 40), zmax = num(o.zmax, 3), step = num(o.step, 0.25), fill = num(o.fill, 1);
+    const zr = Math.min(W / (r.x1 - r.x0 + 2 * m), H / (r.y1 - r.y0 + 2 * m), fill * H / Math.max(1, r.y1 - r.y0));
+    const z = Math.max(1, Math.floor(Math.min(zmax, zr) / step + 1e-9) * step);
+    return CS.camClamp({ cx: (r.x0 + r.x1) / 2, cy: (r.y0 + r.y1) / 2, z }, W, H);
+  };
+
+  /* ── bubble placement ── CSS px inside the field box (W x H). A bubble of w x h goes where it
+     covers none of its targets, stays `pad` inside the box, sits about `gap` from its targets (so
+     the arrow is long enough to see), and covers as few other players (`avoid`) as it can. Every
+     valid spot on a grid is scored; the previous spot is kept while it is still valid and nearly
+     as good, so a bubble following a moving player doesn't hop. A target is {rect: {l, r, t, b},
+     pt: {x, y} | null}; without a point (a bracketed group) the gap is measured to its rect.
+     Returns {x, y, ok}. */
+  const hits = (a, b, m) => a.x < b.r + m && a.x + a.w > b.l - m && a.y < b.b + m && a.y + a.h > b.t - m;
+  const overlapArea = (a, b) => Math.max(0, Math.min(a.x + a.w, b.r) - Math.max(a.x, b.l)) * Math.max(0, Math.min(a.y + a.h, b.b) - Math.max(a.y, b.t));
+  const rectGap = (a, r) => Math.hypot(Math.max(r.l - (a.x + a.w), 0, a.x - r.r), Math.max(r.t - (a.y + a.h), 0, a.y - r.b));
+  const rectDist = (a, p) => Math.hypot(Math.max(a.x - p.x, 0, p.x - (a.x + a.w)), Math.max(a.y - p.y, 0, p.y - (a.y + a.h)));
+  CS.placeBubble = (o) => {
+    const { W, H, w, h } = o, pad = num(o.pad, 6), gap = num(o.gap, 40), targets = o.targets || [], avoid = o.avoid || [];
+    const cx = (t) => (t.pt ? t.pt.x : (t.rect.l + t.rect.r) / 2);   // a group's arrow point is chosen after placement: aim at its rect
+    const mx = targets.length ? targets.reduce((s, t) => s + cx(t), 0) / targets.length : W / 2;
+    const xs = [...new Set([clamp(mx - w / 2, pad, W - pad - w), pad, W - pad - w, clamp((W - w) / 2, pad, W - pad - w)])];
+    const score = (x, y) => {
+      const b = { x, y, w, h };
+      if (x < pad - 0.01 || y < pad - 0.01 || x + w > W - pad + 0.01 || y + h > H - pad + 0.01) return Infinity;
+      if (targets.some((t) => hits(b, t.rect, 6))) return Infinity;
+      let s = 0;
+      for (const t of targets) s += Math.abs((t.pt ? rectDist(b, t.pt) : rectGap(b, t.rect)) - gap);
+      for (const a of avoid) s += overlapArea(b, a) * 0.05;
+      return s;
+    };
+    let best = null;
+    for (let y = pad; y <= H - pad - h + 0.01; y += 4) for (const x of xs) { const s = score(x, y); if (s < Infinity && (!best || s < best.s)) best = { x, y, s }; }
+    if (o.prev && best) { const s = score(o.prev.x, o.prev.y); if (s < best.s + 30) best = { x: o.prev.x, y: o.prev.y, s }; }
+    if (best) return { x: best.x, y: best.y, ok: true };
+    return { x: clamp((W - w) / 2, pad, W - pad - w), y: pad, ok: false };
+  };
+  // The arrow from a bubble {x, y, w, h} to a point: it leaves the bubble's nearest edge (kept 10 px
+  // from its corners) and stops `stop` px short of the point, so the head doesn't sit on a player's face.
+  CS.tailOf = (b, pt, stop) => {
+    const sx = clamp(pt.x, b.x + 10, b.x + b.w - 10), sy = clamp(pt.y, b.y + 8, b.y + b.h - 8);
+    let x0 = sx, y0 = sy;
+    if (pt.y >= b.y + b.h) y0 = b.y + b.h; else if (pt.y <= b.y) y0 = b.y; else x0 = pt.x < b.x ? b.x : b.x + b.w;
+    const d = Math.hypot(pt.x - x0, pt.y - y0) || 1, k = Math.max(0, d - num(stop, 0)) / d;
+    return { x0, y0, x1: x0 + (pt.x - x0) * k, y1: y0 + (pt.y - y0) * k };
+  };
 
   /* ── puzzles ── Each type file (cs-pz-*.js) registers {check, truth, validate}. check() is pure
      and is what the UI and the suite both call. */

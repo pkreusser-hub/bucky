@@ -101,7 +101,7 @@
   }
 
   /* ── the stage field ── */
-  const fopts = { calloutEl: $('callout'), wrap: $('fieldWrap'), pauseAtCallouts: false };
+  const fopts = { bubbleEl: $('bubble'), tailsEl: $('tails'), wrap: $('fieldWrap'), pauseAtCallouts: false };
   const field = CS.mountField($('cs-stage'), Object.assign(fopts, {
     onTap: (id) => onTap(id),
     onState: () => renderPlayButton(),
@@ -159,12 +159,16 @@
   let mainLabel = 'Next';
   function setMain(label) { mainLabel = label; renderPlayButton(); }
   const ICON_PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4l13 8-13 8z"/></svg>';
+  const ICON_NEXT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>';
   const ICON_PAUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
   function renderPlayButton() {
     const m = $('btnMain');
     if (mode && mode.kind === 'watch' && mode.playMain) {
-      m.innerHTML = (field.playing ? ICON_PAUSE : ICON_PLAY) + '<span>' + (field.playing ? 'Pause' : mode.ended ? 'Next' : 'Play') + '</span>';
-      if (mode.ended && !field.playing) m.innerHTML = '<span>Next</span>';
+      // Honest at every stop (dad's playtest: after each note it said "Play" again and a press
+      // seemed to do nothing). Stopped on a note, or at the end, the button moves him on: "Next".
+      if (field.playing) m.innerHTML = ICON_PAUSE + '<span>Pause</span>';
+      else if (mode.ended || field.atNote) m.innerHTML = '<span>Next</span>' + ICON_NEXT;
+      else m.innerHTML = ICON_PLAY + '<span>Play</span>';
     } else m.textContent = mainLabel;
   }
   $('btnPrev').addEventListener('click', () => mode && mode.prev && mode.prev());
@@ -185,12 +189,24 @@
       dots(steps.length, si);
       fopts.pauseAtCallouts = false;
       if (s.k === 'card') {
+        // A chalk-talk card is a run of coach bubbles, each pointing at its own thing with the
+        // camera on it. Next walks the bubbles, then on to the next step; Back walks them back.
         const c = u.cards[s.i], play = L.PLAYS[c.play || u.play];
-        mode = { kind: 'card', unit: u, step: si, main: () => go(1), prev: () => (si ? go(-1) : (location.hash = '#map')) };
+        let bi = s.from === 'end' ? c.say.length - 1 : 0;
+        s.from = null;
+        const sayIt = () => {
+          const b = c.say[bi];
+          field.say({ text: b.text, focus: b.focus, tone: 'note', zoom: true, n: c.say.length > 1 ? `${bi + 1} of ${c.say.length}` : '' });
+          mode.bubble = bi;
+        };
+        mode = { kind: 'card', unit: u, step: si,
+          main: () => { if (bi < c.say.length - 1) { bi++; sayIt(); } else go(1); },
+          prev: () => { if (bi > 0) { bi--; sayIt(); } else if (si) { if (steps[si - 1].k === 'card') steps[si - 1].from = 'end'; go(-1); } else location.hash = '#map'; } };
         field.setPlay(play, { callouts: false });
-        field.setMarks((c.focus || []).map((id) => ({ id, kind: 'focus' })));
-        panel({ step: `${u.title}: chalk talk ${s.i + 1}/${u.cards.length}`, title: c.title, text: c.text });
+        field.setMarks([]);
+        panel({ step: `${u.title}: chalk talk ${s.i + 1}/${u.cards.length}`, title: c.title });
         actions({ prev: true, main: 'Next' });
+        sayIt();
       } else if (s.k === 'watch') {
         const play = L.PLAYS[u.play];
         fopts.pauseAtCallouts = true;
@@ -198,7 +214,7 @@
         mode.main = () => { if (mode.ended && !field.playing) return go(1); if (field.playing) field.pause(); else field.start(); };
         mode.onEnd = () => { mode.ended = true; renderPlayButton(); };
         field.setPlay(play);
-        panel({ step: `${u.title}: watch it`, title: play.name, text: 'Press play. The play stops at each note; press play again to go on.' });
+        panel({ step: `${u.title}: watch it`, title: play.name, text: 'Press Play. It stops at each note; press Next to go on.' });
         actions({ prev: true, replay: true, main: 'Play' });
       } else if (s.k === 'walk') walkthrough(u, () => go(1), () => go(-1));
       else puzzleSet(u);
@@ -209,12 +225,15 @@
     const play = L.PLAYS[u.play];
     let j = 0;
     mode = { kind: 'walk', unit: u, prev };
+    // The prompt is a bubble pointing at where to look (never at the answer itself); the camera
+    // frames that and the answer together, so the player he needs is always on screen.
     function ask() {
       const w = u.walk[j];
       field.setPlay(play, { callouts: false });
       mode.target = w; mode.main = null;
-      panel({ step: `${u.title}: walkthrough ${j + 1}/${u.walk.length}`, text: w.prompt, prompt: true });
+      panel({ step: `${u.title}: walkthrough ${j + 1}/${u.walk.length}` });
       actions({ prev: true });
+      field.say({ text: w.prompt, focus: w.look, frame: [w.answer], tone: 'prompt', zoom: true });
     }
     mode.tap = (id) => {
       const w = u.walk[j];
@@ -224,13 +243,14 @@
         SFX.right();
         mode.target = null;
         field.setMarks([{ id, kind: 'good' }]);
-        feedback('good', [{ tag: 'b', text: 'Right. ' }, nameOf(play, id) + '.']);
+        field.say({ parts: [{ tag: 'b', text: 'Right. ' }, nameOf(play, id) + '.'], focus: [id], tone: 'good' });
         mode.main = () => { j++; if (j < u.walk.length) ask(); else next(); };
         actions({ prev: true, main: j + 1 < u.walk.length ? 'Next' : 'On to the puzzles' });
       } else {
         SFX.wrong();
         field.setMarks(id ? [{ id, kind: 'bad' }] : []);
-        feedback('bad', id ? ['That is the ', { tag: 'b', text: lc(nameOf(play, id)) }, '. Try again.'] : ['No player there. Tap right on him.']);
+        field.say(id ? { parts: ['That is the ', { tag: 'b', text: lc(nameOf(play, id)) }, '. ' + w.prompt], focus: [id], tone: 'bad' }
+          : { parts: ['No player there. Tap right on him. ' + w.prompt], focus: w.look, tone: 'bad' });
       }
     };
     ask();
@@ -261,6 +281,18 @@
     actions({});
     mode = { kind: o.gameDay ? 'gameday' : 'puzzle', pz, tryNo: 1 };
     const rightName = () => (pz.type === 'tap' ? nameOf(play, T.truth(pz)) : pz.options[pz.answer].t);
+    // Where the answer's explanation points: the right player on a tap puzzle, the thing a choice
+    // question is about when there is one. A pure fact question has nothing on the field to show,
+    // so its explanation stays in the panel under the options.
+    function lookOf() {
+      if (pz.type === 'tap') return [T.truth(pz)];
+      if (pz.look) return CS.toArr(pz.look);
+      const c = CS.compile(play), tes = c.off.filter((p) => p.pos === 'TE');
+      const byQ = { fieldSide: ['field'], boundarySide: ['boundary'], redZone: ['redzone'], onLineCount: ['line'], qbAlign: ['QB'],
+        strength: tes.length === 1 ? [tes[0].id] : ['field'], count: pz.pos && pz.pos.includes('LB') ? ['lb'] : pz.pos && pz.pos.includes('CB') ? ['db'] : null };
+      const f = pz.of ? [pz.of] : byQ[pz.q] || null;
+      return f && f.every((tok) => CS.focusOf(play, tok, field.PRE)) ? f : null;
+    }
     function resolve(ok, picked) {
       done = true;
       const xp = o.gameDay ? 0 : recordAnswer(pz, tryNo, ok);
@@ -271,8 +303,12 @@
       if (pz.type === 'tap') { if (!ok && picked) marks.push({ id: picked, kind: 'bad' }); marks.push({ id: T.truth(pz), kind: 'good' }); }
       field.setMarks(marks);
       if (pz.type === 'choice') markOptions(picked, ok);
-      if (ok) { SFX.right(); feedback('good', [{ tag: 'b', text: 'Right.' }, xp ? ' ' : '', xp ? { tag: 'span', cls: 'xpflash', text: `+${xp} XP` } : '', ' ' + pz.why]); }
-      else { SFX.wrong(); feedback('bad', [{ tag: 'b', text: 'The answer: ' + rightName() + '.' }, ' ' + pz.why]); }
+      const parts = ok ? [{ tag: 'b', text: 'Right.' }, xp ? ' ' : '', xp ? { tag: 'span', cls: 'xpflash', text: `+${xp} XP` } : '', ' ' + pz.why]
+        : [{ tag: 'b', text: 'The answer: ' + rightName() + '.' }, ' ' + pz.why];
+      if (ok) SFX.right(); else SFX.wrong();
+      const look = lookOf();
+      if (look) { feedback(null); field.say({ parts: parts.filter((p) => p !== ''), focus: look, tone: ok ? 'good' : 'bad', zoom: false }); }
+      else feedback(ok ? 'good' : 'bad', parts);
       mode.done = true; mode.main = o.next; mode.ok = ok;
       actions({ replay: true, main: o.nextLabel || 'Next' });
       field.seek(field.PRE); field.start();                   // after any answer, the play runs
@@ -286,7 +322,7 @@
     }
     mode.answer = (ans) => {
       if (done) return;
-      if (pz.type === 'tap' && !ans) { feedback('bad', ['No player there. Tap right on him.']); return; }   // grass is not a guess
+      if (pz.type === 'tap' && !ans) { field.say(null); feedback('bad', ['No player there. Tap right on him.']); return; }   // grass is not a guess
       const ok = CS.checkPuzzle(pz, ans);
       if (ok || tryNo >= o.tries) return resolve(ok, ans);
       // First miss in a lesson: show what he picked, keep the question open for one more try.
@@ -294,7 +330,7 @@
       tryNo = 2; mode.tryNo = 2;
       if (pz.type === 'tap') {
         field.setMarks(focus.concat([{ id: ans, kind: 'bad' }]));
-        feedback('bad', ['That is the ', { tag: 'b', text: lc(nameOf(play, ans)) }, '. One more try.']);
+        field.say({ parts: ['That is the ', { tag: 'b', text: lc(nameOf(play, ans)) }, '. One more try.'], focus: [ans], tone: 'bad', zoom: false });
       } else {
         const b = $('stOpts').children[ans];
         if (b) { b.classList.add('bad'); b.disabled = true; }
@@ -464,7 +500,7 @@
     mode.main = () => { if (mode.ended && !field.playing) { location.hash = '#film'; return; } if (field.playing) field.pause(); else field.start(); };
     mode.onEnd = () => { mode.ended = true; renderPlayButton(); };
     field.setPlay(play);
-    panel({ step: 'Film room', title: play.name, text: 'Press play. It stops at each note.' });
+    panel({ step: 'Film room', title: play.name, text: 'Press Play. It stops at each note; press Next to go on.' });
     actions({ prev: true, replay: true, main: 'Play' });
   }
 
@@ -534,9 +570,10 @@
     seek: (t) => active.seek(t), screenToYard: (x, y) => active.screenToYard(x, y), yardToScreen: (x, y) => active.yardToScreen(x, y),
     hitTest: (x, y) => active.hitTest(x, y), spriteRect: (id) => active.spriteRect(id),
     get hitRadius() { return active.hitRadius; }, PRE: field.PRE,
+    get camera() { return active.camera; }, get coach() { return active.coach; }, get saying() { return active.saying; },
     ui: {
       get state() { return JSON.parse(JSON.stringify(S)); }, get key() { return KEY; }, get screen() { return screen; },
-      get mode() { return mode ? { kind: mode.kind, pz: mode.pz ? mode.pz.id : null, done: !!mode.done, ok: mode.ok, tryNo: mode.tryNo, gdIndex: mode.gdIndex, passed: mode.passed, right: mode.right } : null; },
+      get mode() { return mode ? { kind: mode.kind, bubble: mode.bubble, step: mode.step, ended: !!mode.ended, pz: mode.pz ? mode.pz.id : null, done: !!mode.done, ok: mode.ok, tryNo: mode.tryNo, gdIndex: mode.gdIndex, passed: mode.passed, right: mode.right } : null; },
       get promoCount() { return promoCount; },
       next: () => { if (mode && mode.main) mode.main(); },
       // Answer the current Game Day / lesson puzzle right or wrong through the same path a tap or
