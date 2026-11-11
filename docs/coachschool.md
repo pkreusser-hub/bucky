@@ -235,3 +235,55 @@ five checks fail. Two matchups failed B15 (min 22) with the new sprites, NE-NYJ 
 (16); the defenses traded places (NE-DEN 42, KC-NYJ 58), kits untouched. `CS.placeBubble` now
 treats a spot within 26 px of any arrow's point as a last resort (an arrow stopped 9 px short was a
 stub on two cards once the DBs backpedal facing the offense).
+
+## 2026-11-11 — the neutral zone drawn wide; route chalk only where it is the point
+
+The dad, from his phone at the LOS card (bubble 4 of 4, zoomed): "still instances where lines are
+overlapping", and "don't show receiver routes unless it's relevant for that puzzle or section of
+the lesson".
+
+**Overlap.** Measured, not guessed: a lineman's stance sprite paints 15 world px in front of his
+feet and 10 behind; a yard is 14 px along the field (15 across). With the defensive line set 1 yd
+off the ball (fact sheet 1c), every OL/DL pair overlapped by 16 px on every play; the QB under
+center overlapped the center by 5 px and the guards by 7; the gun back and QB by 2-4 px; a 3-4 OLB
+and the tight end by 12. The yards stay the fact sheet's. The picture spreads them, as a coaching
+diagram does, in one place, `CS.spreadOf` (cs-core), from each man's own set-pose sprite as painted:
+1. **The neutral zone.** The whole offense slides back until no offensive sprite comes within
+   `NZ_PAD` (3) world px of the line of scrimmage; the whole defense slides forward likewise. One
+   shift per team keeps every depth inside the team (X on the line and Z a yard off stay a yard
+   apart) and nobody moves across the field, so techniques and shades stay right. Typical result:
+   offense back 18 px (1.29 yd), defense forward 4 px (0.29 yd), so the linemen's feet are drawn
+   36 px (2.6 yd) apart instead of 14, with 6 px of open turf and the ball between the two lines.
+2. **Teammates.** Two of the same team whose painted boxes come within `SPREAD_GAP` (1) px on both
+   axes are pulled apart along whichever axis needs the smaller move: along the field the man
+   farther from the line moves away from it (the QB under center goes back off the center), across
+   the field the man farther from the ball moves outward (the gun back slides a few px wider).
+   Order is never swapped. The stacked OL (22.5 px apart, 21 px tall) needs nothing.
+The spread holds to the snap and eases out over `SPREAD_T` (0.5 s) after it, so the lines fire off
+into each other; after that the picture is the yards, and contact is football. Gait and facing
+still come from `poseAt`. The ball stays on its spot before the snap; a loose snap carries the QB's
+share of the spread. Everything that draws a man uses `CS.showAt` (sprites, route and zone-drop
+chalk, the hit-test fallback); `__CS__.field.shown` is where each man is drawn, `.spread` the
+offsets. The zoom does not matter: sprites and yards scale together, so a world-px rule holds at
+every camera. The LOS card's last bubble now says so: "...and we draw the two teams further apart
+than the real gap of about a yard." Suite A8 (hand arithmetic on r1-los and every library play),
+B17 (every rank-1 bubble frame before the snap), B20 (every library play, every puzzle frame): no
+two painted boxes intersect before the snap. One matchup re-measured on B15 once the defense's
+boxes stopped taking in the offense's linemen and the blue line: HOU-JAX 19 (needs 22) became
+HOU-TEN 96.
+
+**Chalk is opt-in.** Route chalk (the dotted pre-snap path, the solid run) and zone chalk (shapes
+and drops) are OFF by default everywhere: cards, watch, walkthrough, puzzles, film room, while the
+play runs. A step turns them on where they are the point: `routes: true | ['Z', 'H']` and
+`zones: true | [ids]` on a card, a single bubble, a callout, a walkthrough step or a puzzle; watch
+and the film room use the play's own flags. A bubble's flag overrides its step's while it shows.
+Rank 1 (names and places) flags nothing; the smash demo play flags both (smash is its routes
+against Cover 2). Ranks 3 and 5 (route tree, concepts) opt in. Gap letters are not drawn anywhere
+yet. `__CS__.field.chalk` is what the frame drew.
+
+**Eligible receivers corrected** (the dad asked for r1-u2 to be checked; fact sheet corrected the
+same day): the card no longer says interior linemen are eligible if they report, or that every
+backfield player is eligible. It now teaches the spot AND the number, reporting for a 50-79 man who
+lines up at an eligible spot, and the QB-under-center exception. r1-u2-p4 and the slot card say
+why by his number too. Suite A6 holds the card to the corrected wording and no rank-1 string may
+carry either old claim.

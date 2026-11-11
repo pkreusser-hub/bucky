@@ -225,6 +225,9 @@
   L.PLAYS['smash-vs-c2'] = {
     id: 'smash-vs-c2', name: 'Smash vs Cover 2', formation: 'gun-2x2', defense: 'c2-43-over',
     teams: { off: 'KC', def: 'BUF' }, home: 'off', spot: 35, dist: 10,
+    // Chalk is opt-in (docs/coachschool.md, 2026-11-11): smash IS its routes against its zones, so
+    // this play shows both wherever it is watched.
+    routes: true, zones: true,
     assign: {
       X: { route: 'hitch' }, H: { route: 'corner' }, Z: { route: 'hitch' }, Y: { route: 'corner' },
       RB: { block: 'B-gap-L' }, QB: { drop: 3 },

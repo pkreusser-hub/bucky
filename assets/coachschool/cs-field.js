@@ -957,6 +957,18 @@
         st.pal[p.id] = raPalette(st.kit[p.team], i, side, play.teams[p.team]);
         st.nums[p.id] = raNumber(ROLE[p.pos], `${play.teams[p.team]}:${p.id}`);
       });
+      // The neutral zone drawn wide (CS.spreadOf): measured from each man's own set-pose sprite as
+      // it will be painted (offense facing right, defense facing left, as before the snap).
+      st.spread = CS.spreadOf(st.c, (p) => {
+        const s = raSprite(setPose(p), st.pal[p.id], p.team === 'def', st.nums[p.id]);
+        return { l: s.ax - s.bb.x0, r: s.bb.x1 - s.ax, t: s.ay - s.bb.y0, b: s.bb.y1 - s.ay };
+      }, PX, PY);
+      // Chalk is opt-in (the dad, 2026-11-11: "don't show receiver routes unless it's relevant").
+      // The step's flags come with setPlay; without them, the play's own (watch, film room, demo).
+      // A bubble that carries its own `routes` / `zones` overrides the step's while it shows.
+      st.routes = 'routes' in o ? o.routes : play.routes;
+      st.zones = 'zones' in o ? o.zones : play.zones;
+      st.chalk = { routes: [], zones: [] };
       // When each linebacker and defensive back first has to sprint (the source's turnAt): until
       // then, and until the throw, he backpedals facing the offense.
       st.turnAt = {};
@@ -1025,7 +1037,7 @@
         if (d < bd) { bd = d; best = id; }
       }
       if (!ids.length) {                                         // nothing drawn yet: the feet alone
-        const pose = CS.poseAt(st.play, st.t);
+        const pose = CS.showAt(st.play, st.t, st.spread);
         for (const [id, q] of Object.entries(pose.players)) {
           const s = yardToScreen(q.x, q.y), d = Math.hypot(s.x - px, s.y - py);
           if (d < bd) { bd = d; best = id; }
@@ -1109,13 +1121,22 @@
       // Line of scrimmage (blue) and line to gain (yellow), as on TV.
       const vline = (y, col) => { g.fillStyle = col; g.fillRect(Math.round(wx(y)) - 1, MT + 2, 2, FH - 4); };
       g.globalAlpha = 0.75; vline(0, '#4aa8ff'); if (play.dist) vline(play.dist, '#ffe000'); g.globalAlpha = 1;
-      const pose = CS.poseAt(play, t), prev = CS.poseAt(play, Math.max(PRE, t - 0.1));
+      // Drawn where CS.showAt puts them (the neutral zone spread before the snap); gait and facing
+      // still come from the yards (poseAt), so the spread easing out never reads as a run.
+      const pose = CS.showAt(play, t, st.spread), truth = CS.poseAt(play, t), prev = CS.poseAt(play, Math.max(PRE, t - 0.1));
+      const w = CS.spreadW(c, t), sh = (id) => { const s = st.spread[id]; return { dx: s.dx * w, dy: s.dy * w }; };
 
-      // Chalk under the players: zone shapes and drops, then routes. A play can turn the zone
-      // chalk off (rank 1 names players; it doesn't teach coverages yet).
+      // Chalk under the players: zone shapes and drops, then routes, each only where the step or
+      // the bubble on screen asks for it (chalkSet: true = all, a list = those ids, else none).
+      const chalkSet = (flag, ids) => (flag === true ? ids : Array.isArray(flag) ? ids.filter((id) => flag.includes(id)) : []);
+      const sayHas = (k) => st.say && st.say[k] !== undefined;
+      const routeIds = chalkSet(sayHas('routes') ? st.say.routes : st.routes, c.off.filter((p) => p.role === 'route').map((p) => p.id));
+      const zoneIds = chalkSet(sayHas('zones') ? st.say.zones : st.zones, c.def.filter((p) => p.role === 'zone').map((p) => p.id));
+      st.chalk = { routes: [], zones: [] };
       const preThrow = c.throwT == null || t < c.throwT + 0.3;
-      if (preThrow && play.zones !== false) for (const p of c.def) {
-        if (p.role !== 'zone') continue;
+      if (preThrow) for (const p of c.def) {
+        if (p.role !== 'zone' || !zoneIds.includes(p.id)) continue;
+        st.chalk.zones.push(p.id);
         const z = CS.lib.ZONES[p.src.zone], deep = z.deep === true;
         const [zx, zy] = [wx(z.y), wy(z.x + c.dX)];
         g.fillStyle = deep ? 'rgba(90,160,255,0.16)' : 'rgba(255,214,64,0.14)';
@@ -1123,7 +1144,7 @@
         g.lineWidth = 1; g.setLineDash([3, 3]);
         g.beginPath(); g.ellipse(zx, zy, (deep ? 6.5 : 3.6) * PX, (deep ? 8 : 4.5) * PY, 0, 0, Math.PI * 2); g.fill(); g.stroke();
         if (t <= c.snapT) {                                  // the drop he will make, before the snap
-          g.beginPath(); g.moveTo(wx(p.y), wy(p.x)); g.lineTo(zx, zy); g.stroke();
+          const s0 = sh(p.id); g.beginPath(); g.moveTo(wx(p.y + s0.dy), wy(p.x + s0.dx)); g.lineTo(zx, zy); g.stroke();
         }
         g.setLineDash([]);
       }
@@ -1136,9 +1157,10 @@
         }
         g.setLineDash([]);
       };
-      if (play.routes !== false) for (const p of c.off) {
-        if (p.role !== 'route') continue;
-        const pts = chalkRoute(p);
+      for (const p of c.off) {
+        if (p.role !== 'route' || !routeIds.includes(p.id)) continue;
+        st.chalk.routes.push(p.id);
+        const s0 = sh(p.id), pts = chalkRoute(p).map((q) => [q[0] + s0.dx, q[1] + s0.dy]);   // rides with his drawn spot
         const d = Math.max(0, p.path.v * (t - c.snapT - p.path.delay));
         const { run, rest } = t <= c.snapT ? { run: [pts[0]], rest: pts } : polyCut(pts, d);
         strokePoly(run, false);
@@ -1154,8 +1176,8 @@
       const alpha = spotlight(), lit = st.spot;
       const items = [], drawn = {};
       c.all.forEach((p, i) => {
-        const q = pose.players[p.id], o = prev.players[p.id];
-        const [sx, sy] = S(q);
+        const q = truth.players[p.id], o = prev.players[p.id];
+        const [sx, sy] = S(pose.players[p.id]);
         const speed = Math.hypot(q.x - o.x, q.y - o.y) / 0.1;
         const vx = (q.y - o.y) * PX;
         const face = faceOf(c, p, t, vx, speed, p.id in st.turnAt ? st.turnAt[p.id] : Infinity);
@@ -1186,7 +1208,7 @@
           if (b.air > 0.4) { g.fillStyle = 'rgba(0,30,0,0.4)'; g.fillRect(Math.round(xb) - 4, Math.round(yg) - 1, 9, 3); }
           yb = yg - b.air * HK;
           if (t > c.snapT) {                                   // a spiral points along its flight
-            const p2 = CS.poseAt(play, t - 0.04).ball, qx = wx(p2.y), qy = wy(p2.x) - p2.air * HK;
+            const p2 = CS.showAt(play, t - 0.04, st.spread).ball, qx = wx(p2.y), qy = wy(p2.x) - p2.air * HK;
             const a = Math.atan2(yb - qy, xb - qx);
             if (Math.hypot(yb - qy, xb - qx) > 0.2) k = ((Math.round(a / (Math.PI / 8)) % 8) + 8) % 8;
           }
@@ -1413,7 +1435,7 @@
     function stopAt(tk) {
       const k = (st.play.callouts || []).find((q) => Math.abs(q.t - tk) < 1e-6);
       st.playing = false; st.note = k || null;
-      if (k) say({ text: k.text, focus: k.focus, tone: 'note', zoom: true, src: 'callout' });
+      if (k) say({ text: k.text, focus: k.focus, tone: 'note', zoom: true, src: 'callout', routes: k.routes, zones: k.zones });
       if (opts.onState) opts.onState();
     }
     function advance(now) {
@@ -1500,6 +1522,11 @@
       get spot() { return { ids: st.spot ? [...st.spot] : null, alpha: { ...st.alpha }, order: st.order.slice(), animating: !!st.fadeAnim }; },
       get saying() { return st.say ? { text: st.say.text || null, focus: st.say.focus.slice(), tone: st.say.tone || 'note', src: st.say.src || null } : null; },
       get coach() { return st.geom ? JSON.parse(JSON.stringify(st.geom)) : null; },
+      // Where each man is drawn this frame, in yards (CS.showAt: the spread neutral zone before the snap),
+      // the spread itself at full strength, and the chalk this frame drew (route runners, zone droppers).
+      get shown() { return st.play ? CS.showAt(st.play, st.t, st.spread) : null; },
+      get spread() { return st.spread ? JSON.parse(JSON.stringify(st.spread)) : null; },
+      get chalk() { return st.chalk ? { routes: st.chalk.routes.slice(), zones: st.chalk.zones.slice() } : null; },
       PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT },
     };
     return api;

@@ -178,6 +178,11 @@
   /* ── the lesson loop ── */
   let mode = null;
   const unitById = (id) => R.units.find((u) => u.id === id);
+  // Route and zone chalk are off unless the step asks (the dad, 2026-11-11: "don't show receiver
+  // routes unless it's relevant for that puzzle or section of the lesson"). A card, walkthrough step
+  // or puzzle carries `routes: true | ['Z', ...]` and `zones: true | [ids]` where they are the point;
+  // a single bubble or callout may carry its own. Watch and the film room use the play's own flags.
+  const chalkOf = (s) => ({ routes: (s && s.routes) || false, zones: (s && s.zones) || false });
   function startUnit(u, at) {
     show('scrStage');
     $('scoreboard').hidden = true; $('stDots').hidden = false;
@@ -196,13 +201,13 @@
         s.from = null;
         const sayIt = () => {
           const b = c.say[bi];
-          field.say({ text: b.text, focus: b.focus, tone: 'note', zoom: true, n: c.say.length > 1 ? `${bi + 1} of ${c.say.length}` : '' });
+          field.say({ text: b.text, focus: b.focus, tone: 'note', zoom: true, n: c.say.length > 1 ? `${bi + 1} of ${c.say.length}` : '', routes: b.routes, zones: b.zones });
           mode.bubble = bi;
         };
         mode = { kind: 'card', unit: u, step: si,
           main: () => { if (bi < c.say.length - 1) { bi++; sayIt(); } else go(1); },
           prev: () => { if (bi > 0) { bi--; sayIt(); } else if (si) { if (steps[si - 1].k === 'card') steps[si - 1].from = 'end'; go(-1); } else location.hash = '#map'; } };
-        field.setPlay(play, { callouts: false });
+        field.setPlay(play, { callouts: false, ...chalkOf(c) });
         field.setMarks([]);
         panel({ step: `${u.title}: chalk talk ${s.i + 1}/${u.cards.length}`, title: c.title });
         actions({ prev: true, main: 'Next' });
@@ -231,7 +236,7 @@
     // fading would hide him; lighting him too would give him away.
     function ask() {
       const w = u.walk[j];
-      field.setPlay(play, { callouts: false });
+      field.setPlay(play, { callouts: false, ...chalkOf(w) });
       mode.target = w; mode.main = null;
       panel({ step: `${u.title}: walkthrough ${j + 1}/${u.walk.length}` });
       actions({ prev: true });
@@ -276,7 +281,7 @@
   function askPuzzle(pz, o) {
     const play = L.PLAYS[pz.play], T = CS.puzzleTypes[pz.type];
     let tryNo = 1, done = false;
-    field.setPlay(play, { callouts: false });
+    field.setPlay(play, { callouts: false, ...chalkOf(pz) });
     const focus = (pz.focus || []).map((id) => ({ id, kind: 'focus' }));
     field.setMarks(focus);
     panel({ step: o.step, text: pz.prompt, prompt: true, options: pz.type === 'choice' ? pz.options.map((x) => x.t) : null });

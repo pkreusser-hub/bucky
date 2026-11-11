@@ -366,6 +366,81 @@
   };
   CS.playLength = (play, lib) => CS.compile(play, lib).T;
 
+  /* ── the neutral zone, drawn wide (the dad, 2026-11-11, at the LOS card on his phone: "still
+     instances where lines are overlapping") ── The yards above stay the fact sheet's (DL 1 yd off
+     the ball, QB under center 1 yd behind it, the gun back 2 yd beside the QB). The sprites are
+     wider than that: a lineman in his stance paints 15 world px in front of his feet and 10 behind,
+     and a yard is 14 px. So the picture spreads the alignment out the way a coaching diagram does,
+     here and only here, in screen terms:
+       1. The neutral zone. The whole offense slides back until no offensive sprite comes within
+          NZ_PAD px of the line of scrimmage, and the whole defense slides forward until none of
+          theirs does. One shift per team keeps every depth inside the team (X on the line and Z a
+          yard off stay a yard apart; a 3-tech is still outside the guard's shoulder, since nobody
+          moves across the field here).
+       2. Teammates. Any two of the same team whose painted boxes come within GAP px of each other
+          on both axes are pulled apart along whichever axis needs the smaller move: along the
+          field the man farther from the line moves away from it (the QB under center goes back off
+          the center's seat), across the field the man farther from the ball moves outward (the gun
+          back slides a few px wider of the QB). Order is never swapped.
+     ext(p) is his set-pose sprite's painted extent from his feet in world px {l, r, t, b}; px, py are
+     world px per yard along / across. Returns {id: {dx, dy}} in yards at full strength. The spread
+     holds until the snap, then eases out over SPREAD_T s (the lines fire off into each other), so
+     after the snap the picture is the yards again; contact is football. */
+  CS.NZ_PAD = 3;
+  CS.SPREAD_GAP = 1;
+  CS.SPREAD_T = 0.5;
+  CS.spreadOf = (c, ext, px, py) => {
+    const P = {}, E = {};
+    for (const p of c.all) { P[p.id] = { X: p.y * px, Y: p.x * py, team: p.team }; E[p.id] = ext(p); }
+    let aO = 0, aD = 0;
+    for (const p of c.off) aO = Math.max(aO, P[p.id].X + E[p.id].r + CS.NZ_PAD);
+    for (const p of c.def) aD = Math.max(aD, CS.NZ_PAD - (P[p.id].X - E[p.id].l));
+    for (const p of c.off) P[p.id].X -= aO;
+    for (const p of c.def) P[p.id].X += aD;
+    const ids = c.all.map((p) => p.id), bY = c.ballX * py, G = CS.SPREAD_GAP;
+    for (let it = 0; it < 400; it++) {
+      let worst = null;
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+        const a = P[ids[i]], b = P[ids[j]];
+        if (a.team !== b.team) continue;
+        const ea = E[ids[i]], eb = E[ids[j]];
+        const ox = Math.min(a.X + ea.r, b.X + eb.r) - Math.max(a.X - ea.l, b.X - eb.l) + G;
+        const oy = Math.min(a.Y + ea.b, b.Y + eb.b) - Math.max(a.Y - ea.t, b.Y - eb.t) + G;
+        if (ox > 1e-6 && oy > 1e-6) { const m = Math.min(ox, oy); if (!worst || m > worst.m) worst = { i: ids[i], j: ids[j], ox, oy, m }; }
+      }
+      if (!worst) break;
+      const a = P[worst.i], b = P[worst.j], sgn = a.team === 'off' ? -1 : 1;
+      if (worst.ox <= worst.oy) {
+        // Along: the man farther from the line moves away from it (a tie goes to the one farther from the ball).
+        const da = sgn * a.X, db = sgn * b.X;
+        const mv = da > db + 1e-9 || (Math.abs(da - db) <= 1e-9 && Math.abs(a.Y - bY) >= Math.abs(b.Y - bY)) ? a : b;
+        mv.X += sgn * worst.ox;
+      } else {
+        const fa = Math.abs(a.Y - bY), fb = Math.abs(b.Y - bY), mv = fa >= fb ? a : b, other = mv === a ? b : a;
+        mv.Y += (mv.Y >= other.Y ? 1 : -1) * worst.oy;
+      }
+    }
+    const out = {};
+    for (const p of c.all) out[p.id] = { dy: P[p.id].X / px - p.y, dx: P[p.id].Y / py - p.x };
+    return out;
+  };
+  // How much of the spread is on at t: all of it before the snap, easing to none SPREAD_T s after.
+  CS.spreadW = (c, t) => (t <= c.snapT ? 1 : 1 - CS.ease(clamp((t - c.snapT) / CS.SPREAD_T, 0, 1)));
+  // Where a man is DRAWN at t: poseAt plus the spread. A loose ball in the snap's flight carries
+  // the QB's share u of the way, so it leaves the spot and lands in his hands; a held ball rides
+  // its holder; a thrown ball is past the spread (SPREAD_T < every throw).
+  CS.showAt = (play, t, spread, lib) => {
+    const c = CS.compile(play, lib), P = CS.poseAt(play, t, lib), w = CS.spreadW(c, t), players = {};
+    for (const [id, q] of Object.entries(P.players)) { const s = spread && spread[id]; players[id] = s ? { x: q.x + s.dx * w, y: q.y + s.dy * w } : { ...q }; }
+    const b = { ...P.ball };
+    if (b.held && players[b.held]) { b.x = players[b.held].x; b.y = players[b.held].y; }
+    else if (spread && c.qb && spread[c.qb.id] && t > c.snapT) {
+      const dur = c.qb.y <= -3 ? 0.3 : 0.12, u = clamp((t - c.snapT) / dur, 0, 1);
+      if (u < 1) { b.x += spread[c.qb.id].dx * w * u; b.y += spread[c.qb.id].dy * w * u; }
+    }
+    return { players, ball: b };
+  };
+
   CS.validatePlay = (play, lib) => {
     lib = lib || CS.lib;
     const e = [], L = `play ${play && play.id}`;

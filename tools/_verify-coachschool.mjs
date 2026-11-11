@@ -295,6 +295,47 @@ console.log('\n[A6] rank 1 content');
     check(u.puzzles.length >= 6 && u.puzzles.length <= 8, `${u.id}: 6-8 puzzles (${u.puzzles.length})`);
     check(u.puzzles[0].play === u.play && u.puzzles[1].play === u.play && u.puzzles.slice(2).every((q) => q.play !== u.play), `${u.id}: puzzles 1-2 repeat the taught play, the rest are variants`);
   }
+  // Eligible receivers (the dad asked for r1-u2 to be checked, 2026-11-11; fact sheet "Eligible
+  // receivers", corrected the same day). Two rule errors had shipped: interior linemen "ineligible
+  // unless they report" (reporting never makes an interior lineman eligible; a 50-79 man must report
+  // AND line up at an end or in the backfield), and "every player in the backfield" taught bare (the
+  // number rule, and the QB under center). The card is held to the corrected wording, sentence by
+  // sentence, and no rank-1 string may carry either claim again.
+  {
+    const elig = U.find((u) => u.id === 'r1-u2').cards.find((c) => c.title === 'Eligible receivers');
+    const WANT = [
+      [['X', 'Y'], 'Only eligible receivers may catch a forward pass: the player at each end of the line, plus the players in the backfield.'],
+      [['ol'], 'They also need an eligible number, under 50 or 80 to 89, so a lineman wearing 50 to 79 has to report to the referee and line up at an end or in the backfield.'],
+      [['line'], 'A receiver on the line with another man outside him is covered up, and that makes him ineligible too.'],
+      [['QB'], 'One exception: a quarterback taking the snap under center can\'t catch a pass.'],
+    ];
+    const got = elig ? elig.say.map((b) => [b.focus, b.text]) : [];
+    check(JSON.stringify(got) === JSON.stringify(WANT), `the Eligible receivers card is the fact sheet's corrected rule, four bubbles word for word ${JSON.stringify(got.map((g) => g[1].slice(0, 40)))}`);
+    const r1Plays = Object.values(L.PLAYS).filter((p) => p.id.startsWith('r1-'));
+    const strings = [];
+    const walk = (v) => { if (typeof v === 'string') strings.push(v); else if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === 'object') Object.values(v).forEach(walk); };
+    walk(R); walk(r1Plays.map((p) => p.callouts || []));
+    const BAD = [/every (player|one|man|back)\b[^.]*\bbackfield/i, /every backfield player/i, /everyone in the backfield/i,/unless (they|he) reports?/i, /eligible if (they|he) reports?/i];
+    const hits = strings.filter((s) => BAD.some((re) => re.test(s)));
+    check(strings.length >= 300 && hits.length === 0, `none of ${strings.length} rank-1 strings teaches "everyone in the backfield is eligible" or "eligible if he reports" ${hits.map((s) => s.slice(0, 60)).join(' | ')}`);
+    const p4 = ALL.find((q) => q.id === 'r1-u2-p4'), fp4 = CS.compile(L.PLAYS[p4.play]).byId[p4.of];
+    check(p4.of === 'H' && fp4.pos === 'WR' && /receiver's number/.test(p4.why), `r1-u2-p4 asks about H, a receiver (pos ${fp4.pos}, numbered 10-19 or 80-88 by raNumber), and says why by his number too`);
+  }
+  // Chalk is opt-in (the dad, 2026-11-11: "don't show receiver routes unless it's relevant for that
+  // puzzle or section of the lesson"). Rank 1 is names and places: no card, bubble, callout, walkthrough
+  // step, puzzle or play of it asks for route or zone chalk. (Later ranks opt in with routes / zones.)
+  {
+    const flagged = [];
+    const flag = (where, o) => { if (o && (o.routes || o.zones)) flagged.push(where); };
+    for (const u of U) {
+      u.cards.forEach((c, i) => { flag(`${u.id} card ${i + 1}`, c); c.say.forEach((b, j) => flag(`${u.id} card ${i + 1}.${j + 1}`, b)); });
+      u.walk.forEach((w, i) => flag(`${u.id} walk ${i + 1}`, w));
+    }
+    ALL.forEach((q) => flag(q.id, q));
+    Object.values(L.PLAYS).filter((p) => p.id.startsWith('r1-')).forEach((p) => { flag(p.id, p); (p.callouts || []).forEach((k, i) => flag(`${p.id} note ${i + 1}`, k)); });
+    check(flagged.length === 0, `no rank-1 step asks for route or zone chalk ${flagged.join(', ')}`);
+    check(L.PLAYS['smash-vs-c2'].routes === true && L.PLAYS['smash-vs-c2'].zones === true, 'the smash demo play opts in to its routes and zones (smash is its routes against Cover 2)');
+  }
   // Variants really vary: formations / hashes, and matchups.
   const varPlays = [...new Set(U.flatMap((u) => u.puzzles.slice(2).map((q) => q.play)))].map((id) => L.PLAYS[id]);
   const setups = new Set(varPlays.map((p) => `${p.formation}|${p.hash || 'M'}|${p.mirror ? 'm' : ''}`));
@@ -457,6 +498,57 @@ console.log('\n[A6] rank 1 content');
   }
 }
 
+// A8. The neutral zone drawn wide (CS.spreadOf), by hand. The dad's phone (2026-11-11, the LOS card,
+// bubble 4): the defensive line, set 1 yd off the ball per the fact sheet (1c), painted over the
+// offensive line, because a lineman's stance sprite reaches 15 world px in front of his feet and a
+// yard is 14 px. Fixture extents (world px from the feet; the real ones are measured in B20): every
+// lineman and the tight end {l 10, r 15, t 20, b 1} facing right (a defender, facing left, mirrored:
+// {l 15, r 10}); everyone else {l 6, r 11, t 32, b 0} (mirrored likewise). r1-los is the I-form with
+// the QB under center against the 4-3 Over.
+console.log('\n[A8] the neutral zone drawn wide');
+check(typeof CS.spreadOf === 'function' && typeof CS.showAt === 'function' && typeof CS.spreadW === 'function', 'CS.spreadOf / CS.spreadW / CS.showAt exist (the one place the picture spreads the yards)');
+if (typeof CS.spreadOf === 'function') {
+  const play = L.PLAYS['r1-los'], c = CS.compile(play), PXa = 14, PYa = 15;
+  const LINE = ['C', 'G', 'T', 'TE', 'DE', 'DT', 'NT'];
+  const ext = (p) => { const k = LINE.includes(p.pos) ? { l: 10, r: 15, t: 20, b: 1 } : { l: 6, r: 11, t: 32, b: 0 }; return p.team === 'def' ? { l: k.r, r: k.l, t: k.t, b: k.b } : k; };
+  const sp = CS.spreadOf(c, ext, PXa, PYa);
+  // Step 1 by hand. Offense: its frontmost painted edge is a lineman's, 0 + 15, so the team slides back
+  // 15 + NZ_PAD 3 = 18 px = 18/14 yd. Defense: its hindmost edge is a DL's, 14 - 15 = -1, so it slides
+  // forward 3 - (-1) = 4 px = 4/14 yd.
+  check(near(CS.NZ_PAD, 3) && ['LT', 'LG', 'C', 'RG', 'RT', 'X', 'Y', 'Z', 'FB', 'RB'].every((id) => near(sp[id].dy, -18 / 14, 1e-9) && sp[id].dx === 0), `the offense slides back 18 px (${(18 / 14).toFixed(3)} yd), all of it the same, nobody across (LT ${sp.LT.dy.toFixed(3)})`);
+  check(c.def.every((p) => near(sp[p.id].dy, 4 / 14, 1e-9) && sp[p.id].dx === 0), `the defense slides forward 4 px (${(4 / 14).toFixed(3)} yd), all of it the same (DT ${sp[c.def.find((p) => p.pos === 'DT').id].dy.toFixed(3)})`);
+  // Step 2 by hand. The QB under center (1 yd = 14 px behind the C) after the shift: C at -18 paints
+  // [-28, -3], QB at -32 paints [-38, -21]: 8 px of overlap counting the 1 px gap (-21 - (-28) + 1),
+  // and their rows overlap far more, so he moves back along the field by 8: 26 px in all.
+  check(near(sp.QB.dy, -26 / 14, 1e-9) && sp.QB.dx === 0, `the QB under center moves off the center's seat: back 26 px (${(26 / 14).toFixed(3)} yd), got ${(sp.QB.dy * 14).toFixed(2)} px`);
+  // The rule's promises, on every library play with the same fixture: no two painted boxes intersect,
+  // nobody's sprite enters the neutral zone (NZ_PAD px either side of the LOS), nobody moves toward the
+  // line, and order is kept along and across the field inside each team.
+  const probs = [];
+  for (const P of Object.values(L.PLAYS)) {
+    const cc = CS.compile(P), s = CS.spreadOf(cc, ext, PXa, PYa), B = {};
+    for (const p of cc.all) { const e = ext(p), X = (p.y + s[p.id].dy) * PXa, Y = (p.x + s[p.id].dx) * PYa; B[p.id] = { l: X - e.l, r: X + e.r, t: Y - e.t, b: Y + e.b, p, X, Y }; }
+    const ids = Object.keys(B);
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+      const a = B[ids[i]], b = B[ids[j]];
+      if (Math.min(a.r, b.r) - Math.max(a.l, b.l) > 1e-6 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 1e-6) probs.push(`${P.id}: ${ids[i]}/${ids[j]} intersect`);
+      if (a.p.team === b.p.team && ((a.p.y < b.p.y - 1e-9 && a.X > b.X + 1e-9) || (a.p.x < b.p.x - 1e-9 && a.Y > b.Y + 1e-9))) probs.push(`${P.id}: ${ids[i]}/${ids[j]} swapped order`);
+    }
+    for (const b of Object.values(B)) {
+      if (b.p.team === 'off' ? b.r > -CS.NZ_PAD + 1e-6 : b.l < CS.NZ_PAD - 1e-6) probs.push(`${P.id}: ${b.p.id} in the neutral zone`);
+      if (b.p.team === 'off' ? s[b.p.id].dy > 1e-9 : s[b.p.id].dy < -1e-9) probs.push(`${P.id}: ${b.p.id} moved toward the line`);
+    }
+  }
+  check(probs.length === 0, `on all ${Object.keys(L.PLAYS).length} library plays: no two boxes intersect, the neutral zone is clear, nobody moves toward the line, order kept ${probs.slice(0, 4).join(' | ')}`);
+  // The spread holds to the snap and is gone SPREAD_T (0.5 s) after it; at t 0.25 it is half on (the
+  // ease is symmetric); from then on CS.showAt is CS.poseAt exactly.
+  check(CS.spreadW(c, -1) === 1 && CS.spreadW(c, c.snapT) === 1 && near(CS.spreadW(c, c.snapT + 0.25), 0.5, 1e-9) && CS.spreadW(c, c.snapT + 0.5) === 0, 'the spread is all on before the snap, half at +0.25 s, gone at +0.5 s');
+  const late = CS.showAt(play, 1.0, sp), truth = CS.poseAt(play, 1.0);
+  check(Object.keys(truth.players).every((id) => late.players[id].x === truth.players[id].x && late.players[id].y === truth.players[id].y), 'a second after the snap every man is drawn on his yards');
+  const pre = CS.showAt(play, -1, sp);
+  check(near(pre.players.C.y, -18 / 14, 1e-9) && pre.ball.y === 0, 'before the snap the ball stays on the spot (y 0) while the center is drawn behind the line');
+}
+
 /* ═════════════ B. Headless Chrome ═════════════ */
 async function sectionB() {
   console.log('\n[B] headless Chrome');
@@ -541,7 +633,11 @@ async function sectionB() {
       const C = window.__CS__, CS = window.CS, out = [];
       for (const t of [-1, 0, 1.2, 2.4, 3.3, C.T]) {
         C.seek(t);
-        const pose = CS.poseAt(C.play, C.t);
+        // RESTAGED 2026-11-11 (the neutral zone drawn wide, CS.spreadOf): before the snap a man is DRAWN off
+        // his fact-sheet yards (the offense slid back, the defense forward, so no two sprites overlap), and
+        // the spread eases out over the first 0.5 s after it. The round trip now starts from where he is
+        // drawn (the field's own CS.showAt), which is what a tap lands on; at t >= 0.5 the two are equal.
+        const pose = C.field.shown || CS.poseAt(C.play, C.t);   // (a build without CS.showAt: the yards)
         for (const [id, q] of Object.entries(pose.players)) {
           const s = C.yardToScreen(q.x, q.y), back = C.screenToYard(s.x, s.y);
           out.push({ t, id, hit: C.hitTest(s.x, s.y), err: Math.hypot(back.x - q.x, back.y - q.y) });
@@ -555,7 +651,7 @@ async function sectionB() {
     const rad = await page.evaluate(() => {
       const C = window.__CS__, CS = window.CS;
       C.seek(0);
-      const pose = CS.poseAt(C.play, 0), pts = Object.entries(pose.players).map(([id, q]) => ({ id, ...C.yardToScreen(q.x, q.y) }));
+      const pose = C.field.shown || CS.poseAt(C.play, C.t), pts = Object.entries(pose.players).map(([id, q]) => ({ id, ...C.yardToScreen(q.x, q.y) }));
       // The most isolated player: tap 22 CSS px straight above his feet.
       let best = null;
       for (const p of pts) { const nn = Math.min(...pts.filter((o) => o !== p).map((o) => Math.hypot(o.x - p.x, o.y - p.y))); if (!best || nn > best.nn) best = { ...p, nn }; }
@@ -564,7 +660,7 @@ async function sectionB() {
     check(rad.r >= 22 && rad.hit22 === rad.id, `hit radius >= 22 CSS px: a tap 22 px above ${rad.id}'s feet still hits him (radius ${rad.r})`);
     check(rad.nn > 60 ? rad.hitFar === null : true, 'a tap well clear of everyone hits nobody');
     // A real tap, through the touch screen, names the player.
-    const mikeAt = await page.evaluate(() => { const C = window.__CS__, q = window.CS.poseAt(C.play, C.t).players.MIKE; return C.yardToScreen(q.x, q.y); });
+    const mikeAt = await page.evaluate(() => { const C = window.__CS__, q = (C.field.shown || window.CS.poseAt(C.play, C.t)).players.MIKE;   /* drawn spot (RESTAGED with B4) */ return C.yardToScreen(q.x, q.y); });
     await page.touchscreen.tap(mikeAt.x, mikeAt.y);
     const said = await page.evaluate(() => document.getElementById('readout').textContent.replace(/\s+/g, ' ').trim());
     check(/^You tapped: Mike linebacker\b/.test(said), `a real tap on the Mike reads "${said}"`);
@@ -1071,17 +1167,22 @@ async function sectionB() {
           return best;
         });
         // Camera round trip: every player whose feet are on the field box.
-        const pose = CS.poseAt(C.play, C.t).players, rt = [];
+        const pose = (C.field.shown || CS.poseAt(C.play, C.t)).players, rt = [];   // RESTAGED with B4: from where each man is drawn (CS.showAt)
         for (const [id, q] of Object.entries(pose)) {
           const s2 = C.yardToScreen(q.x, q.y);
           if (s2.x < g.box.l + 2 || s2.x > g.box.r - 2 || s2.y < g.box.t + 2 || s2.y > g.box.b - 2) continue;
           const back = C.screenToYard(s2.x, s2.y);
           rt.push({ id, hit: C.hitTest(s2.x, s2.y), err: Math.hypot(back.x - q.x, back.y - q.y) });
         }
-        return { g, ink: { l: ink.left, r: ink.right, t: ink.top, b: ink.bottom }, box: { l: box.left, r: box.right, t: box.top, b: box.bottom }, act: { l: act.left, r: act.right, t: act.top, b: act.bottom }, fs: parseFloat(getComputedStyle(el).fontSize), exp, rt, cam: C.camera, text: el.textContent };
+        // Painted boxes that intersect, before the snap only (B20 says why the tolerance is 0.01 px), and the chalk drawn.
+        const ov = (() => { const cc = CS.compile(C.play), o = []; if (C.t > cc.snapT + 1e-9) return null; const R = cc.all.map((p) => [p.id, C.spriteRect(p.id)]).filter((x) => x[1]);
+          for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) { const a = R[i][1], b = R[j][1], w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 0.01 && h > 0.01) o.push(`${R[i][0]}/${R[j][0]} ${w.toFixed(1)}x${h.toFixed(1)}`); }
+          return o; })();
+        return { ov, chalk: C.field.chalk || null, g, ink: { l: ink.left, r: ink.right, t: ink.top, b: ink.bottom }, box: { l: box.left, r: box.right, t: box.top, b: box.bottom }, act: { l: act.left, r: act.right, t: act.top, b: act.bottom }, fs: parseFloat(getComputedStyle(el).fontSize), exp, rt, cam: C.camera, text: el.textContent };
       });
       const hit = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
-      const probs = [], rtBad = [];
+      const probs = [], rtBad = [], ovBad = [], chalkBad = [];
+      let ovN = 0;
       let n = 0, zoomed = 0, rtN = 0;
       const audit = (where, m) => {
         n++;
@@ -1106,6 +1207,8 @@ async function sectionB() {
           if (!e) probs.push(`${where}: ${t.tok} did not resolve independently`);
           else if (e.kind === 'group' ? !e.onEdge : Math.hypot(e.x - t.pt.x, e.y - t.pt.y) > 1.5) probs.push(`${where}: ${t.tok} point disagrees with the independent one ${JSON.stringify(e)} vs ${JSON.stringify(t.pt)}`);
         });
+        if (m.ov) { ovN++; if (m.ov.length) ovBad.push(`${where}: ${m.ov.slice(0, 3).join(", ")}`); }
+        if (!m.chalk || m.chalk.routes.length || m.chalk.zones.length) chalkBad.push(`${where}: ${JSON.stringify(m.chalk)}`);
         rtN += m.rt.length;
         for (const r of m.rt) if (r.hit !== r.id || r.err > 1e-6) rtBad.push(`${where}:${r.id}->${r.hit}`);
       };
@@ -1203,6 +1306,9 @@ async function sectionB() {
               const run = await spotM();
               check(run.ids === null && run.all.every((id) => run.alpha[id] === 1), `the play runs with nobody faded (lit ${JSON.stringify(run.ids)}, opacities ${[...new Set(Object.values(run.alpha || {}))].join(',')})`);
               await plate(pb, 'cs3-play-running.png');
+              // While it runs: sampled every 40 ms for 0.6 s, the frame drew no route or zone chalk.
+              const runChalk = await pb.evaluate(() => new Promise((res) => { const seen = []; const iv = setInterval(() => seen.push({ t: window.__CS__.t, c: window.__CS__.field.chalk || null }), 40); setTimeout(() => { clearInterval(iv); res(seen); }, 600); }));
+              check(runChalk.length >= 8 && runChalk.every((s) => s.c && !s.c.routes.length && !s.c.zones.length), `the lesson play runs with no route or zone chalk (${runChalk.length} frames sampled, t ${runChalk[0] && runChalk[0].t.toFixed(2)}..${runChalk.length && runChalk[runChalk.length - 1].t.toFixed(2)})`);
               await pb.waitForFunction(() => !window.__CS__.playing && !window.__CS__.field.camAnimating, { timeout: 15000 });
             }
           }
@@ -1223,9 +1329,19 @@ async function sectionB() {
       check(n >= 120 && probs.length === 0, `${n} coach bubbles (${zoomed} zoomed): inside the field, off the controls, off their targets, text fits, every arrow ends within 12 px of its target ${probs.slice(0, 5).join(' | ')}`);
       check(zoomed >= 60, `the camera zooms in on what a bubble points at (${zoomed} of ${n} bubbles shown zoomed)`);
       check(sLit >= 60 && sprob.length === 0, `spotlight on ${sLit} bubbles that name players: everyone else at 0.32 and drawn first, the named on top at full opacity; ${sHits} taps on named sprite centres hit their man ${sprob.slice(0, 5).join(' | ')}`);
-      check(sOver >= 10 && !sprob.some((x) => /overlaps faded/.test(x)), `${sOver} taps where a lit sprite overlaps a faded one, 40% of the way from the faded man's axis, go to the lit man ${sprob.filter((x) => /overlaps faded/.test(x)).slice(0, 4).join(' | ')}`);
-      check(sBr >= 8 && sCovered >= 1 && !sprob.some((x) => /bracket/.test(x)), `${sBr} group brackets are their own members' sprites + 5 px and hold every member; ${sCovered} other men whose sprite centres fall inside one are faded`);
+      // RESTAGED 2026-11-11: with the neutral zone drawn wide no two sprites overlap before the snap (B20),
+      // so the lit-over-faded overlaps this samples now occur only on the notes after the snap
+      // (contact is football). The rule still has to hold wherever they do; the count floor is 1.
+      check(sOver >= 1 && !sprob.some((x) => /overlaps faded/.test(x)), `${sOver} taps where a lit sprite overlaps a faded one, 40% of the way from the faded man's axis, go to the lit man ${sprob.filter((x) => /overlaps faded/.test(x)).slice(0, 4).join(' | ')}`);
+      // RESTAGED 2026-11-11: sCovered counted DL sprites reaching into the OL bracket; drawn wide, none
+      // does (that was the bug). Anyone who still falls inside a bracket must be faded; none is required to.
+      check(sBr >= 8 && !sprob.some((x) => /bracket/.test(x)), `${sBr} group brackets are their own members' sprites + 5 px and hold every member; ${sCovered} other men whose sprite centres fall inside one are faded`);
       check(sFeat >= 15 && sTap === 18 && !sprob.some((x) => /field-feature|tap prompt/.test(x)), `${sFeat} field-feature bubbles and ${sTap} walkthrough prompts fade nobody`);
+      // The dad's screenshot (r1-u2 card 1, bubble 4 of 4, zoomed): offense and defense linemen painted over
+      // each other. Every settled frame before the snap, at its own camera: no two painted boxes intersect.
+      check(ovN >= 60 && ovBad.length === 0, `on ${ovN} settled frames before the snap (cards, notes, walkthrough prompts, each at its own zoom) no two players' sprites intersect ${ovBad.slice(0, 4).join(" | ")}`);
+      // Chalk is opt-in and rank 1 asks for none (A6): every frame drew no route and no zone chalk.
+      check(n >= 120 && chalkBad.length === 0, `on all ${n} rank-1 bubble frames no route or zone chalk is drawn ${chalkBad.slice(0, 3).join(" | ")}`);
       check(rtN >= 500 && rtBad.length === 0, `after every zoom, yardToScreen -> hitTest returns each of ${rtN} on-screen players and screenToYard inverts it ${rtBad.slice(0, 5).join(', ')}`);
       // A real tap while zoomed: the walkthrough's first prompt on the OL is zoomed; tap the centre's sprite.
       await pb.evaluate(() => { location.hash = '#unit/r1-u3'; }); await settle(pb);
@@ -1285,6 +1401,112 @@ async function sectionB() {
       check(ps && ps.ids === null && ps.vals.length === 1 && ps.vals[0] === 1, `while the answer's play runs nobody is faded (${JSON.stringify(ps)})`);
       check(ez.length === 0, 'zero page errors on the puzzle bubbles');
       await pz.close();
+    }
+
+    // B20. No overlapping players before the snap; route chalk only where a step asks (the dad, 2026-11-11,
+    // from his phone: "still instances where lines are overlapping", and "don't show receiver routes
+    // unless it's relevant for that puzzle or section of the lesson"). The overlap measure is the painted
+    // box of each sprite (c.bb, through spriteRect, in CSS px at the frame's own camera). Tolerance 0.01 px:
+    // CS.spreadOf leaves at least 1 world px of turf between teammates and NZ_PAD (3) px either side of the
+    // line, and feet are rounded to whole world px when drawn, which can eat at most 1 px of that, so boxes
+    // may touch but never cross; the shadow is drawn outside the box and is not counted. After the snap the
+    // spread eases out and contact is allowed (football).
+    console.log('\n[B20] no overlapping players before the snap; routes only where asked');
+    {
+      const { page: pv, errors: ev } = await open(PHONE, { hash: '#map', storage: USER });
+      // (1) Every play in the library, in the film room's frame, before the snap and at the snap.
+      const lib = await pv.evaluate(async () => {
+        const CS = window.CS, out = [];
+        for (const id of Object.keys(CS.lib.PLAYS)) {
+          location.hash = '#film/' + id;
+          await new Promise((r) => setTimeout(r, 40));
+          const C = window.__CS__, F = C.field, cc = CS.compile(CS.lib.PLAYS[id]);
+          for (const t of [F.PRE, cc.snapT]) {
+            C.seek(t);
+            const R = cc.all.map((p) => [p.id, C.spriteRect(p.id)]), ov = [];
+            let worst = 0;
+            for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+              const a = R[i][1], b = R[j][1], w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+              if (w > 0.01 && h > 0.01) { ov.push(`${R[i][0]}/${R[j][0]} ${w.toFixed(1)}x${h.toFixed(1)}`); worst = Math.max(worst, Math.min(w, h)); }
+            }
+            // Independently of the field's bookkeeping: each sprite's feet are where CS.showAt says he is drawn.
+            const shown = CS.showAt ? CS.showAt(CS.lib.PLAYS[id], C.t, F.spread) : null, feet = [];
+            if (shown) for (const [pid, r] of R) { const s = C.yardToScreen(shown.players[pid].x, shown.players[pid].y), d = Math.hypot(s.x - r.feetX, s.y - r.feetY); if (d > 1) feet.push(`${pid} ${d.toFixed(1)}`); }
+            out.push({ id, t, ov, worst, feet, shown: !!shown, chalk: F.chalk || null, flags: { routes: CS.lib.PLAYS[id].routes, zones: CS.lib.PLAYS[id].zones },
+              runners: cc.off.filter((p) => p.role === 'route').map((p) => p.id).sort(), droppers: cc.def.filter((p) => p.role === 'zone').map((p) => p.id).sort() });
+          }
+        }
+        return out;
+      });
+      const libOv = lib.filter((r) => r.ov.length), worst = lib.reduce((a, b) => (b.worst > a.worst ? b : a));
+      check(lib.length >= 56 && libOv.length === 0, `all ${lib.length / 2} library plays, before the snap and at it: no two players' sprites intersect (worst ${worst.id} ${worst.worst.toFixed(1)} px) ${libOv.slice(0, 3).map((r) => r.id + ' t' + r.t + ': ' + r.ov.slice(0, 3).join(', ')).join(' | ')}`);
+      const feetBad = lib.filter((r) => !r.shown || r.feet.length);
+      check(feetBad.length === 0, `every sprite's feet sit within 1 px of where CS.showAt puts him ${feetBad.slice(0, 3).map((r) => r.id + ': ' + (r.shown ? r.feet.join(',') : 'no CS.showAt')).join(' | ')}`);
+      // In the film room each play shows the chalk its own flags ask for, and only that.
+      const want = (flag, ids) => (flag === true ? ids : Array.isArray(flag) ? ids.filter((x) => flag.includes(x)) : []);
+      const chalkWrong = lib.filter((r) => !r.chalk || JSON.stringify([...r.chalk.routes].sort()) !== JSON.stringify(want(r.flags.routes, r.runners)) || JSON.stringify([...r.chalk.zones].sort()) !== JSON.stringify(want(r.flags.zones, r.droppers)));
+      check(chalkWrong.length === 0, `film room: each of ${lib.length / 2} plays draws exactly the routes and zones its flags ask for (smash: all four routes and its zones; rank 1: none) ${chalkWrong.slice(0, 3).map((r) => r.id + ' ' + JSON.stringify(r.chalk)).join(' | ')}`);
+
+      // (2) Every rank-1 lesson puzzle: its frame before the answer (no overlaps, no chalk), then the play
+      // that runs after the answer, sampled every 40 ms for 0.8 s (no chalk).
+      const units = await pv.evaluate(() => window.CS.RANK_DATA[0].units.map((u) => u.id));
+      const pzOv = [], pzChalk = [];
+      let pzN = 0, runN = 0;
+      for (const uid of units) {
+        await pv.evaluate((id) => { location.hash = '#unit/' + id + '/puzzles'; }, uid); await settle(pv, 120);
+        for (let k = 0; k < 10; k++) {
+          const md = await mode(pv);
+          if (!md || md.kind !== 'puzzle') break;
+          await still(pv);
+          const f = await pv.evaluate(() => {
+            const C = window.__CS__, CS = window.CS, cc = CS.compile(C.play), R = cc.all.map((p) => [p.id, C.spriteRect(p.id)]), ov = [];
+            for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) { const a = R[i][1], b = R[j][1], w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 0.01 && h > 0.01) ov.push(`${R[i][0]}/${R[j][0]} ${w.toFixed(1)}x${h.toFixed(1)}`); }
+            return { pre: C.t <= cc.snapT, ov, chalk: C.field.chalk || null, z: C.camera.z };
+          });
+          pzN++;
+          if (!f.pre || f.ov.length) pzOv.push(`${md.pz}: ${f.pre ? f.ov.slice(0, 3).join(', ') : 'not before the snap'}`);
+          if (!f.chalk || f.chalk.routes.length || f.chalk.zones.length) pzChalk.push(`${md.pz} asked: ${JSON.stringify(f.chalk)}`);
+          await pv.evaluate(() => window.__CS__.ui.answer(true));
+          const run = await pv.evaluate(() => new Promise((res) => { const seen = []; const iv = setInterval(() => seen.push(window.__CS__.field.chalk || null), 40); setTimeout(() => { clearInterval(iv); res({ seen, playing: window.__CS__.playing, t: window.__CS__.t }); }, 800); }));
+          runN += run.seen.length;
+          if (run.seen.some((c) => !c || c.routes.length || c.zones.length)) pzChalk.push(`${md.pz} running: ${JSON.stringify(run.seen.find((c) => !c || c.routes.length || c.zones.length))}`);
+          await pv.evaluate(() => { const C = window.__CS__; C.field.pause(); window.__CS__.ui.next(); }); await settle(pv, 60);
+        }
+      }
+      check(pzN >= 42 && pzOv.length === 0, `${pzN} rank-1 puzzle frames before the answer: no two players' sprites intersect ${pzOv.slice(0, 3).join(' | ')}`);
+      check(pzN >= 42 && runN >= pzN * 15 && pzChalk.length === 0, `${pzN} rank-1 puzzles and the ${runN} frames of their answer plays draw no route or zone chalk ${pzChalk.slice(0, 3).join(' | ')}`);
+
+      // (3) A flagged step draws exactly what it flags. Fixtures on the stage field: the step's flag comes
+      // with setPlay, a bubble's own flag overrides it while it shows, and the play's flag is the default.
+      const fx = await pv.evaluate(async () => {
+        const C = window.__CS__, F = C.field, L = window.CS.lib, r = {}, get = () => (F.chalk ? { routes: [...F.chalk.routes].sort(), zones: [...F.chalk.zones].sort() } : null);
+        location.hash = '#film/smash-vs-c2'; await new Promise((res) => setTimeout(res, 40));
+        F.setPlay(L.PLAYS['smash-vs-c2']); r.playFlag = get();
+        F.setPlay(L.PLAYS['smash-vs-c2'], { routes: ['H'], zones: false }); r.stepH = get();
+        F.say({ text: 'Watch Z.', focus: ['Z'], routes: ['Z'] }); r.bubbleZ = get();
+        F.say({ text: 'The line.', focus: ['ol'] }); r.bubblePlain = get();
+        F.say(null); r.after = get();
+        F.start();
+        const seen = await new Promise((res) => { const s = []; const iv = setInterval(() => s.push(get()), 40); setTimeout(() => { clearInterval(iv); res(s); }, 900); });
+        F.pause();
+        r.running = seen;
+        F.setPlay(L.PLAYS['smash-vs-c2'], { routes: false, zones: false }); r.off = get();
+        F.setPlay(L.PLAYS['r1-los']); r.r1 = get();
+        F.setPlay(L.PLAYS['r1-los'], { routes: ['Z', 'Y'] }); r.r1ZY = get();
+        F.setPlay(L.PLAYS['r1-los'], { routes: true }); r.r1All = get();
+        r.r1Runners = window.CS.compile(L.PLAYS['r1-los']).off.filter((p) => p.role === 'route').map((p) => p.id).sort();
+        r.smashDrop = window.CS.compile(L.PLAYS['smash-vs-c2']).def.filter((p) => p.role === 'zone').map((p) => p.id).sort();
+        return r;
+      });
+      const J = JSON.stringify;
+      check(fx.playFlag && J(fx.playFlag.routes) === J(['H', 'X', 'Y', 'Z']) && J(fx.playFlag.zones) === J(fx.smashDrop), `the smash play's own flags draw its four routes and its ${fx.smashDrop.length} zones ${J(fx.playFlag)}`);
+      check(fx.stepH && J(fx.stepH.routes) === J(['H']) && fx.stepH.zones.length === 0, `a step flagged routes ['H'] draws H's route and nobody else's ${J(fx.stepH)}`);
+      check(fx.bubbleZ && J(fx.bubbleZ.routes) === J(['Z']) && fx.bubblePlain && J(fx.bubblePlain.routes) === J(['H']) && fx.after && J(fx.after.routes) === J(['H']), `a bubble flagged ['Z'] shows Z's instead while it is up; an unflagged bubble and no bubble fall back to the step's ['H'] ${J([fx.bubbleZ, fx.bubblePlain, fx.after])}`);
+      check(fx.running.length >= 15 && fx.running.every((c) => c && J(c.routes) === J(['H']) && !c.zones.length), `while the flagged step's play runs (${fx.running.length} frames) it draws H's route alone`);
+      check(fx.off && !fx.off.routes.length && !fx.off.zones.length && fx.r1 && !fx.r1.routes.length && !fx.r1.zones.length, `routes: false turns even smash's chalk off; a rank-1 play draws none by default`);
+      check(fx.r1ZY && J(fx.r1ZY.routes) === J(['Y', 'Z']) && fx.r1All && J(fx.r1All.routes) === J(fx.r1Runners) && fx.r1Runners.length >= 3, `a rank-1 play flagged ['Z','Y'] draws exactly Y and Z; flagged true, all ${fx.r1Runners.length} route runners ${J([fx.r1ZY, fx.r1All])}`);
+      check(ev.length === 0, `zero page errors through B20 ${J(ev.slice(0, 3))}`);
+      await pv.close();
     }
   } finally {
     await browser.close();

@@ -58,13 +58,20 @@ Every concept: **What it is** (plain definition), **Spot it** (how to recognise 
   snap; no more than 4 may be in the backfield. Spot it: count the players with their helmets at
   the ball's depth. Why it matters: it decides who may catch a pass. **CS convention:** every
   Coach School offensive formation has exactly 7 on the line (y = 0) and 4 off it (y ≤ -1).
-- **Eligible receivers.** What it is: the two players at the *ends* of the line, plus every
-  player in the backfield. Interior linemen (numbers 50-79) are ineligible unless they report to
-  the referee as eligible. Spot it: the outermost man on the line each side, and anyone off the
+- **Eligible receivers.** What it is: the two players at the *ends* of the line, plus the
+  players legally in the backfield (at least 1 yd behind the LOS). Two conditions, both required:
+  the right SPOT (an end of the line or the backfield) and an eligible NUMBER (under 50, or 80-89;
+  the NFL glossary says 1-49 or 80-89, and 0 has been allowed since 2023). A player wearing 50-79
+  becomes eligible only if he reports to the referee AND lines up at an eligible spot; reporting
+  never makes an interior lineman eligible. (Corrected 2026-11-11: the earlier text said interior
+  linemen were eligible if they reported. Source: operations.nfl.com glossary "Eligible Receiver";
+  footballzebras.com 2015 eligibility-reporting explainer.) Spot it: the outermost man on the line each side, and anyone off the
   line. Why it matters: a covered-up receiver (an end with another player outside him on the line)
   is ineligible. A QB taking the snap directly from under center has extra restrictions on being a
   receiver: in the NFL a QB who lines up under center in a T-formation is ineligible unless he
-  legally moves at least 1 yd behind the LOS before the snap. Leave QB-as-receiver out of content.
+  legally moves at least 1 yd behind the LOS before the snap. Content may state this one exception
+  ("a quarterback taking the snap under center can't catch a pass") so "everyone in the backfield is
+  eligible" is never taught bare; don't build puzzles around QB-as-receiver.
 - **Ineligible man downfield.** On a forward pass that crosses the LOS, an ineligible lineman may
   not be more than 1 yard beyond the LOS when the ball is thrown (NFL; college is 3 yd). This is
   the rule RPOs live near.

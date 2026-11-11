@@ -102,7 +102,10 @@
   P('r1-v-34', { formation: 'i-form', defense: 'c3-34', teams: { off: 'CHI', def: 'GB' }, spot: 26, to: 'Y' });
   P('r1-v-c2-single', { formation: 'singleback', defense: 'c2-43-over', teams: { off: 'SEA', def: 'SF' }, hash: 'R', spot: 47, to: 'H' });
   P('r1-v-nickel', { formation: 'gun-2x2', defense: 'c3-nickel', teams: { off: 'MIN', def: 'DET' }, home: 'def', spot: 31, to: 'H' });
-  P('r1-v-iform-mm', { formation: 'i-form', mirror: true, defense: 'c3-43-over', teams: { off: 'HOU', def: 'JAX' }, spot: 36, to: 'Y' });
+  // HOU-JAX swapped for HOU-TEN 2026-11-11: once the neutral zone was drawn wide (CS.spreadOf) the
+  // defense's sprite boxes stopped taking in the offense's linemen and the blue line, and B15 measured
+  // the plain grey-on-grey matchup at 19 (HEAD's 23.7 was that contamination). HOU-TEN measures 96.
+  P('r1-v-iform-mm', { formation: 'i-form', mirror: true, defense: 'c3-43-over', teams: { off: 'HOU', def: 'TEN' }, spot: 36, to: 'Y' });
   P('r1-v-trips-kc', { formation: 'gun-trips-rt', defense: 'c3-nickel', teams: { off: 'KC', def: 'NYJ' }, hash: 'R', spot: 64, to: 'Y' });
   P('r1-v-iform-ten', { formation: 'i-form', defense: 'c2-43-over', teams: { off: 'TEN', def: 'IND' }, hash: 'L', spot: 29, to: 'X' });
   // Game Day plays.
@@ -171,15 +174,20 @@
           ['ball', 'The line of scrimmage, or LOS, is an imaginary line through the nose of the ball, one for each team.'],
           ['los', 'The space between the two lines, the length of the ball, is the neutral zone.'],
           ['C', 'Nobody but the snapper may be in the neutral zone when the ball is snapped.'],
-          ['los', 'On our field the offense\'s LOS is the blue line.']),
+          // The picture spreads the two lines apart (CS.spreadOf); this says so, with the sheet's yard (1c: DL y = +1).
+          ['los', 'On our field the offense\'s LOS is the blue line, and we draw the two teams further apart than the real gap of about a yard.']),
         card('Seven on the line', ['los:seven'],
           ['line', 'The offense must have at least 7 players on the line of scrimmage at the snap, and no more than 4 in the backfield, the area behind the line.'],
           ['backs', 'In Coach School every formation has exactly 7 on the line and 4 off it.'],
           ['line', 'To check, count the players standing level with the ball.']),
         card('Eligible receivers', ['los:eligible'],
-          [['X', 'Y'], 'Only eligible receivers may catch a forward pass. They are the two players at the ends of the line, plus every player in the backfield.'],
-          ['ol', 'The linemen in between wear numbers 50 to 79 and are ineligible unless they report to the referee.'],
-          ['line', 'A receiver on the line with another man outside him is covered up, and that makes him ineligible too.']),
+          // Corrected 2026-11-11 (fact sheet, "Eligible receivers"): a 50-79 man must report AND line up at
+          // an eligible spot (reporting never makes an interior lineman eligible), and the backfield is not
+          // taught bare: the QB under center is the one exception rank 1 states.
+          [['X', 'Y'], 'Only eligible receivers may catch a forward pass: the player at each end of the line, plus the players in the backfield.'],
+          ['ol', 'They also need an eligible number, under 50 or 80 to 89, so a lineman wearing 50 to 79 has to report to the referee and line up at an end or in the backfield.'],
+          ['line', 'A receiver on the line with another man outside him is covered up, and that makes him ineligible too.'],
+          ['QB', 'One exception: a quarterback taking the snap under center can\'t catch a pass.']),
       ],
       walk: [
         { prompt: 'Tap the eligible receiver at the right end of the line.', look: ['line'], find: { lineEnd: 'R' }, answer: 'Y' },
@@ -189,7 +197,7 @@
         tap('r1-u2-p1', 'r1-los', 'Tap the player at the right end of the line.', { lineEnd: 'R' }, 'Y', ['los:eligible'], 'Y, the tight end, is the last man on the line on the right, so he is eligible.'),
         choice('r1-u2-p2', 'r1-los', 'How many offensive players are on the line of scrimmage?', 'onLineCount', [['5', 5], ['6', 6], ['7', 7], ['8', 8]], 2, ['los:seven'], 'Seven on the line: five linemen, X and Y.'),
         tap('r1-u2-p3', 'r1-v-single-r', 'Tap the player at the left end of the line.', { lineEnd: 'L' }, 'X', ['los:eligible'], 'X stands on the line at the far left end, so he is eligible.'),
-        choice('r1-u2-p4', 'r1-v-single-r', 'Is the ringed player, standing a yard off the line, an eligible receiver?', 'eligible', YN, 0, ['los:eligible'], 'Yes. He is in the backfield, behind the line, and every backfield player is eligible.', { of: 'H', focus: ['H'] }),
+        choice('r1-u2-p4', 'r1-v-single-r', 'Is the ringed player, standing a yard off the line, an eligible receiver?', 'eligible', YN, 0, ['los:eligible'], 'Yes. He is in the backfield, behind the line, and he wears a receiver\'s number, so he is eligible.', { of: 'H', focus: ['H'] }),
         choice('r1-u2-p5', 'r1-v-ace-l', 'Is the ringed lineman an eligible receiver?', 'eligible', YN, 1, ['los:eligible'], 'No. He is on the line but not at an end of it, so he is ineligible.', { of: 'RT', focus: ['RT'] }),
         tap('r1-u2-p6', 'r1-v-trips', 'Tap the player at the right end of the line.', { lineEnd: 'R' }, 'Z', ['los:eligible'], 'Z is the outside man on the line on the right. The slot players are off the line.'),
         choice('r1-u2-p7', 'r1-v-trips', 'At most, how many offensive players may line up in the backfield?', 'fact', [['3', 3], ['4', 4], ['5', 5], ['6', 6]], 1, ['los:seven'], 'At least 7 on the line means no more than 4 in the backfield.', { truth: 4, src: 'facts A, rank 1, Seven on the line' }),
@@ -278,7 +286,7 @@
           ['Z', 'A man a yard off gets a cleaner start and may go in motion.']),
         card('The slot', ['wr:slot'],
           ['H', 'A slot receiver lines up between the outside receiver and the line.'],
-          ['H', 'Coach School letters him H; some teams use F or A, or just say the slot. He stands off the line, so he is an eligible receiver.']),
+          ['H', 'Coach School letters him H; some teams use F or A, or just say the slot. He stands off the line and wears a receiver\'s number, so he is an eligible receiver.']),
       ],
       walk: [
         { prompt: 'Tap X, the split end.', look: ['los'], find: { role: 'X' }, answer: 'X' },
