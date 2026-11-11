@@ -414,6 +414,47 @@ console.log('\n[A6] rank 1 content');
   // Reading text is never drawn with the 8-bit font (dad's directive): no pixel-text helper left in the drawing code.
   const fieldSrc = fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-field.js'), 'utf8'), uiSrc = fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-ui.js'), 'utf8');
   check(!/pixText\s*\(/.test(fieldSrc) && !/pixText\s*\(/.test(uiSrc), 'no pixText( in cs-field.js or cs-ui.js: callouts, cards and prompts use the body font');
+
+  // A-art. The 8-bit players are production's (the dad, 2026-11-11, at his phone's Scores view: phases
+  // 1-2 had copied an older, unmerged sd-reenact.js, and the players were "not the production retro
+  // models"). Production's file is a page script (DOM, the Scores state, idle callbacks at top level),
+  // so the parts that make a player are cut out of it by their declarations and run in a vm with the
+  // one helper they call (clamp); the copy is cs-field.js run as the page runs it, read through
+  // CS._art. Same input, same output: the rasterised 34x40 grid of shade codes for a stance, a run
+  // frame, the pass release and follow-through, the catch, the ball pulled in, a block and a fall;
+  // the hand positions the ball is drawn at; the kit, helmet-logo and facemask tables.
+  console.log('\n[A-art] the copied 8-bit art matches production (sd-reenact.js)');
+  {
+    const prod = fs.readFileSync(path.join(ROOT, 'assets/sunday/sd-reenact.js'), 'utf8');
+    const cut = (from, to) => { const a = prod.indexOf(from), b = prod.indexOf(to, a); return a >= 0 && b > a ? prod.slice(a, b) : ''; };
+    const src = [
+      cut('const RA_SKEL = {', '\n// Every player frame is rasterised'),
+      cut('const RA_KITS = {', '\n// The helmet shell, by ESPN'),
+      cut('const RA_MASK =', '\nconst raShade'),
+      cut('const RA_HOLD = {};', '\n// A man\'s shadow'),
+    ];
+    let P = null, why = '';
+    try {
+      const pc = vm.createContext({ Math, clamp: (v, a, b) => Math.max(a, Math.min(b, v)) });
+      vm.runInContext(src.join('\n') + '\n;globalThis.__P = { raFig, RA_SKEL, RA_KITS, RA_LOGO, RA_LOGO_BOX, RA_MASK, RA_HOLD };', pc, { filename: 'sd-reenact.js (cut)' });
+      P = pc.__P;
+    } catch (e) { why = e.message; }
+    check(P && src.every((s) => s.length > 20), `production's player art runs in a vm (${why || 'raFig, RA_SKEL, RA_KITS, RA_LOGO, RA_MASK, RA_HOLD'})`);
+    const fc = vm.createContext({});
+    for (const f of ['cs-core.js', 'cs-lib.js', 'cs-field.js']) vm.runInContext(fs.readFileSync(path.join(ROOT, 'assets/coachschool', f), 'utf8'), fc, { filename: f });
+    const C = fc.CS._art || {};
+    const field = fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-field.js'), 'utf8');
+    if (P) {
+      const poses = ['stance', 'run3', 'jog6', 'back2', 'throw2', 'throw3', 'catch', 'secure', 'block2', 'fall1'];
+      const diff = poses.filter((k) => { try { const a = C.raFig(k, 'p'), b = P.raFig(k, 'p'); return a.g.join('') !== b.g.join('') || JSON.stringify(a.num) !== JSON.stringify(b.num) || JSON.stringify(a.hl) !== JSON.stringify(b.hl); } catch (e) { return true; } });
+      check(typeof C.raFig === 'function' && diff.length === 0, `raFig grids (shade codes, number spot, helmet cells) equal production's for ${poses.join(', ')}${diff.length ? ' -- differ: ' + diff.join(', ') : ''}`);
+      const keysEq = C.RA_SKEL && Object.keys(C.RA_SKEL).sort().join() === Object.keys(P.RA_SKEL).sort().join();
+      check(keysEq && Object.keys(P.RA_SKEL).length === 82, `the same ${Object.keys(P.RA_SKEL).length} rigged frames as production (6 gaits x 8 + the set poses)`);
+      check(JSON.stringify(C.RA_HOLD) === JSON.stringify(P.RA_HOLD), 'the ball sits in the same hand spot as production in every frame (RA_HOLD)');
+      check(JSON.stringify(C.RA_KITS) === JSON.stringify(P.RA_KITS) && JSON.stringify(C.RA_LOGO) === JSON.stringify(P.RA_LOGO) && Object.keys(P.RA_LOGO).length >= 30, `kits and all ${Object.keys(P.RA_LOGO).length} helmet logos equal production's`);
+      check(new RegExp(`const RA_MASK = '${P.RA_MASK}'`).test(field) && /m: RA_MASK/.test(field), `facemasks are production's one light grey (${P.RA_MASK})`);
+    }
+  }
 }
 
 /* ═════════════ B. Headless Chrome ═════════════ */

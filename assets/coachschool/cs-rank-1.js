@@ -85,8 +85,12 @@
     ] });
 
   // Variant plays for puzzles: other formations, other teams, the other hash.
+  // Matchups swapped 2026-11-11 when the art was re-ported from production sd-reenact.js (B15, two
+  // teams you can tell apart, min 22): NE-NYJ measured 13 and KC-DEN 16 with production's sprites
+  // (light grey facemasks, helmet logos, redrawn shading); the defenses trade places: NE-DEN 42, KC-NYJ 58.
+  // The kits stay production's.
   P('r1-v-gun-r', { formation: 'gun-2x2', defense: 'c3-nickel', teams: { off: 'BAL', def: 'CIN' }, home: 'def', hash: 'R', spot: 72 });
-  P('r1-v-ace-l', { formation: 'ace', defense: 'c2-43-over', teams: { off: 'NE', def: 'NYJ' }, hash: 'L', spot: 45, to: 'Y' });
+  P('r1-v-ace-l', { formation: 'ace', defense: 'c2-43-over', teams: { off: 'NE', def: 'DEN' }, hash: 'L', spot: 45, to: 'Y' });
   P('r1-v-ace-r', { formation: 'ace', mirror: true, defense: 'c2-43-over', teams: { off: 'LAC', def: 'LV' }, hash: 'R', spot: 38, to: 'Y' });
   P('r1-v-single-r', { formation: 'singleback', defense: 'c2-43-over', teams: { off: 'MIA', def: 'BUF' }, hash: 'R', spot: 28 });
   P('r1-v-trips', { formation: 'gun-trips-rt', defense: 'c3-nickel', teams: { off: 'SF', def: 'SEA' }, spot: 33, to: 'H' });
@@ -99,7 +103,7 @@
   P('r1-v-c2-single', { formation: 'singleback', defense: 'c2-43-over', teams: { off: 'SEA', def: 'SF' }, hash: 'R', spot: 47, to: 'H' });
   P('r1-v-nickel', { formation: 'gun-2x2', defense: 'c3-nickel', teams: { off: 'MIN', def: 'DET' }, home: 'def', spot: 31, to: 'H' });
   P('r1-v-iform-mm', { formation: 'i-form', mirror: true, defense: 'c3-43-over', teams: { off: 'HOU', def: 'JAX' }, spot: 36, to: 'Y' });
-  P('r1-v-trips-kc', { formation: 'gun-trips-rt', defense: 'c3-nickel', teams: { off: 'KC', def: 'DEN' }, hash: 'R', spot: 64, to: 'Y' });
+  P('r1-v-trips-kc', { formation: 'gun-trips-rt', defense: 'c3-nickel', teams: { off: 'KC', def: 'NYJ' }, hash: 'R', spot: 64, to: 'Y' });
   P('r1-v-iform-ten', { formation: 'i-form', defense: 'c2-43-over', teams: { off: 'TEN', def: 'IND' }, hash: 'L', spot: 29, to: 'X' });
   // Game Day plays.
   P('r1-g-1', { formation: 'singleback', defense: 'c3-43-over', teams: { off: 'GB', def: 'CHI' }, hash: 'L', spot: 84, to: 'Y' });

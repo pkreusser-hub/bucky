@@ -219,3 +219,19 @@ faded. Hit-testing: a faded man's sideways distance counts double (at most +10 C
 where a faded sprite overlaps a lit one goes to the lit man; a tap on a faded man's own axis or
 feet is still his (a flat +10 px broke the stacked-column rule). `__CS__.spot` exposes the lit ids,
 each player's opacity and the draw order.
+
+## 2026-11-11 — the 8-bit art re-ported from production
+
+The dad, at his phone's Scores 8-bit view: Coach School's players were "not the production retro
+models". Phases 1-2 had copied `sd-reenact.js` from the unmerged `scores-8bit` branch (bdb314b);
+production (origin/main, 960fb27) has since redrawn the players (rigged skeletons, eight-frame
+walk/jog/run/carry/backpedal strides, pass release and follow-through, catch then secure, chopping
+block, fall), faces under the helmet, light grey facemasks, 7x7 helmet logos, and home-paint end
+zones. `cs-field.js` now carries those verbatim (provenance and line ranges in its header);
+poses and facing stay pure in t. No CDN logos are fetched (midfield and end-zone logos are skipped).
+Suite A-art cuts the player code out of production's file, runs it in a vm, and requires equal
+raFig grids, frame set, ball-hold spots, kits, logos and facemask colour; against the old copy all
+five checks fail. Two matchups failed B15 (min 22) with the new sprites, NE-NYJ (13) and KC-DEN
+(16); the defenses traded places (NE-DEN 42, KC-NYJ 58), kits untouched. `CS.placeBubble` now
+treats a spot within 26 px of any arrow's point as a last resort (an arrow stopped 9 px short was a
+stub on two cards once the DBs backpedal facing the offense).

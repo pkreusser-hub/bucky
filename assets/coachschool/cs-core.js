@@ -603,7 +603,10 @@
       if (x < pad - 0.01 || y < pad - 0.01 || x + w > W - pad + 0.01 || y + h > H - pad + 0.01) return Infinity;
       if (targets.some((t) => hits(b, t.rect, 6))) return Infinity;
       let s = 0;
-      for (const t of targets) s += Math.abs((t.pt ? rectDist(b, t.pt) : rectGap(b, t.rect)) - gap);
+      // A spot that leaves any arrow under 26 px from bubble to point is a last resort: its arrow,
+      // stopped 9 px short, is a stub you can't see (2026-11-11: with production's sprites, four
+      // arrows to the DBs averaged out to a spot 20 px from one of them).
+      for (const t of targets) { const d = t.pt ? rectDist(b, t.pt) : rectGap(b, t.rect); s += Math.abs(d - gap) + (t.pt && d < 26 ? 1000 : 0); }
       for (const a of avoid) s += overlapArea(b, a) * 0.05;
       return s;
     };
