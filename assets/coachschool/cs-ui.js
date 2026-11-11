@@ -226,14 +226,16 @@
     let j = 0;
     mode = { kind: 'walk', unit: u, prev };
     // The prompt is a bubble pointing at where to look (never at the answer itself); the camera
-    // frames that and the answer together, so the player he needs is always on screen.
+    // frames that and the answer together, so the player he needs is always on screen. A bubble that
+    // asks for a tap fades nobody (spot: false): the answer is often outside what it points at, and
+    // fading would hide him; lighting him too would give him away.
     function ask() {
       const w = u.walk[j];
       field.setPlay(play, { callouts: false });
       mode.target = w; mode.main = null;
       panel({ step: `${u.title}: walkthrough ${j + 1}/${u.walk.length}` });
       actions({ prev: true });
-      field.say({ text: w.prompt, focus: w.look, frame: [w.answer], tone: 'prompt', zoom: true });
+      field.say({ text: w.prompt, focus: w.look, frame: [w.answer], tone: 'prompt', zoom: true, spot: false });
     }
     mode.tap = (id) => {
       const w = u.walk[j];
@@ -249,8 +251,8 @@
       } else {
         SFX.wrong();
         field.setMarks(id ? [{ id, kind: 'bad' }] : []);
-        field.say(id ? { parts: ['That is the ', { tag: 'b', text: lc(nameOf(play, id)) }, '. ' + w.prompt], focus: [id], tone: 'bad' }
-          : { parts: ['No player there. Tap right on him. ' + w.prompt], focus: w.look, tone: 'bad' });
+        field.say(id ? { parts: ['That is the ', { tag: 'b', text: lc(nameOf(play, id)) }, '. ' + w.prompt], focus: [id], tone: 'bad', spot: false }
+          : { parts: ['No player there. Tap right on him. ' + w.prompt], focus: w.look, tone: 'bad', spot: false });
       }
     };
     ask();
@@ -330,7 +332,7 @@
       tryNo = 2; mode.tryNo = 2;
       if (pz.type === 'tap') {
         field.setMarks(focus.concat([{ id: ans, kind: 'bad' }]));
-        field.say({ parts: ['That is the ', { tag: 'b', text: lc(nameOf(play, ans)) }, '. One more try.'], focus: [ans], tone: 'bad', zoom: false });
+        field.say({ parts: ['That is the ', { tag: 'b', text: lc(nameOf(play, ans)) }, '. One more try.'], focus: [ans], tone: 'bad', zoom: false, spot: false });
       } else {
         const b = $('stOpts').children[ans];
         if (b) { b.classList.add('bad'); b.disabled = true; }
@@ -570,7 +572,7 @@
     seek: (t) => active.seek(t), screenToYard: (x, y) => active.screenToYard(x, y), yardToScreen: (x, y) => active.yardToScreen(x, y),
     hitTest: (x, y) => active.hitTest(x, y), spriteRect: (id) => active.spriteRect(id),
     get hitRadius() { return active.hitRadius; }, PRE: field.PRE,
-    get camera() { return active.camera; }, get coach() { return active.coach; }, get saying() { return active.saying; },
+    get camera() { return active.camera; }, get coach() { return active.coach; }, get saying() { return active.saying; }, get spot() { return active.spot; },
     ui: {
       get state() { return JSON.parse(JSON.stringify(S)); }, get key() { return KEY; }, get screen() { return screen; },
       get mode() { return mode ? { kind: mode.kind, bubble: mode.bubble, step: mode.step, ended: !!mode.ended, pz: mode.pz ? mode.pz.id : null, done: !!mode.done, ok: mode.ok, tryNo: mode.tryNo, gdIndex: mode.gdIndex, passed: mode.passed, right: mode.right } : null; },

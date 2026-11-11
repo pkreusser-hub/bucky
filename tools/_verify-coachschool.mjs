@@ -401,6 +401,14 @@ console.log('\n[A6] rank 1 content');
     check(pt2.ok && pt2.y >= 520, `a target filling the top 520 px puts the bubble under it (y ${pt2.y})`);
     const tl = CS.tailOf({ x: 20, y: 100, w: 200, h: 60 }, { x: 150, y: 260 }, 9);
     check(tl.y0 === 160 && tl.x0 === 150 && near(Math.hypot(150 - tl.x1, 260 - tl.y1), 9, 1e-9), `tailOf leaves the bubble's bottom edge and stops 9 px short (${JSON.stringify(tl)})`);
+    // The spotlight (the dad, at the OL card: the DL a yard off the ball overlapped the five and they
+    // read as a pile). A group lights exactly its members, a player himself, players and groups
+    // together their union; a field feature lights nobody (null = nobody fades).
+    const OLP = L.PLAYS['r1-ol'], sp = (f) => { if (typeof CS.spotIds !== 'function') return 'missing'; const s = CS.spotIds(OLP, f, -1.2); return s ? [...s].sort().join() : null; };
+    check(sp('ol') === 'C,LG,LT,RG,RT' && sp('C') === 'C' && sp(['LT', 'RT']) === 'LT,RT' && sp(['ol', 'QB']) === 'C,LG,LT,QB,RG,RT', `spotIds: ol -> the five, C -> C, [LT, RT] -> both, [ol, QB] -> six (${sp(['ol', 'QB'])})`);
+    check(sp('hashes') === null && sp('los') === null && sp('ball') === null && sp(['los', 'C']) === 'C', 'spotIds: field features alone light nobody; a feature beside a player lights the player');
+    // Opacity on the camera's ease: 1 -> 0.32 at u 0.5 is 1 - 0.68 * 0.5 = 0.66; at u 0.25, 1 - 0.68 * 0.0625 = 0.9575.
+    check(typeof CS.spotAlpha === 'function' && CS.SPOT_FADE === 0.32 && near(CS.spotAlpha(1, 0.32, 0.5), 0.66, 1e-12) && near(CS.spotAlpha(1, 0.32, 0.25), 0.9575, 1e-12) && near(CS.spotAlpha(1, 0.32, 1), 0.32, 1e-12) && CS.spotAlpha(0.32, 1, 0) === 0.32, 'spotAlpha: 0.66 halfway, 0.9575 a quarter in (ease 0.0625), ends on 0.32');
   }
 
   // Reading text is never drawn with the 8-bit font (dad's directive): no pixel-text helper left in the drawing code.
@@ -579,7 +587,10 @@ async function sectionB() {
     const fits = (L) => L.sh <= L.ih && L.sw <= L.iw && L.fh >= 200 && L.panelClip <= 1 && L.actBottom <= L.ih;
     const mode = (pg) => pg.evaluate(() => window.__CS__.ui.mode);
     // Coach bubbles (phase 2b): the camera eases for ~0.5 s before a bubble shows; wait it out.
-    const still = (pg) => pg.waitForFunction(() => !window.__CS__.field.camAnimating, { timeout: 5000 }).then(() => settle(pg, 30));
+    // RESTAGED (spotlight): the fade on everyone a bubble isn't about eases with the camera, and also
+    // runs when the camera has nowhere to go (two bubbles with one framing), so "settled" now waits
+    // for both. Without it the spotlight checks would read a frame mid-fade.
+    const still = (pg) => pg.waitForFunction(() => !window.__CS__.field.camAnimating && !(window.__CS__.spot && window.__CS__.spot.animating), { timeout: 5000 }).then(() => settle(pg, 30));
     // The words a player is shown after an answer: the coach bubble when there is one, else the panel line.
     const fbText = (pg) => pg.evaluate(() => { const b = document.getElementById('bubble'); const t = b && b.offsetParent !== null ? b.textContent : document.getElementById('stFb').innerText; return t.replace(/\s+/g, ' ').trim(); });
     const settle = (pg, ms = 120) => pg.evaluate((ms) => new Promise((r) => setTimeout(r, ms)), ms);
@@ -1057,6 +1068,67 @@ async function sectionB() {
         rtN += m.rt.length;
         for (const r of m.rt) if (r.hit !== r.id || r.err > 1e-6) rtBad.push(`${where}:${r.id}->${r.hit}`);
       };
+      // The spotlight, measured on the same settled frame. Who the bubble names is worked out here from
+      // CS.focusOf directly (not CS.spotIds). Every man it doesn't name must be at 0.32 and drawn before
+      // every man it names; a bracket must be the union of its own members' sprites plus 5 px (never
+      // grown to take in anyone else) and hold every member's sprite centre, and any other man whose
+      // sprite centre falls inside it must be faded; a hit-test at each named man's sprite centre returns
+      // him. A bubble about field features only fades nobody; a bubble that asks for a tap neither.
+      const spotM = () => pb.evaluate(() => {
+        const C = window.__CS__, CS = window.CS, s = C.spot || { ids: null, alpha: {}, order: [] }, say = C.saying, g = C.coach;
+        const named = new Set(); let feature = 0;
+        if (say) for (const tok of say.focus) { const f = CS.focusOf(C.play, tok, C.t); if (!f) continue; if (f.ids) f.ids.forEach((id) => named.add(id)); else feature++; }
+        const all = Object.keys(CS.poseAt(C.play, C.t).players), ctr = {};
+        for (const id of all) { const q = C.spriteRect(id); if (q) ctr[id] = { x: (q.left + q.right) / 2, y: (q.top + q.bottom) / 2, r: q }; }
+        const box = g ? g.box : null, on = (p) => box && p.x > box.l + 1 && p.x < box.r - 1 && p.y > box.t + 1 && p.y < box.b - 1;
+        const hits = [...named].filter((id) => ctr[id] && on(ctr[id])).map((id) => ({ id, hit: C.hitTest(ctr[id].x, ctr[id].y) }));
+        const brackets = g ? g.targets.filter((t) => t.kind === 'group').map((t) => {
+          let U = null; for (const id of t.ids) { const q = ctr[id].r; U = U ? { l: Math.min(U.l, q.left), r: Math.max(U.r, q.right), t: Math.min(U.t, q.top), b: Math.max(U.b, q.bottom) } : { l: q.left, r: q.right, t: q.top, b: q.bottom }; }
+          const R = t.rect, inside = (p) => p.x >= R.l && p.x <= R.r && p.y >= R.t && p.y <= R.b;
+          return { tok: t.tok, tight: Math.max(Math.abs(R.l - (U.l - 5)), Math.abs(R.r - (U.r + 5)), Math.abs(R.t - (U.t - 5)), Math.abs(R.b - (U.b + 5))),
+            out: t.ids.filter((id) => !inside(ctr[id])), others: all.filter((id) => !t.ids.includes(id) && ctr[id] && inside(ctr[id])) };
+        }) : [];
+        // Where a lit man's sprite overlaps a faded man's: a tap 40% of the way from the faded man's
+        // body axis to the lit man's, inside both sprites. Nearest-axis alone gives it to the faded man;
+        // under the spotlight it belongs to the man the bubble is about.
+        const over = [];
+        for (const L of named) for (const F of all) {
+          if (named.has(F) || !ctr[L] || !ctr[F]) continue;
+          const a = ctr[L].r, b = ctr[F].r, o = { l: Math.max(a.left, b.left), r: Math.min(a.right, b.right), t: Math.max(a.top, b.top), b: Math.min(a.bottom, b.bottom) };
+          if (o.r - o.l < 2 || o.b - o.t < 2 || Math.abs(a.feetX - b.feetX) < 6) continue;
+          const x = b.feetX + 0.4 * (a.feetX - b.feetX), y = (o.t + o.b) / 2;
+          if (x < o.l + 0.5 || x > o.r - 0.5 || !on({ x, y })) continue;
+          over.push({ L, F, hit: C.hitTest(x, y) });
+        }
+        return { named: [...named], feature, all, ids: s.ids, alpha: s.alpha, order: s.order, hits, brackets, over };
+      });
+      const sprob = [];
+      let sLit = 0, sFeat = 0, sCovered = 0, sHits = 0, sBr = 0, sTap = 0, sOver = 0;
+      const auditSpot = (where, m, expectOff) => {
+        const A = (id) => (m.alpha && id in m.alpha ? m.alpha[id] : NaN);
+        if (expectOff || !m.named.length) {
+          if (m.ids !== null || m.all.some((id) => A(id) !== 1)) sprob.push(`${where}: ${expectOff ? 'a tap prompt' : 'a field-feature bubble'} fades someone (${JSON.stringify(m.ids)})`);
+          if (expectOff) sTap++; else sFeat++;
+          return;
+        }
+        sLit++;
+        const lit = new Set(m.named);
+        if (!m.ids || [...m.ids].sort().join() !== [...lit].sort().join()) sprob.push(`${where}: lit ${JSON.stringify(m.ids)} but the bubble names ${[...lit].join(',')}`);
+        for (const id of m.all) {
+          const want = lit.has(id) ? 1 : 0.32;
+          if (!(Math.abs(A(id) - want) < 1e-3)) sprob.push(`${where}: ${id} at opacity ${A(id)}, want ${want}`);
+        }
+        const idx = (id) => m.order.indexOf(id), lastDim = Math.max(-1, ...m.all.filter((id) => !lit.has(id)).map(idx)), firstLit = Math.min(...[...lit].map(idx));
+        if (m.order.length !== m.all.length || !(firstLit > lastDim)) sprob.push(`${where}: a faded man drawn after a lit one (order ${m.order.join(',')})`);
+        for (const b of m.brackets) {
+          sBr++;
+          if (b.tight > 1) sprob.push(`${where}: ${b.tok} bracket is ${b.tight.toFixed(1)} px off its members' sprites + 5`);
+          if (b.out.length) sprob.push(`${where}: ${b.tok} bracket leaves out ${b.out.join(',')}`);
+          for (const id of b.others) { sCovered++; if (!(A(id) < 0.5)) sprob.push(`${where}: ${id} inside the ${b.tok} bracket and not faded`); }
+        }
+        for (const h of m.hits) { sHits++; if (h.hit !== h.id) sprob.push(`${where}: a tap on ${h.id}'s sprite centre went to ${h.hit}`); }
+        for (const o of m.over) { sOver++; if (o.hit !== o.L) sprob.push(`${where}: a tap where lit ${o.L} overlaps faded ${o.F} went to ${o.hit}`); }
+      };
       const units = await pb.evaluate(() => window.CS.RANK_DATA[0].units.map((u) => ({ id: u.id, walk: u.walk.map((w) => w.answer) })));
       for (const u of units) {
         await pb.evaluate((id) => { location.hash = '#unit/' + id; }, u.id); await settle(pb);
@@ -1065,23 +1137,30 @@ async function sectionB() {
           if (mc.kind !== 'card') break;
           await still(pb);
           audit(`${u.id} card ${mc.step + 1}.${mc.bubble + 1}`, await measure());
+          auditSpot(`${u.id} card ${mc.step + 1}.${mc.bubble + 1}`, await spotM());
           if (u.id === 'r1-u1' && mc.step === 1 && mc.bubble === 0) await plate(pb, 'cs3-card-hash-marks.png');
           if (u.id === 'r1-u3' && mc.step === 0 && mc.bubble === 0) await plate(pb, 'cs3-card-ol-group.png');
+          if (u.id === 'r1-u3' && mc.step === 1 && mc.bubble === 0) await plate(pb, 'cs4-card-center.png');
+          if (u.id === 'r1-u6' && mc.step === 0 && mc.bubble === 0) await plate(pb, 'cs4-card-dl-group.png');
+          if (u.id === 'r1-u6' && mc.step === 1 && mc.bubble === 0) await plate(pb, 'cs4-card-lb-group.png');
           await pb.evaluate(() => window.__CS__.ui.next()); await settle(pb, 30);
         }
         // Watch: the main button, a note at a time.
         for (let p = 0; p < 6; p++) {
           await pb.click('#btnMain');
           if (u.id === 'r1-u1' && p === 0) { await settle(pb, 230); await plate(pb, 'cs3-watch-mid-zoom.png'); }
-          await pb.waitForFunction(() => !window.__CS__.playing && !window.__CS__.field.camAnimating, { timeout: 15000 }); await settle(pb, 40);
+          await pb.waitForFunction(() => !window.__CS__.playing && !window.__CS__.field.camAnimating, { timeout: 15000 }); await still(pb);
           if (await pb.evaluate(() => window.__CS__.field.atNote)) {
             audit(`${u.id} note ${p + 1}`, await measure());
+            auditSpot(`${u.id} note ${p + 1}`, await spotM());
             if (u.id === 'r1-u1' && p === 0) await plate(pb, 'cs3-watch-zoomed.png');
             if (u.id === 'r1-u1' && p === 2) {
               // The play running zoomed out: one press on from the last note, partway down the field.
               await pb.click('#btnMain'); await settle(pb, 650);
               const z = await pb.evaluate(() => ({ z: window.__CS__.camera.z, playing: window.__CS__.playing }));
               check(z.z === 1, `the play runs with the camera zoomed all the way out (z ${z.z}, playing ${z.playing})`);
+              const run = await spotM();
+              check(run.ids === null && run.all.every((id) => run.alpha[id] === 1), `the play runs with nobody faded (lit ${JSON.stringify(run.ids)}, opacities ${[...new Set(Object.values(run.alpha || {}))].join(',')})`);
               await plate(pb, 'cs3-play-running.png');
               await pb.waitForFunction(() => !window.__CS__.playing && !window.__CS__.field.camAnimating, { timeout: 15000 });
             }
@@ -1092,14 +1171,20 @@ async function sectionB() {
         for (let j = 0; j < u.walk.length; j++) {
           await still(pb);
           audit(`${u.id} walk ${j + 1}`, await measure());
+          auditSpot(`${u.id} walk ${j + 1}`, await spotM(), true);
           if (u.id === 'r1-u3' && j === 0) await plate(pb, 'cs3-walk-prompt.png');
           await tapPlayer(pb, u.walk[j]); await still(pb);
           audit(`${u.id} walk ${j + 1} right`, await measure());
+          auditSpot(`${u.id} walk ${j + 1} right`, await spotM());
           await pb.evaluate(() => window.__CS__.ui.next()); await settle(pb, 60);
         }
       }
       check(n >= 120 && probs.length === 0, `${n} coach bubbles (${zoomed} zoomed): inside the field, off the controls, off their targets, text fits, every arrow ends within 12 px of its target ${probs.slice(0, 5).join(' | ')}`);
       check(zoomed >= 60, `the camera zooms in on what a bubble points at (${zoomed} of ${n} bubbles shown zoomed)`);
+      check(sLit >= 60 && sprob.length === 0, `spotlight on ${sLit} bubbles that name players: everyone else at 0.32 and drawn first, the named on top at full opacity; ${sHits} taps on named sprite centres hit their man ${sprob.slice(0, 5).join(' | ')}`);
+      check(sOver >= 10 && !sprob.some((x) => /overlaps faded/.test(x)), `${sOver} taps where a lit sprite overlaps a faded one, 40% of the way from the faded man's axis, go to the lit man ${sprob.filter((x) => /overlaps faded/.test(x)).slice(0, 4).join(' | ')}`);
+      check(sBr >= 8 && sCovered >= 1 && !sprob.some((x) => /bracket/.test(x)), `${sBr} group brackets are their own members' sprites + 5 px and hold every member; ${sCovered} other men whose sprite centres fall inside one are faded`);
+      check(sFeat >= 15 && sTap === 18 && !sprob.some((x) => /field-feature|tap prompt/.test(x)), `${sFeat} field-feature bubbles and ${sTap} walkthrough prompts fade nobody`);
       check(rtN >= 500 && rtBad.length === 0, `after every zoom, yardToScreen -> hitTest returns each of ${rtN} on-screen players and screenToYard inverts it ${rtBad.slice(0, 5).join(', ')}`);
       // A real tap while zoomed: the walkthrough's first prompt on the OL is zoomed; tap the centre's sprite.
       await pb.evaluate(() => { location.hash = '#unit/r1-u3'; }); await settle(pb);
@@ -1127,6 +1212,16 @@ async function sectionB() {
         C.ui.next(); requestAnimationFrame(iv);                 // card 1 bubble 1 -> bubble 2: a new focus
       }));
       check(seen.zs.length <= 2 && !seen.anim && seen.shownAt !== null && seen.shownAt < 100, `reduced motion: the camera jumps straight to its framing (zooms seen ${seen.zs.join(', ')}) and the bubble shows within 100 ms (${seen.shownAt && seen.shownAt.toFixed(0)} ms)`);
+      // The spotlight cuts too: the OL card, bubble 2 (ol) -> bubble 3 (LT, RT). The left guard goes from
+      // lit to faded with no frame in between.
+      await pr.evaluate(() => { location.hash = '#unit/r1-u3'; }); await settle(pr);
+      await pr.evaluate(() => window.__CS__.ui.next()); await settle(pr, 60);
+      const fr = await pr.evaluate(() => new Promise((res) => {
+        const C = window.__CS__, as = new Set(), t0 = performance.now();
+        const iv = () => { as.add(C.spot ? C.spot.alpha.LG : 'none'); if (performance.now() - t0 < 600) requestAnimationFrame(iv); else res([...as]); };
+        C.ui.next(); requestAnimationFrame(iv);
+      }));
+      check(fr.length === 1 && fr[0] === 0.32, `reduced motion: the fade cuts, the left guard is at 0.32 from the first frame (seen ${fr.join(', ')})`);
       check(er.length === 0, 'zero page errors with reduced motion on the stage');
       await pr.close();
     }
@@ -1143,6 +1238,10 @@ async function sectionB() {
       await tapPlayer(pz, 'C'); await settle(pz, 80);
       const m2 = await measure2(pz);
       check(m2 && m2.tone === 'good' && m2.targets[0].id === 'C' && /\+5 XP/.test(m2.text), `right on the second try: a green bubble on the centre with its +5 XP ("${m2 && m2.text.slice(0, 40)}")`);
+      // After the answer the play runs: the green bubble stays on the centre, nobody faded.
+      await settle(pz, 600);
+      const ps = await pz.evaluate(() => { const s = window.__CS__.spot; return s ? { playing: window.__CS__.playing, ids: s.ids, vals: [...new Set(Object.values(s.alpha))] } : null; });
+      check(ps && ps.ids === null && ps.vals.length === 1 && ps.vals[0] === 1, `while the answer's play runs nobody is faded (${JSON.stringify(ps)})`);
       check(ez.length === 0, 'zero page errors on the puzzle bubbles');
       await pz.close();
     }

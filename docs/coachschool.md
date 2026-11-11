@@ -204,3 +204,18 @@ choice question's at what it is about, a pure fact question's stays in the panel
 pure (`CS.camFrame`, `CS.camLerp`, `CS.ease`), eases 480 ms, cuts under reduced motion, frames a
 target to at most 55% of the view's height so its bubble has room, and zooms out whenever the play
 runs. The canvas backing store now follows device pixels so zoomed art stays nearest-neighbour crisp.
+
+**Spotlight on what a bubble names** (the dad, at the OL card's plate: the defensive line, rightly
+set a yard off the ball per fact sheet 1c, overlapped the linemen, the five read as a pile and the
+dashed bracket took in defenders). Coaching-film style: while a bubble names players or a group,
+everyone else is drawn at 0.32 opacity (shadow too) and the named men are drawn last, on top. A
+bubble about field features only (hash, LOS, numbers...) fades nobody. The fade rides the camera's
+ease (`CS.spotAlpha`, same t0 and 480 ms), cuts under reduced motion, and clears when the play runs
+(it stays clear after the play ends). A bubble that asks for a tap (walkthrough prompts, a wrong-tap
+retry) passes `spot: false` and fades nobody: the answer is often outside what it points at, and
+fading him would hide him while lighting him would give him away. A group bracket is the union of
+its own members' sprites plus 5 px, never grown; a man whose sprite overlaps it from outside is
+faded. Hit-testing: a faded man's sideways distance counts double (at most +10 CSS px), so a tap
+where a faded sprite overlaps a lit one goes to the lit man; a tap on a faded man's own axis or
+feet is still his (a flat +10 px broke the stacked-column rule). `__CS__.spot` exposes the lit ids,
+each player's opacity and the draw order.

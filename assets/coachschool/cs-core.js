@@ -558,6 +558,19 @@
     const e = CS.ease(u);
     return { cx: a.cx + (b.cx - a.cx) * e, cy: a.cy + (b.cy - a.cy) * e, z: a.z * Math.pow(b.z / a.z, e) };
   };
+  /* ── the spotlight ── Coaching film's trick (the dad, looking at the OL card: the defensive line,
+     rightly set a yard off the ball, overlapped the linemen and the five read as a pile): while a
+     bubble talks about players, everyone else is drawn faded and the players it names are drawn
+     last, on top. A bubble about a field feature fades nobody. CS.spotIds resolves a focus to the
+     ids it names (null = nobody fades); CS.spotAlpha is a player's opacity u of the way through
+     the fade, on the camera's ease. Pure, so the suite checks the arithmetic in Node. */
+  CS.SPOT_FADE = 0.32;
+  CS.spotIds = (play, focus, t) => {
+    const ids = new Set();
+    for (const tok of CS.toArr(focus)) { const f = CS.focusOf(play, tok, t); if (f && (f.kind === 'player' || f.kind === 'group')) f.ids.forEach((id) => ids.add(id)); }
+    return ids.size ? ids : null;
+  };
+  CS.spotAlpha = (from, to, u) => from + (to - from) * CS.ease(u);
   // Frame a world-pixel rect with a margin: the largest zoom that shows it whole, no more than
   // zmax, rounded DOWN to a `step` so the pixel art scales by tidy amounts. `fill` caps how much of
   // the view's height the rect may take, leaving room above or below it for the bubble that talks about it.

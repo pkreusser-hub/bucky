@@ -498,7 +498,8 @@
     const reduced = () => !!(reduceMQ && reduceMQ.matches);
     const FULL = { cx: W / 2, cy: H / 2, z: 1 };
     const st = { play: null, c: null, t: 0, playing: false, speed: 1, raf: 0, last: 0, acc: 0, kits: null, art: null, pal: {}, nums: {}, drawn: {}, marks: [], callout: true,
-      cam: { ...FULL }, camA: null, say: null, sayN: 0, shown: 0, place: null, note: null, geom: null, bw: 0, bh: 0 };
+      cam: { ...FULL }, camA: null, say: null, sayN: 0, shown: 0, place: null, note: null, geom: null, bw: 0, bh: 0,
+      fade: null, fadeAnim: false, spotOn: false, alpha: {}, order: [], spot: null };
     const PRE = -1.2;
     const CAM_MS = 480;                  // the camera's ease in or out (the brief: 400-600 ms)
     const bubbleEl = opts.bubbleEl || null, tailsEl = opts.tailsEl || null;
@@ -516,6 +517,7 @@
       st.pal = {}; st.nums = {}; st.marks = []; st.drawn = {};
       st.callout = o.callouts !== false;
       st.cam = { ...FULL }; st.camA = null; st.say = null; st.note = null; st.place = null;
+      st.fade = null; st.spotOn = false; st.alpha = {}; st.order = []; st.spot = null;
       st.c.all.forEach((p, i) => {
         const side = p.team === 'off' ? 'o' : 'd';
         st.pal[p.id] = raPalette(st.kit[p.team], i, side);
@@ -549,6 +551,13 @@
     // go to the one whose FEET are just below the tap, never to the neighbour whose head reaches
     // up there. Outside every box, the nearest body axis within HIT_R CSS px wins. Distances are
     // CSS px at the current zoom (kx, ky), so the radius is the same size under the finger zoomed or not.
+    // Under the spotlight a faded man's sideways distance counts double (up to SPOT_HIT CSS px more),
+    // so where a faded sprite overlaps a lit one the tap goes to the man the bubble is about. A tap
+    // right on a faded man's own body axis or feet is still his: no handicap within 1 world px of it
+    // (feet sit on a rounded pixel, so an exact tap can land half a pixel off), and the column
+    // rule above still settles two men stacked one over the other. (A flat +10 px broke exactly that:
+    // a faded right guard's feet, under the lit right tackle's helmet, went to the tackle.)
+    const SPOT_HIT = 10;
     function hitTest(px, py) {
       if (!st.play) return null;
       const { sx, sy } = toCss(), kx = sx * st.cam.z, ky = sy * st.cam.z;
@@ -558,7 +567,8 @@
       for (const id of ids) {
         const b = bodyBox(id);
         if (!b || X < b.x0 || X >= b.x1 || Y < b.y0 || Y > b.fy + 2) continue;
-        const ax = Math.hypot((X - b.fx) * kx, (Y - clamp(Y, b.y0, b.fy)) * ky);   // CSS px to his axis
+        const faded = id in st.alpha && st.alpha[id] < 0.99;
+        const ax = Math.hypot((X - b.fx) * kx, (Y - clamp(Y, b.y0, b.fy)) * ky) + (faded ? Math.min(SPOT_HIT, Math.max(0, Math.abs(X - b.fx) - 1) * kx) : 0);   // CSS px to his axis
         const k = b.fy - Y, key = k >= 0 ? k : 0.5 - k, h = Math.abs(X - b.fx);
         const nearer = ax < ba - 0.5, tie = Math.abs(ax - ba) <= 0.5;
         if (nearer || (tie && (key < bk || (key === bk && h < bh)))) { ba = Math.min(ba, ax); bk = key; bh = h; best = id; }
@@ -621,6 +631,30 @@
       if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
     }
 
+    /* ── the spotlight ── While a bubble names players (st.spotOn: set by say(), cleared when the play
+       runs), everyone else fades to CS.SPOT_FADE. The fade starts with the camera's ease (the same t0
+       and 480 ms, so both settle on the same frame), cuts under reduced motion, and a change of focus
+       mid-fade starts from where each man is. A bubble with spot: false (one that asks for a tap,
+       where fading would hide the answer or give it away) fades nobody. Returns {id: opacity}. */
+    function spotlight() {
+      const c = st.c, now = performance.now();
+      const ids = st.say && st.spotOn && st.say.spot !== false && !st.playing ? CS.spotIds(st.play, st.say.focus, st.t) : null;
+      const to = {};
+      for (const p of c.all) to[p.id] = ids && !ids.has(p.id) ? CS.SPOT_FADE : 1;
+      const key = ids ? [...ids].sort().join() : '';
+      const at = (f) => { const u = clamp((now - f.t0) / CAM_MS, 0, 1), o = {}; for (const id in f.to) o[id] = CS.spotAlpha(id in f.from ? f.from[id] : 1, f.to[id], u); return o; };
+      if (!st.fade || st.fade.key !== key) {
+        const from = st.fade ? at(st.fade) : {};
+        st.fade = { key, from: reduced() ? to : from, to, t0: st.camA ? st.camA.t0 : now };
+      }
+      st.spot = ids;
+      const a = at(st.fade);
+      st.fadeAnim = !reduced() && Object.keys(to).some((id) => Math.abs(a[id] - to[id]) > 1e-3);
+      if (st.fadeAnim) loop();
+      st.alpha = a;
+      return a;
+    }
+
     function draw() {
       if (!st.play) return;
       backing();
@@ -674,7 +708,8 @@
         g.lineTo(X + Math.cos(ang + 2.5) * 5, Y + Math.sin(ang + 2.5) * 5); g.lineTo(X + Math.cos(ang - 2.5) * 5, Y + Math.sin(ang - 2.5) * 5); g.fill();
       }
 
-      // Players and the ball, back to front.
+      // Players and the ball, back to front; under the spotlight the faded ones first, then the lit.
+      const alpha = spotlight(), lit = st.spot;
       const items = [], drawn = {};
       c.all.forEach((p, i) => {
         const q = pose.players[p.id], o = prev.players[p.id];
@@ -687,15 +722,18 @@
         const X = Math.round(sx), Y = Math.round(sy);
         const spr = raSprite(ps, st.pal[p.id], face === 'l', st.nums[p.id]);
         drawn[p.id] = { pose: ps, flip: face === 'l', sx, sy, X, Y, spr };
-        items.push({ y: sy, draw: () => {
+        const a = alpha[p.id];
+        items.push({ id: p.id, y: sy, layer: lit && lit.has(p.id) ? 1 : 0, draw: () => {
+          g.globalAlpha = a;
           g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 2, 17, 4); g.fillRect(X - 10, Y - 1, 21, 2);
           g.drawImage(spr, X - spr.ax, Y - spr.ay);
+          g.globalAlpha = 1;
         } });
       });
       st.drawn = drawn;
       const b = pose.ball;
       const heldBy = b.held ? drawn[b.held] : null;
-      items.push({ y: heldBy ? heldBy.sy + 0.5 : wy(b.x) + 0.5, draw: () => {
+      items.push({ y: heldBy ? heldBy.sy + 0.5 : wy(b.x) + 0.5, layer: heldBy && lit && lit.has(b.held) ? 1 : 0, draw: () => {
         let xb, yb, k = 0;
         if (heldBy) {
           const o = RA_HOLD[heldBy.pose] || RA_HOLD.stand;
@@ -713,7 +751,8 @@
         const spr = raBallSprite(k);
         g.drawImage(spr, Math.round(xb - spr.width / 2), Math.round(yb - spr.height / 2));
       } });
-      items.sort((p, q) => p.y - q.y).forEach((it) => it.draw());
+      items.sort((p, q) => p.layer - q.layer || p.y - q.y).forEach((it) => it.draw());
+      st.order = items.filter((it) => it.id).map((it) => it.id);
 
       // Chalk over the players: marks the lesson asked for, rings on the players a coach bubble is
       // talking about, and (the engine demo only, which has no bubble layer) the callout on the canvas.
@@ -776,6 +815,8 @@
             const a = relRect(q);
             R = R ? { l: Math.min(R.l, a.l), r: Math.max(R.r, a.r), t: Math.min(R.t, a.t), b: Math.max(R.b, a.b) } : a;
           }
+          // The bracket is the union of the group's OWN sprites plus 5 px, never grown to take in anyone
+          // else; a man whose sprite overlaps it from outside the group is faded (spotlight()).
           if (R) out.push({ tok, kind: 'group', ids: f.ids, rect: { l: R.l - 5, r: R.r + 5, t: R.t - 5, b: R.b + 5 }, pt: null });
         } else {
           for (const m of f.marks) {
@@ -893,6 +934,7 @@
     function say(b) {
       st.sayN++;
       st.say = b ? { ...b, focus: CS.toArr(b.focus), key: st.sayN } : null;
+      st.spotOn = !!b;
       if (b && b.zoom) camTo(frameOf(st.say.focus.concat(CS.toArr(b.frame))));
       else if (b && b.zoom === false) camTo(FULL);
       draw();
@@ -908,7 +950,7 @@
       }
       if (st.playing) advance(now);
       draw();
-      if (st.playing || st.camA) loop();
+      if (st.playing || st.camA || st.fadeAnim) loop();
     }
     function seek(t) {
       st.t = clamp(t, PRE, st.c ? st.c.T : 0);
@@ -956,7 +998,8 @@
       if (st.t >= st.c.T) st.t = PRE;
       st.note = null;
       if (st.say && st.say.src === 'callout') st.say = null;
-      camTo(FULL);                                           // the play runs zoomed out
+      camTo(FULL);                                           // the play runs zoomed out,
+      st.spotOn = false;                                     // and with nobody faded
       // REGRESSION (dad's playtest, PR #182): every lesson play opened with notes before the snap,
       // so a press ran a few tenths of a second of a frozen picture and stopped again. Before the
       // snap nobody moves, so a lesson goes straight to the next pre-snap note, or straight to the
@@ -1009,6 +1052,9 @@
       get T() { return st.c ? st.c.T : 0; }, get keys() { return st.keys.slice(); }, get reduced() { return reduced(); },
       get marks() { return st.marks.slice(); }, get canvas() { return canvas; },
       get camera() { return { ...st.cam }; }, get camAnimating() { return !!st.camA; }, get atNote() { return !!st.note; },
+      // The spotlight this frame: the ids the bubble names (null = nobody faded), each player's
+      // opacity, and the order the players were drawn in (the lit ones last).
+      get spot() { return { ids: st.spot ? [...st.spot] : null, alpha: { ...st.alpha }, order: st.order.slice(), animating: !!st.fadeAnim }; },
       get saying() { return st.say ? { text: st.say.text || null, focus: st.say.focus.slice(), tone: st.say.tone || 'note', src: st.say.src || null } : null; },
       get coach() { return st.geom ? JSON.parse(JSON.stringify(st.geom)) : null; },
       PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT },
