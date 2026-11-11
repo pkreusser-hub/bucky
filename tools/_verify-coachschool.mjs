@@ -36,7 +36,8 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 /* ═════════════ A. Node ═════════════ */
 console.log('\n[A] core + library in a vm context');
 const ctx = vm.createContext({});
-for (const f of ['cs-core.js', 'cs-lib.js']) vm.runInContext(fs.readFileSync(path.join(ROOT, 'assets/coachschool', f), 'utf8'), ctx, { filename: f });
+const FILES = ['cs-core.js', 'cs-lib.js', 'cs-pz-tap.js', 'cs-pz-choice.js', 'cs-rank-1.js'];
+for (const f of FILES) vm.runInContext(fs.readFileSync(path.join(ROOT, 'assets/coachschool', f), 'utf8'), ctx, { filename: f });
 const CS = ctx.CS, L = CS.lib;
 check(typeof CS.poseAt === 'function' && typeof CS.validateFormation === 'function', 'CS loads in Node with no DOM');
 
@@ -47,7 +48,9 @@ const forms = Object.values(L.FORMATIONS);
 check(forms.length >= 2 && L.FORMATIONS['gun-2x2'] && L.FORMATIONS['i-form'], 'seed formations: shotgun 2x2 and I-form');
 for (const f of forms) {
   const ps = CS.resolveSet(f);
-  const onLine = ps.filter((p) => p.y >= -1.0).length;              // NFL: 7 on the line (cs-core ON_LINE_Y = -1)
+  // RESTAGED in phase 2: the fact sheet (1b) puts on-line players at y = 0 and off-line players at
+  // y = -1, so "on the line" is now y >= -0.5. The old -1.0 cut would count the flanker as on it.
+  const onLine = ps.filter((p) => p.y >= -0.5).length;              // NFL: 7 on the line (cs-core ON_LINE_Y = -0.5)
   const rb = ps.filter((p) => p.pos === 'RB' || p.pos === 'FB').length, te = ps.filter((p) => p.pos === 'TE').length;
   let minD = Infinity;
   for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) minD = Math.min(minD, Math.hypot(ps[i].x - ps[j].x, ps[i].y - ps[j].y));
@@ -64,9 +67,13 @@ check(L.FORMATIONS['gun-2x2'].personnel === '11' && L.FORMATIONS['i-form'].perso
 const g2 = L.FORMATIONS['gun-2x2'];
 const broken = (mut) => { const f = JSON.parse(JSON.stringify(g2)); f.id = 'broken'; mut(f); return CS.validateFormation(f); };
 const has = (errs, re) => errs.some((e) => re.test(e));
-check(has(broken((f) => { f.players.find((p) => p.id === 'H').y = -0.95; delete f.players.find((p) => p.id === 'H').on; }), /8 on the line/), 'broken fixture: 8 on the line is flagged');
+// RESTAGED in phase 2 (fact-sheet alignments): the slot steps up to y = 0, the sheet's on-line depth;
+// -0.95 is now off the line, so the old fixture no longer made an eighth man.
+check(has(broken((f) => { f.players.find((p) => p.id === 'H').y = 0; delete f.players.find((p) => p.id === 'H').on; }), /8 on the line/), 'broken fixture: 8 on the line is flagged');
 check(has(broken((f) => { f.players.pop(); }), /10 players/), 'broken fixture: 10 players is flagged');
-check(has(broken((f) => { f.players.find((p) => p.id === 'H').x = 7.5; f.players.find((p) => p.id === 'H').y = -1.6; f.players.find((p) => p.id === 'X').y = -1.2; }), /0\.8/), 'broken fixture: two players 0.5 yd apart is flagged');
+// RESTAGED in phase 2: X now lines up at the sheet's x = 6 (was 8), so the slot is put 0.5 yd from
+// wherever X actually is instead of at a fixed 7.5.
+check(has(broken((f) => { const x = f.players.find((p) => p.id === 'X'), h = f.players.find((p) => p.id === 'H'); h.x = x.x + 0.5; h.y = x.y; delete h.on; x.y = 0; }), /0\.8/), 'broken fixture: two players 0.5 yd apart is flagged');
 check(has(broken((f) => { f.personnel = '12'; }), /personnel says 12/), 'broken fixture: wrong personnel code is flagged');
 check(has(broken((f) => { f.players.find((p) => p.id === 'X').x = -1; }), /out of bounds/), 'broken fixture: out of bounds is flagged');
 check(has(broken((f) => { const x = f.players.find((p) => p.id === 'X'); x.x = 20.5; const lt = f.players.find((p) => p.id === 'LT'); delete lt.dx; lt.x = 6; }), /not eligible/), 'broken fixture: a tackle at the end of the line is flagged');
@@ -74,7 +81,7 @@ check(has(broken((f) => { const x = f.players.find((p) => p.id === 'X'); x.x = 2
 // A2. Defenses and coverages. Deep counts are hand-written from the coverage definitions
 // (C2 = two half-field safeties; C3 = two corners + the free safety in thirds).
 console.log('\n[A2] defenses');
-const DEEP = { 'c2-43-over': 2, 'c3-nickel': 3 };
+const DEEP = { 'c2-43-over': 2, 'c3-nickel': 3, 'c3-43-over': 3, 'c3-34': 3, 'c2-nickel': 2 };
 for (const d of Object.values(L.DEFENSES)) {
   const ps = CS.resolveSet(d);
   check(ps.length === 11, `${d.id}: 11 defenders`);
@@ -99,7 +106,12 @@ for (const p of Object.values(L.PLAYS)) {
   check(CS.validatePlay(p).length === 0, `${p.id}: validatePlay clean ${JSON.stringify(CS.validatePlay(p))}`);
   const c = CS.compile(p);
   check(new Set(c.all.map((q) => q.id)).size === 22, `${p.id}: 22 unique player ids across both teams`);
-  check((p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${p.id}: 2-3 callouts`);
+  // RESTAGED in phase 2: puzzle diagrams are plays too, and they carry no callouts (the puzzle asks
+  // the question; a note would give the answer away). The 2-3 rule now holds for every play a
+  // lesson WATCHES (the phase-1 seed and each unit's own play); a puzzle-only play has none.
+  const watched = p.id === 'smash-vs-c2' || (CS.RANK_DATA || []).some((r) => r && r.units.some((u) => u.play === p.id));
+  if (watched) check((p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${p.id}: 2-3 callouts`);
+  else check(!(p.callouts || []).length, `${p.id}: a puzzle-only play has no callouts`);
 }
 const SM = L.PLAYS['smash-vs-c2'];
 check(SM && SM.teams.off === 'KC' && SM.teams.def === 'BUF' && SM.formation === 'gun-2x2' && SM.defense === 'c2-43-over', 'seed play: smash, KC offense vs BUF Cover 2');
@@ -113,37 +125,43 @@ console.log('\n[A4] poseAt');
   check(c.all.every((p) => sPre.players[p.id].x === p.x && sPre.players[p.id].y === p.y), 'poseAt before the snap is the alignment too');
   check(s0.ball.x === 26.67 && s0.ball.y === 0, 'ball on the spot at the snap');
 }
-// The 12-yard dig at 7 yd/s, by hand. X in shotgun 2x2 lines up at x = 8, y = -0.95, on the
+// RESTAGED in phase 2: X's alignment is now the fact sheet's (6, 0), not phase 1's provisional
+// (8, -0.95); the arithmetic is the same, redone from the new start.
+// The 12-yard dig at 7 yd/s, by hand. X in shotgun 2x2 lines up at x = 6, y = 0, on the
 // offense's LEFT, so "in" is +x. Dig = 12 yd straight up, then flat across.
-//   stem: 12 yd at 7 yd/s ends at t = 12 / 7 = 1.7142857 s, at (8, -0.95 + 12) = (8, 11.05)
+//   stem: 12 yd at 7 yd/s ends at t = 12 / 7 = 1.7142857 s, at (6, 0 + 12) = (6, 12)
 //   t = 2.0: distance run = 7 * 2.0 = 14 yd, i.e. 14 - 12 = 2 yd into the break, all in +x
-//   => (8 + 2, 11.05) = (10, 11.05)
+//   => (6 + 2, 12) = (8, 12)
 {
   check(JSON.stringify(L.ROUTES.dig.pts[0]) === '[0,12]', 'dig fixture premise: 12-yard stem');
   const dig = { id: 'dig-fixture', formation: 'gun-2x2', defense: 'c2-43-over', teams: { off: 'KC', def: 'BUF' }, assign: { X: { route: 'dig' } }, ball: [{ t: 0, ev: 'snap' }] };
   const q = CS.poseAt(dig, 2.0).players.X;
-  check(near(q.x, 10, 1e-9) && near(q.y, 11.05, 1e-9), `12-yd dig at 7 yd/s: X at (10, 11.05) at t=2.0 (got ${q.x}, ${q.y})`);
-  const q1 = CS.poseAt(dig, 1.0).players.X;                      // 7 yd up the stem: (8, 6.05)
-  check(near(q1.x, 8, 1e-9) && near(q1.y, 6.05, 1e-9), `dig at t=1.0 still on the stem: (8, 6.05) (got ${q1.x}, ${q1.y})`);
+  check(near(q.x, 8, 1e-9) && near(q.y, 12, 1e-9), `12-yd dig at 7 yd/s: X at (8, 12) at t=2.0 (got ${q.x}, ${q.y})`);
+  const q1 = CS.poseAt(dig, 1.0).players.X;                      // 7 yd up the stem: (6, 7)
+  check(near(q1.x, 6, 1e-9) && near(q1.y, 7, 1e-9), `dig at t=1.0 still on the stem: (6, 7) (got ${q1.x}, ${q1.y})`);
 }
 // Mirrored formation: the same route goes the other way. Slant = 3 up, then in 5 / up 5.
 // At t = 1.0 (7 yd): 3 up the stem, 4 yd along the (5,5)/7.071 break => lateral 4/sqrt2 = 2.828.
 {
   const m = CS.mirrorFormation(g2);
-  // The mirror is about the BALL (26.67), not the field's half-width: 2 * 26.67 - 8 = 45.34. (The
+  // RESTAGED in phase 2: X starts at the sheet's 6, so the mirror is 2 * 26.67 - 6 = 47.34.
+  // The mirror is about the BALL (26.67), not the field's half-width. (The
   // field is 53.33 wide and the ball sits at the rounded 26.67, so 53.33 - 8 would be 0.01 off and
   // would put the mirrored X a hundredth of a yard off his true distance from the ball.)
-  check(near(m.players.find((p) => p.id === 'X').x, 45.34, 1e-9), `mirrored 2x2 puts X at x = 2*26.67 - 8 = 45.34 (${m.players.find((p) => p.id === 'X').x})`);
+  check(near(m.players.find((p) => p.id === 'X').x, 47.34, 1e-9), `mirrored 2x2 puts X at x = 2*26.67 - 6 = 47.34 (${m.players.find((p) => p.id === 'X').x})`);
   check(CS.validateFormation(m).length === 0, 'mirrored formation still legal');
   const base = { formation: 'gun-2x2', defense: 'c2-43-over', teams: { off: 'KC', def: 'BUF' }, ball: [{ t: 0, ev: 'snap' }] };
   for (const [route, sign] of [['slant', 1], ['out', -1], ['dig', 1], ['corner', -1]]) {
     const a = { ...base, id: 'a-' + route, assign: { X: { route } } }, b = { ...base, id: 'b-' + route, mirror: true, assign: { X: { route } } };
-    const t = route === 'slant' ? 1.0 : 2.4;
+    // RESTAGED in phase 2: from x = 6 the 8-yard out reaches the sideline clamp by t = 2.4 (6 - 6.8 < 0),
+    // which made the two sides unequal for a reason that has nothing to do with mirroring; sample it
+    // at 2.0 (4 yd into the break, x = 2), still clear of the sideline.
+    const t = route === 'slant' ? 1.0 : route === 'out' ? 2.0 : 2.4;
     const ax = CS.poseAt(a, t).players.X.x - CS.poseAt(a, 0).players.X.x, bx = CS.poseAt(b, t).players.X.x - CS.poseAt(b, 0).players.X.x;
     check(Math.sign(ax) === sign && Math.sign(bx) === -sign && near(ax, -bx, 1e-9), `mirror flips ${route}: dx ${ax.toFixed(3)} vs ${bx.toFixed(3)}`);
   }
   const s = CS.poseAt({ ...base, id: 'slant-hand', assign: { X: { route: 'slant' } } }, 1.0).players.X;
-  check(near(s.x, 8 + 4 / Math.SQRT2, 1e-9) && near(s.y, -0.95 + 3 + 4 / Math.SQRT2, 1e-9), 'slant at t=1.0: (8 + 2.828, 2.05 + 2.828)');
+  check(near(s.x, 6 + 4 / Math.SQRT2, 1e-9) && near(s.y, 0 + 3 + 4 / Math.SQRT2, 1e-9), 'slant at t=1.0 from the sheet (6, 0): (6 + 2.828, 3 + 2.828)');
 }
 // Ball timing.
 {
@@ -206,6 +224,123 @@ console.log('\n[A5] XP + Leitner');
   check(CS.normalizeState({ xp: '50', rank: 'x' }).xp === 0 && CS.normalizeState({ rank: 'x' }).rank === 0, 'non-numbers fall back without passing through');
 }
 
+// A6. Rank 1 (Intern) content: every lesson, puzzle and Game Day question, checked from the play.
+console.log('\n[A6] rank 1 content');
+{
+  const R = CS.RANK_DATA && CS.RANK_DATA[0];
+  check(!!R && R.title === 'Intern' && R.promotesTo === 'Quality Control Coach' && CS.RANKS[1] === R.promotesTo, 'rank 1 is Intern and promotes to Quality Control Coach (CS.RANKS[1])');
+  const U = R.units, ALL = [...U.flatMap((u) => u.puzzles), ...R.gameDay];
+  check(U.length === 7, `7 units (got ${U.length})`);
+  // Unique ids across units, puzzles, Game Day and plays.
+  const ids = [...U.map((u) => u.id), ...ALL.map((p) => p.id)];
+  check(new Set(ids).size === ids.length, `unit and puzzle ids are unique (${ids.length})`);
+  // Every play a rank-1 screen draws is legal.
+  const used = new Set([...U.map((u) => u.play), ...U.flatMap((u) => u.cards.map((c) => c.play).filter(Boolean)), ...ALL.map((p) => p.play)]);
+  const badPlays = [...used].filter((id) => !L.PLAYS[id] || CS.validatePlay(L.PLAYS[id]).length);
+  check(used.size >= 20 && badPlays.length === 0, `all ${used.size} rank-1 plays exist and validate ${badPlays.map((id) => id + ': ' + (L.PLAYS[id] ? CS.validatePlay(L.PLAYS[id]).join('; ') : 'missing')).join(' | ')}`);
+  // Every puzzle validates, its stored answer passes its checker, and every distractor fails it.
+  const pzBad = [], ansBad = [], disBad = [];
+  for (const pz of ALL) {
+    const e = CS.validatePuzzle(pz);
+    if (e.length) pzBad.push(e.join('; '));
+    if (!CS.checkPuzzle(pz, pz.answer)) ansBad.push(pz.id);
+    const ds = CS.distractorsOf(pz);
+    if (!ds.length || ds.some((d) => CS.checkPuzzle(pz, d))) disBad.push(pz.id);
+  }
+  check(ALL.length >= 60 && pzBad.length === 0, `all ${ALL.length} puzzles validate ${pzBad.slice(0, 3).join(' | ')}`);
+  check(ansBad.length === 0, `every stored answer passes its own checker ${ansBad.join(',')}`);
+  check(disBad.length === 0, `every distractor fails its checker ${disBad.join(',')}`);
+  // Tap distractors are the other 21 players: a tap puzzle has exactly one right player.
+  const tp = ALL.find((p) => p.type === 'tap');
+  check(CS.distractorsOf(tp).length === 21, `a tap puzzle's distractors are the other 21 players (${tp.id}: ${CS.distractorsOf(tp).length})`);
+  // Broken fixtures are flagged: a description that fits two players, two right options, a wrong stored answer.
+  const two = CS.validatePuzzle({ id: 'bad-tap', type: 'tap', play: 'r1-def', prompt: 'Tap the corner.', find: { pos: 'CB' }, answer: 'CB-L', tags: ['def:db'] });
+  check(two.some((e) => /two right answers/.test(e)), `tap {pos:'CB'} (two corners) is flagged: ${two.join('; ')}`);
+  const dup = CS.validatePuzzle({ id: 'bad-choice', type: 'choice', play: 'r1-los', prompt: 'How many on the line?', q: 'onLineCount', options: [{ t: 'Seven', v: 7 }, { t: '7', v: 7 }, { t: 'Six', v: 6 }], answer: 0, tags: ['los:seven'] });
+  check(dup.some((e) => /two right answers/.test(e)), `a choice with two options both true is flagged: ${dup.join('; ')}`);
+  const wrongStored = CS.validatePuzzle({ id: 'bad-stored', type: 'choice', play: 'r1-los', prompt: 'How many on the line?', q: 'onLineCount', options: [{ t: 'Six', v: 6 }, { t: 'Seven', v: 7 }], answer: 0, tags: ['los:seven'] });
+  check(wrongStored.some((e) => /stored answer/.test(e)), `a stored answer that is not the true one is flagged: ${wrongStored.join('; ')}`);
+  const wrongTap = CS.validatePuzzle({ id: 'bad-tap2', type: 'tap', play: 'r1-ol', prompt: 'Tap the center.', find: { role: 'C' }, answer: 'LG', tags: ['ol:center'] });
+  check(wrongTap.length > 0 && !CS.checkPuzzle({ id: 'x', type: 'tap', play: 'r1-ol', find: { role: 'C' }, answer: 'LG' }, 'LG'), `a tap whose stored answer is not the described player is flagged and fails: ${wrongTap.join('; ')}`);
+  const noSrc = CS.validatePuzzle({ id: 'bad-src', type: 'choice', play: 'r1-los', prompt: 'How wide?', q: 'fact', truth: 1, options: [{ t: 'one', v: 1 }, { t: 'two', v: 2 }], answer: 0, tags: ['field:size'] });
+  check(noSrc.some((e) => /fact-sheet section/.test(e)), 'a fact question without its fact-sheet section is flagged');
+  // Tags are taught (on a card) before they are tested, and every taught tag is tested.
+  const taught = new Set(), early = [];
+  for (const u of U) {
+    for (const c of u.cards) for (const t of c.teaches || []) taught.add(t);
+    for (const pz of u.puzzles) for (const t of pz.tags) if (!taught.has(t)) early.push(`${pz.id}:${t}`);
+  }
+  for (const pz of R.gameDay) for (const t of pz.tags) if (!taught.has(t)) early.push(`${pz.id}:${t}`);
+  check(early.length === 0, `every tag is taught on a card before a puzzle tests it ${early.join(',')}`);
+  const tested = new Set(ALL.flatMap((p) => p.tags));
+  const untested = [...taught].filter((t) => !tested.has(t));
+  check(taught.size >= 15 && untested.length === 0, `all ${taught.size} taught tags are tested ${untested.join(',')}`);
+  // Lesson shape.
+  const SENT = (s) => (s.match(/[.!?](?=\s|$)/g) || []).length;
+  const EMOJI = /\p{Extended_Pictographic}/u;
+  for (const u of U) {
+    const p = L.PLAYS[u.play];
+    check(u.cards.length >= 3 && u.cards.length <= 5, `${u.id}: 3-5 chalk-talk cards (${u.cards.length})`);
+    const counts = u.cards.map((c) => SENT(c.text));
+    check(counts.every((n) => n >= 3 && n <= 4), `${u.id}: every card is 3-4 sentences (${counts.join(',')})`);
+    check(!!p && (p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${u.id}: its play ${u.play} carries 2-3 callouts`);
+    const walkBad = u.walk.filter((w) => !CS.checkPuzzle({ id: 'walk', type: 'tap', play: u.play, find: w.find, answer: w.answer }, w.answer) || CS.validatePuzzle({ id: 'walk', type: 'tap', play: u.play, prompt: w.prompt, find: w.find, answer: w.answer, tags: [] }).length);
+    check(u.walk.length >= 2 && walkBad.length === 0, `${u.id}: ${u.walk.length}-step walkthrough, each step one right player`);
+    check(u.puzzles.length >= 6 && u.puzzles.length <= 8, `${u.id}: 6-8 puzzles (${u.puzzles.length})`);
+    check(u.puzzles[0].play === u.play && u.puzzles[1].play === u.play && u.puzzles.slice(2).every((q) => q.play !== u.play), `${u.id}: puzzles 1-2 repeat the taught play, the rest are variants`);
+  }
+  // Variants really vary: formations / hashes, and matchups.
+  const varPlays = [...new Set(U.flatMap((u) => u.puzzles.slice(2).map((q) => q.play)))].map((id) => L.PLAYS[id]);
+  const setups = new Set(varPlays.map((p) => `${p.formation}|${p.hash || 'M'}|${p.mirror ? 'm' : ''}`));
+  const matchups = new Set(varPlays.map((p) => p.teams.off + '-' + p.teams.def));
+  check(matchups.size >= 10, 'variant plays use ' + matchups.size + ' different NFL matchups');
+  check(setups.size >= 6, `variant plays span ${setups.size} formation/hash setups`);
+  const teams = new Set([...used].flatMap((id) => { const p = L.PLAYS[id]; return [p.teams && p.teams.off, p.teams && p.teams.def].filter(Boolean); }));
+  check(teams.size >= 16 && [...teams].every((t) => L.TEAMS[t]), `rank 1 uses ${teams.size} real NFL teams, all in TEAMS`);
+  const content = JSON.stringify(R);
+  check(!EMOJI.test(content), 'no emoji anywhere in rank-1 content');
+  // Game Day.
+  check(R.gameDay.length >= 12 && U.every((u) => R.gameDay.some((q) => q.unit === u.id)), `Game Day pool of ${R.gameDay.length} covers all 7 units`);
+  const gd = CS.pickGameDay(R.gameDay, 42), gd2 = CS.pickGameDay(R.gameDay, 42);
+  check(gd.length === 12 && new Set(gd.map((q) => q.id)).size === 12 && U.every((u) => gd.some((q) => q.unit === u.id)), 'pickGameDay draws 12 different questions covering all 7 units');
+  check(JSON.stringify(gd.map((q) => q.id)) === JSON.stringify(gd2.map((q) => q.id)), 'pickGameDay is deterministic for a seed');
+  check(CS.GAMEDAY.n === 12 && CS.GAMEDAY.pass === 10, 'Game Day is 12 questions, pass at 10');
+  check(!CS.gameDayPassed(9, 12) && CS.gameDayPassed(10, 12) && CS.gameDayPassed(12, 12) && !CS.gameDayPassed(10, 11), 'Game Day: 9/12 fails, 10/12 passes, 10/11 is not a finished exam');
+  const res = gd.map((q, i) => i >= 2);
+  const mt = CS.missedTags(gd, res);
+  check(JSON.stringify(mt) === JSON.stringify([...new Set([...gd[0].tags, ...gd[1].tags])]), `missedTags names the tags of the missed questions (${mt.join(',')})`);
+  // XP and promotion from a fixture log: first try, second try, a fail, Game Day fail / pass / retake.
+  const T0 = Date.UTC(2026, 10, 2, 15, 0, 0);
+  const log = [
+    { t: T0, kind: 'answer', tag: 'ol:names', correct: true, try: 1 },          // +10
+    { t: T0 + 1, kind: 'answer', tag: 'ol:center', correct: false, try: 1 },    // +0
+    { t: T0 + 2, kind: 'answer', tag: 'ol:center', correct: true, try: 2 },     // +5
+    { t: T0 + 3, kind: 'answer', tag: 'ol:blind', correct: false, try: 1 },     // +0
+    { t: T0 + 4, kind: 'answer', tag: 'ol:blind', correct: false, try: 2 },     // +0 (failed both tries)
+    { t: T0 + 5, kind: 'answer', tag: 'bk:qb', correct: true, try: 1 },         // +10
+    { t: T0 + 6, kind: 'gameday', rank: 0, passed: false },                     // +0, no promotion
+    { t: T0 + 7, kind: 'gameday', rank: 0, passed: true },                      // +100, rank 1
+    { t: T0 + 8, kind: 'gameday', rank: 0, passed: true },                      // retake of an old rank: +0
+  ];
+  // Hand total: 10 + 0 + 5 + 0 + 0 + 10 + 0 + 100 + 0 = 125.
+  const s = CS.applyLog(CS.newState(), log);
+  check(s.xp === 125, `rank-1 fixture log XP = 125 (got ${s.xp})`);
+  check(s.rank === 1 && JSON.stringify(s.promos) === '[1]', `promotion fires once (rank ${s.rank}, promos ${JSON.stringify(s.promos)})`);
+  check(CS.levelForXp(s.xp) === 2, 'coach level 2 at 125 XP');
+  const back = CS.normalizeState(JSON.parse(JSON.stringify(s)));
+  check(back.rank === 1 && back.xp === 125 && JSON.stringify(back.promos) === '[1]', 'the promoted state survives a save and reload');
+  // Unit and Game Day locks.
+  const s0 = CS.newState();
+  check(CS.unitOpen(s0, U, 0) && !CS.unitOpen(s0, U, 1) && !CS.gameDayOpen(s0, U), 'fresh state: unit 1 open, unit 2 and Game Day locked');
+  const s1 = CS.applyLog(s0, [{ t: T0, kind: 'unit', unit: 'r1-u1', score: 7 }]);
+  check(CS.unitOpen(s1, U, 1) && !CS.unitOpen(s1, U, 2) && s1.units['r1-u1'].best === 7, 'finishing unit 1 opens unit 2 only');
+  const sAll = CS.applyLog(s0, U.map((u, i) => ({ t: T0 + i, kind: 'unit', unit: u.id, score: 6 })));
+  check(CS.gameDayOpen(sAll, U), 'all 7 units done opens Game Day');
+  // Reading text is never drawn with the 8-bit font (dad's directive): no pixel-text helper left in the drawing code.
+  const fieldSrc = fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-field.js'), 'utf8'), uiSrc = fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-ui.js'), 'utf8');
+  check(!/pixText\s*\(/.test(fieldSrc) && !/pixText\s*\(/.test(uiSrc), 'no pixText( in cs-field.js or cs-ui.js: callouts, cards and prompts use the body font');
+}
+
 /* ═════════════ B. Headless Chrome ═════════════ */
 async function sectionB() {
   console.log('\n[B] headless Chrome');
@@ -232,7 +367,11 @@ async function sectionB() {
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e.message || e)));
     page.on('console', (m) => { if (m.type() === 'error' && !/net::ERR_FAILED|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text()); });
-    await page.goto(BASE + '/coachschool.html', { waitUntil: 'load', timeout: 30000 });
+    // Seed localStorage once per tab (a reload must find what the page saved, not the seed again).
+    if (opts.storage) await page.evaluateOnNewDocument((kv) => { if (!sessionStorage.getItem('__seeded')) { localStorage.clear(); for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v); sessionStorage.setItem('__seeded', '1'); } }, opts.storage);
+    // RESTAGED in phase 2: the page now opens on the career map; phase 1's engine screen lives on at #demo,
+    // and every phase-1 check below still runs against it there.
+    await page.goto(BASE + '/coachschool.html' + ('hash' in opts ? opts.hash : '#demo'), { waitUntil: 'load', timeout: 30000 });
     await page.waitForFunction(() => !!window.__CS__, { timeout: 10000 });
     return { page, errors };
   }
@@ -248,15 +387,22 @@ async function sectionB() {
     }));
     check(boot.play === 'smash-vs-c2', 'engine demo loads the seeded smash play');
     check(boot.sh <= boot.ih && boot.sw <= boot.iw, `no page scroll at 390x844 (content ${boot.sw}x${boot.sh})`);
-    check(boot.cv.w >= 340 && boot.cv.b <= 844, `field canvas fills the column (${boot.cv.w.toFixed(0)}x${boot.cv.h.toFixed(0)})`);
+    // RESTAGED in phase 2: the field is now the tall Tecmo camera (400x836 world px) sized by fit() to the
+    // largest box of that shape inside its flex area, so on a phone it is height-bound and narrower than the
+    // column. The rule now: it fills its box in one dimension and never overflows it.
+    const dbox = await page.evaluate(() => { const r = document.getElementById('demoBox').getBoundingClientRect(); return { w: r.width, h: r.height }; });
+    check((Math.abs(boot.cv.w - dbox.w) <= 2 || Math.abs(boot.cv.h - dbox.h) <= 2) && boot.cv.w <= dbox.w + 1 && boot.cv.h <= dbox.h + 1 && boot.cv.b <= 844, `field canvas fills its box in one dimension (${boot.cv.w.toFixed(0)}x${boot.cv.h.toFixed(0)} in ${dbox.w.toFixed(0)}x${dbox.h.toFixed(0)})`);
     check(blocked.some((u) => /googleapis/.test(u)), 'the Google Fonts request was blocked and the page still booted');
     await plate(page, 'cs-presnap-390.png');
 
     // B2. [hidden] overlays have no geometry; opening one gives it geometry.
     console.log('\n[B2] hidden overlays');
-    const hid = await page.evaluate(() => [...document.querySelectorAll('[hidden]')].map((e) => ({ id: e.id, gone: e.offsetParent === null && e.getBoundingClientRect().height === 0 })));
+    // RESTAGED in phase 2: the mute button's hidden "cross" stroke is an SVG <path>, and SVG elements have no
+    // offsetParent at all (undefined, not null). For those the test is computed display none plus a zero box;
+    // every HTML element is still held to offsetParent === null.
+    const hid = await page.evaluate(() => [...document.querySelectorAll('[hidden]')].map((e) => ({ id: e.id || e.tagName + '.' + e.getAttribute('class'), gone: (e instanceof SVGElement ? getComputedStyle(e).display === 'none' : e.offsetParent === null) && e.getBoundingClientRect().height === 0 })));
     check(hid.length >= 1 && hid.some((h) => h.id === 'legend'), `there is a hidden overlay to test (${hid.map((h) => h.id).join(',')})`);
-    check(hid.every((h) => h.gone), 'every [hidden] element has offsetParent === null and no height');
+    check(hid.every((h) => h.gone), `every [hidden] element has offsetParent === null and no height ${hid.filter((h) => !h.gone).map((h) => h.id).join(',')}`);
     await page.click('#btnKey');
     const shown = await page.evaluate(() => { const e = document.getElementById('legend'); return e.offsetParent !== null || getComputedStyle(e).position === 'fixed' && e.getBoundingClientRect().height > 0; });
     check(shown, 'Chalk key opens a visible sheet');
@@ -352,6 +498,357 @@ async function sectionB() {
       await plate(p3, 'cs-desktop-catch.png');
       check(e3.length === 0, 'zero page errors on desktop');
       await p3.close();
+    }
+    /* ── Phase 2: the Intern rank, played through the real screens ── */
+    const PHONE = { width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true };
+    const USER = { choreUser: 'Testy' };
+    const KEY = 'cs_state_v1_Testy';
+    const layout = (pg) => pg.evaluate(() => {
+      const w = document.getElementById('fieldWrap').getBoundingClientRect();
+      return { sh: document.documentElement.scrollHeight, sw: document.documentElement.scrollWidth, ih: innerHeight, iw: innerWidth, fw: w.width, fh: w.height, fb: w.bottom,
+        panelClip: (() => { const p = document.getElementById('stPanel'); return p.scrollHeight - p.clientHeight; })(),
+        actBottom: document.getElementById('stActions').getBoundingClientRect().bottom };
+    });
+    const fits = (L) => L.sh <= L.ih && L.sw <= L.iw && L.fh >= 200 && L.panelClip <= 1 && L.actBottom <= L.ih;
+    const mode = (pg) => pg.evaluate(() => window.__CS__.ui.mode);
+    const settle = (pg, ms = 120) => pg.evaluate((ms) => new Promise((r) => setTimeout(r, ms)), ms);
+    // A real touch on a player's painted sprite: the centre of his opaque bounding box.
+    const tapPlayer = async (pg, id, where = 'centre') => {
+      const r = await pg.evaluate((id) => { const q = window.__CS__.spriteRect(id); return { x: q.left, y: q.top, w: q.right - q.left, h: q.bottom - q.top }; }, id);
+      const x = r.x + r.w / 2, y = where === 'feet' ? r.y + r.h - 1 : r.y + r.h / 2;
+      await pg.touchscreen.tap(x, y);
+      await settle(pg, 60);
+      return { x, y };
+    };
+    const visibleSmall = (pg) => pg.evaluate(() => [...document.querySelectorAll('button, a, input')].filter((e) => e.offsetParent !== null && !e.closest('[hidden]')).map((e) => { const r = e.getBoundingClientRect(); return { id: e.id || e.className || e.textContent.trim().slice(0, 12), w: Math.round(r.width), h: Math.round(r.height) }; }).filter((r) => r.w < 44 || r.h < 44));
+    const EMOJI2 = /\p{Extended_Pictographic}/u;
+    const textEmoji = (pg) => pg.evaluate(() => document.body.innerText).then((t) => EMOJI2.test(t));
+
+    // B8. The career map: seven ranks, only the Intern's open, his first unit the only door.
+    console.log('\n[B8] career map');
+    {
+      const { page: pm, errors: em } = await open(PHONE, { hash: '#map', storage: USER });
+      const m = await pm.evaluate(() => ({
+        titles: [...document.querySelectorAll('#ranks .rank .rtitle')].map((e) => e.textContent),
+        locked: [...document.querySelectorAll('#ranks .rank')].map((e) => e.classList.contains('locked')),
+        units: [...document.querySelectorAll('#ranks button[data-unit]')].map((b) => ({ id: b.dataset.unit, off: b.disabled })),
+        gd: document.getElementById('btnGameDay').disabled, ranks: window.CS.RANKS, screen: window.__CS__.ui.screen, key: window.__CS__.ui.key,
+      }));
+      check(m.screen === 'scrMap' && m.key === KEY, `the page opens on the career map, keyed to the chore user (${m.key})`);
+      check(m.titles.length === 7 && JSON.stringify(m.titles) === JSON.stringify(m.ranks), `7 ranks with their titles (${m.titles.join(' / ')})`);
+      check(!m.locked[0] && m.locked.slice(1).every(Boolean), 'only the Intern rank is open; ranks 2-7 are locked but show their titles');
+      check(m.units.length === 7 && !m.units[0].off && m.units.slice(1).every((u) => u.off) && m.gd, 'unit 1 open; units 2-7 and Game Day locked');
+      const L0 = await pm.evaluate(() => ({ sh: document.documentElement.scrollHeight, ih: innerHeight, sw: document.documentElement.scrollWidth }));
+      check(L0.sh <= L0.ih && L0.sw <= 390, `no page scroll on the map (content ${L0.sw}x${L0.sh}; the rank list scrolls inside its screen)`);
+      const sm = await visibleSmall(pm);
+      check(sm.length === 0, `map controls are at least 44x44 ${JSON.stringify(sm)}`);
+      check(!(await textEmoji(pm)), 'no emoji on the map');
+      await plate(pm, 'cs2-career-map.png');
+      check(em.length === 0, `zero page errors on the map ${JSON.stringify(em)}`);
+      await pm.close();
+    }
+
+    // B9. Every step of every unit fits a 390x844 phone with no page scroll; the field keeps 200 px or more.
+    console.log('\n[B9] every lesson step fits the phone');
+    {
+      const { page: pl, errors: el } = await open(PHONE, { hash: '#map', storage: USER });
+      const unitIds = await pl.evaluate(() => window.CS.RANK_DATA[0].units.map((u) => ({ id: u.id, cards: u.cards.length, walk: u.walk.map((w) => window.CS.puzzleTypes.tap.truth({ id: 'w', type: 'tap', play: u.play, find: w.find, answer: w.answer })) })));
+      const bad = [];
+      let steps = 0, minField = Infinity, walkTaps = 0, walkOk = 0;
+      for (const u of unitIds) {
+        await pl.evaluate((id) => { location.hash = '#unit/' + id; }, u.id);
+        await settle(pl);
+        for (let i = 0; i < u.cards; i++) {
+          const L = await layout(pl); steps++; minField = Math.min(minField, L.fh);
+          if (!fits(L)) bad.push(`${u.id} card ${i + 1}: ${JSON.stringify(L)}`);
+          if (u.id === 'r1-u3' && i === 0) await plate(pl, 'cs2-chalk-card.png');
+          await pl.evaluate(() => window.__CS__.ui.next()); await settle(pl, 40);
+        }
+        const mw = await mode(pl);
+        if (mw.kind !== 'watch') bad.push(`${u.id}: expected the watch step, got ${mw.kind}`);
+        await pl.evaluate(() => window.__CS__.ui.next());             // play: it stops at the first note
+        await settle(pl, 1300);
+        const Lw = await layout(pl); steps++; minField = Math.min(minField, Lw.fh);
+        if (!fits(Lw)) bad.push(`${u.id} watch: ${JSON.stringify(Lw)}`);
+        if (u.id === 'r1-u3') await plate(pl, 'cs2-watch-callout.png');
+        // Run to the end, then on to the walkthrough.
+        await pl.evaluate(() => { const C = window.__CS__; C.field.pause(); C.seek(C.T - 0.02); C.field.start(); });
+        await settle(pl, 250);
+        await pl.evaluate(() => window.__CS__.ui.next()); await settle(pl, 60);
+        const mk = await mode(pl);
+        if (mk.kind !== 'walk') bad.push(`${u.id}: expected the walkthrough, got ${mk.kind}`);
+        for (let j = 0; j < u.walk.length; j++) {
+          const Lk = await layout(pl); steps++; minField = Math.min(minField, Lk.fh);
+          if (!fits(Lk)) bad.push(`${u.id} walk ${j + 1}: ${JSON.stringify(Lk)}`);
+          await tapPlayer(pl, u.walk[j]); walkTaps++;
+          const got = await pl.evaluate(() => document.getElementById('stFb').className);
+          if (/good/.test(got)) walkOk++;
+          await pl.evaluate(() => window.__CS__.ui.next()); await settle(pl, 60);
+        }
+        const mp = await mode(pl);
+        if (mp.kind !== 'puzzle') bad.push(`${u.id}: expected the puzzles, got ${mp.kind}`);
+        // The tallest puzzle screen: a choice question after its answer, options plus the explanation.
+        let k = 0;
+        for (;;) {
+          const cur = await mode(pl);
+          if (!cur || cur.kind !== 'puzzle') break;
+          await pl.evaluate(() => window.__CS__.ui.answer(false)); await settle(pl, 30);
+          const c2 = await mode(pl);
+          if (!c2.done) { await pl.evaluate(() => window.__CS__.ui.answer(false)); await settle(pl, 30); }
+          const Lp = await layout(pl); steps++; minField = Math.min(minField, Lp.fh);
+          if (!fits(Lp)) bad.push(`${u.id} puzzle ${k + 1} reveal: ${JSON.stringify(Lp)}`);
+          await pl.evaluate(() => window.__CS__.ui.next()); await settle(pl, 30);
+          k++;
+        }
+        const md = await mode(pl);
+        if (md.kind !== 'unitdone') bad.push(`${u.id}: expected the unit result, got ${md && md.kind}`);
+      }
+      check(bad.length === 0, `${steps} lesson screens across 7 units fit 390x844 with no page scroll, panel unclipped, field >= 200 px (smallest ${minField.toFixed(0)}) ${bad.slice(0, 3).join(' | ')}`);
+      check(walkTaps >= 14 && walkOk === walkTaps, `every walkthrough step answers to a real tap on the player's sprite (${walkOk}/${walkTaps})`);
+      const st = await pl.evaluate(() => window.__CS__.ui.state);
+      check(Object.keys(st.units).length === 7 && st.xp === 0, `all 7 units recorded done; answering wrong twice everywhere earned 0 XP (xp ${st.xp})`);
+      check(st.seenPlays.length === 7, `7 lesson plays reached the film room (${st.seenPlays.length})`);
+      await pl.evaluate(() => { location.hash = '#map'; }); await settle(pl);
+      check(!(await pl.evaluate(() => document.getElementById('btnGameDay').disabled)), 'with every unit done, Game Day opens on the map');
+      check(el.length === 0, `zero page errors through the lessons ${JSON.stringify(el.slice(0, 3))}`);
+      await pl.close();
+    }
+
+    // B10. The offensive line: five linemen and the tight end, each hit-testable at his own sprite on a 390 phone.
+    console.log('\n[B10] the offensive line on a phone');
+    {
+      const { page: po, errors: eo } = await open(PHONE, { hash: '#unit/r1-u3/puzzles', storage: USER });
+      await settle(po);
+      const g = await po.evaluate(() => {
+        const C = window.__CS__, ids = ['LT', 'LG', 'C', 'RG', 'RT', 'Y'], out = {};
+        for (const id of ids) {
+          const q = C.spriteRect(id), r = { x: q.left, y: q.top, w: q.right - q.left, h: q.bottom - q.top };
+          out[id] = { r, centre: C.hitTest(r.x + r.w / 2, r.y + r.h / 2), feet: C.hitTest(r.x + r.w / 2, r.y + r.h - 1) };
+        }
+        return out;
+      });
+      const wrongHits = Object.entries(g).filter(([id, v]) => v.centre !== id || v.feet !== id).map(([id, v]) => `${id}->${v.centre}/${v.feet}`);
+      check(wrongHits.length === 0, `LT, LG, C, RG, RT and Y each hit-test to himself at his sprite centre and at his feet ${wrongHits.join(' ')}`);
+      const ol = ['LT', 'LG', 'C', 'RG', 'RT'].map((id) => g[id].r);
+      const gaps = ol.slice(1).map((r, i) => (r.y + r.h) - (ol[i].y + ol[i].h));
+      const tall = Math.max(...ol.map((r) => r.h));
+      check(gaps.every((d) => d >= 16), `adjacent linemen stand at least 16 CSS px apart (${gaps.map((d) => d.toFixed(1)).join(', ')}; sprite ${tall.toFixed(1)} px tall)`);
+      // The sprites themselves do not overlap: each lineman's box clears the next.
+      const overlap = ol.slice(1).filter((r, i) => r.y < ol[i].y + ol[i].h - 0.5);
+      check(overlap.length === 0, 'no two linemen sprites overlap');
+      if (PLATES) {
+        const c = ol[2], rr = await po.evaluate(() => { const r = document.getElementById('cs-stage').getBoundingClientRect(); return { x: r.x, w: r.width }; });
+        fs.mkdirSync(PLATES, { recursive: true });
+        await po.screenshot({ path: path.join(PLATES, 'cs2-ol-closeup.png'), clip: { x: rr.x, y: Math.max(0, c.y - 90), width: rr.w, height: 200 } });
+        console.log('  plate ' + path.join(PLATES, 'cs2-ol-closeup.png'));
+      }
+      check(eo.length === 0, 'zero page errors on the OL puzzle');
+      await po.close();
+    }
+
+    // B11. A real tap pays exactly 10 XP; a wrong-then-right pays 5; the wrong pick is shown first; reload keeps it.
+    console.log('\n[B11] a real tap, real XP');
+    {
+      const { page: px, errors: ex } = await open(PHONE, { hash: '#unit/r1-u3/puzzles', storage: USER });
+      await settle(px);
+      const pz0 = await px.evaluate(() => { const m = window.__CS__.ui.mode, pz = window.CS.RANK_DATA[0].units[2].puzzles[0]; return { id: m.pz, type: pz.type, truth: window.CS.puzzleTypes.tap.truth(pz), xp: window.__CS__.ui.state.xp }; });
+      check(pz0.id === 'r1-u3-p1' && pz0.type === 'tap' && pz0.xp === 0, `the OL puzzle set opens on its first tap puzzle from a clean state (${pz0.id}, xp ${pz0.xp})`);
+      await tapPlayer(px, pz0.truth);
+      const a1 = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText }));
+      check(a1.xp === 10 && a1.m.done && a1.m.ok, `a real touch on the ${pz0.truth} sprite pays exactly +10 XP (xp ${a1.xp}; "${a1.fb.replace(/\s+/g, ' ').slice(0, 60)}")`);
+      check(await px.evaluate(() => window.__CS__.playing), 'after the answer, the play runs');
+      await px.evaluate(() => window.__CS__.ui.next()); await settle(px, 60);
+      // Puzzle 2: wrong first (a real tap on another lineman), then right.
+      const pz1 = await px.evaluate(() => { const C = window.CS, pz = C.RANK_DATA[0].units[2].puzzles[1]; return { id: pz.id, type: pz.type, truth: pz.type === 'tap' ? C.puzzleTypes.tap.truth(pz) : null, answer: pz.answer, n: pz.options ? pz.options.length : 0 }; });
+      if (pz1.type === 'tap') {
+        const wrongId = pz1.truth === 'LG' ? 'RG' : 'LG';
+        await tapPlayer(px, wrongId);
+        const w = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText.replace(/\s+/g, ' '), marks: window.__CS__.field.marks }));
+        check(w.xp === 10 && !w.m.done && w.m.tryNo === 2 && /One more try/.test(w.fb) && w.marks.some((k) => k.id === wrongId && k.kind === 'bad'), `a first wrong tap names the pick, rings it red, pays nothing, keeps the question open ("${w.fb}")`);
+        if (PLATES) { await plate(px, 'cs2-wrong-first-try.png'); }
+        await tapPlayer(px, pz1.truth);
+      } else {
+        const wrongI = pz1.answer === 0 ? 1 : 0;
+        await px.evaluate((i) => document.getElementById('stOpts').children[i].click(), wrongI); await settle(px, 40);
+        const w = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText.replace(/\s+/g, ' ') }));
+        check(w.xp === 10 && !w.m.done && w.m.tryNo === 2 && /One more try/.test(w.fb), `a first wrong option pays nothing and keeps the question open ("${w.fb}")`);
+        await px.evaluate((i) => document.getElementById('stOpts').children[i].click(), pz1.answer); await settle(px, 40);
+      }
+      const a2 = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode }));
+      check(a2.xp === 15 && a2.m.done && a2.m.ok, `right on the second try pays +5 (xp ${a2.xp})`);
+      await px.evaluate(() => window.__CS__.ui.next()); await settle(px, 60);
+      // Puzzle 3: wrong twice. The reveal shows the right answer and what was picked, then the play runs.
+      const pz2 = await px.evaluate(() => { const C = window.CS, pz = C.RANK_DATA[0].units[2].puzzles[2]; return { type: pz.type, truth: pz.type === 'tap' ? C.puzzleTypes.tap.truth(pz) : null, answer: pz.answer }; });
+      if (pz2.type === 'tap') {
+        const a = pz2.truth === 'LT' ? 'RT' : 'LT', b = pz2.truth === 'C' ? 'RG' : 'C';
+        await tapPlayer(px, a); await tapPlayer(px, b);
+      } else {
+        await px.evaluate(() => window.__CS__.ui.answer(false)); await settle(px, 30); await px.evaluate(() => window.__CS__.ui.answer(false)); await settle(px, 30);
+      }
+      const a3 = await px.evaluate(() => ({ xp: window.__CS__.ui.state.xp, m: window.__CS__.ui.mode, fb: document.getElementById('stFb').innerText.replace(/\s+/g, ' '), good: window.__CS__.field.marks.filter((k) => k.kind === 'good').length, playing: window.__CS__.playing }));
+      check(a3.xp === 15 && a3.m.done && a3.m.ok === false && /^The answer: /.test(a3.fb) && (pz2.type !== 'tap' || a3.good === 1), `two misses: +0, the reveal names the answer ("${a3.fb.slice(0, 50)}"), the play runs (${a3.playing})`);
+      await px.evaluate(() => window.__CS__.seek(-0.4));
+      await plate(px, 'cs2-wrong-reveal.png');
+      await px.reload({ waitUntil: 'load' });
+      await px.waitForFunction(() => !!window.__CS__);
+      const rl = await px.evaluate((k) => ({ xp: window.__CS__.ui.state.xp, raw: JSON.parse(localStorage.getItem(k)).xp }), KEY);
+      check(rl.xp === 15 && rl.raw === 15, `reload keeps the XP under ${KEY} (${rl.xp})`);
+      check(ex.length === 0, `zero page errors through the XP checks ${JSON.stringify(ex)}`);
+      await px.close();
+    }
+
+    // B12. Callouts are reading text: an HTML overlay in the body font, big enough, inside the field, text inside its box.
+    console.log('\n[B12] callouts in the body font');
+    {
+      const { page: pc, errors: ec } = await open(PHONE, { hash: '#unit/r1-u3', storage: USER });
+      await settle(pc);
+      for (let i = 0; i < 4; i++) { const m = await mode(pc); if (m.kind === 'watch') break; await pc.evaluate(() => window.__CS__.ui.next()); await settle(pc, 40); }
+      await pc.evaluate(() => window.__CS__.ui.next());
+      await pc.waitForFunction(() => { const c = document.getElementById('callout'); return c.offsetParent !== null && c.textContent.length > 0; }, { timeout: 4000 });
+      const co = await pc.evaluate(() => {
+        const el = document.getElementById('callout'), cs = getComputedStyle(el), body = getComputedStyle(document.body).getPropertyValue('--font-body').trim();
+        const rg = document.createRange(); rg.selectNodeContents(el); const ink = rg.getBoundingClientRect(), box = el.getBoundingClientRect(), cv = document.getElementById('cs-stage').getBoundingClientRect();
+        return { ff: cs.fontFamily, body, fs: parseFloat(cs.fontSize), ink: { l: ink.left, r: ink.right, t: ink.top, b: ink.bottom }, box: { l: box.left, r: box.right, t: box.top, b: box.bottom }, cv: { l: cv.left, r: cv.right, t: cv.top, b: cv.bottom }, text: el.textContent, playing: window.__CS__.playing };
+      });
+      const first = (s) => s.split(',')[0].replace(/["']/g, '').trim().toLowerCase();
+      check(co.body && first(co.ff) === first(co.body), `the callout is set in the body font (${co.ff.split(',')[0]} = --font-body ${co.body.split(',')[0]})`);
+      check(co.fs >= 15, `callout text is at least 15 px (${co.fs})`);
+      check(co.ink.l >= co.box.l - 0.5 && co.ink.r <= co.box.r + 0.5 && co.ink.t >= co.box.t - 0.5 && co.ink.b <= co.box.b + 0.5, 'the callout text (measured with a Range) sits inside its box');
+      check(co.box.l >= co.cv.l - 0.5 && co.box.r <= co.cv.r + 0.5 && co.box.t >= co.cv.t - 0.5 && co.box.b <= co.cv.b + 0.5, 'the callout box sits inside the field');
+      check(!co.playing, `the watch step stops at the note ("${co.text.slice(0, 40)}")`);
+      // The panel text and options are the body font too.
+      const ff = await pc.evaluate(() => ({ p: getComputedStyle(document.getElementById('stText')).fontFamily, body: getComputedStyle(document.body).getPropertyValue('--font-body').trim() }));
+      check(first(ff.p) === first(ff.body), 'the chalk-talk panel text is the body font');
+      check(ec.length === 0, 'zero page errors on the callout');
+      await pc.close();
+    }
+
+    // B13. Game Day: 9 of 12 fails and costs nothing; 10 of 12 promotes once, survives reload, and a retake pays nothing.
+    console.log('\n[B13] Game Day and the promotion');
+    {
+      const T0 = Date.UTC(2026, 10, 2, 15, 0, 0);
+      const done = await (async () => { const units = {}; for (let i = 1; i <= 7; i++) units['r1-u' + i] = { done: true, best: 6 }; return units; })();
+      const seed = { ...USER, cs_muted: '1', [KEY]: JSON.stringify({ v: 1, xp: 300, rank: 0, units: done, srs: {}, seenPlays: [], streak: { n: 0, last: null, freezes: 1 }, promos: [] }) };
+      const { page: pg, errors: eg } = await open(PHONE, { hash: '#gameday', storage: seed });
+      await settle(pg);
+      const runExam = async (nRight) => {
+        for (let i = 0; i < 12; i++) {
+          const m = await mode(pg);
+          if (!m || m.kind !== 'gameday') return `question ${i + 1}: mode ${m && m.kind}`;
+          await pg.evaluate((r) => window.__CS__.ui.answer(r), i < nRight);
+          await settle(pg, 20);
+          if (i === 4 && nRight === 9) {
+            const L = await layout(pg);
+            check(fits(L), `a Game Day question fits 390x844 with no page scroll (${L.sw}x${L.sh}, field ${L.fh.toFixed(0)})`);
+            const sb = await pg.evaluate(() => ({ q: document.getElementById('sbQ').textContent, r: document.getElementById('sbRight').textContent, m: document.getElementById('sbMiss').textContent, vis: document.getElementById('scoreboard').offsetParent !== null }));
+            check(sb.vis && sb.q === '5/12' && sb.r === '5' && sb.m === '0', `the scoreboard reads question 5/12, 5 right, 0 missed (${JSON.stringify(sb)})`);
+            await plate(pg, 'cs2-game-day.png');
+          }
+          await pg.evaluate(() => window.__CS__.ui.next());
+          await settle(pg, 20);
+        }
+        return null;
+      };
+      const e1 = await runExam(9);
+      const f = await pg.evaluate(() => ({ s: window.__CS__.ui.state, m: window.__CS__.ui.mode, pc: window.__CS__.ui.promoCount, chips: [...document.querySelectorAll('#resTags .chip')].map((c) => ({ t: c.textContent, tags: c.dataset.tag, h: c.getBoundingClientRect().height })), tagsVis: document.getElementById('resTags').offsetParent !== null, promoGone: document.getElementById('promo').offsetParent === null }));
+      check(!e1 && f.m.kind === 'gdresult' && f.m.passed === false && f.m.right === 9, `9 of 12 is a fail (${e1 || f.m.right + ' right'})`);
+      check(f.s.rank === 0 && f.s.xp === 300 && f.pc === 0 && f.promoGone, `a fail costs nothing: rank 0, XP still 300, no promotion (xp ${f.s.xp})`);
+      check(f.tagsVis && f.chips.length >= 1 && f.chips.every((c) => c.tags && c.h >= 44), `the fail shows what to revisit as 44 px unit buttons (${f.chips.map((c) => c.t + ':' + c.tags).join(', ')})`);
+      await pg.evaluate(() => document.getElementById('resNext').click());          // Try again
+      await settle(pg);
+      const e2 = await runExam(10);
+      const p = await pg.evaluate(() => ({ s: window.__CS__.ui.state, m: window.__CS__.ui.mode, pc: window.__CS__.ui.promoCount, vis: document.getElementById('promo').offsetParent !== null || getComputedStyle(document.getElementById('promo')).display !== 'none' && document.getElementById('promo').getBoundingClientRect().height > 0, title: document.getElementById('promoNew').textContent, body: document.getElementById('promoText').textContent, ff: getComputedStyle(document.getElementById('promoText')).fontFamily, bodyFont: getComputedStyle(document.body).getPropertyValue('--font-body').trim() }));
+      check(!e2 && p.m.passed === true && p.m.right === 10, `10 of 12 passes (${e2 || p.m.right + ' right'})`);
+      check(p.s.rank === 1 && p.s.xp === 400 && JSON.stringify(p.s.promos) === '[1]', `the pass pays +100 and raises the rank (xp ${p.s.xp}, rank ${p.s.rank}, promos ${JSON.stringify(p.s.promos)})`);
+      check(p.vis && p.pc === 1 && p.title === 'Quality Control Coach' && /Testy/.test(p.body), `the contract card shows once, naming Testy as Quality Control Coach (${p.pc})`);
+      check(p.ff.split(',')[0] === p.bodyFont.split(',')[0], 'the contract body is in the body font');
+      const sm = await visibleSmall(pg);
+      check(sm.length === 0, `promotion controls are at least 44 px ${JSON.stringify(sm)}`);
+      await settle(pg, 1900);                                                     // let the signature draw
+      await plate(pg, 'cs2-promotion.png');
+      await pg.click('#promoOk');
+      check(await pg.evaluate(() => document.getElementById('promo').offsetParent === null && document.getElementById('promo').getBoundingClientRect().height === 0), 'closing the contract removes its geometry');
+      await pg.reload({ waitUntil: 'load' });
+      await pg.waitForFunction(() => !!window.__CS__);
+      await pg.evaluate(() => { location.hash = '#map'; }); await settle(pg);
+      const r = await pg.evaluate(() => ({ s: window.__CS__.ui.state, pc: window.__CS__.ui.promoCount, gone: document.getElementById('promo').offsetParent === null, sub: document.querySelector('#ranks .rank[data-rank="0"] .rsub').textContent, r2: document.querySelector('#ranks .rank[data-rank="1"]').classList.contains('locked') }));
+      check(r.s.rank === 1 && r.s.xp === 400 && r.pc === 0 && r.gone, `after reload: still rank 1 with 400 XP, and the promotion does not show again (${r.pc})`);
+      check(r.sub === 'Promoted', 'the map marks the Intern rank as promoted');
+      // A retake of the passed Game Day: no second promotion, no XP.
+      await pg.evaluate(() => { location.hash = '#gameday'; }); await settle(pg);
+      const e3 = await runExam(12);
+      const q = await pg.evaluate(() => ({ s: window.__CS__.ui.state, pc: window.__CS__.ui.promoCount, gone: document.getElementById('promo').offsetParent === null }));
+      check(!e3 && q.s.rank === 1 && q.s.xp === 400 && q.pc === 0 && q.gone && JSON.stringify(q.s.promos) === '[1]', `a 12/12 retake pays nothing and promotes nobody (xp ${q.s.xp}, promos ${JSON.stringify(q.s.promos)})`);
+      const hid = await pg.evaluate(() => [...document.querySelectorAll('[hidden]')].filter((e) => !(e instanceof SVGElement)).filter((e) => e.offsetParent !== null).map((e) => e.id || e.className));
+      check(hid.length === 0, `every hidden HTML element on the result screen has offsetParent === null ${hid.join(',')}`);
+      check(eg.length === 0, `zero page errors through Game Day ${JSON.stringify(eg.slice(0, 3))}`);
+      await pg.close();
+    }
+
+    // B14. Mute persists; the stage chrome has no emoji; the field stays hard-edged at DPR 2 and 3.
+    console.log('\n[B14] mute, chrome, DPR');
+    {
+      const { page: pq, errors: eq } = await open(PHONE, { hash: '#unit/r1-u1', storage: USER });
+      await settle(pq);
+      await pq.click('#btnMute');
+      const mu = await pq.evaluate(() => ({ ls: localStorage.getItem('cs_muted'), pressed: document.getElementById('btnMute').getAttribute('aria-pressed') }));
+      await pq.reload({ waitUntil: 'load' }); await pq.waitForFunction(() => !!window.__CS__);
+      const mu2 = await pq.evaluate(() => document.getElementById('btnMute').getAttribute('aria-pressed'));
+      check(mu.ls === '1' && mu.pressed === 'true' && mu2 === 'true', `mute persists across a reload (${mu.ls}, ${mu.pressed}, ${mu2})`);
+      const chrome2 = await pq.evaluate(() => [...document.querySelectorAll('h1,h2,h3,button,nav,a,.chip,label,#stStep')].map((e) => (e.textContent || '').trim()));
+      check(chrome2.every((s) => !EMOJI2.test(s)), 'no emoji in the stage chrome');
+      // Plate review (phase 2): a touch on the field washed the whole canvas teal (Android Chrome's tap highlight).
+      const thl = await pq.evaluate(() => ['cs-stage', 'cs-field'].map((id) => getComputedStyle(document.getElementById(id)).webkitTapHighlightColor));
+      check(thl.every((c) => /rgba\(0, 0, 0, 0\)|transparent/.test(c)), `tapping a field does not flash it (tap highlight ${thl.join(' / ')})`);
+      const sm = await visibleSmall(pq);
+      check(sm.length === 0, `stage controls are at least 44x44 ${JSON.stringify(sm)}`);
+      check(eq.length === 0, 'zero page errors on the stage');
+      await pq.close();
+      for (const dpr of [2, 3]) {
+        const { page: pd, errors: ed } = await open({ ...PHONE, deviceScaleFactor: dpr }, { hash: '#unit/r1-u3/puzzles', storage: USER });
+        await settle(pd);
+        const d = await pd.evaluate(() => { const c = document.getElementById('cs-stage'); return { ir: getComputedStyle(c).imageRendering, dpr: devicePixelRatio, w: c.width, cw: c.getBoundingClientRect().width }; });
+        check(d.dpr === dpr && /pixelated|crisp-edges/.test(d.ir), `DPR ${dpr}: the field is drawn hard-edged (image-rendering ${d.ir})`);
+        if (dpr === 3 && PLATES) {
+          const r = await pd.evaluate(() => { const q = window.__CS__.spriteRect('C'); return { x: q.left, y: q.top }; });
+          fs.mkdirSync(PLATES, { recursive: true });
+          await pd.screenshot({ path: path.join(PLATES, 'cs2-ol-closeup-dpr3.png'), clip: { x: Math.max(0, r.x - 90), y: Math.max(0, r.y - 70), width: 180, height: 160 } });
+          console.log('  plate ' + path.join(PLATES, 'cs2-ol-closeup-dpr3.png'));
+        }
+        check(ed.length === 0, `zero page errors at DPR ${dpr}`);
+        await pd.close();
+      }
+    }
+    // B15. Plate review (phase 2): on PHI-DAL and BAL-CIN both teams read as dark sprites and a 13-year-old
+    // could not tell offense from defense. Measured: the mean colour of every painted offense sprite against
+    // every defense sprite (grass pixels skipped), RGB distance. Before the matchup fixes the worst was 8;
+    // a pair that is plainly two teams measures 25 or more; the bar sits at 22 for margin.
+    console.log('\n[B15] two teams you can tell apart');
+    {
+      const { page: pk, errors: ek } = await open(PHONE, { hash: '#map', storage: USER });
+      const kit = await pk.evaluate(async () => {
+        const CS = window.CS, out = [];
+        const ids = Object.keys(CS.lib.PLAYS).filter((k) => k.startsWith('r1-'));
+        for (const id of ids) {
+          location.hash = '#film/' + id;
+          await new Promise((r) => setTimeout(r, 60));
+          const C = window.__CS__, c = document.getElementById('cs-stage'), g = c.getContext('2d'), cr = c.getBoundingClientRect(), sx = c.width / cr.width, sy = c.height / cr.height;
+          const avg = { off: [0, 0, 0, 0], def: [0, 0, 0, 0] };
+          for (const p of CS.compile(CS.lib.PLAYS[id]).all) {
+            const q = C.spriteRect(p.id);
+            if (!q) continue;
+            const d = g.getImageData(Math.round((q.left - cr.left) * sx), Math.round((q.top - cr.top) * sy), Math.max(1, Math.round((q.right - q.left) * sx)), Math.max(1, Math.round((q.bottom - q.top) * sy))).data;
+            for (let i = 0; i < d.length; i += 4) { if (d[i + 1] > d[i] + 30 && d[i + 1] > d[i + 2] + 30) continue; const a = avg[p.team]; a[0] += d[i]; a[1] += d[i + 1]; a[2] += d[i + 2]; a[3]++; }
+          }
+          const m = (a) => a.slice(0, 3).map((v) => v / a[3]), o = m(avg.off), e = m(avg.def);
+          out.push({ id, dist: Math.hypot(o[0] - e[0], o[1] - e[1], o[2] - e[2]) });
+        }
+        return out;
+      });
+      const worst = kit.reduce((a, b) => (b.dist < a.dist ? b : a));
+      check(kit.length >= 20 && worst.dist >= 22, `on all ${kit.length} rank-1 plays the two teams' sprites differ (worst ${worst.id}: ${worst.dist.toFixed(0)}, need 22)`);
+      check(ek.length === 0, 'zero page errors through the film room');
+      await pk.close();
     }
   } finally {
     await browser.close();

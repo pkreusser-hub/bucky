@@ -5,7 +5,7 @@
    ("Scores: live view keeps up with the game; helmets one solid colour"):
      - colour helpers clamp/rgb/lum/mixHex/onColor/cdist  (from assets/sunday/sd-app.js ~66, 131-143)
      - raRng                                              (~19-29)
-     - RA_GLYPHS, RA_BIG, pixText, pixW, bigText, bigW, bigLabel   (~1285-1339)
+     - RA_GLYPHS, RA_BIG, pixW, bigText, bigW, bigLabel   (~1285-1339; pixText was dropped in phase 2)
      - RA_SKEL, RA_RUN, raFig                             (~1349-1492)
      - raSprite (player branch only), raRGB               (~1507-1569)
      - raBallSprite                                       (~1571-1590)
@@ -14,13 +14,17 @@
        RA_SKIN, raNumber, raPalette (team branch only)    (~1750-1887)
      - raPoseAt / RA_HOLD / the player, shadow and ball drawing of raDraw  (~1911-2085, adapted)
    Changes from the source, all on purpose:
-     - RA_GLYPHS gains ',', '?', '(' and ')' for the callout box.
+     - RA_GLYPHS gains ',', '?', '(' and ')' (phase 1 drew callouts in it). Since phase 2 every word
+       a player reads is in the page's body font (the dad: 'the 8 bit text is going to be hard to
+       read, we can use normal font'); the pixel fonts draw only yard numbers, end-zone names and
+       jersey numbers.
      - raSprite drops the 12-pixel cheerleader/band maps (RA_MAPS); raPalette keeps only the
        team-kit branch (no band, trainers, officials, cheerleaders).
      - raFieldArt paints only the camera's window (no stands, benches, midfield logo or posts:
        the logo was an ESPN CDN fetch, and the camera never shows the rest), at this page's own
-       scale: 10 px per yard along the field, 8 across (the source draws 18 and 14) so the full
-       53.33-yard width fits down a portrait phone. Offense attacks to the RIGHT.
+       scale: 10 px per yard along the field, 12 across (the source draws 18 and 14) so the full
+       53.33-yard width runs down a portrait phone. Offense attacks to the RIGHT. (Phase 1 drew
+       8 across; phase 2 raised it to 12 so the 1.5-yard line splits clear a crouched sprite.)
      - raPoseAt / facing are made pure functions of t (the source keeps a sticky `a.face`), so
        scrubbing backwards draws the same frame as playing forwards.
    Everything else (camera, chalk, playback, hit-testing) is new. Positions come only from
@@ -56,17 +60,27 @@
 
   /* ═════ this page's camera ═════ */
   const K = 1;                       // the art's pixel (the source's RA_K, which was 2)
-  const PX = 10;                     // world pixels per yard along the field (screen-horizontal)
-  const PY = 8;                      // world pixels per yard across it (screen-vertical)
+  // World pixels per yard ALONG the field (screen-horizontal). 14, not phase 1's 10: the defensive
+  // line sets up 1 yd off the ball (fact sheet 1c), and at 10 px a lineman's helmet and his
+  // opponent's met in the middle and the two lines read as one heap.
+  const PX = 14;
+  // World pixels per yard ACROSS the field (screen-vertical). The offensive line stands 1.5 yd
+  // apart (fact sheet 1a) and a lineman in his stance is 17 px tall (RA_SKEL.stance: head centre
+  // 11.5 up, radius ~3.6, plus the outline row). Phase 1 drew 8 (12 px apart: a pile). 15 puts
+  // 22.5 px between linemen, so each helmet sits clear below the feet of the man above him with
+  // 5 px of turf between. The field is taller than the phone's width allows at full scale; the
+  // page fits it to the space left by the panel (fit() below), and the puzzle screen, whose
+  // panel is short, gives it most of the screen.
+  const PY = 15;
   const HK = 6;                      // world pixels per yard of height (the ball in the air)
-  const Y0 = -12, Y1 = 28;           // the window, in yards from the line of scrimmage
+  const Y0 = -9, Y1 = -9 + 400 / 14;   // the window, in yards from the line of scrimmage (28.6 yd)
   const MT = 22, MB = 14;            // turf above the far (offense's left) sideline / below the near one
   const FH = Math.round(CS.FIELD_W * PY);
-  const W = (Y1 - Y0) * PX;          // 400
-  const H = MT + FH + MB;            // 463
+  const W = Math.round((Y1 - Y0) * PX); // 400
+  const H = MT + FH + MB;            // 836
   const wx = (y) => (y - Y0) * PX;   // yards from the LOS -> world x
   const wy = (x) => MT + x * PY;     // yards across -> world y
-  const HIT_R = 24;                  // CSS px around a player's feet that count as tapping him
+  const HIT_R = 24;                  // CSS px around a player's body axis that count as tapping him
 
   /* ═════ copied: pixel fonts ═════ */
   const RA_GLYPHS = {
@@ -97,15 +111,6 @@
     V: '#...##...##...##...##...#.#.#...#..', W: '#...##...##...##.#.##.#.##.#.#.#.#.', X: '#...##...#.#.#...#...#.#.#...##...#',
     Y: '#...##...#.#.#...#....#....#....#..', Z: '#####....#...#...#...#...#....#####', '&': '.##..#..#..##...#...#.#.##..#..##.#',
   };
-  function pixText(g, s, x, y, col, k = 1) {
-    g.fillStyle = col;
-    let cx = x;
-    for (const ch of String(s).toUpperCase()) {
-      const gl = RA_GLYPHS[ch];
-      if (gl) for (let i = 0; i < 15; i++) if (gl[i] === '1') g.fillRect(cx + (i % 3) * k, y + Math.floor(i / 3) * k, k, k);
-      cx += 4 * k;
-    }
-  }
   const pixW = (s, k = 1) => String(s).length * 4 * k - k;
   function bigText(g, s, x, y, col, k = 1) {
     g.fillStyle = col;
@@ -267,6 +272,10 @@
     }
     g.putImageData(img, 0, 0);
     c.ax = flip ? f.W - f.ax : f.ax; c.ay = f.ay;
+    // The painted pixels' box (sprite pixels), for hit-testing what the eye actually sees.
+    let x0 = f.W, y0 = f.H, x1 = -1, y1 = -1;
+    for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) if (d[(y * f.W + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    c.bb = { x0, y0, x1: x1 + 1, y1: y1 + 1 };
     RA_SPR.set(key, c);
     return c;
   }
@@ -424,17 +433,17 @@
     // Yard numbers, the far side's upside down as on a real field, and the arrow to the nearer goal.
     // NFL numerals span 12-14 yd in from each sideline, bottoms (the edge facing the sideline) at
     // 12 yd (fact-check 2026-11-11). The source drew them 9-11 yd in; this copy moves them only
-    // here. The label is 16 px tall = 2 yd at PY 8: near side from x 39.33 down to 41.33, far
+    // here. The label is 24 px tall (1.6 yd at PY 15): near side with its bottom at x 41.33, far
     // side centred on x 13 and turned 180 degrees so its bottom faces the far sideline.
     for (let Ha = 10; Ha <= 90; Ha += 10) {
       const n = String(Ha <= 50 ? Ha : 100 - Ha), x = hx(Ha);
-      const lab = bigLabel(n, 2 * K, '#f7f7f7', '#123d8a');
-      const nearY = Math.round(wy(CS.FIELD_W - 14));
+      const lab = bigLabel(n, 3 * K, '#f7f7f7', '#123d8a');
+      const nearY = Math.round(wy(CS.FIELD_W - 12)) - lab.height;   // bottom edge 12 yd from the near sideline
       g.drawImage(lab, x - Math.floor(lab.width / 2), nearY);
       g.save(); g.translate(x, Math.round(wy(13))); g.rotate(Math.PI);
       g.drawImage(lab, -Math.floor(lab.width / 2), -Math.floor(lab.height / 2)); g.restore();
       const dir = Ha < 50 ? -1 : Ha > 50 ? 1 : 0;
-      if (dir) { g.fillStyle = '#f7f7f7'; const ax = x + dir * (lab.width / 2 + 4 * K); g.fillRect(ax, nearY + 6 * K, K, 3 * K); g.fillRect(ax + dir * K, nearY + 7 * K, K, K); }
+      if (dir) { g.fillStyle = '#f7f7f7'; const ax = x + dir * (lab.width / 2 + 4 * K), ay = nearY + Math.floor(lab.height / 2) - 2 * K; g.fillRect(ax, ay, K, 3 * K); g.fillRect(ax + dir * K, ay + K, K, K); }
     }
     ART.set(key, c);
     return c;
@@ -481,27 +490,18 @@
     }
     return { run, rest };
   }
-  function wrap(text, maxCh) {
-    const out = [];
-    let line = '';
-    for (const w of String(text).split(/\s+/)) {
-      if (!line) line = w;
-      else if ((line + ' ' + w).length <= maxCh) line += ' ' + w;
-      else { out.push(line); line = w; }
-    }
-    if (line) out.push(line);
-    return out;
-  }
-
   CS.mountField = function mountField(canvas, opts) {
     opts = opts || {};
     const g = canvas.getContext('2d');
     canvas.width = W; canvas.height = H;
     const reduceMQ = root.matchMedia ? root.matchMedia('(prefers-reduced-motion: reduce)') : null;
-    const st = { play: null, c: null, t: 0, playing: false, speed: 1, raf: 0, last: 0, acc: 0, kits: null, art: null, pal: {}, nums: {} };
+    const st = { play: null, c: null, t: 0, playing: false, speed: 1, raf: 0, last: 0, acc: 0, kits: null, art: null, pal: {}, nums: {}, drawn: {}, marks: [], callout: true };
     const PRE = -1.2;
+    const calloutEl = opts.calloutEl || null;
 
-    function setPlay(play) {
+    function setPlay(play, o) {
+      o = o || {};
+      if (st.playing) pause();
       st.play = play;
       st.c = CS.compile(play);
       const lib = CS.lib, off = lib.TEAMS[play.teams.off], def = lib.TEAMS[play.teams.def];
@@ -509,7 +509,8 @@
       const kits = raKit(offHome ? off : def, offHome ? def : off);
       st.kit = { off: offHome ? kits.home : kits.road, def: offHome ? kits.road : kits.home };
       st.art = fieldArt(CS.num(play.spot, 25), off, def);
-      st.pal = {}; st.nums = {};
+      st.pal = {}; st.nums = {}; st.marks = []; st.drawn = {};
+      st.callout = o.callouts !== false;
       st.c.all.forEach((p, i) => {
         const side = p.team === 'off' ? 'o' : 'd';
         st.pal[p.id] = raPalette(st.kit[p.team], i, side);
@@ -517,29 +518,87 @@
       });
       const ks = [PRE, st.c.snapT, ...(play.ball || []).map((b) => b.t), ...(play.callouts || []).map((k) => k.t), st.c.downT, st.c.T];
       st.keys = [...new Set(ks.filter((v) => v != null && v >= PRE && v <= st.c.T).map((v) => Math.round(v * 1000) / 1000))].sort((a, b) => a - b);
-      st.t = PRE;
+      st.t = clamp(CS.num(o.t, PRE), PRE, st.c.T);
       draw();
     }
 
     const toCss = () => { const r = canvas.getBoundingClientRect(); return { r, sx: r.width / W, sy: r.height / H }; };
     function yardToScreen(x, y) { const { r, sx, sy } = toCss(); return { x: r.left + wx(y) * sx, y: r.top + wy(x) * sy }; }
     function screenToYard(px, py) { const { r, sx, sy } = toCss(); return { x: ((py - r.top) / sy - MT) / PY, y: (px - r.left) / sx / PX + Y0 }; }
+    // The painted box of a player's sprite as last drawn, in world pixels.
+    function bodyBox(id) {
+      const d = st.drawn[id];
+      if (!d || !d.spr) return null;
+      const bb = d.spr.bb, left = d.X - d.spr.ax, top = d.Y - d.spr.ay;
+      return { x0: left + bb.x0, x1: left + bb.x1, y0: top + bb.y0, y1: top + bb.y1, fx: d.X, fy: d.Y };
+    }
+    // Hit-testing follows the eye. A tap inside a player's painted box belongs to him. Where two
+    // boxes overlap, the tap goes to the player whose BODY AXIS (the vertical line from his feet up
+    // through his sprite) is nearest: a defensive tackle set a yard off the ball paints his box
+    // across the centre's, and a tap on the centre's chest is still the centre's (phase-2 suite,
+    // B10). Two axes equally near (two men in one column, a helmet over the legs of the man above)
+    // go to the one whose FEET are just below the tap, never to the neighbour whose head reaches
+    // up there. Outside every box, the nearest body axis within HIT_R CSS px wins.
     function hitTest(px, py) {
       if (!st.play) return null;
-      const pose = CS.poseAt(st.play, st.t);
-      let best = null, bd = Infinity;
-      for (const [id, q] of Object.entries(pose.players)) {
-        const s = yardToScreen(q.x, q.y), d = Math.hypot(s.x - px, s.y - py);
+      const { r, sx, sy } = toCss();
+      const X = (px - r.left) / sx, Y = (py - r.top) / sy;
+      const ids = Object.keys(st.drawn);
+      let best = null, ba = Infinity, bk = Infinity, bh = Infinity;
+      for (const id of ids) {
+        const b = bodyBox(id);
+        if (!b || X < b.x0 || X >= b.x1 || Y < b.y0 || Y > b.fy + 2) continue;
+        const ax = Math.hypot((X - b.fx) * sx, (Y - clamp(Y, b.y0, b.fy)) * sy);   // CSS px to his axis
+        const k = b.fy - Y, key = k >= 0 ? k : 0.5 - k, h = Math.abs(X - b.fx);
+        const nearer = ax < ba - 0.5, tie = Math.abs(ax - ba) <= 0.5;
+        if (nearer || (tie && (key < bk || (key === bk && h < bh)))) { ba = Math.min(ba, ax); bk = key; bh = h; best = id; }
+      }
+      if (best) return best;
+      let bd = Infinity;
+      for (const id of ids) {
+        const b = bodyBox(id);
+        if (!b) continue;
+        const cy = clamp(Y, b.y0, b.fy), cx = clamp(X, b.x0, b.x1);
+        const d = Math.hypot((X - cx) * sx, (Y - cy) * sy);
         if (d < bd) { bd = d; best = id; }
+      }
+      if (!ids.length) {                                         // nothing drawn yet: the feet alone
+        const pose = CS.poseAt(st.play, st.t);
+        for (const [id, q] of Object.entries(pose.players)) {
+          const s = yardToScreen(q.x, q.y), d = Math.hypot(s.x - px, s.y - py);
+          if (d < bd) { bd = d; best = id; }
+        }
       }
       return bd <= HIT_R ? best : null;
     }
+    // A player's painted box in CSS px (the suite taps its centre; the UI never needs it).
+    function spriteRect(id) {
+      const b = bodyBox(id);
+      if (!b) return null;
+      const { r, sx, sy } = toCss();
+      return { left: r.left + b.x0 * sx, right: r.left + b.x1 * sx, top: r.top + b.y0 * sy, bottom: r.top + b.y1 * sy, feetX: r.left + b.fx * sx, feetY: r.top + b.fy * sy };
+    }
 
     function activeCallout() {
+      if (!st.callout) return null;
       const ks = st.play.callouts || [];
       let cur = null;
       for (const k of ks) if (st.t >= k.t && st.t < k.t + 2.6) cur = k;
       return cur;
+    }
+
+    const RING = { focus: ['#ffe14d', 'rgba(10,20,10,0.6)'], good: ['#4be37a', 'rgba(0,30,10,0.65)'], bad: ['#ff5a4d', 'rgba(40,0,0,0.65)'] };
+    function ring(id, kind, pulse) {
+      const b = bodyBox(id);
+      if (!b) return;
+      const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.fy) / 2;
+      const rx = Math.max(9, (b.x1 - b.x0) / 2 + 3) + pulse, ry = Math.max(11, (b.fy - b.y0) / 2 + 3) + pulse;
+      const [col, back] = RING[kind] || RING.focus;
+      g.setLineDash([]);
+      g.strokeStyle = back; g.lineWidth = 4;
+      g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = col; g.lineWidth = 2;
+      g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
     }
 
     function draw() {
@@ -553,12 +612,13 @@
       g.globalAlpha = 0.75; vline(0, '#4aa8ff'); if (play.dist) vline(play.dist, '#ffe000'); g.globalAlpha = 1;
       const pose = CS.poseAt(play, t), prev = CS.poseAt(play, Math.max(PRE, t - 0.1));
 
-      // Chalk under the players: zone shapes and drops, then routes.
+      // Chalk under the players: zone shapes and drops, then routes. A play can turn the zone
+      // chalk off (rank 1 names players; it doesn't teach coverages yet).
       const preThrow = c.throwT == null || t < c.throwT + 0.3;
-      if (preThrow) for (const p of c.def) {
+      if (preThrow && play.zones !== false) for (const p of c.def) {
         if (p.role !== 'zone') continue;
         const z = CS.lib.ZONES[p.src.zone], deep = z.deep === true;
-        const [zx, zy] = [wx(z.y), wy(z.x)];
+        const [zx, zy] = [wx(z.y), wy(z.x + c.dX)];
         g.fillStyle = deep ? 'rgba(90,160,255,0.16)' : 'rgba(255,214,64,0.14)';
         g.strokeStyle = deep ? 'rgba(180,215,255,0.7)' : 'rgba(255,232,150,0.7)';
         g.lineWidth = 1; g.setLineDash([3, 3]);
@@ -577,7 +637,7 @@
         }
         g.setLineDash([]);
       };
-      for (const p of c.off) {
+      if (play.routes !== false) for (const p of c.off) {
         if (p.role !== 'route') continue;
         const pts = chalkRoute(p);
         const d = Math.max(0, p.path.v * (t - c.snapT - p.path.delay));
@@ -601,14 +661,15 @@
         const face = Math.abs(vx) > 0.25 ? (vx > 0 ? 'r' : 'l') : p.team === 'off' ? 'r' : 'l';
         const phase = (i * 0.37) % 1;
         const ps = poseOf(c, p, t, speed, phase);
-        drawn[p.id] = { pose: ps, flip: face === 'l', sx, sy };
+        const X = Math.round(sx), Y = Math.round(sy);
+        const spr = raSprite(ps, st.pal[p.id], face === 'l', st.nums[p.id]);
+        drawn[p.id] = { pose: ps, flip: face === 'l', sx, sy, X, Y, spr };
         items.push({ y: sy, draw: () => {
-          const X = Math.round(sx), Y = Math.round(sy);
           g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 2, 17, 4); g.fillRect(X - 10, Y - 1, 21, 2);
-          const spr = raSprite(ps, st.pal[p.id], face === 'l', st.nums[p.id]);
           g.drawImage(spr, X - spr.ax, Y - spr.ay);
         } });
       });
+      st.drawn = drawn;
       const b = pose.ball;
       const heldBy = b.held ? drawn[b.held] : null;
       items.push({ y: heldBy ? heldBy.sy + 0.5 : wy(b.x) + 0.5, draw: () => {
@@ -631,19 +692,33 @@
       } });
       items.sort((p, q) => p.y - q.y).forEach((it) => it.draw());
 
-      // Chalk over the players: the spotlight ring and the callout box.
+      // Chalk over the players: marks the lesson asked for, the callout's spotlight, the callout text.
+      const pulse = reduceMQ && reduceMQ.matches ? 0 : Math.sin(t * 6) * 1.5;
+      for (const m of st.marks) ring(m.id, m.kind, m.kind === 'focus' ? pulse : 0);
       const k = activeCallout();
-      if (k && drawn[k.focus]) {
-        const f = drawn[k.focus], pulse = reduceMQ && reduceMQ.matches ? 0 : Math.sin(t * 6) * 1.5;
-        g.strokeStyle = 'rgba(10,20,10,0.6)'; g.lineWidth = 4;
-        g.beginPath(); g.ellipse(f.sx, f.sy - 17, 17 + pulse, 25 + pulse, 0, 0, Math.PI * 2); g.stroke();
-        g.strokeStyle = '#ffe14d'; g.lineWidth = 2;
-        g.beginPath(); g.ellipse(f.sx, f.sy - 17, 17 + pulse, 25 + pulse, 0, 0, Math.PI * 2); g.stroke();
-        const KT = 2, lines = wrap(k.text, Math.floor((W - 28) / (4 * KT))), lh = 7 * KT + 3;
-        const bh = lines.length * lh + 10, top = f.sy > H / 2 ? 6 : H - bh - 6;
+      if (k && drawn[k.focus]) ring(k.focus, 'focus', pulse);
+      if (calloutEl) {
+        // The callout is real text in the page (the body font, readable on a phone), laid over
+        // the field on the far side from the player it talks about.
+        const txt = k ? k.text : '';
+        if (calloutEl.textContent !== txt) calloutEl.textContent = txt;
+        calloutEl.hidden = !k;
+        if (k && drawn[k.focus]) calloutEl.dataset.at = drawn[k.focus].sy > H / 2 ? 'top' : 'bottom';
+      } else if (k && drawn[k.focus]) {
+        // No overlay element: draw it on the canvas, still in the body font (user, 2026-11-11:
+        // "the 8 bit text is going to be hard to read, we can use normal font"). The pixel font
+        // is kept for the field's yard numbers and the jersey numbers only.
+        const f = drawn[k.focus], FS = 15;
+        g.font = `600 ${FS}px Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif`;
+        const words = String(k.text).split(/\s+/), lines = [];
+        let ln = '';
+        for (const w of words) { const t2 = ln ? ln + ' ' + w : w; if (ln && g.measureText(t2).width > W - 32) { lines.push(ln); ln = w; } else ln = t2; }
+        if (ln) lines.push(ln);
+        const lh = FS + 5, bh = lines.length * lh + 12, top = f.sy > H / 2 ? 6 : H - bh - 6;
         g.fillStyle = 'rgba(6,10,16,0.88)'; g.fillRect(6, top, W - 12, bh);
         g.fillStyle = '#ffe14d'; g.fillRect(6, top, 3, bh);
-        lines.forEach((ln, i) => pixText(g, ln, 16, top + 6 + i * lh, '#f4f1e6', KT));
+        g.fillStyle = '#f4f1e6'; g.textBaseline = 'top';
+        lines.forEach((s2, i) => g.fillText(s2, 16, top + 7 + i * lh));
       }
       if (opts.onFrame) opts.onFrame(st.t, k);
     }
@@ -652,6 +727,13 @@
       st.t = clamp(t, PRE, st.c ? st.c.T : 0);
       draw();
       return st.t;
+    }
+    // Watch mode stops the clock on each callout until he presses play again (plan: "timed
+    // callouts that pause"). Returns the first callout time inside (from, to], if any.
+    function nextStop(from, to) {
+      if (!opts.pauseAtCallouts || !st.callout) return null;
+      const ks = (st.play.callouts || []).map((k) => k.t).filter((v) => v > from + 1e-6 && v <= to).sort((a, b) => a - b);
+      return ks.length ? ks[0] : null;
     }
     function tick(now) {
       st.raf = 0;
@@ -664,14 +746,18 @@
         if (st.acc >= 1.2) {
           st.acc = 0;
           const nx = st.keys.find((v) => v > st.t + 1e-6);
+          const stop = nx == null ? null : nextStop(st.t, nx);
           st.t = nx == null ? st.c.T : nx;
           draw();
+          if (stop != null) { pause(); return; }
         }
       } else {
-        st.t = Math.min(st.c.T, st.t + dt * st.speed);
+        const to = Math.min(st.c.T, st.t + dt * st.speed), stop = nextStop(st.t, to);
+        st.t = stop == null ? to : stop;
         draw();
+        if (stop != null) { pause(); return; }
       }
-      if (st.t >= st.c.T) { st.playing = false; if (opts.onState) opts.onState(); return; }
+      if (st.t >= st.c.T) { st.playing = false; if (opts.onState) opts.onState(); if (opts.onEnd) opts.onEnd(); return; }
       st.raf = requestAnimationFrame(tick);
     }
     function play() {
@@ -689,6 +775,18 @@
       const r = canvas.getBoundingClientRect(), dev = r.width * (root.devicePixelRatio || 1);
       canvas.style.imageRendering = dev > 0 && dev < W * 0.95 ? 'auto' : 'pixelated';
     }
+    // Size the canvas (or the wrapper it fills) to the largest W:H box that fits inside `box`, so
+    // the field grows into whatever height the screen leaves it and never pushes the page to scroll.
+    function fit(box) {
+      if (!box) return;
+      const bw = box.clientWidth, bh = box.clientHeight;
+      if (!(bw > 0 && bh > 0)) return;
+      const s = Math.min(bw / W, bh / H), w = Math.floor(W * s), h = Math.floor(H * s);
+      const el = opts.wrap || canvas;
+      el.style.width = w + 'px'; el.style.height = h + 'px';
+      if (el !== canvas) { canvas.style.width = '100%'; canvas.style.height = '100%'; }
+      sizeHint();
+    }
     canvas.addEventListener('pointerdown', (e) => {
       const id = hitTest(e.clientX, e.clientY);
       if (opts.onTap) opts.onTap(id, e);
@@ -697,10 +795,12 @@
     sizeHint();
 
     const api = {
-      setPlay, seek, start: play, pause, draw, hitTest, yardToScreen, screenToYard, sizeHint,
+      setPlay, seek, start: play, pause, draw, hitTest, yardToScreen, screenToYard, sizeHint, fit, spriteRect,
       setSpeed: (s) => { st.speed = s; if (opts.onState) opts.onState(); },
+      setMarks: (m) => { st.marks = (m || []).slice(); draw(); },
       get t() { return st.t; }, get play() { return st.play; }, get playing() { return st.playing; }, get speed() { return st.speed; },
       get T() { return st.c ? st.c.T : 0; }, get keys() { return st.keys.slice(); }, get reduced() { return !!(reduceMQ && reduceMQ.matches); },
+      get marks() { return st.marks.slice(); }, get canvas() { return canvas; },
       PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT },
     };
     return api;
