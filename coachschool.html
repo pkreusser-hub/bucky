@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c1017">
+<title>Coach School</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;600&display=swap">
+<style>
+  /* GFFL tokens (league.html :root, navy base). Fonts fall back to system stacks when the
+     Google Fonts request is blocked or offline. */
+  :root {
+    --bg:#0c1017; --bg-page:#070a0f; --tabbar:#0d1320; --band:#101724;
+    --card:#151b26; --nested:#1a2231; --nested2:#0e131d;
+    --border-card:#263043; --divider:#263043; --border-hover:#3a4558;
+    --ink:#e9edf4; --ink2:#c3cbdb; --mut:#8a94a7; --faint:#5b6579;
+    --accent:#d50a0a; --green:#2e8659; --gold:#ffb612; --blue:#013369;
+    --radius-card:10px; --radius-sm:7px; --radius-pill:16px;
+    --font-display:'Barlow Condensed','Arial Narrow','Helvetica Neue',Arial,system-ui,sans-serif;
+    --font-body:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg-page); color:var(--ink); font:15px/1.4 var(--font-body); }
+  body { min-height:100vh; -webkit-text-size-adjust:100%; }
+  [hidden] { display:none !important; }   /* styled containers below set display; this keeps hidden hidden */
+
+  header.bar { display:flex; align-items:center; gap:8px; height:52px; padding:0 calc(8px + env(safe-area-inset-right)) 0 calc(4px + env(safe-area-inset-left));
+               background:var(--tabbar); border-bottom:1px solid var(--divider); }
+  header.bar h1 { margin:0; font:700 22px var(--font-display); letter-spacing:1px; text-transform:uppercase; }
+  .back { display:inline-flex; align-items:center; gap:2px; min-width:44px; height:44px; padding:0 8px 0 4px; color:var(--ink2);
+          text-decoration:none; font:600 13px var(--font-display); letter-spacing:1px; text-transform:uppercase; border-radius:var(--radius-sm); }
+  .back:hover, .back:focus-visible { color:var(--ink); background:var(--nested); }
+  .back svg { width:22px; height:22px; }
+
+  main { max-width:520px; margin:0 auto; padding:8px calc(8px + env(safe-area-inset-right)) 8px calc(8px + env(safe-area-inset-left)); }
+  .card { background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-card); padding:8px; }
+  .stagehead { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 2px 6px; }
+  h2 { margin:0; font:600 12px var(--font-display); color:var(--mut); text-transform:uppercase; letter-spacing:2px; }
+  .chip { display:inline-flex; align-items:center; padding:3px 10px; border-radius:var(--radius-pill); background:var(--nested);
+          border:1px solid var(--border-card); font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--ink2); }
+
+  #cs-field { display:block; width:100%; height:auto; aspect-ratio:400 / 463; border-radius:6px; background:#1d7a2a;
+              touch-action:manipulation; cursor:pointer; }
+  #readout { margin:6px 2px 0; min-height:22px; font:600 15px var(--font-body); color:var(--ink); }
+  #readout b { color:var(--gold); font-weight:600; }
+
+  .controls { display:flex; gap:8px; margin-top:8px; }
+  button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; min-width:44px; padding:0 14px;
+           background:var(--nested); color:var(--ink); border:1px solid var(--border-card); border-radius:var(--radius-sm);
+           font:600 13px var(--font-display); letter-spacing:1px; text-transform:uppercase; cursor:pointer; }
+  button:hover { border-color:var(--border-hover); }
+  button svg { width:18px; height:18px; flex:0 0 auto; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; flex:1 1 auto; }
+  button[aria-pressed="true"] { background:var(--blue); border-color:#2d5aa0; }
+  .scrub { display:flex; align-items:center; gap:10px; margin-top:6px; }
+  .scrub input { flex:1 1 auto; height:44px; margin:0; accent-color:var(--gold); }
+  #clock { min-width:74px; text-align:right; font:700 14px var(--font-display); letter-spacing:1px; color:var(--ink2); font-variant-numeric:tabular-nums; }
+
+  .sheet { position:fixed; inset:0; z-index:20; display:flex; align-items:flex-end; justify-content:center; background:rgba(0,0,0,.55); }
+  .sheet .card { width:min(520px, 100%); padding:16px; border-radius:var(--radius-card) var(--radius-card) 0 0; }
+  .sheet h3 { margin:0 0 10px; font:700 18px var(--font-display); letter-spacing:1px; text-transform:uppercase; }
+  .sheet ul { margin:0 0 14px; padding:0; list-style:none; }
+  .sheet li { display:flex; align-items:center; gap:10px; padding:6px 0; color:var(--ink2); }
+  .sheet li svg { width:44px; height:16px; flex:0 0 auto; }
+  .sheet button { width:100%; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  @media (min-width:700px) { main { padding-top:20px; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <nav aria-label="Back"><a class="back" href="games.html" aria-label="Back to games">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Games</span></a></nav>
+  <h1>Coach School</h1>
+</header>
+<main>
+  <section class="card stage" aria-labelledby="stageTitle">
+    <div class="stagehead"><h2 id="stageTitle">Engine demo</h2><span class="chip" id="playName">Smash vs Cover 2</span></div>
+    <canvas id="cs-field" width="400" height="463" role="img" aria-label="Animated play diagram. Tap a player to hear his position."></canvas>
+    <p id="readout" aria-live="polite">Tap any player to name him.</p>
+    <div class="controls">
+      <button id="btnPlay" class="primary" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4l13 8-13 8z"/></svg><span>Play</span></button>
+      <button id="btnSlow" type="button" aria-pressed="false">0.5x</button>
+      <button id="btnKey" type="button" aria-haspopup="dialog">Chalk key</button>
+    </div>
+    <div class="scrub">
+      <input id="scrub" type="range" min="-1.2" max="5" step="0.01" value="-1.2" aria-label="Play clock">
+      <span id="clock">PRE-SNAP</span>
+    </div>
+  </section>
+  <p class="sr-only" id="calloutLive" aria-live="polite"></p>
+</main>
+
+<div id="legend" class="sheet" role="dialog" aria-modal="true" aria-labelledby="legendTitle" hidden>
+  <div class="card">
+    <h3 id="legendTitle">Reading the chalk</h3>
+    <ul>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M2 8h40" stroke="#f4f1e6" stroke-width="2" stroke-dasharray="4 4"/></svg>Dotted line: the route he is about to run.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M2 8h40" stroke="#f4f1e6" stroke-width="2"/></svg>Solid line: the part he has already run.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><ellipse cx="22" cy="8" rx="19" ry="6" fill="rgba(90,160,255,.3)" stroke="#b4d7ff" stroke-dasharray="3 3"/></svg>Blue zone: a deep defender's area.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><ellipse cx="22" cy="8" rx="19" ry="6" fill="rgba(255,214,64,.28)" stroke="#ffe896" stroke-dasharray="3 3"/></svg>Yellow zone: an underneath defender's area.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M22 1v14" stroke="#4aa8ff" stroke-width="3"/></svg>Blue line: the line of scrimmage.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M22 1v14" stroke="#ffe000" stroke-width="3"/></svg>Yellow line: the first-down marker.</li>
+    </ul>
+    <button id="btnKeyClose" type="button">Close</button>
+  </div>
+</div>
+
+<script src="assets/coachschool/cs-core.js"></script>
+<script src="assets/coachschool/cs-lib.js"></script>
+<script src="assets/coachschool/cs-field.js"></script>
+<script>
+(function () {
+  'use strict';
+  var CS = window.CS, $ = function (id) { return document.getElementById(id); };
+  var play = CS.lib.PLAYS['smash-vs-c2'];
+  var readout = $('readout'), scrub = $('scrub'), clock = $('clock'), btnPlay = $('btnPlay'), btnSlow = $('btnSlow');
+  var ICON_PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4l13 8-13 8z"/></svg>';
+  var ICON_PAUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
+  var lastCallout = null;
+
+  function label(id) {
+    var c = CS.compile(play), p = c.byId[id];
+    return CS.lib.LABELS[id] || (p ? p.pos : id);
+  }
+  var field = CS.mountField($('cs-field'), {
+    onTap: function (id) {
+      readout.textContent = '';
+      if (!id) { readout.textContent = 'No player there. Tap closer to his feet.'; return; }
+      var team = CS.compile(play).byId[id].team === 'off' ? play.teams.off : play.teams.def;
+      readout.appendChild(document.createTextNode('You tapped: '));
+      var b = document.createElement('b'); b.textContent = label(id); readout.appendChild(b);
+      readout.appendChild(document.createTextNode(' (' + CS.lib.TEAMS[team].name + ')'));
+    },
+    onFrame: function (t, k) {
+      scrub.value = String(t);
+      clock.textContent = t < 0 ? 'PRE-SNAP' : 'SNAP +' + t.toFixed(1) + 's';
+      if (k !== lastCallout) { lastCallout = k; $('calloutLive').textContent = k ? k.text : ''; }
+    },
+    onState: function () {
+      btnPlay.innerHTML = (field.playing ? ICON_PAUSE : ICON_PLAY) + '<span>' + (field.playing ? 'Pause' : 'Play') + '</span>';
+      btnSlow.setAttribute('aria-pressed', field.speed === 0.5 ? 'true' : 'false');
+    },
+  });
+  field.setPlay(play);
+  scrub.min = String(field.PRE); scrub.max = String(field.T);
+  $('playName').textContent = play.name;
+
+  btnPlay.addEventListener('click', function () { if (field.playing) field.pause(); else field.start(); });
+  btnSlow.addEventListener('click', function () { field.setSpeed(field.speed === 0.5 ? 1 : 0.5); });
+  scrub.addEventListener('input', function () { field.pause(); field.seek(parseFloat(scrub.value)); });
+  var legend = $('legend');
+  $('btnKey').addEventListener('click', function () { field.pause(); legend.hidden = false; $('btnKeyClose').focus(); });
+  function closeKey() { legend.hidden = true; $('btnKey').focus(); }
+  $('btnKeyClose').addEventListener('click', closeKey);
+  legend.addEventListener('click', function (e) { if (e.target === legend) closeKey(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !legend.hidden) closeKey(); });
+
+  // The test and debugging hook (plan: tests assert yards and the hit-test mapping, never pixels).
+  window.__CS__ = {
+    get play() { return field.play; }, get t() { return field.t; }, get playing() { return field.playing; }, get speed() { return field.speed; },
+    get T() { return field.T; }, get keys() { return field.keys; }, get reduced() { return field.reduced; },
+    seek: field.seek, screenToYard: field.screenToYard, yardToScreen: field.yardToScreen, hitTest: field.hitTest,
+    hitRadius: field.hitRadius, PRE: field.PRE, field: field,
+  };
+})();
+</script>
+</body>
+</html>
