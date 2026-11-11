@@ -321,6 +321,41 @@ console.log('\n[A6] rank 1 content');
     const p4 = ALL.find((q) => q.id === 'r1-u2-p4'), fp4 = CS.compile(L.PLAYS[p4.play]).byId[p4.of];
     check(p4.of === 'H' && fp4.pos === 'WR' && /receiver's number/.test(p4.why), `r1-u2-p4 asks about H, a receiver (pos ${fp4.pos}, numbered 10-19 or 80-88 by raNumber), and says why by his number too`);
   }
+  // Fable 5.2 rules review against the 2026 NFL Rulebook (2026-11-11; fact sheet header). Every claim
+  // it corrected away must stay gone from the fact sheet: the runoff starts at the two-minute warning
+  // (RB 4-7-1), not "inside the last minute"; hashes do not divide the field into thirds (RB 1-2-2);
+  // the ineligible-downfield rule applies to any forward pass (RB 8-3-1); the NFL spike exception is
+  // written for under center, so "sources disagree" is gone (RB 8-2-1 Item 3); the safety kick uses
+  // the dynamic-kickoff line-up (RB 6-1-3); and the kickoff-from-the-50 touchback "was the 25" is
+  // wrong (RB 6-1-5). Whitespace is normalised first: "sources\n  disagree" wrapped across lines.
+  // `--facts FILE` points this at another copy (how it was shown to fail on d21801f's sheet).
+  {
+    const FACTS = argv.includes('--facts') ? argv[argv.indexOf('--facts') + 1] : path.join(ROOT, 'docs/coachschool-facts.md');
+    const facts = fs.readFileSync(FACTS, 'utf8').replace(/\s+/g, ' ');
+    const GONE = ['Inside the last minute', 'dividing the field into thirds', 'crosses the LOS, an ineligible', 'sources disagree', '(not the dynamic kickoff format)', 'was the 25'];
+    const still = GONE.filter((s) => facts.includes(s));
+    check(still.length === 0, `the fact sheet carries none of the ${GONE.length} claims the rules review corrected away ${still.map((s) => '"' + s + '"').join(' ')}`);
+    const NEW = ['After the two-minute warning of either half', 'from its own 20. It uses the same dynamic-kickoff line-up', 'unless he is still blocking a man he first hit within that yard', '### Overtime (NFL)', 'One 10-minute period (RB 16-1-3)', 'Rules review by Fable 5.2, 2026-11-11'];
+    const missing = NEW.filter((s) => !facts.includes(s));
+    check(missing.length === 0, `the fact sheet carries the review's corrected rules and the overtime section ${missing.map((s) => '"' + s + '"').join(' ')}`);
+  }
+  // Same review, rank-1 copy: Z is not always off the line (r1-v-trips puts Z on the line at the right
+  // end, r1-u2-p6), so no rank-1 string states it flat. Where the play shown has Z a yard off (r1-wr,
+  // r1-g-1: singleback, Z at y = -1), the line says "Here" or "in this formation"; the general card
+  // says "usually". The LOS card's last bubble is held word for word to the reviewer's text.
+  {
+    const strings = [];
+    const walk = (v) => { if (typeof v === 'string') strings.push(v); else if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === 'object') Object.values(v).forEach(walk); };
+    walk(R); walk(Object.values(L.PLAYS).filter((p) => p.id.startsWith('r1-')).map((p) => p.callouts || []));
+    const FLAT = [/(?<!Here |in this formation )\bZ (stands|is|lines up) (about )?a yard (off|behind)/, /\bhe stands (about )?a yard off the line/];
+    const flat = strings.filter((s) => FLAT.some((re) => re.test(s)));
+    check(flat.length === 0, `no rank-1 string says flat that Z stands a yard off the line ${flat.map((s) => s.slice(0, 60)).join(' | ')}`);
+    const zw = CS.compile(L.PLAYS['r1-wr']).byId.Z, zg = CS.compile(L.PLAYS['r1-g-1']).byId.Z;
+    check(zw.y <= -0.5 && zg.y <= -0.5, `r1-wr and r1-g-1, where the copy says "Here Z stands a yard off", really have Z off the line (y ${zw.y}, ${zg.y})`);
+    const los = U.find((u) => u.id === 'r1-u2').cards.find((c) => c.title === 'The line of scrimmage');
+    const b4 = los && los.say[3];
+    check(!!b4 && b4.text === 'On our field the offense\'s LOS is the blue line, and we draw the two teams further apart than they really stand, which is only about a yard.', `the LOS card's 4th bubble is the rules review's wording ${b4 ? b4.text.slice(0, 50) : 'missing'}`);
+  }
   // Chalk is opt-in (the dad, 2026-11-11: "don't show receiver routes unless it's relevant for that
   // puzzle or section of the lesson"). Rank 1 is names and places: no card, bubble, callout, walkthrough
   // step, puzzle or play of it asks for route or zone chalk. (Later ranks opt in with routes / zones.)

@@ -3,6 +3,9 @@
 The single source of football truth for Coach School. Lesson cards, puzzles, callouts and the
 `cs-lib.js` tables may only state facts that appear here. Written 2026-11-11 for the dad to review.
 
+**Rules review by Fable 5.2, 2026-11-11, against the 2026 NFL Rulebook (operations.nfl.com);
+findings 1-11 applied.** Citations in the form "RB 4-7-1" are Rule-Section-Article of that book.
+
 ## How to read this sheet
 
 - **NFL rules only.** College and high-school rules differ in places (clock on first downs,
@@ -60,9 +63,8 @@ Every concept: **What it is** (plain definition), **Spot it** (how to recognise 
   Coach School offensive formation has exactly 7 on the line (y = 0) and 4 off it (y ≤ -1).
 - **Eligible receivers.** What it is: the two players at the *ends* of the line, plus the
   players legally in the backfield (at least 1 yd behind the LOS). Two conditions, both required:
-  the right SPOT (an end of the line or the backfield) and an eligible NUMBER (under 50, or 80-89;
-  the NFL glossary says 1-49 or 80-89, and 0 has been allowed since 2023). A player wearing 50-79
-  becomes eligible only if he reports to the referee AND lines up at an eligible spot; reporting
+  the right SPOT (an end of the line or the backfield) and an eligible NUMBER (0-49 or 80-89; NFL
+  Rule 8-1-5). A player wearing 50-79 or 90-99 becomes eligible only if he reports to the referee AND lines up at an eligible spot; reporting
   never makes an interior lineman eligible. (Corrected 2026-11-11: the earlier text said interior
   linemen were eligible if they reported. Source: operations.nfl.com glossary "Eligible Receiver";
   footballzebras.com 2015 eligibility-reporting explainer.) Spot it: the outermost man on the line each side, and anyone off the
@@ -72,9 +74,10 @@ Every concept: **What it is** (plain definition), **Spot it** (how to recognise 
   legally moves at least 1 yd behind the LOS before the snap. Content may state this one exception
   ("a quarterback taking the snap under center can't catch a pass") so "everyone in the backfield is
   eligible" is never taught bare; don't build puzzles around QB-as-receiver.
-- **Ineligible man downfield.** On a forward pass that crosses the LOS, an ineligible lineman may
-  not be more than 1 yard beyond the LOS when the ball is thrown (NFL; college is 3 yd). This is
-  the rule RPOs live near.
+- **Ineligible man downfield.** On any forward pass, an ineligible lineman may not be more than
+  1 yard beyond the LOS before the ball is thrown, unless he is still blocking a man he first hit
+  within that yard (NFL; college allows 3 yd and exempts passes caught behind the line). This is
+  the rule RPOs live near. (RB 8-3-1 Items 1-2, 8-3-2.)
 - **Offensive line (OL).** LT, LG, C, RG, RT. The center snaps. Tackles are the bookends; on a
   right-handed QB the LT protects his blind side (his back is to the left as he throws), which is
   why LT is traditionally the premium pass protector. Spot it: the five big men in the middle.
@@ -219,7 +222,7 @@ Every concept: **What it is** (plain definition), **Spot it** (how to recognise 
   against smash.
 - **RPO (run-pass option).** Linemen block a run; the QB reads one defender after the snap and
   either hands off or throws a quick pass into the space that defender left. Linemen must stay
-  within 1 yd downfield if the ball is thrown past the LOS.
+  within 1 yd of the LOS until the ball is thrown.
 - **Read option.** The QB leaves one defender (usually the backside DE) unblocked and reads him:
   if he crashes on the back, the QB keeps; if he stays wide, the QB gives.
 - **Audible vs hot route vs sight adjust vs kill.** *Audible*: the QB changes the play at the
@@ -592,12 +595,17 @@ teach these as "in Coach School".
   full list is not taught.
 - **Spike.** The QB throws the ball straight into the ground immediately after the snap to stop
   the clock. It is legal (an exception to intentional grounding), counts as an incomplete pass and
-  **uses a down**, so it is a bad idea on 4th down. Coach School teaches the spike from under center only; sources
-  disagree on whether the NFL exception covers a shotgun snap, so shotgun spikes are not taught.
-- **10-second runoff.** Inside the last minute of either half, if the clock is running and the
-  offense commits a foul that stops it (e.g., false start, intentional grounding), or a replay
-  reversal stops it, 10 seconds are run off. The defense may decline the runoff; the offense may
-  use a timeout to avoid it. If fewer than 10 seconds remain, the runoff ends the half.
+  **uses a down**, so it is a bad idea on 4th down. Coach School teaches the spike from under
+  center only: the NFL exception is written for a quarterback under center who throws the ball
+  straight down immediately on taking the snap (Rule 8-2-1 Item 3). A delayed spike is
+  intentional grounding. (RB 8-2-1 Items 3-4, 3-42.)
+- **10-second runoff.** After the two-minute warning of either half, if the clock is running and
+  the offense commits a foul that stops it (e.g., false start, intentional grounding, illegal
+  substitution), 10 seconds are run off. The defense may decline the runoff and take only the
+  yards; the offense may use a timeout to avoid it. A replay reversal after the two-minute warning
+  also brings a runoff when the corrected ruling would have kept the clock running; neither team
+  can decline that one, but either may use a timeout to prevent it. If fewer than 10 seconds
+  remain, the runoff ends the half. (RB 4-7-1, 4-7-2, 4-7-4, 15-5.)
 - **Sideline throws.** In the two-minute drill, throws to the sideline let the receiver get out
   of bounds and stop the clock (inside the windows above); throws in the middle of the field keep
   the clock running unless a timeout is used.
@@ -608,7 +616,7 @@ teach these as "in Coach School".
 |---|---|
 | Touchdown | 6 |
 | Field goal | 3 |
-| Safety | 2, and the team that was scored on puts the ball in play by a free kick (punt, drop kick or place kick) from its own 20 (not the dynamic kickoff format) |
+| Safety | 2, and the team that was scored on puts the ball in play by a safety kick (punt, drop kick or place kick; a tee is allowed) from its own 20. It uses the same dynamic-kickoff line-up and landing zone as a kickoff. (RB 6-1-1-b, 6-1-2-a, 6-1-3, 11-5-2) |
 | Try (after a TD): kick | 1 point; snapped from the 15-yard line (since 2015) |
 | Try: two-point | 2 points; snapped from the 2-yard line |
 | Defense returns a try to the other end zone | 2 points |
@@ -619,8 +627,8 @@ teach these as "in Coach School".
 |---|---|
 | Kickoff spot | kicking team's 35 |
 | Format | the "dynamic kickoff" (introduced 2024): players of both teams line up close together and may not move until the ball lands or is touched; the ball must land in the *landing zone* (the receiving team's 20 to the goal line) |
-| Touchback, kickoff | the 35 for a kick that reaches the end zone on the fly (it was the 30 in 2024; 35 since 2025); a ball that first lands in the landing zone and then goes into the end zone comes out to the 20. A kickoff from the 50 (after a penalty) that is a touchback or goes out of bounds is spotted at the 20 (2026 change; it was the 25) |
-| Kickoff short of the landing zone or out of bounds | receiving team gets the ball at its own 40 (2025 rules; the exception is a kickoff moved to the 50 by penalty, see above) |
+| Touchback, kickoff | the 35 for a kick that reaches the end zone on the fly (it was the 30 in 2024; 35 since 2025); a ball that first lands in the landing zone and then goes into the end zone comes out to the 20. A kickoff from the 50 (after a penalty) that ends in any touchback comes out to the 20 (2026 change; before, it followed the normal 35/20 rule). (RB 6-1-5) |
+| Kickoff short of the landing zone or out of bounds | receiving team gets the ball 25 yards from the spot of the kick: its own 40 on a normal kickoff from the 35, its own 25 if a penalty moved the kickoff to the 50. (RB 6-2-4) |
 | Onside kick | must be declared in advance so the receivers can set their onside formation; since 2026 it may be declared at any time in the game (2024: only in the 4th quarter and only when trailing; 2025: any time, but only when trailing) |
 | Touchback, punt | ball at the receiving team's 20 |
 
@@ -631,7 +639,57 @@ teach these as "in Coach School".
 - A coach must have a timeout to challenge; a failed challenge costs a timeout.
 - Coaches cannot challenge inside the last 2:00 of either half or in overtime: the replay
   official (booth) initiates reviews there.
-- All scoring plays and all turnovers are reviewed automatically by the booth.
+- The booth, not the coach, reviews all scoring plays and tries, interceptions and lost fumbles,
+  failed fourth-down tries, kicks recovered by the kicking team, and ejections. (RB 15-1-2)
+
+### Overtime (NFL)
+
+If the score is tied at the end of regulation, the game goes to modified sudden-death overtime
+after a new coin toss (RB 16-1-1, 16-1-2).
+
+- **Regular season.** One 10-minute period (RB 16-1-3).
+  - Both teams must get the chance to possess the ball once, unless the team that kicks off to
+    start overtime scores a safety on the receiving team's first possession; then the kicking
+    team wins (16-1-3-a).
+  - After each team has had its chance, the team ahead wins (16-1-3-b). If the first team does not
+    score on its first possession, or the score is still level after both chances, the next score
+    of any kind wins (16-1-3-c).
+  - There is never more than the one 10-minute period, even if the second team has not had the
+    ball yet or its possession has not ended. If the score is level when it ends, the game is a
+    tie (16-1-3-d).
+  - Each team gets two timeouts; the fourth-quarter rules, timing included, apply (16-1-3-e).
+- **Postseason.** 15-minute periods, played until there is a winner (RB 16-1-4-a, -d, -i). The same
+  both-teams-get-a-chance and next-score rules apply (16-1-4-a to -c). Each team gets three
+  timeouts per half (16-1-4-g).
+- **Review.** Coaches cannot challenge in overtime; only the replay official starts a review
+  (RB 15-1-1-c, 15-1-2-b).
+
+### Reference for later ranks: hip-drop tackle, fair catch
+
+Not taught in rank 1. Recorded here, from the rulebook, so later ranks have a cleared source.
+
+- **Hip-drop tackle** (RB 12-2-18). A foul when the tackler grabs the runner with one or both
+  hands or wraps him with both arms, and then drops his own weight by swivelling and dropping his
+  hips or lower body, landing on or trapping the runner's legs at or below the knee. Penalty:
+  15 yards and an automatic first down.
+- **Fair catch** (RB 10-2).
+  - *What it is*: an unhindered catch, by a receiving-team player who gave a valid signal, of a
+    punt (or other scrimmage kick) that has crossed the LOS and not touched the ground, or of a
+    free kick that has not touched the ground (10-2-1).
+  - *The signal*: while the kick is in the air, one arm fully extended above the helmet and waved
+    side to side (10-2-2 Item 1). Hands raised above the shoulders any other way is an invalid
+    signal: 5 yards, and the ball is dead when the receivers catch it, but it is not a fair catch
+    (10-2-2 Item 2). A player who signals may not then block a kicking-team player until the ball
+    touches someone (10-2-2 Item 5; 15 yards).
+  - *Protection*: the kicking team may not interfere with a receiver who has signalled; the
+    penalty is 15 yards from the spot of the foul and a fair catch is awarded even if the ball is
+    not caught (10-1-1 Penalty b). Once he has made the catch, no one may unnecessarily hit or
+    tackle him: 15 yards from the dead-ball spot (10-2-3-c).
+  - *The catch*: the ball is dead the moment he catches it, so there is no return (10-2-3-a-1). If
+    the signaller lets it hit the ground and then picks it up, the ball is dead but it is not a
+    fair catch (10-2-3-a-2).
+  - *Next play*: the receiving team puts the ball in play from the spot of the catch, by a snap or
+    by a fair catch kick (a drop kick or place kick without a tee) (10-2-4).
 
 ### 4th-down decisions (principles, no numbers)
 
@@ -659,7 +717,7 @@ teach these as "in Coach School".
 |---|---|
 | 2-gap | DL alignment head-up on a blocker, responsible for the gap on either side |
 | 2-man | two deep halves with man coverage underneath |
-| 10-second runoff | late-half rule that runs 10 seconds off after certain offensive clock-stopping fouls |
+| 10-second runoff | rule after the two-minute warning that runs 10 seconds off after certain offensive clock-stopping fouls |
 | Ace | singleback formation with two tight ends |
 | Alley | the lane between the force player and the inside defenders where a defender fills on outside runs |
 | Apex | alignment halfway between the end of the line and a slot receiver |
@@ -694,7 +752,7 @@ teach these as "in Coach School".
 | Down block | blocking the defender to your inside |
 | Draw | run disguised as a pass |
 | Edge | the outside rusher, DE or OLB |
-| Eligible receiver | the ends of the line and players in the backfield |
+| Eligible receiver | the two ends of the line and the players at least a yard behind it, if they wear an eligible number (0-49, 80-89) or have reported; a QB under center is not eligible |
 | EMOL | end man on the line of scrimmage |
 | Empty | formation with no back beside or behind the QB |
 | Field | wide side of the field when the ball is on a hash |
@@ -703,7 +761,7 @@ teach these as "in Coach School".
 | Force | defender who turns an outside run back inside |
 | Formation strength | the side the offense has more players on (CS: TE side) |
 | Gap integrity | every gap has a defender responsible for it |
-| Hash marks | lines dividing the field into thirds lengthwise; ball is spotted on or between them |
+| Hash marks | two rows of short marks 70 ft 9 in from each sideline (18 ft 6 in apart in the NFL); the ball is spotted on or between them |
 | Hinge | backside tackle steps back and seals his inside gap, used on power |
 | Hook | underneath zone between the hash and the ball, about 8-12 yd deep |
 | Hot route | quick route thrown when an unblocked rusher comes |

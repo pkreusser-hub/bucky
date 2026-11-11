@@ -68,7 +68,7 @@
   P('r1-wr', { name: 'X, Z and H', formation: 'singleback', defense: 'c3-43-over', teams: { off: 'BUF', def: 'MIA' }, home: 'def', spot: 35, to: 'H', throwT: 1.1, catchT: 1.7,
     callouts: [
       { t: -1.0, focus: 'X', text: 'X stands on the line. He is the split end.' },
-      { t: -0.6, focus: 'Z', text: 'Z stands a yard off the line, on the tight end\'s side. He is the flanker.' },
+      { t: -0.6, focus: 'Z', text: 'Here Z stands a yard off the line, on the tight end\'s side. He is the flanker.' },
       { t: -0.2, focus: 'H', text: 'H is in the slot, between X and the line.' },
     ] });
   P('r1-def', { name: 'Meet the defense', formation: 'i-form', defense: 'c3-43-over', teams: { off: 'BAL', def: 'PIT' }, home: 'def', spot: 50, to: 'Y', throwT: 1.5, catchT: 2.2,
@@ -175,7 +175,7 @@
           ['los', 'The space between the two lines, the length of the ball, is the neutral zone.'],
           ['C', 'Nobody but the snapper may be in the neutral zone when the ball is snapped.'],
           // The picture spreads the two lines apart (CS.spreadOf); this says so, with the sheet's yard (1c: DL y = +1).
-          ['los', 'On our field the offense\'s LOS is the blue line, and we draw the two teams further apart than the real gap of about a yard.']),
+          ['los', 'On our field the offense\'s LOS is the blue line, and we draw the two teams further apart than they really stand, which is only about a yard.']),
         card('Seven on the line', ['los:seven'],
           ['line', 'The offense must have at least 7 players on the line of scrimmage at the snap, and no more than 4 in the backfield, the area behind the line.'],
           ['backs', 'In Coach School every formation has exactly 7 on the line and 4 off it.'],
@@ -279,9 +279,9 @@
         card('Letters for receivers', ['wr:xz'],
           [['X', 'Z', 'H'], 'Receivers get letters so a play call can give each one his job.'],
           ['X', 'X is the split end: he stands on the line, usually on the side away from the tight end.'],
-          ['Z', 'Z is the flanker: he stands about a yard off the line, usually on the tight end\'s side. Letters vary by team; Coach School uses X, Z, Y and H.']),
+          ['Z', 'Z is the flanker: he usually stands about a yard off the line, usually on the tight end\'s side. Letters vary by team; Coach School uses X, Z, Y and H.']),
         card('Spotting X and Z', ['wr:xz'],
-          [['X', 'Z'], 'Look at their feet. X stands level with the linemen, and Z stands about a yard behind that line.'],
+          [['X', 'Z'], 'Look at their feet. X stands level with the linemen, and in this formation Z stands about a yard behind that line.'],
           ['X', 'A man on the line can be jammed (pressed) right at the snap and may not go in motion, which means moving when the ball is snapped.'],
           ['Z', 'A man a yard off gets a cleaner start and may go in motion.']),
         card('The slot', ['wr:slot'],
@@ -295,7 +295,7 @@
       ],
       puzzles: [
         tap('r1-u5-p1', 'r1-wr', 'Tap X, the split end.', { role: 'X' }, 'X', ['wr:xz'], 'X is on the line, away from the tight end.'),
-        tap('r1-u5-p2', 'r1-wr', 'Tap Z, the flanker.', { role: 'Z' }, 'Z', ['wr:xz'], 'Z is a yard off the line, on the tight end\'s side.'),
+        tap('r1-u5-p2', 'r1-wr', 'Tap Z, the flanker.', { role: 'Z' }, 'Z', ['wr:xz'], 'Here Z is a yard off the line, on the tight end\'s side.'),
         tap('r1-u5-p3', 'r1-v-gun-l', 'Tap the slot receiver, H.', { role: 'H' }, 'H', ['wr:slot'], 'H is inside X, between him and the line.'),
         tap('r1-u5-p4', 'r1-v-pistol-m', 'The tight end is on the left this time. Tap X.', { role: 'X' }, 'X', ['wr:xz'], 'X goes away from the tight end, so with the tight end on the left, X is on the right.'),
         choice('r1-u5-p5', 'r1-v-iform-ten', 'Is the ringed receiver on the line or off it?', 'onLine', [['On the line', 'on'], ['Off the line', 'off']], 1, ['wr:xz'], 'He stands a yard back: off the line. That is Z, the flanker.', { of: 'Z', focus: ['Z'] }),
@@ -383,7 +383,7 @@
     g('r1-u3', choice('r1-gd-9', 'r1-g-4', 'Who snaps the ball?', 'fact', [['The center', 'C'], ['The quarterback', 'QB'], ['The left guard', 'LG']], 0, ['ol:center'], 'The center snaps it.', { truth: 'C', src: 'facts A, rank 1, Offensive line' })),
     g('r1-u4', tap('r1-gd-10', 'r1-g-3', 'Tap the fullback.', { role: 'FB' }, 'FB', ['bk:rb'], 'The fullback stands in front of the tailback.')),
     g('r1-u4', choice('r1-gd-11', 'r1-g-4', 'How is this quarterback lined up?', 'qbAlign', [['Under center', 'under'], ['Pistol', 'pistol'], ['Shotgun', 'gun']], 1, ['bk:qb'], 'About 4 yards back with the back behind him: pistol.', { focus: ['QB'] })),
-    g('r1-u5', tap('r1-gd-12', 'r1-g-1', 'Tap Z, the flanker.', { role: 'Z' }, 'Z', ['wr:xz'], 'Z stands a yard off the line on the tight end\'s side.')),
+    g('r1-u5', tap('r1-gd-12', 'r1-g-1', 'Tap Z, the flanker.', { role: 'Z' }, 'Z', ['wr:xz'], 'Here Z stands a yard off the line on the tight end\'s side.')),
     g('r1-u5', tap('r1-gd-13', 'r1-g-5', 'Tap the slot receiver, H.', { role: 'H' }, 'H', ['wr:slot'], 'H is inside the outside receiver, off the line.')),
     g('r1-u6', tap('r1-gd-14', 'r1-g-3', 'Tap the nose tackle.', { role: 'NT' }, 'NT', ['def:dl'], 'Head-up on the center.')),
     g('r1-u6', tap('r1-gd-15', 'r1-g-1', 'Tap the Will linebacker.', { role: 'WILL' }, 'WILL', ['def:lb'], 'The weak-side linebacker, away from the tight end.')),
