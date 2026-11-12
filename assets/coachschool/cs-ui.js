@@ -109,7 +109,10 @@
     onEnd: () => { if (mode && mode.onEnd) mode.onEnd(); },
   }));
   let active = field, demo = null;
-  const fitStage = () => field.fit($('stBox'));
+  // A puzzle's panels leave the field a short box: there (and only there) the field may crop across
+  // the field to keep the column's full width (cs-field fit). A lesson card that points at a sideline
+  // or the numbers keeps the whole width of the field in view.
+  const fitStage = () => field.fit($('stBox'), { crop: !!mode && (mode.kind === 'puzzle' || mode.kind === 'gameday') });
   if (root.ResizeObserver) new ResizeObserver(fitStage).observe($('stBox'));
   root.addEventListener('resize', fitStage);
 
@@ -131,6 +134,7 @@
     const op = $('stOpts');
     op.innerHTML = ''; op.hidden = true; op.className = 'opts'; op.removeAttribute('style');
     feedback(null);
+    fitStage();
   }
   function feedback(kind, html) {
     const f = $('stFb');
@@ -311,6 +315,7 @@
     panel({ step: o.step, text: pz.prompt, prompt: true });
     actions({});
     mode = { kind: o.gameDay ? 'gameday' : 'puzzle', pz, tryNo: 1 };
+    fitStage();
     const ctx = makeCtx(pz, play, o, focus, st);
     function resolve(ok, picked) {
       st.done = true;

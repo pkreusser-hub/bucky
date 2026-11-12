@@ -433,13 +433,21 @@ check(!quoteOk({ sec: '6', q: 'smash beats Cover 3 every time' }) && !quoteOk({ 
 console.log('\n[L7] plays (compile, pose, ball timing, teams)');
 {
   const plays = Object.values(L.PLAYS);
-  check(plays.length === 10 && plays.every((p) => !p.needsEngine), `PLAYS holds the 10 concept plays and none of them needs an engine feature (${plays.length})`);
+  // RESTAGED 2026-11-12 (the run engine): PLAYS was the ten concept plays, with the runs waiting in
+  // PENDING_PLAYS for the engine. cs-core now hands off, pulls, doubles and loops, so the six runs
+  // (one per scheme, RUN_SCHEMES[s].play) and the two stunts (STUNTS[k].play) are playable plays:
+  // 10 + 6 + 2. The needsEngine flag is gone from the whole library (L9 scans for it). The ball
+  // timing below is a pass's; a run's handoff and tackle are worked by hand in engine-run.mjs.
+  const ids = (o) => Object.values(o).map((v) => v.play);
+  check(plays.length === 18 && sortJ(plays.map((p) => p.id)) === sortJ([...ids(L.CONCEPTS), ...ids(L.RUN_SCHEMES), ...ids(L.STUNTS)]) && !J(L).includes('needsEngine'),
+    `PLAYS holds the 10 concept plays, the 6 run plays and the 2 stunt plays, nothing else, and no needsEngine flag is left (${plays.length})`);
   for (const p of plays) {
     const e = validates(p);
     check(e.length === 0, `${p.id}: validatePlay clean ${J(e)}`);
     if (e.length) continue;
     const n = poseClean(p);
     check(!n, `${p.id}: poseAt from t -1.2 to ${CS.playLength(p).toFixed(2)} without NaN ${n || ''}`);
+    if (CS.compile(p).run) continue;
     const c = CS.compile(p), s = CS.poseAt(p, c.catchT), r = s.players[c.target];
     const dBall = Math.hypot(s.ball.x - r.x, s.ball.y - r.y);
     // Drop: cs-core moves the QB 2 / 3.5 / 5 yd back for a 3 / 5 / 7 step at 4 yd/s; he throws once set.
@@ -477,24 +485,46 @@ console.log('\n[L8] run schemes (sheet 7)');
     check(s && ol.every((v) => v === null || L.RUN_RULES[v]) && (s.aim.gaps === null || s.aim.gaps.every((g) => CS.gapX(g) != null)) && s.read.length > 10 && s.aim.text.length > 5, `${id}: every rule token explained in RUN_RULES, aim gaps real, a read`);
   }
   check(L.RUN_SCHEMES.power.kickout && J(L.RUN_SCHEMES.power.kickout.by) === J(['FB', 'H']) && L.RUN_SCHEMES.power.kickout.target === 'EMOL' && L.RUN_SCHEMES.counter.counterStep === true, 'power: FB or H kicks out the EMOL; counter: the RB steps away first');
-  // Pending plays: one per scheme, never in PLAYS, every feature catalogued.
-  const pend = Object.values(L.PENDING_PLAYS);
-  check(pend.length === 6 && sortJ(pend.map((p) => p.scheme)) === sortJ(Object.keys(SHEET_7)) && pend.every((p) => !L.PLAYS[p.id]), 'one pending run play per scheme, none of them in PLAYS');
-  check(pend.every((p) => Array.isArray(p.needsEngine) && p.needsEngine.length && p.needsEngine.every((f) => L.NEEDS_ENGINE[f]) && L.FORMATIONS[p.formation] && L.DEFENSES[p.defense] && p.ball.some((b) => b.ev === 'handoff')), 'every pending run names its engine features (all catalogued), a real formation and defense, and a handoff');
-  check(pend.every((p) => Object.entries(L.RUN_SCHEMES[p.scheme].ol).every(([k, v]) => (v ? p.assign[k] && p.assign[k].run === v : !p.assign[k]))), 'every pending run blocks by its scheme\'s rules (and leaves a null rule unassigned)');
+  // RESTAGED 2026-11-12 (the run engine): these were PENDING_PLAYS, outside PLAYS, each naming the
+  // engine features it waited for. They are PLAYS now, one per scheme, each named by its scheme.
+  const runs = Object.values(L.PLAYS).filter((p) => p.scheme);
+  check(runs.length === 6 && sortJ(runs.map((p) => p.scheme)) === sortJ(Object.keys(SHEET_7)) && runs.every((p) => L.RUN_SCHEMES[p.scheme].play === p.id) && !('PENDING_PLAYS' in L), 'one run play per scheme, in PLAYS, each its scheme\'s named play (PENDING_PLAYS is gone)');
+  check(runs.every((p) => L.FORMATIONS[p.formation] && L.DEFENSES[p.defense] && p.ball.some((b) => b.ev === 'handoff')), 'every run has a real formation and defense, and a handoff');
+  // RESTAGED 2026-11-12: "leaves a null rule unassigned" is now "unassigned, or filled and said so".
+  // To draw a run every man in the box has to do something; where 7 gives a lineman no rule (trap's
+  // center and backside tackle) the play fills it and lists it in `fill` with why, a CS pick that is
+  // never taught. Every sheet rule is still used verbatim, and so is every man the play adds.
+  const fillIds = (p) => Object.keys(p.fill || {}).flatMap((k) => k.split(','));
+  check(runs.every((p) => Object.entries(L.RUN_SCHEMES[p.scheme].ol).every(([k, v]) => (v ? p.assign[k] && p.assign[k].run === v : !p.assign[k] || fillIds(p).includes(k)))), 'every run blocks by its scheme\'s rules; a null rule is unassigned or filled and listed in fill');
+  check(runs.every((p) => Object.entries(p.assign).every(([k, a]) => ['LT', 'LG', 'C', 'RG', 'RT', 'QB', 'RB'].includes(k) || (p.scheme === 'power' && k === 'FB' && a.kick) || fillIds(p).includes(k)) && Object.values(p.fill || {}).every((w) => /CS/.test(w))),
+    'every man a run adds beyond the sheet (a TE, a FB, receivers) is listed in fill as a CS pick (the power fullback\'s kick-out is the sheet\'s)');
 }
 
 /* ═════ L9. Engine features ═════ */
 console.log('\n[L9] needsEngine catalogue');
 {
-  const used = new Set();
-  for (const d of Object.values(L.DEFENSES)) for (const p of d.players) if (p.needsEngine) used.add(p.needsEngine);
-  for (const s of Object.values(L.STUNTS)) used.add(s.needsEngine);
-  for (const p of Object.values(L.PENDING_PLAYS)) p.needsEngine.forEach((f) => used.add(f));
-  const cat = Object.keys(L.NEEDS_ENGINE);
-  check([...used].every((f) => L.NEEDS_ENGINE[f]) && cat.every((f) => used.has(f)), `every needsEngine tag is catalogued and every catalogued feature is used (${[...used].sort().join(', ')})`);
-  check(Object.values(L.NEEDS_ENGINE).every((e) => e.what && e.shape && e.where), 'each feature says what it is, its data shape and where it is used');
-  check(Object.values(L.DEFENSES).every((d) => d.players.every((p) => !p.needsEngine || p.zone || p.man)), 'a defender marked needsEngine still has a playable zone or man job today');
+  // RESTAGED 2026-11-12 (the run engine): the catalogue was NEEDS_ENGINE, every feature the engine
+  // could not draw, each tied to the needsEngine flags that used it. The engine draws them all now:
+  // the flags are gone (L7) and the catalogue is ENGINE_FEATURES. What still holds: each entry says
+  // what it is, its shape and where, and each one is really used, found here from the data itself.
+  const P = Object.values(L.PLAYS), D = Object.values(L.DEFENSES).flatMap((d) => d.players);
+  const runs = P.filter((p) => p.ball.some((b) => b.ev === 'handoff')), A = (f) => runs.some((p) => Object.values(p.assign).some(f));
+  const USED = {
+    handoff: runs.length > 0 && runs.every((p) => p.assign.QB && p.assign.QB.handoff),
+    carry: A((a) => a.carry && 'aim' in a.carry),
+    'run-block': A((a) => a.run && L.RUN_RULES[a.run]),
+    pull: A((a) => /^pull-/.test(a.run || '') && a.pull && a.pull.via),
+    'combo-climb': runs.some((p) => Object.values(CS.compile(p).blockInfo || {}).some((b) => b.combo)),
+    'kick-out': A((a) => a.kick === 'EMOL'),
+    'man-or-rush': D.some((p) => p.man != null && p.ifBlocks && p.ifBlocks.rush),
+    'zone-read': D.some((p) => p.zone && p.read && p.read.of),
+    trail: D.some((p) => p.man != null && p.technique === 'trail'),
+    'rush-delay': Object.values(L.STUNTS).every((s) => L.PLAYS[s.play] && Object.values(s.moves).some((m) => m.delay > 0 && m.loop)),
+  };
+  const EF = L.ENGINE_FEATURES || {};   // missing: the checks below fail, not crash
+  check(sortJ(Object.keys(EF)) === sortJ(Object.keys(USED)) && Object.entries(USED).every(([, v]) => v) && !('NEEDS_ENGINE' in L),
+    `every engine feature is catalogued and used by the library (${Object.entries(USED).map(([k, v]) => k + (v ? '' : ' UNUSED')).join(', ')})`);
+  check(Object.keys(EF).length > 0 && Object.values(EF).every((e) => e.what && e.shape && e.where && !/PENDING|cannot|not drawable/.test(e.where + e.what)), 'each feature says what it is, its data shape and where it is used (no stale "pending" notes)');
 }
 
 /* ═════ L10. Techniques, holes (fact sheet 1c, 8) ═════ */

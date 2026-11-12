@@ -89,12 +89,14 @@ export async function node(H) {
   // Fixture (not content): Cover 0 from the nickel against the 2x2, six blockers. 1e/5a: four down
   // linemen rush as above; the SS walks down and rushes, the apex Will rushes; the library picks their
   // lanes (engine pick): SS from x 35.33 takes the nearest open A/B gap, the right A (27.42); the Will
-  // from x 20 the left B (24.42). (The Cover 0 Mike's "rush if the back blocks" is engine work, drawn
-  // as man on the back; fine for a fixture of the rule.) Six rushers in gap order: DE-L C-L 22.92,
+  // from x 20 the left B (24.42). RESTAGED 2026-11-12: the Cover 0 Mike's "rush if the back blocks"
+  // (5a) was engine work, drawn as man on the back, and this fixture's six-man count relied on it. The
+  // engine draws it now: with the back blocking he would rush and make seven. The fixture pins him on
+  // the back (ifBlocks: null, a play's own call) to keep the six-man premise. Six rushers in gap order: DE-L C-L 22.92,
   // WILL B-L 24.42, DT-L A-L 25.92, SS A-R 27.42, DT-R B-R 28.92, DE-R C-R 30.42. The line takes the
   // four down linemen plus ONE of the two blitzers, in order; the back the other. Both pass:
   const FIX = { id: 'pz-assign-fixture-c0', formation: 'gun-2x2', defense: 'c0-nickel', teams: { off: 'KC', def: 'BUF' }, home: 'off', spot: 35,
-    assign: { LT: { pass: 'set' }, LG: { pass: 'set' }, C: { pass: 'set' }, RG: { pass: 'set' }, RT: { pass: 'set' }, RB: { block: 'A-gap-R' }, QB: { drop: 3 } }, ball: [{ t: 0, ev: 'snap' }] };
+    assign: { LT: { pass: 'set' }, LG: { pass: 'set' }, C: { pass: 'set' }, RG: { pass: 'set' }, RT: { pass: 'set' }, RB: { block: 'A-gap-R' }, QB: { drop: 3 }, MIKE: { man: 'RB', ifBlocks: null } }, ball: [{ t: 0, ev: 'snap' }] };
   const LX = { ...L, PLAYS: { ...L.PLAYS, [FIX.id]: FIX } };
   const AMB = { id: 'fx-amb', type: 'assign', rule: 'man', play: FIX.id, blockers: ['LT', 'LG', 'C', 'RG', 'RT', 'RB'], targets: ['DE-L', 'WILL', 'DT-L', 'SS', 'DT-R', 'DE-R'], prompt: 'x', answer: null };
   const A1 = { LT: 'DE-L', LG: 'WILL', C: 'DT-L', RG: 'DT-R', RT: 'DE-R', RB: 'SS' };
@@ -127,6 +129,34 @@ export async function node(H) {
   const eSl = T.validate({ ...SL, id: 'fx-34-slide', play: F34.id, answer: {} }, L34);
   check(eSl.some((e) => /0 rushers the slide leaves open for 1 back/.test(e)), `validate(): a slide that leaves the back nobody to block is flagged ${J(eSl)}`);
   for (const pz of T.examples) check(T.validate(pz, L).length === 0, `${pz.id}: validates clean ${J(T.validate(pz, L))}`);
+
+  // ── run blocking by scheme (2026-11-12, the run engine) ── Power right vs the 4-3 Over (7; 1d), by
+  // hand: RT blocks down on the man on the line inside him, DT-R (3 technique, 28.67); the center
+  // blocks back on DT-L (1 technique, 26.17); the fullback kicks out the EMOL, DE-R (5 technique,
+  // 30.17, the last man on the line: the Sam is off it); the left guard pulls through the C gap and
+  // leads up on the Mike (the Sam is the TE's).
+  const PW = ex('pz-assign-power'), PW_HAND = { RT: 'DT-R', C: 'DT-L', FB: 'DE-R', LG: 'MIKE' };
+  // Without the example (or without the engine's run rule) these checks fail as one, not by crashing the module.
+  if (!(PW && PW.rule === 'run' && L.PLAYS[PW.play])) check(false, `run: the power example on the library's run-power play (${PW ? PW.play : 'missing'})`);
+  else {
+    check(PW && PW.rule === 'run' && J(T.truth(PW, L)) === J(PW_HAND) && T.solutions(PW, L).n === 1, `run: power's blocks by hand are the rule's one answer ${J(T.truth(PW, L))}`);
+    // Wrong, and what the field does with it. The swap (tackle on the end, fullback on the tackle):
+    // a down block cannot reach a man outside him and a kick-out is the end man's, so both block air,
+    // and the first free man to the back is a defender they left: behind the line, a tackle for loss.
+    const outcomeOf = (ans) => { const v = T.judge(PW, ans, L), r = T.runs(PW, L.PLAYS[PW.play], ans, v.ok, L), c = CS.compile(r.bad || r.right); return { v, c, legal: CS.validatePlay(r.bad || r.right) }; };
+    const sw = outcomeOf({ ...PW_HAND, RT: 'DE-R', FB: 'DT-R' });
+    check(!sw.v.ok && J(sw.v.misfit.sort()) === J(['FB', 'RT']) && sw.c.blockInfo.RT.miss && sw.c.blockInfo.FB.miss && ['DT-R', 'DE-R'].includes(sw.c.tackleBy) && sw.c.tackleAt[1] < 0 && sw.legal.length === 0,
+      `run: the swap fails, both men block air, and ${sw.c.tackleBy} tackles the back ${(-sw.c.tackleAt[1]).toFixed(2)} yd behind the line at ${sw.c.downT} s`);
+    // Two on the Mike: the end is nobody's; he is the tackler, behind the line.
+    const two = outcomeOf({ ...PW_HAND, FB: 'MIKE' });
+    check(!two.v.ok && J(two.v.free) === J(['DE-R']) && J(two.v.doubled) === J(['MIKE']) && two.c.tackleBy === 'DE-R' && two.c.tackleAt[1] < 0,
+      `run: fullback and guard both on the Mike leave the end free; he tackles the back ${(-two.c.tackleAt[1]).toFixed(2)} yd behind the line`);
+    // Right: the play itself, past the line; the tackler is none of the four men.
+    const rt = outcomeOf(PW_HAND);
+    check(rt.v.ok && rt.c.tackleAt[1] > 0 && !PW.targets.includes(rt.c.tackleBy), `run: the right blocks gain ${rt.c.tackleAt[1].toFixed(2)} yd (tackled by ${rt.c.tackleBy})`);
+    const eRun = T.validate({ ...PW, id: 'fx-run-pass', play: 'smash-vs-c2' }, L), eGap = T.validate({ ...PW, id: 'fx-run-gap', targets: ['C-gap-R', 'DT-L', 'DE-R', 'MIKE'] }, L);
+    check(eRun.some((e) => /needs a run play/.test(e)) && eGap.some((e) => /targets are defenders/.test(e)), `validate(): a run puzzle on a pass play, and one with a gap target, are refused ${J([eRun[0], eGap[0]])}`);
+  }
 
   // ── the failure clip's sack, by hand (2026-11-12: cs-core can now carry a free rusher to the QB) ──
   // fz-man, RT on the Will (a dropper): DE-R is nobody's. His rush (fire zone, C-gap-R) runs from

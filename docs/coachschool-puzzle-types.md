@@ -287,7 +287,7 @@ number made up in the type.
 
 ### assign — connect blockers to gaps / defenders
 
-- **Puzzle**: `{ id, type: 'assign', play, rule: 'slide' | 'man' | 'fit', slide?: 'L' | 'R',
+- **Puzzle**: `{ id, type: 'assign', play, rule: 'slide' | 'man' | 'fit' | 'run', slide?: 'L' | 'R',
   blockers: ['LT', 'LG', 'C', 'RG', 'RT'], targets: ['B-gap-L', ..., 'MIKE'], prompt, tags, why,
   answer }`.
 - **Answer**: `{ LT: 'B-gap-L', LG: 'A-gap-L', ... }`.
@@ -295,7 +295,9 @@ number made up in the type.
   the next gap on the slide side, the back the rushed gap the line leaves open away from the slide.
   `man` (BOB): every rusher blocked once, big on big, backs on backers, nobody on a dropper, and the
   linemen's blocks in order along the line, no crossing (the fact sheet's "Man protection in order"
-  convention, rank 3). `fit`: a one-gap lineman owns the gap his shade puts him in. `validate`
+  convention, rank 3). `fit`: a one-gap lineman owns the gap his shade puts him in. `run`
+  (2026-11-12, a run play): each blocker's man by his scheme's rule, `CS.runBlocks`; targets are
+  defenders, one each. `validate`
   enumerates every one-to-one assignment and insists exactly one passes.
 - **Interaction**: `overlay.gaps()` for the letters, `moves: false` drag handles on the blockers
   (rubber band), drop on a gap letter or a defender (`snapTo` over the gap points and the defenders'
@@ -385,3 +387,8 @@ above, and the practice of opening a run's bubble with "The answer:"): the failu
 covered the explanation. Now the explanation stays in the panel whenever a run talks, and a run's
 bubble names only the consequence, on the man it happens to. A run's `zoom` frames its action
 (`field.frameRun`) and the bubble keeps off the ground those men cover.
+
+**Run plays** (2026-11-12): the engine draws handoffs, carries, run blocks, pulls, double teams,
+kick-outs and the tackle (docs/coachschool.md, the run game entry). A run puzzle's failure is a
+variant with the wrong blocks (`{ run, on }` per blocker, `{ miss: true }` for one who blocks air);
+the engine finds who is free and where the back goes down (`c.tackleBy`, `c.tackleAt`).

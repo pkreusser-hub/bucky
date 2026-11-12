@@ -23,12 +23,10 @@
    Where the sheet leaves a gap the engine still has to fill (which gap a blitzer takes, how the
    base fronts share out the nickel's coverage jobs), the entry says so in `mapped` / `gapPick` /
    a comment, and nothing built on that choice may be taught as a fact. Where the sheet asks for
-   something cs-core cannot draw yet (a handoff, a pulling guard, a combo block, a stunt, a
-   pattern-reading safety, trail technique), the data is written in the shape the engine will
-   need and marked `needsEngine: '<feature>'`; NEEDS_ENGINE below lists every such feature with
-   its data shape. A play that needs one lives in PENDING_PLAYS, never in PLAYS, so everything in
-   PLAYS is playable today. A defender marked needsEngine is drawn today by the plain part of his
-   job (his zone drop, his man) and the marked part waits for the engine.
+   something more than routes and drops (a handoff, a pulling guard, a combo block, a stunt, a
+   pattern-reading safety, trail technique), the data is in the shape cs-core reads, and
+   ENGINE_FEATURES below lists each with that shape. (Until 2026-11-12 these were flagged
+   needsEngine and their plays waited in PENDING_PLAYS; the engine draws them all now.)
 
    Coordinates: see cs-core.js (x across 0..53.33, 0 = the offense's left sideline; y from the
    line of scrimmage, + = offense's downfield). */
@@ -174,7 +172,7 @@
   L.COVERAGES = {
     'cov:0': { name: 'Cover 0', deep: 0, rush: '6 (7)', shell: 'none', src: '5a',
       jobs: { 'CB-L': { man: 'X', press: true }, 'CB-R': { man: 'Z', press: true }, FS: { man: 'H', press: true }, SS: { rush: true, walkDown: true },
-        NB: { man: 'Y', press: true }, MIKE: { man: 'RB', ifBlocks: 'rush', needsEngine: 'man-or-rush' }, WILL: { rush: true } } },
+        NB: { man: 'Y', press: true }, MIKE: { man: 'RB', ifBlocks: 'rush' }, WILL: { rush: true } } },
     'cov:1': { name: 'Cover 1', deep: 1, rush: '4-5', shell: 'MOFC', src: '5a',
       jobs: { 'CB-L': { man: 'X', press: true }, 'CB-R': { man: 'Z', press: true }, FS: { zone: 'deep-third-M' }, SS: { man: 'H' },
         NB: { man: 'Y' }, MIKE: { man: 'RB' }, WILL: { zone: 'hook-M', robber: true, alt: 'rush' } } },
@@ -191,16 +189,16 @@
         NB: { zone: 'curl-flat-R' }, MIKE: { zone: 'hook-L' }, WILL: { zone: 'curl-flat-L' } } },
     'cov:4': { name: 'Cover 4 (quarters)', deep: 4, rush: '4', shell: 'MOFO', src: '5a',
       jobs: { 'CB-L': { zone: 'deep-quarter-L' }, 'CB-R': { zone: 'deep-quarter-R' },
-        FS: { zone: 'deep-quarter-LM', depth: 10, read: { key: '#2', of: 'H' }, needsEngine: 'zone-read' },
-        SS: { zone: 'deep-quarter-RM', depth: 10, read: { key: '#2', of: 'Y' }, needsEngine: 'zone-read' },
+        FS: { zone: 'deep-quarter-LM', depth: 10, read: { key: '#2', of: 'H' } },
+        SS: { zone: 'deep-quarter-RM', depth: 10, read: { key: '#2', of: 'Y' } },
         NB: { zone: 'curl-flat-R' }, MIKE: { zone: 'hook-M' }, WILL: { zone: 'curl-flat-L' } } },
     // CS convention (5a note): Cover 6 = quarters to the strength/field (right), Cover 2 to the weak side.
     'cov:6': { name: 'Cover 6', deep: 3, rush: '4', shell: 'MOFO', src: '5a',
       jobs: { 'CB-L': { zone: 'flat-L', depth: 5, cloud: true }, 'CB-R': { zone: 'deep-quarter-R' }, FS: { zone: 'deep-half-L' },
-        SS: { zone: 'deep-quarter-RM', read: { key: '#2', of: 'Y' }, needsEngine: 'zone-read' },
+        SS: { zone: 'deep-quarter-RM', read: { key: '#2', of: 'Y' } },
         NB: { zone: 'curl-flat-R' }, MIKE: { zone: 'hook-M' }, WILL: { zone: 'hook-curl-L' } } },
     'cov:2man': { name: '2-man', deep: 2, rush: '4', shell: 'MOFO', src: '5a',
-      jobs: { 'CB-L': { man: 'X', press: true, technique: 'trail', needsEngine: 'trail' }, 'CB-R': { man: 'Z', press: true, technique: 'trail', needsEngine: 'trail' },
+      jobs: { 'CB-L': { man: 'X', press: true, technique: 'trail' }, 'CB-R': { man: 'Z', press: true, technique: 'trail' },
         FS: { zone: 'deep-half-L' }, SS: { zone: 'deep-half-R' }, NB: { man: 'Y' }, MIKE: { man: 'RB' }, WILL: { man: 'H' } } },
   };
   // 5b, one phrase each of where it is soft. Lessons quote 5b itself, not these.
@@ -308,7 +306,6 @@
       if (job.technique) p.technique = job.technique;
       if (job.robber) { p.robber = true; p.alt = { rush: openGap(new Set(used), p.x), gapPick: 'engine' }; }
       if (job.cloud) p.cloud = true;
-      if (job.needsEngine) p.needsEngine = job.needsEngine;
     }
     // A conditional rusher (Cover 0's Mike, "rushes if RB blocks") picks his lane after the men who always rush.
     for (const role of ROLES) if (cov.jobs[role].ifBlocks === 'rush') { const p = bodies[holder[role]]; p.ifBlocks = { rush: openGap(used, p.x), gapPick: 'engine' }; }
@@ -347,12 +344,13 @@
   // Blitz pickup by count (9): 5 OL + RB = 6 blockers; empty = 5.
   L.PROTECTION = { blockersWithBack: 6, blockersEmpty: 5, src: '9' };
 
-  /* ── stunts (rank 4) ── Linemen exchange gaps after the snap. The engine rushes every man
-     straight at his gap from the snap; the looper's late start is not drawable yet. */
+  /* ── stunts (rank 4) ── Linemen exchange gaps after the snap. The one who goes first rushes at
+     the snap; the looper waits `delay` s and loops behind him (cs-core: one yard deeper, halfway
+     across, then into his gap). STUNTS[k].play names the play that shows each. */
   L.STUNTS = {
-    'te-twist': { name: 'T-E twist', src: 'rank4', defense: 'c3-nickel', side: 'L', needsEngine: 'rush-delay',
+    'te-twist': { name: 'T-E twist', src: 'rank4', defense: 'c3-nickel', side: 'L',
       moves: { 'DT-L': { rush: 'C-gap-L', first: true }, 'DE-L': { rush: 'B-gap-L', delay: 0.35, loop: true } } },
-    'et-twist': { name: 'E-T twist', src: 'rank4', defense: 'c3-nickel', side: 'L', needsEngine: 'rush-delay',
+    'et-twist': { name: 'E-T twist', src: 'rank4', defense: 'c3-nickel', side: 'L',
       moves: { 'DE-L': { rush: 'B-gap-L', first: true }, 'DT-L': { rush: 'C-gap-L', delay: 0.35, loop: true } } },
   };
 
@@ -491,8 +489,8 @@
   ];
 
   /* ── run schemes (fact sheet 7) ── Per-lineman rules as data, drawn for a run to the RIGHT (the
-     playside); mirror the side for a run left. Rule tokens are explained in RUN_RULES. None of this
-     is drawable yet: blocking a man, pulling and handing off are engine features (NEEDS_ENGINE). */
+     playside); mirror the side for a run left. Rule tokens are explained in RUN_RULES. All of this
+     is drawn by cs-core's run engine (ENGINE_FEATURES). */
   L.RUN_RULES = {
     zone: 'step playside with the line; covered (a defender in your playside gap or on you) = block him; uncovered = combine with the adjacent playside lineman on his DL, then climb to the LB',
     cutoff: 'backside tackle cuts off his gap',
@@ -542,20 +540,21 @@
       read: 'QB drops as if to pass, hands off late; RB reads the open lane between rushers who overran it' },
   };
 
-  /* ── engine features the sheet needs that cs-core cannot draw yet ── Each: what it is, the data
-     shape the library already writes, and where. The suite requires every needsEngine tag in the
-     library to be listed here. */
-  L.NEEDS_ENGINE = {
-    handoff: { what: 'the QB hands the ball to a back; the back carries it', shape: "ball: [{t, ev:'snap'}, {t, ev:'handoff', to:'RB'}]; assign.QB = {handoff:'RB'} (with drop:3 on a draw)", where: 'PENDING_PLAYS (runs)' },
-    carry: { what: 'a ball carrier runs at an aim point with a read', shape: "assign.RB = {carry: {aim:'B-gap-R'|null, read:'<text>', counterStep?:true, follow?:'LG'}}", where: 'PENDING_PLAYS' },
-    'run-block': { what: 'a lineman blocks by rule (zone, reach, down, back, hinge, cutoff, release, steer)', shape: "assign.RG = {run:'down'} (tokens and their meaning: L.RUN_RULES)", where: 'RUN_SCHEMES[*].ol, PENDING_PLAYS' },
-    pull: { what: 'a lineman leaves his spot at the snap and runs along the line to kick out, lead or trap', shape: "assign.LG = {run:'pull-kick'|'pull-lead'|'pull-trap', pull:{target:'EMOL'|'PS-LB'|'<defender id>', via:'C-gap-R'}}", where: 'RUN_SCHEMES power/counter/trap, PENDING_PLAYS' },
-    'combo-climb': { what: 'two linemen double a DL, then one climbs to a linebacker', shape: "assign.RG = {run:'zone'|'reach'}, resolved at the snap to {combo:{with:'RT', on:'<DL id>', climb:'<LB id>'}}", where: 'RUN_SCHEMES inside/outside zone, PENDING_PLAYS' },
-    'kick-out': { what: 'a back blocks the end man on the line from inside out', shape: "assign.FB = {kick:'EMOL'}", where: 'PENDING_PLAYS power' },
+  /* ── engine features (2026-11-12) ── The parts of the sheet that needed more than routes, zone
+     drops and straight rushes. Each was written here first in the shape the engine would need and
+     flagged needsEngine; cs-core draws all of them now and no flag is left. Each entry: what it is,
+     its data shape, and where the library uses it (lib check L9 holds every one to a real use). */
+  L.ENGINE_FEATURES = {
+    handoff: { what: 'the QB hands the ball to a back; the back carries it', shape: "ball: [{t, ev:'snap'}, {t, ev:'handoff', to:'RB'}]; assign.QB = {handoff:'RB'} (with drop:3 on a draw)", where: 'the six run plays' },
+    carry: { what: 'a ball carrier runs at an aim point with a read', shape: "assign.RB = {carry: {aim:'B-gap-R'|null, read:'<text>', counterStep?:true, follow?:'LG'}}", where: 'the six run plays' },
+    'run-block': { what: 'a lineman blocks by rule (zone, reach, down, back, hinge, cutoff, release, steer)', shape: "assign.RG = {run:'down'} (tokens and their meaning: L.RUN_RULES)", where: 'RUN_SCHEMES[*].ol, the six run plays' },
+    pull: { what: 'a lineman leaves his spot at the snap and runs along the line to kick out, lead or trap', shape: "assign.LG = {run:'pull-kick'|'pull-lead'|'pull-trap', pull:{target:'EMOL'|'PS-LB'|'<defender id>', via:'C-gap-R'}}", where: 'RUN_SCHEMES power/counter/trap, run-power, run-counter, run-trap' },
+    'combo-climb': { what: 'two linemen double a DL, then one climbs to a linebacker', shape: "assign.RG = {run:'zone'|'reach'}, resolved at the snap to {combo:{with:'RT', on:'<DL id>', climb:'<LB id>'}}", where: 'RUN_SCHEMES inside/outside zone, run-inside-zone, run-outside-zone' },
+    'kick-out': { what: 'a back blocks the end man on the line from inside out', shape: "assign.FB = {kick:'EMOL'}", where: 'run-power' },
     'man-or-rush': { what: "Cover 0's Mike: man on the RB, rushes if the RB stays in to block", shape: "{man:'RB', ifBlocks:{rush:'<gap>'}}", where: 'DEFENSES c0-*' },
     'zone-read': { what: 'a quarters safety reads #2: carries him vertical or drives on his short route', shape: "{zone:'deep-quarter-LM', read:{key:'#2', of:'H'}}", where: 'DEFENSES c4-*, c6-*' },
     trail: { what: 'man coverage from just behind and under the receiver, trusting deep help', shape: "{man:'X', technique:'trail'}", where: 'DEFENSES c2m-*' },
-    'rush-delay': { what: 'a rusher starts late and loops behind a teammate (stunts and twists)', shape: "{rush:'B-gap-L', delay:0.35, loop:true}", where: 'STUNTS' },
+    'rush-delay': { what: 'a rusher starts late and loops behind a teammate (stunts and twists)', shape: "{rush:'B-gap-L', delay:0.35, loop:true}", where: 'STUNTS, stunt-te-twist, stunt-et-twist' },
   };
 
   /* ── teams ── abbr -> name for the end zones and primary/alt colours (the kit code in
@@ -733,36 +732,102 @@
       { t: 2.0, focus: 'SS', text: 'He drives on the dig, so the post opens.', src: [S('6', 'drive on the dig (post opens)')] },
     ] });
 
-  /* ── plays the engine cannot draw yet ── One canonical run per scheme (7), run right. Not in
-     PLAYS: nothing may watch or grade them until cs-core grows the features they name. */
-  L.PENDING_PLAYS = {};
-  const RUN = (id, o) => { L.PENDING_PLAYS[id] = { id, home: 'off', spot: 35, dist: 10, src: '7', ...o, tags: ['run:' + o.scheme] }; };
+  /* ── the run game (fact sheet 7) ── One canonical run per scheme, run right, each drawn by
+     cs-core's run engine (2026-11-12: these were PENDING_PLAYS until the engine could hand off,
+     pull, double and climb). The line blocks by its scheme's rules (RUN_SCHEMES[*].ol, verbatim);
+     `fill` lists every assignment the sheet does not give (a tight end or fullback, a lineman whose
+     rule is null, receivers running off the corners), each with why: a CS pick so the box adds up,
+     never taught as a fact. RUN_SCHEMES[s].play names each one, as CONCEPTS[k].play does a concept's. */
   const olOf = (scheme) => { const a = {}; for (const [k, v] of Object.entries(L.RUN_SCHEMES[scheme].ol)) if (v) a[k] = { run: v }; return a; };
-  RUN('run-inside-zone', { name: 'Inside zone right', scheme: 'inside-zone', formation: 'singleback', defense: 'c3-43-over', teams: { off: 'PHI', def: 'NYG' },
-    needsEngine: ['handoff', 'carry', 'run-block', 'combo-climb'],
-    assign: { ...olOf('inside-zone'), QB: { handoff: 'RB' }, RB: { carry: { aim: 'B-gap-R', read: L.RUN_SCHEMES['inside-zone'].read } } },
-    ball: [{ t: 0, ev: 'snap' }, { t: 0.8, ev: 'handoff', to: 'RB' }] });
-  RUN('run-outside-zone', { name: 'Outside zone right', scheme: 'outside-zone', formation: 'singleback', defense: 'c3-43-over', teams: { off: 'SF', def: 'LAR' },
-    needsEngine: ['handoff', 'carry', 'run-block', 'combo-climb'],
-    assign: { ...olOf('outside-zone'), QB: { handoff: 'RB' }, RB: { carry: { aim: 'C-gap-R', read: L.RUN_SCHEMES['outside-zone'].read } } },
-    ball: [{ t: 0, ev: 'snap' }, { t: 0.8, ev: 'handoff', to: 'RB' }] });
-  RUN('run-power', { name: '26 Power', scheme: 'power', formation: 'i-form', defense: 'c3-43-over', teams: { off: 'BAL', def: 'PIT' },
-    needsEngine: ['handoff', 'carry', 'run-block', 'pull', 'kick-out'],
-    assign: { ...olOf('power'), LG: { run: 'pull-lead', pull: { target: 'PS-LB', via: 'C-gap-R' } }, FB: { kick: 'EMOL' }, QB: { handoff: 'RB' },
-      RB: { carry: { aim: 'C-gap-R', follow: 'LG', read: L.RUN_SCHEMES.power.read } } },
-    ball: [{ t: 0, ev: 'snap' }, { t: 0.9, ev: 'handoff', to: 'RB' }] });
-  RUN('run-counter', { name: 'Counter right', scheme: 'counter', formation: 'singleback', defense: 'c3-43-over', teams: { off: 'WSH', def: 'DAL' },
-    needsEngine: ['handoff', 'carry', 'run-block', 'pull'],
+  const GO = { route: 'go' };
+  function RP(id, o) {
+    L.PLAYS[id] = { id, home: 'off', spot: 35, dist: 10, src: '7', ...o, tags: ['run:' + o.scheme] };
+    L.RUN_SCHEMES[o.scheme].play = id;
+  }
+  RP('run-inside-zone', { name: 'Inside zone right', scheme: 'inside-zone', formation: 'singleback', defense: 'c3-43-over', teams: { off: 'ATL', def: 'NYG' },
+    assign: { ...olOf('inside-zone'), Y: { run: 'zone' }, X: GO, H: GO, Z: GO, QB: { handoff: 'RB' }, RB: { carry: { aim: 'B-gap-R', read: L.RUN_SCHEMES['inside-zone'].read } } },
+    fill: { Y: 'the tight end zone-blocks with the line (CS: the sheet names linemen only)', 'X,H,Z': 'receivers run off the corners (CS)' },
+    ball: [{ t: 0, ev: 'snap' }, { t: 0.8, ev: 'handoff', to: 'RB' }],
+    callouts: [
+      { t: -1.0, focus: ['LG', 'C', 'RG', 'RT'], text: 'Inside zone: the whole line steps playside together.', src: [S('7', 'all linemen step playside together')] },
+      { t: 0.5, focus: ['C', 'RG'], text: 'Nobody is on the center, so he helps the guard on the tackle, then climbs to the linebacker.', src: [S('7', 'uncovered = combine with the adjacent playside lineman on his DL, then climb to the LB')] },
+      { t: 1.2, focus: 'RB', text: 'The back aims at the playside guard and reads the first lineman.', src: [S('7', 'aim at the playside guard (A/B gap)')] },
+    ] });
+  RP('run-outside-zone', { name: 'Outside zone right', scheme: 'outside-zone', formation: 'singleback', defense: 'c3-43-over', teams: { off: 'DEN', def: 'LAR' },
+    assign: { ...olOf('outside-zone'), Y: { run: 'reach' }, X: GO, H: GO, Z: GO, QB: { handoff: 'RB' }, RB: { carry: { aim: 'C-gap-R', cut: 'bounce', read: L.RUN_SCHEMES['outside-zone'].read } } },
+    fill: { Y: 'the tight end reach-blocks with the line (CS: the sheet names linemen only)', 'X,H,Z': 'receivers run off the corners (CS)' },
+    ball: [{ t: 0, ev: 'snap' }, { t: 0.8, ev: 'handoff', to: 'RB' }],
+    callouts: [
+      { t: -1.0, focus: ['LT', 'LG', 'C', 'RG', 'RT'], text: 'Outside zone: every lineman reach-steps to the play side.', src: [S('7', 'reach-step playside')] },
+      { t: 0.4, focus: ['C', 'LG'], text: 'The uncovered guard doubles with the center, then climbs.', src: [S('7', 'uncovered men combine and climb')] },
+      { t: 1.2, focus: 'RB', text: 'The back aims at the outside hip of the tight end.', src: [S('7', 'aim at the outside hip of the TE (or tackle)')] },
+    ] });
+  RP('run-power', { name: '26 Power', scheme: 'power', formation: 'i-form', defense: 'c3-43-over', teams: { off: 'PIT', def: 'BAL' },
+    assign: { ...olOf('power'), LG: { run: 'pull-lead', pull: { target: 'PS-LB', via: 'C-gap-R' } }, FB: { kick: 'EMOL' }, Y: { run: 'release', on: 'SAM' }, X: GO, Z: GO,
+      QB: { handoff: 'RB' }, RB: { carry: { aim: 'C-gap-R', follow: 'LG', read: L.RUN_SCHEMES.power.read } } },
+    fill: { Y: 'the tight end takes the Sam (CS: the sheet names linemen and the kick-out only)', 'X,Z': 'receivers run off the corners (CS)' },
+    ball: [{ t: 0, ev: 'snap' }, { t: 0.9, ev: 'handoff', to: 'RB' }],
+    callouts: [
+      { t: 0.3, focus: ['RG', 'RT'], text: 'The playside linemen block down, on the man to their inside.', src: [S('7', 'block the defender to their inside')] },
+      { t: 0.7, focus: 'FB', text: 'The fullback kicks out the end man on the line.', src: [S('7', 'FB or H kicks out the EMOL')] },
+      { t: 1.3, focus: 'LG', text: 'The backside guard pulls through the hole and leads up on the linebacker.', src: [S('7', 'backside guard pulls through the hole and leads up on the playside LB')] },
+    ] });
+  RP('run-counter', { name: 'Counter right', scheme: 'counter', formation: 'singleback', defense: 'c3-43-over', teams: { off: 'WSH', def: 'PHI' },
     assign: { ...olOf('counter'), LG: { run: 'pull-kick', pull: { target: 'EMOL', via: 'C-gap-R' } }, LT: { run: 'pull-lead', pull: { target: 'PS-LB', via: 'C-gap-R' } },
+      Y: { run: 'release', on: 'SAM' }, X: GO, H: GO, Z: GO,
       QB: { handoff: 'RB' }, RB: { carry: { aim: 'C-gap-R', counterStep: true, follow: 'LG', read: L.RUN_SCHEMES.counter.read } } },
-    ball: [{ t: 0, ev: 'snap' }, { t: 1.0, ev: 'handoff', to: 'RB' }] });
-  RUN('run-trap', { name: 'Trap right', scheme: 'trap', formation: 'i-form', defense: 'c3-43-over', teams: { off: 'CLE', def: 'CIN' },
-    needsEngine: ['handoff', 'carry', 'run-block', 'pull'],
-    assign: { ...olOf('trap'), LG: { run: 'pull-trap', pull: { target: 'DT-R', via: 'A-gap-R' } }, QB: { handoff: 'RB' },
-      RB: { carry: { aim: 'A-gap-R', read: L.RUN_SCHEMES.trap.read } } },
-    ball: [{ t: 0, ev: 'snap' }, { t: 0.7, ev: 'handoff', to: 'RB' }] });
-  RUN('run-draw', { name: 'Draw', scheme: 'draw', formation: 'gun-2x2', defense: 'c3-nickel', teams: { off: 'GB', def: 'MIN' },
-    needsEngine: ['handoff', 'carry', 'run-block'],
-    assign: { ...olOf('draw'), QB: { drop: 3, handoff: 'RB' }, RB: { carry: { aim: null, read: L.RUN_SCHEMES.draw.read } } },
-    ball: [{ t: 0, ev: 'snap' }, { t: 1.4, ev: 'handoff', to: 'RB' }] });
+    fill: { Y: 'the tight end takes the Sam (CS)', 'X,H,Z': 'receivers run off the corners (CS)' },
+    ball: [{ t: 0, ev: 'snap' }, { t: 1.0, ev: 'handoff', to: 'RB' }],
+    callouts: [
+      { t: 0.2, focus: 'RB', text: 'The back takes a step away first.', src: [S('7', 'RB takes a step away first (counter step)')] },
+      { t: 0.8, focus: 'LG', text: 'The backside guard pulls and kicks out the end man on the line.', src: [S('7', 'backside guard pulls and kicks out the EMOL')] },
+      { t: 1.4, focus: 'LT', text: 'The backside tackle pulls through the hole to the linebacker.', src: [S('7', 'pulls and leads through the hole to the LB')] },
+    ] });
+  RP('run-trap', { name: 'Trap right', scheme: 'trap', formation: 'i-form', defense: 'c3-43-over', teams: { off: 'CLE', def: 'CIN' },
+    assign: { ...olOf('trap'), LG: { run: 'pull-trap', pull: { target: 'DT-R', via: 'A-gap-R' } }, C: { run: 'back' }, LT: { run: 'hinge' }, Y: { run: 'down' },
+      FB: { run: 'release', on: 'SAM' }, X: GO, Z: GO, QB: { handoff: 'RB' }, RB: { carry: { aim: 'A-gap-R', follow: 'LG', read: L.RUN_SCHEMES.trap.read } } },
+    fill: { C: 'the sheet gives the center no trap rule: he blocks back, as on power (CS)', LT: 'no rule either: he hinges, as on power (CS)',
+      Y: 'the tight end blocks down on the end (CS)', FB: 'the fullback goes up to the Sam (CS)', 'X,Z': 'receivers run off the corners (CS)' },
+    ball: [{ t: 0, ev: 'snap' }, { t: 0.7, ev: 'handoff', to: 'RB' }],
+    callouts: [
+      { t: -1.0, focus: 'DT-R', text: 'Nobody blocks this tackle. That is on purpose.', src: [S('7', 'one interior DL is left unblocked on purpose')] },
+      { t: 0.5, focus: 'LG', text: 'The guard pulls and blocks him from the side.', src: [S('7', 'pulls and blocks the unblocked DL from the side')] },
+      { t: 1.0, focus: 'RB', text: 'Quick inside hit, right behind the trap block.', src: [S('7', 'quick inside hit (A/B gap) right behind the trap block')] },
+    ] });
+  RP('run-draw', { name: 'Draw', scheme: 'draw', formation: 'gun-2x2', defense: 'c3-nickel', teams: { off: 'GB', def: 'MIN' },
+    assign: { ...olOf('draw'), X: GO, H: GO, Y: GO, Z: GO, QB: { drop: 3, handoff: 'RB' }, RB: { carry: { aim: null, read: L.RUN_SCHEMES.draw.read } } },
+    fill: { 'X,H,Y,Z': 'receivers run off the corners, as on a pass (CS)' },
+    ball: [{ t: 0, ev: 'snap' }, { t: 1.4, ev: 'handoff', to: 'RB' }],
+    callouts: [
+      { t: 0.3, focus: ['LT', 'LG', 'C', 'RG', 'RT'], text: 'The line shows pass and lets the rushers come upfield.', src: [S('7', 'linemen show pass set and let the rushers come upfield')] },
+      { t: 1.0, focus: 'QB', text: 'The quarterback drops as if to pass and hands off late.', src: [S('7', 'QB drops as if to pass, hands off late')] },
+      { t: 1.9, focus: 'RB', text: 'The back reads the open lane between rushers who overran it.', src: [S('7', 'RB reads the open lane between rushers who overran it')] },
+    ] });
+  /* ── stunts on the field (rank 4) ── Each STUNTS entry drawn on a pass play against its own
+     defense: the crasher goes at the snap, the looper waits and loops behind him, and the left side
+     of the line passes them off the right way (the tackle takes whoever comes outside, the guard
+     whoever comes inside), so nobody comes free. The routes are a plain curl and verticals (CS):
+     the play is about the line. STUNTS[k].play names each one. */
+  function SP(id, stunt, o) {
+    const st = L.STUNTS[stunt], moves = {};
+    for (const [k, v] of Object.entries(st.moves)) { moves[k] = { ...v }; delete moves[k].first; }
+    L.PLAYS[id] = { id, home: 'off', spot: 35, dist: 10, routes: true, src: 'rank4', formation: 'gun-2x2', defense: st.defense, stunt, ...o,
+      assign: { ...PASS_SET, X: { route: 'go' }, H: { route: 'curl' }, Y: { route: 'seam' }, Z: { route: 'go' }, RB: { block: 'B-gap-R' }, QB: { drop: 5 }, ...moves, ...o.assign },
+      ball: [{ t: 0, ev: 'snap' }, { t: 2.2, ev: 'throw', to: 'H' }, { t: 3.0, ev: 'catch' }], tags: ['stunt:' + stunt] };
+    st.play = id;
+  }
+  SP('stunt-te-twist', 'te-twist', { name: 'T-E twist', teams: { off: 'NO', def: 'TB' },
+    assign: { LT: { pass: 'set', on: 'DT-L' }, LG: { pass: 'set', on: 'DE-L' } },
+    callouts: [
+      { t: 0.15, focus: 'DT-L', text: 'The tackle crashes outside first.', src: [S('rank4', 'the tackle crashes outside first')] },
+      { t: 0.6, focus: 'DE-L', text: 'The end loops inside behind him.', src: [S('rank4', 'the end loops inside behind him')] },
+      { t: 1.3, focus: ['LT', 'LG'], text: 'The tackle takes the man who came outside, the guard the man who came inside. Pass him off badly and one comes free.', src: [S('rank4', 'a pass blocker who passes off his man badly leaves a free rusher')] },
+    ] });
+  SP('stunt-et-twist', 'et-twist', { name: 'E-T twist', teams: { off: 'JAX', def: 'IND' },
+    assign: { LT: { pass: 'set', on: 'DT-L' }, LG: { pass: 'set', on: 'DE-L' } },
+    callouts: [
+      { t: 0.15, focus: 'DE-L', text: 'The reverse: the end goes first, inside.', src: [S('rank4', 'E-T twist: the reverse')] },
+      { t: 0.6, focus: 'DT-L', text: 'The tackle loops around him to the outside.', src: [S('rank4', 'Linemen exchange gaps after the snap to confuse blocking')] },
+      { t: 1.3, focus: ['LT', 'LG'], text: 'Each blocker passes his man off and takes the one coming to him. Nobody comes free.', src: [S('rank4', 'a pass blocker who passes off his man badly leaves a free rusher')] },
+    ] });
 })(typeof window !== 'undefined' ? window : globalThis);

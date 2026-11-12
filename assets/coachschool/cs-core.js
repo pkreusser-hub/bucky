@@ -272,6 +272,10 @@
         const lat = /-L$/.test(a.pass) ? -0.5 : /-R$/.test(a.pass) ? 0.5 : 0;
         p.path = { pts: [start, [p.x + lat, p.y - 1.1]], v: 2.5, delay: 0, ext: false };
         p.role = 'block';
+      } else if (a.carry || a.handoff || a.run || a.kick) {
+        // The run game (CS.runCompile, below) gives him his track once the defense is known.
+        p.path = { pts: [start], v, delay: 0, ext: false };
+        p.role = a.carry ? 'carry' : a.handoff ? 'qb' : 'block';
       } else {
         p.path = { pts: [start], v, delay: 0, ext: false };
         p.role = CS.OL.includes(p.pos) ? 'block' : 'still';
@@ -288,6 +292,14 @@
         if (DEF_JOBS.some((k) => ov[k] != null)) for (const k of DEF_JOBS) delete s0[k];
         p.src = { ...s0, ...ov };
       }
+      // Man or rush (Cover 0's Mike, fact sheet 5a: "man RB (rushes if RB blocks)"): settled at the
+      // snap from what his man does on this play. He blocks (a gap, a pass set, a man) -> the Mike
+      // rushes his lane; anything else (a route, a carry, standing) -> he plays him man.
+      if (p.src.man != null && p.src.ifBlocks && p.src.ifBlocks.rush != null) {
+        const m = byId[p.src.man];
+        p.branch = m && m.team === 'off' && m.role === 'block' ? 'rush' : 'man';
+        if (p.branch === 'rush') { const s1 = { ...p.src, rush: p.src.ifBlocks.rush }; delete s1.man; p.src = s1; }
+      }
       const s = p.src, v = num(s.v, CS.SPEEDS[p.pos]), start = [p.x, p.y];
       if (s.still) { p.path = { pts: [start], v, delay: 0, ext: false }; p.role = 'still'; }
       else if (s.zone != null) {
@@ -296,16 +308,30 @@
         const z = lib.ZONES[s.aim != null ? s.aim : s.zone];
         p.path = { pts: [start, [z.x + dX, z.y]], v, delay: 0, ext: false };
         p.role = 'zone';
+        // A pattern read (Cover 4's safeties, fact sheet 5a "reads #2"; 6: "carries #2 vertical,
+        // opening the dig" / "drive on the dig"): CS.READ_T s after the snap he looks at the man he
+        // reads and, if that man is running a route, plays him: a vertical route he carries over the
+        // top, anything that breaks he drives on. An aim the play gives him (src.aim) is the play's
+        // own picture of his read and wins. A man who blocks or carries is no route to read.
+        const rr = s.read && s.aim == null ? byId[s.read.of] : null;
+        if (rr && rr.team === 'off' && rr.role === 'route') { p.readOf = rr.id; p.readKind = CS.isVertical(rr.path) ? 'carry' : 'drive'; }
       } else if (s.rush != null) {
         const gp = [CS.gapX(s.rush) + dX, -0.4];
         // then:'QB': nobody blocks him, so he keeps coming, through his gap to the quarterback's
         // spot at the end of his drop, stopping CS.SACK_REACH yd in front of him (on the ball side).
-        const pts = [start, gp];
+        // A stunt (rank 4, "Stunts and twists"): {delay} holds him that long after the snap, and
+        // {loop} takes him round behind the man who crashed first (a yard deeper on the defense's
+        // side, halfway across) before he comes through his new gap.
+        const pts = [start];
+        if (s.loop) pts.push([(start[0] + gp[0]) / 2, start[1] + CS.LOOP_DEPTH]);
+        pts.push(gp);
         if (s.then === 'QB' && qbEnd) pts.push([qbEnd[0], qbEnd[1] + CS.SACK_REACH]);
-        p.path = { pts, v, delay: 0, ext: false };
+        p.path = { pts, v, delay: num(s.delay, 0), ext: false };
+        p.rushGx = gp[0];
         p.role = 'rush';
       } else if (s.man != null) {
         p.role = 'man'; p.manOf = s.man;
+        p.trail = s.technique === 'trail';
       } else if (s.spy != null) {
         p.role = 'spy'; p.spyOf = s.spy;
       } else { p.path = { pts: [start], v, delay: 0, ext: false }; p.role = 'still'; }
@@ -316,7 +342,7 @@
     for (const p of off) {
       if (p.on == null) continue;
       const r = byId[p.on], a = p.assign, start = [p.x, p.y];
-      const gx = r && r.role === 'rush' ? r.path.pts[1][0] : r ? r.x : p.x;
+      const gx = r && r.role === 'rush' ? r.rushGx : r ? r.x : p.x;
       // A lineman sets half a yard back (never shallower than the set point); a back set deeper than
       // the set point steps up to it (into the hole his man comes through).
       const setY = -0.4 - CS.ENGAGE_SET, to = [gx, p.y < setY ? setY : Math.min(setY, p.y - 0.5)];
@@ -335,9 +361,359 @@
         }
       }
     }
+    // A handoff makes it a run: every man gets a track (CS.runCompile).
+    const hand = ev('handoff');
+    if (hand) { c.run = true; c.handT = hand.t; c.carrier = hand.to; runCompile(c, lib); }
     if (CACHE) CACHE.set(play, c);
     return c;
   };
+  CS.LOOP_DEPTH = 1.0;      // yd: a looper's turn behind the crasher, on the defense's side
+  CS.READ_T = 1.0;          // s after the snap a pattern-reading safety settles what #2 is doing
+  // A route is vertical (a man reading it carries it) when it runs on and its last leg goes
+  // straight up the field: a go, a seam, a wheel's last leg. Anything that breaks across is not.
+  CS.isVertical = (path) => {
+    const P = path && path.pts;
+    if (!P || P.length < 2 || !path.ext) return false;
+    const a = P[P.length - 2], b = P[P.length - 1], dy = b[1] - a[1];
+    return dy >= 8 && Math.abs(b[0] - a[0]) <= 0.3 * dy;
+  };
+
+  /* ── the run game (2026-11-12) ── A handoff makes a play a run. Every man then moves on a TRACK:
+     keyframes [t, x, y], straight lines at constant speed between them, so a position is a pure
+     function of t (linear interpolation, constant before the first keyframe and after the last) and
+     a test can work any of it out by hand from the legs. compile builds the tracks once, in order:
+       1. route runners and droppers: their paths as tracks;
+       2. every defender's own job until he reads run (his react time), then a straight pursuit to
+          the first point on the carrier's track he can reach (CS.intercept): his "free plan";
+       3. the carrier's authored track (aim gap, counter step, cut), or for a draw the lane the
+          steered rushers leave open; the quarterback's track to the mesh point, then his fake;
+       4. the blocks, by rule (CS.runBlocks): each blocker's footwork, then a straight leg to the
+          first point he can reach his man (contact at RUN.CONTACT yd); from contact the two move
+          together (the drive, RUN.VD yd/s for RUN.DRIVE_T s) and then hold. A double team: the
+          covered man takes the lineman, the uncovered man joins him, they hold RUN.COMBO_T s, then
+          the uncovered man climbs to his linebacker;
+       5. the tackle: of every defender still free when he gets there, the first to reach the
+          carrier makes it (c.downT, c.tackleBy); the carrier goes down there, the other free men
+          close on the spot, the play ends RUN.END s later.
+     Fact sheet section 7 for the schemes, RUN_RULES in cs-lib for the tokens. */
+  CS.RUN = {
+    KEY_DL: 0.5, KEY_LB: 0.4, KEY_DB: 0.8,   // s after the snap a lineman / linebacker / defensive back reads run and flows
+    DRAW: 0.3,                               // on a draw (the line shows pass) everyone reads it this long after the handoff
+    TACKLE: 0.6,                             // yd: the tackler stops this far from the carrier (he has him)
+    CONTACT: 1.0,                            // yd: a blocker and his man this close have met
+    VD: 1.2, DRIVE_T: 1.0,                   // the drive after contact: yd/s, for this long, then they hold
+    COMBO_T: 0.45,                           // s the double team holds before the uncovered man climbs
+    PULL_V: 6,                               // yd/s a pulling lineman runs
+    FOLLOW: 0.25,                            // s behind the puller the back who follows him reaches the line
+    PULL_Y: -1.0,                            // yd: the depth a puller runs along behind the line
+    MESH: 0.6,                               // yd between the quarterback and the back at the exchange
+    FAKE: 2,                                 // yd the quarterback carries out his fake, away from the run
+    JAB: 1.2,                                // yd: the counter step away from the play
+    DT: 0.01,                                // s: the intercept search's step
+    END: 1.0,                                // s the play runs on after the tackle
+    LINE_Y: 1.5,                             // a defender this close to the ball (y) is on the line
+    CLOSE: 1.5,                              // yd short of the tackle spot the other free defenders pull up
+  };
+  const r6 = (v) => Math.round(v * 1e6) / 1e6;
+  function kfAt(K, t) {
+    if (t <= K[0][0]) return [K[0][1], K[0][2]];
+    for (let i = 1; i < K.length; i++) {
+      if (t <= K[i][0]) { const a = K[i - 1], b = K[i], u = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 1; return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u]; }
+    }
+    const z = K[K.length - 1];
+    return [z[1], z[2]];
+  }
+  // A polyline at speed v, leaving its first point at t0.
+  function kfPath(pts, v, t0) {
+    const K = [[t0, pts[0][0], pts[0][1]]];
+    let t = t0;
+    for (let i = 1; i < pts.length; i++) { const L = dist(pts[i - 1], pts[i]); if (L < 1e-9) continue; t += L / v; K.push([r6(t), pts[i][0], pts[i][1]]); }
+    return K;
+  }
+  // The track up to t (ending exactly where it is at t), and the track carried on with more points.
+  function kfCut(K, t) { const out = K.filter((k) => k[0] < t - 1e-9), q = kfAt(K, t); out.push([t, q[0], q[1]]); return out; }
+  function kfThen(K, pts, v) { const z = K[K.length - 1]; return K.concat(kfPath([[z[1], z[2]], ...pts], v, z[0]).slice(1)); }
+  CS.kfAt = kfAt; CS.kfPath = kfPath;
+  // The first moment (on a DT grid from t0, never before tMin) a man at P running at v can be within
+  // `reach` of a target moving on track(t): |P - Q(t)| - reach <= v (t - t0). He runs the straight
+  // line from P toward Q(t) and stops `reach` short of it. Returns {t, at, q} or null by tMax.
+  CS.intercept = (P, t0, v, track, reach, tMax, tMin) => {
+    const lo = isNum(tMin) ? tMin : t0;
+    for (let k = 0; ; k++) {
+      const t = r6(t0 + k * CS.RUN.DT);
+      if (t > tMax) return null;
+      if (t < lo - 1e-9) continue;
+      const Q = track(t), d = dist(P, Q);
+      if (d - reach <= v * (t - t0) + 1e-9) { const L = Math.max(0, d - reach), u = d > 1e-9 ? L / d : 0; return { t, at: [P[0] + (Q[0] - P[0]) * u, P[1] + (Q[1] - P[1]) * u], q: Q }; }
+    }
+  };
+  // A path as a track from t0 (a delay holds him on his first point; a route that runs on goes on).
+  function pathTrack(path, t0) {
+    const pts = path.pts.map((q) => q.slice());
+    if (path.ext && pts.length > 1) { const a = pts[pts.length - 2], b = pts[pts.length - 1], L = dist(a, b) || 1; pts[pts.length - 1] = [b[0] + (b[0] - a[0]) / L * 60, b[1] + (b[1] - a[1]) / L * 60]; }
+    const d = num(path.delay, 0), K = kfPath(pts, path.v, t0 + d);
+    if (d > 0) K.unshift([t0, pts[0][0], pts[0][1]]);
+    return K;
+  }
+
+  /* The blocking rules, applied to the play on the field (RUN_RULES in cs-lib; fact sheet 7). Run to
+     side s (+1 right). "On the line": a defender within RUN.LINE_Y of the ball. Resolved in this order,
+     each defender taken once (a double team's lineman twice):
+       1. an explicit {on: id} (a play's own pick; {miss: true}: he runs his footwork and blocks nobody);
+       2. kick (a back) and pull-kick: the EMOL, the playside-most man on the line nobody has yet;
+          pull-trap: the man its pull names;
+       3. back: the nearest man on the line on him or backside of him (within 2.6 yd);
+       4. down, playside man first: the nearest man on the line inside him (within 2.6 yd); if there
+          is none, he goes on to a linebacker in step 9;
+       5. zone / reach, playside man first: COVERED if a man on the line is on him or in his playside
+          gap (zone: -0.3..1.3 yd playside of him; reach: -0.8..1.3, the reach-step takes in a backside
+          shade): he blocks that man. Uncovered: step 9;
+       6. cutoff / hinge (the backside tackle): the nearest man on the line at most 0.6 yd playside of
+          him (within 3.2 yd);
+       7. steer: the nearest man on the line (within 3.2 yd);
+       8. a rule with nobody to block holds his ground (null);
+       9. the linebackers, in this order: pull-lead (target 'PS-LB': the linebacker nearest the gap it
+          pulls through); an uncovered zone/reach man (the double team: he joins the next blocker on
+          his playside on that man's lineman, then climbs to the linebacker nearest that lineman; with
+          no lineman to join he climbs straight to the nearest); down with nobody inside (the nearest
+          linebacker inside him, less than half a yard playside); release (the nearest linebacker).
+     Returns { id: { token, target, combo?: {with, on}, climb?, miss? } }. Pure: the assign puzzle's
+     judge reads it. */
+  CS.runBlocks = (c) => {
+    const A = c.play.assign || {}, s = num(c.runS, 1), R = CS.RUN, G = CS.gapsOf(c);
+    const line = c.def.filter((p) => p.y <= R.LINE_Y), lbs = c.def.filter((p) => p.pos === 'LB' && p.y > R.LINE_Y);
+    const taken = new Set(), out = {};
+    const tokOf = (p) => (A[p.id].kick ? 'kick' : A[p.id].run);
+    const blockers = c.off.filter((p) => A[p.id] && (A[p.id].run || A[p.id].kick));
+    const set = (p, d, extra) => { out[p.id] = { token: tokOf(p), target: d ? d.id : null, ...(extra || {}) }; if (d) taken.add(d.id); };
+    const free = (list) => list.filter((d) => !taken.has(d.id));
+    const near = (list, x) => list.slice().sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x) || a.y - b.y)[0] || null;
+    const todo = (toks) => blockers.filter((p) => !out[p.id] && toks.includes(tokOf(p))).sort((a, b) => s * b.x - s * a.x);
+    for (const p of blockers) {
+      const a = A[p.id];
+      if (a.miss) set(p, null, { miss: true });
+      else if (a.on != null) set(p, c.byId[a.on] && c.byId[a.on].team === 'def' ? c.byId[a.on] : null, { how: 'on' });
+    }
+    const emol = () => free(line).sort((a, b) => s * b.x - s * a.x)[0] || null;
+    for (const p of todo(['kick', 'pull-kick'])) { const pt = A[p.id].pull && A[p.id].pull.target; set(p, pt && pt !== 'EMOL' && c.byId[pt] ? c.byId[pt] : emol()); }
+    for (const p of todo(['pull-trap'])) { const pt = A[p.id].pull && A[p.id].pull.target; set(p, pt && c.byId[pt] && !taken.has(pt) ? c.byId[pt] : null); }
+    for (const p of todo(['back'])) set(p, near(free(line).filter((d) => s * (d.x - p.x) <= 0.25 && Math.abs(d.x - p.x) <= 2.6), p.x));
+    const later = [];
+    for (const p of todo(['down'])) { const d = near(free(line).filter((q) => s * (q.x - p.x) < -0.1 && Math.abs(q.x - p.x) <= 2.6), p.x); if (d) set(p, d); else later.push(p); }
+    const uncovered = [];
+    for (const p of todo(['zone', 'reach'])) {
+      const lo = tokOf(p) === 'reach' ? -0.8 : -0.3;
+      const d = near(free(line).filter((q) => s * (q.x - p.x) >= lo && s * (q.x - p.x) <= 1.3), p.x);
+      if (d) set(p, d); else uncovered.push(p);
+    }
+    for (const p of todo(['cutoff', 'hinge'])) set(p, near(free(line).filter((d) => s * (d.x - p.x) <= 0.6 && Math.abs(d.x - p.x) <= 3.2), p.x));
+    for (const p of todo(['steer']).sort((a, b) => Math.abs(b.x - c.ballX) - Math.abs(a.x - c.ballX))) set(p, near(free(line).filter((d) => Math.abs(d.x - p.x) <= 3.2), p.x));
+    // The linebackers.
+    for (const p of todo(['pull-lead'])) { const via = A[p.id].pull && G[A[p.id].pull.via]; set(p, near(free(lbs), isNum(via) ? via : p.x)); }
+    for (const p of uncovered) {
+      // His partner: the next blocker playside of him on the line, and the lineman that man has.
+      const mate = blockers.filter((q) => q.y >= CS.ON_LINE_Y && s * (q.x - p.x) > 0.1).sort((a, b) => s * a.x - s * b.x)[0];
+      const dl = mate && out[mate.id] && out[mate.id].target && line.some((d) => d.id === out[mate.id].target) && !out[mate.id].combo ? c.byId[out[mate.id].target] : null;
+      const lb = near(free(lbs), dl ? dl.x : p.x);
+      set(p, lb, dl ? { combo: { with: mate.id, on: dl.id }, climb: lb ? lb.id : null } : { climb: lb ? lb.id : null });
+    }
+    for (const p of later) set(p, near(free(lbs).filter((d) => s * (d.x - p.x) < 0.5), p.x));
+    for (const p of todo(['release'])) set(p, near(free(lbs), p.x));
+    for (const p of blockers) if (!out[p.id]) set(p, null);
+    return out;
+  };
+
+  // Which way a block moves the two once they meet (x times the run's side s; normalised). Down and
+  // back blocks drive the man toward the backside, a kick-out or a trap out to the playside, a zone
+  // block up the field and a shade playside, a reach seals him inside, a climb or a lead goes up to
+  // the second level; a cutoff or hinge barely moves; a steered rusher goes on upfield and outside.
+  const DRIVE_DIR = { down: [-1, 0.6], back: [-1, 0.5], zone: [0.3, 1], reach: [-0.7, 0.5], cutoff: [-0.4, 0.3], hinge: [-0.2, 0.2],
+    kick: [1, 0.15], 'pull-kick': [1, 0.15], 'pull-trap': [1, 0.15], 'pull-lead': [0.15, 1], release: [0, 1], climb: [0, 1] };
+  function runCompile(c, lib) {
+    const R = CS.RUN, play = c.play, A = play.assign || {}, snap = c.snapT, G = CS.gapsOf(c);
+    const car = c.byId[c.carrier], qb = c.qb, ca = (A[c.carrier] || {}).carry || {};
+    if (!car || !qb) { c.runError = 'no carrier or quarterback'; return; }
+    const s = ca.aim ? (/-L$/.test(ca.aim) ? -1 : 1) : (play.mirror ? -1 : 1);
+    c.runS = s;
+    const ol = c.off.filter((p) => CS.OL.includes(p.pos));
+    c.draw = ol.length > 0 && ol.every((p) => (A[p.id] || {}).run === 'steer');
+    const vOf = (p) => num((A[p.id] || {}).v, CS.SPEEDS[p.pos]);
+    const TMAX = snap + 8;
+    // 1. Route runners and the quarterback's drop.
+    for (const p of c.off) if (p.role === 'route' || (p === qb && (A[qb.id] || {}).drop != null)) p.track = pathTrack(p.path, snap);
+    // 2. The defense's own jobs (a rusher on a draw keeps coming at the quarterback's set spot).
+    const qbSet = qb.path.pts[qb.path.pts.length - 1];
+    const pre = {}, react = {};
+    for (const p of c.def) {
+      if (c.draw && p.role === 'rush') p.path = { ...p.path, pts: p.path.pts.concat([[qbSet[0] + (p.rushGx - qbSet[0]) * 0.5, qbSet[1] + 1.5]]) };
+      let K;
+      if (p.role === 'man' || p.role === 'spy' || p.readOf != null) { K = []; for (let t = snap; t <= TMAX + 1e-9; t = r6(t + 0.05)) { const q = defPlanned(c, p, t); K.push([t, q[0], q[1]]); } }
+      else K = pathTrack(p.path, snap);
+      pre[p.id] = K;
+      react[p.id] = c.draw ? c.handT + R.DRAW : snap + (CS.DL.includes(p.pos) ? R.KEY_DL : p.pos === 'LB' ? R.KEY_LB : R.KEY_DB);
+    }
+    const res = CS.runBlocks(c);
+    c.blocks = res;
+    // A blocker's footwork before he goes to his man. A puller drops to PULL_Y, runs along the line
+    // to the gap he pulls through (via) and, leading, turns up it; kicking out or trapping he goes
+    // at his man from there. A steer shows a pass set. Everyone else goes straight at his man.
+    const footwork = (b, tok, a) => {
+      const B = [b.x, b.y];
+      if (/^pull-/.test(tok)) {
+        const vx = G[a.pull && a.pull.via], X = isNum(vx) ? vx : b.x + s * 3;
+        return { pts: [B, [b.x, R.PULL_Y], [X, R.PULL_Y]].concat(tok === 'pull-lead' ? [[X, -0.3]] : []), v: num(a.v, R.PULL_V) };
+      }
+      if (tok === 'steer') return { pts: [B, [b.x, b.y - 1.1]], v: 2.5 };
+      return { pts: [B], v: vOf(b) };
+    };
+    // When a puller reaches the hole (the via gap, at pull depth): the back who follows him times his run off it.
+    const viaT = (id) => { const a = A[id] || {}, b = c.byId[id]; if (!b || !/^pull-/.test(a.run || '')) return null; const f = footwork(b, a.run, a); return r6(snap + (dist(f.pts[0], f.pts[1]) + dist(f.pts[1], f.pts[2])) / f.v); };
+    // 4 (as a function: a draw runs it once before the carrier's track exists, to find its lane).
+    function blockAll(planOf) {
+      const T = {}, eng = {}, info = {};
+      const dirOf = (tok, b, d) => {
+        if (tok === 'steer') { const o = Math.sign(d.x - c.ballX) || s; const L = Math.hypot(0.6, 1); return [o * 0.6 / L, -1 / L]; }
+        const v = DRIVE_DIR[tok] || [0, 1], L = Math.hypot(v[0], v[1]);
+        return [s * v[0] / L, v[1] / L];
+      };
+      const engage = (b, d, te, tok, Bc, Dc) => {
+        const dv = dirOf(tok, b, d), e = R.VD * R.DRIVE_T;
+        eng[b.id] = te; eng[d.id] = Math.min(isNum(eng[d.id]) ? eng[d.id] : Infinity, te);
+        return { b: [te + R.DRIVE_T, Bc[0] + dv[0] * e, Bc[1] + dv[1] * e], d: [r6(te + R.DRIVE_T), Dc[0] + dv[0] * e, Dc[1] + dv[1] * e] };
+      };
+      const dTrack = (id) => T[id] || planOf(id);
+      // Single blocks first (the covered man of a double team included), then the double teams' second men.
+      const order = Object.keys(res).sort((a, b) => (res[a].combo ? 1 : 0) - (res[b].combo ? 1 : 0));
+      for (const id of order) {
+        const b = c.byId[id], r = res[id], a = A[id] || {}, tok = r.token, fw = footwork(b, tok, a), v = fw.v;
+        let K = kfPath(fw.pts, v, snap);
+        if (r.miss || !r.target) {
+          // Nobody to block (a miss, or a rule with no man): his footwork, then a step in his drive's direction.
+          const z = K[K.length - 1], dv = DRIVE_DIR[tok] ? dirOf(tok, b, b) : [0, 1];
+          T[id] = kfThen(K, [[z[1] + dv[0] * 0.8, z[2] + Math.max(0.3, dv[1] * 0.8)]], 2);
+          info[id] = { token: tok, target: null, miss: !!r.miss };
+          continue;
+        }
+        if (r.combo) {
+          // The double team: he joins his partner on the lineman, they hold it, then he climbs.
+          const dl = c.byId[r.combo.on], DK = dTrack(dl.id), z0 = K[K.length - 1];
+          const hit = CS.intercept([z0[1], z0[2]], z0[0], v, (t) => kfAt(DK, t), R.CONTACT + 0.25, TMAX);
+          if (!hit) { T[id] = K; continue; }
+          const mateT = isNum(info[r.combo.with] && info[r.combo.with].te) ? info[r.combo.with].te : hit.t;
+          const tc = r6(Math.max(hit.t, mateT) + R.COMBO_T), off = [hit.at[0] - kfAt(DK, hit.t)[0], hit.at[1] - kfAt(DK, hit.t)[1]];
+          K = K.concat([[hit.t, hit.at[0], hit.at[1]]]);
+          for (const k of DK) if (k[0] > hit.t + 1e-9 && k[0] < tc - 1e-9) K.push([k[0], k[1] + off[0], k[2] + off[1]]);
+          const Pc = kfAt(DK, tc);
+          K.push([tc, Pc[0] + off[0], Pc[1] + off[1]]);
+          eng[id] = hit.t;
+          info[id] = { token: tok, target: r.target, combo: { on: dl.id, with: r.combo.with, join: hit.t, start: r6(Math.max(hit.t, mateT)), climbT: tc } };
+          if (r.climb) {
+            const lb = c.byId[r.climb], LK = dTrack(lb.id), P = [K[K.length - 1][1], K[K.length - 1][2]];
+            const h2 = CS.intercept(P, tc, v, (t) => kfAt(LK, t), R.CONTACT, TMAX);
+            if (h2) {
+              const Dc = kfAt(LK, h2.t), x = engage(b, lb, h2.t, 'climb', h2.at, Dc);
+              K.push([h2.t, h2.at[0], h2.at[1]], x.b);
+              T[lb.id] = kfCut(LK, h2.t).concat([x.d]);
+              Object.assign(info[id], { te: h2.t, at: h2.at, climbed: lb.id });
+            }
+          }
+          T[id] = K;
+          continue;
+        }
+        const d = c.byId[r.target], DK = dTrack(d.id);
+        // He meets his man on the way (the man runs into his footwork), or goes at him from its end.
+        let hit = null;
+        for (let t = K[0][0]; t <= K[K.length - 1][0] + 1e-9; t = r6(t + R.DT)) { const q = kfAt(K, t); if (dist(q, kfAt(DK, t)) <= R.CONTACT + 1e-9) { hit = { t, at: q }; break; } }
+        if (hit) K = kfCut(K, hit.t).slice(0, -1);
+        const z0 = K[K.length - 1];
+        if (!hit) hit = CS.intercept([z0[1], z0[2]], z0[0], v, (t) => kfAt(DK, t), R.CONTACT, TMAX);
+        if (!hit) { T[id] = K; continue; }
+        const Dc = kfAt(DK, hit.t), drive = r.climb ? 'climb' : tok, x = engage(b, d, hit.t, drive, hit.at, Dc);
+        T[id] = K.concat([[hit.t, hit.at[0], hit.at[1]], x.b]);
+        T[d.id] = kfCut(DK, hit.t).concat([x.d]);
+        info[id] = { token: tok, target: d.id, te: hit.t, at: hit.at, via: /^pull-/.test(tok) ? { x: fw.pts[2][0], y: fw.pts[2][1], t: viaT(id) } : null };
+      }
+      return { T, eng, info };
+    }
+    // 3. The carrier and the quarterback.
+    const vC = vOf(car), S0 = [car.x, car.y], cut = ca.cut || 'front';
+    const after = (X, y0) => (cut === 'back' ? [[X - s * 3, 4], [X - s * 3, 30]] : cut === 'bounce' ? [[X + s * 4, y0 + 1.5], [X + s * 4, 30]] : [[X, 30]]);
+    let carK;
+    if ((A[qb.id] || {}).drop != null) {
+      // A draw: the quarterback sets up as if to pass; the back meets him there at the handoff,
+      // then takes the lane the steered rushers left (the widest space between two of them on the
+      // line, inside the tackle box, half a second after the handoff).
+      const M = [qbSet[0] + s * R.MESH, qbSet[1]], t0 = Math.max(snap, c.handT - dist(S0, M) / vC);
+      let laneX = ca.aim ? G[ca.aim] : null;
+      if (laneX == null) {
+        const pre1 = blockAll((id) => kfCut(pre[id], react[id])).T;
+        const at = c.handT + 0.5, xs = c.def.filter((p) => CS.DL.includes(p.pos)).map((p) => kfAt(pre1[p.id] || pre[p.id], at)[0]).sort((a, b) => a - b);
+        const lo = c.ballX - 6, hi = c.ballX + 6, edges = [lo, ...xs.filter((x) => x > lo && x < hi), hi];
+        let best = null;
+        for (let i = 1; i < edges.length; i++) { const w = edges[i] - edges[i - 1]; if (!best || w > best.w + 1e-9) best = { w, x: (edges[i] + edges[i - 1]) / 2 }; }
+        laneX = best.x;
+      }
+      c.lane = laneX;
+      carK = [[snap, S0[0], S0[1]], ...kfPath([S0, M], vC, t0)];
+      if (carK[1][0] <= snap + 1e-9) carK.shift();
+      carK = kfThen(kfCut(carK, c.handT), [[laneX, -0.5], ...after(laneX, -0.5)], vC);
+    } else {
+      const X = G[ca.aim];
+      const pts = [S0];
+      if (ca.counterStep) pts.push([S0[0] - s * R.JAB, S0[1] + 0.3]);
+      pts.push([X, -1.5], [X, 0.5], ...after(X, 0.5));
+      // Following a puller: he reaches the line (X, -1.5) RUN.FOLLOW s after the puller gets to the hole.
+      let d = num(ca.delay, 0);
+      const tv = ca.follow ? viaT(ca.follow) : null;
+      if (isNum(tv)) { let L = 0; for (let i = 1; i < pts.length && i <= (ca.counterStep ? 2 : 1); i++) L += dist(pts[i - 1], pts[i]); d = Math.max(d, r6(tv + R.FOLLOW - snap - L / vC)); }
+      c.carryDelay = d;
+      carK = kfPath(pts, vC, snap + d);
+      if (d > 0) carK.unshift([snap, S0[0], S0[1]]);
+      // The quarterback meets him at the handoff, MESH yd on the backside of him, then carries out his fake.
+      const H = kfAt(carK, c.handT), M = [H[0] - s * R.MESH, H[1]];
+      qb.track = [[snap, qb.x, qb.y], [c.handT, M[0], M[1]], [r6(c.handT + R.FAKE / 4), M[0] - s * R.FAKE, M[1] - 0.5]];
+    }
+    car.track = carK;
+    c.aimPt = ca.aim ? [G[ca.aim], 0.5] : null;
+    // 2b. Each defender's free plan: his job to his react time, then the pursuit.
+    const carAt = (t) => kfAt(car.track, t), tMin = c.handT + 0.1;
+    const plan = {};
+    for (const p of c.def) {
+      const Rt = react[p.id], P = kfAt(pre[p.id], Rt), v = num(p.src.v, CS.SPEEDS[p.pos]);
+      const hit = CS.intercept(P, Rt, v, carAt, R.TACKLE, TMAX, tMin);
+      plan[p.id] = kfCut(pre[p.id], Rt).concat(hit ? [[hit.t, hit.at[0], hit.at[1]]] : []);
+      p.tau = hit ? hit.t : Infinity;
+    }
+    // 4. The blocks against the free plans.
+    const B = blockAll((id) => plan[id]);
+    c.blockInfo = B.info;
+    // 5. The tackle: the first free man to the carrier (a man blocked only after he got there counts).
+    let tk = null;
+    for (const p of c.def) {
+      const blockedAt = isNum(B.eng[p.id]) ? B.eng[p.id] : Infinity;
+      if (p.tau < blockedAt - 1e-9 && (!tk || p.tau < tk.tau - 1e-9)) tk = p;
+    }
+    const downT = tk ? tk.tau : TMAX;
+    c.downT = downT; c.tackleBy = tk ? tk.id : null;
+    car.track = kfCut(car.track, downT);
+    const spot = kfAt(car.track, downT);
+    c.tackleAt = spot;
+    for (const p of c.def) {
+      const blockedAt = isNum(B.eng[p.id]) ? B.eng[p.id] : Infinity;
+      if (blockedAt < p.tau - 1e-9 || (B.T[p.id] && blockedAt < downT)) { p.track = B.T[p.id]; p.engaged = blockedAt; continue; }
+      // Free: his pursuit to the tackle, then (if he is not the tackler) he closes on the spot.
+      let K = kfCut(plan[p.id], downT);
+      if (p !== tk) { const z = K[K.length - 1], d = dist([z[1], z[2]], spot); if (d > R.CLOSE) { const u = (d - R.CLOSE) / d; K = kfThen(K, [[z[1] + (spot[0] - z[1]) * u, z[2] + (spot[1] - z[2]) * u]], 0.6 * num(p.src.v, CS.SPEEDS[p.pos])); } }
+      p.track = K;
+    }
+    for (const p of c.off) {
+      if (B.T[p.id]) { p.track = B.T[p.id]; if (isNum(B.eng[p.id])) p.engaged = B.eng[p.id]; }
+      else if (p.role === 'route') p.track = kfCut(p.track, downT + 0.3);
+      else if (!p.track) p.track = [[snap, p.x, p.y]];
+    }
+    c.T = num(play.T, downT + R.END);
+    c.runReady = true;
+  }
   CS.BALL_ENDS = ['catch', 'incomplete', 'breakup', 'pick'];
   const DEF_JOBS = ['zone', 'rush', 'man', 'spy', 'still'];
   CS.ENGAGE = 1.0;          // yd: a blocker and his rusher this close have met
@@ -347,6 +723,7 @@
 
   // Where the offense is at t (no defensive reactions needed: the offense never reads the defense here).
   function offPos(c, p, t) {
+    if (c.runReady && p.track) return inField(kfAt(p.track, t));
     const path = p.path, tt = t - c.snapT;
     if (p.held != null && t > p.held) return offPos(c, { ...p, held: null }, p.held);   // engaged: he holds his ground
     if (c.downT != null && p.id === c.target && t > c.downT) return offPos(c, p, c.downT);
@@ -359,7 +736,11 @@
       const r = c.byId[p.manOf];
       const lag = Math.max(0, t - 0.2);
       const rp = offPos(c, r, lag);
-      const off0 = [p.x - r.x, p.y - r.y], cush = [0, 1.0];
+      // Trail technique (2-man, fact sheet 5b "5 man underneath with trail technique"; the
+      // library's "from just behind and under the receiver, trusting deep help"): he sits
+      // CS.TRAIL yd behind his man (on the quarterback's side of him, y less) and half a yard
+      // inside him, instead of a yard over the top.
+      const off0 = [p.x - r.x, p.y - r.y], cush = p.trail ? [inDir(r.side) * 0.5, -CS.TRAIL] : [0, 1.0];
       const u = clamp(tt / 1.2, 0, 1);
       return [rp[0] + off0[0] + (cush[0] - off0[0]) * u, rp[1] + off0[1] + (cush[1] - off0[1]) * u];
     }
@@ -367,13 +748,27 @@
       const q = offPos(c, c.byId[p.spyOf], t);
       return [p.x + (q[0] - p.x) * clamp(tt / 0.8, 0, 1), p.y];
     }
-    return along(p.path.pts, p.path.v * tt, false);
+    if (p.readOf != null && tt > CS.READ_T) {
+      // The read: from where his drop has him at READ_T, onto #2 (a lag of 0.2 s, like man): over
+      // the top of a vertical (CS.CARRY yd deeper), on top of a route that breaks (CS.DRIVE yd).
+      // He gets there over `blend` s, the time to cover that distance at 85% of his speed.
+      const r = c.byId[p.readOf], P0 = along(p.path.pts, p.path.v * CS.READ_T, false);
+      const cush = p.readKind === 'carry' ? CS.CARRY : CS.DRIVE;
+      const q0 = offPos(c, r, c.snapT + CS.READ_T - 0.2), blend = Math.max(0.6, dist(P0, [q0[0], q0[1] + cush]) / (0.85 * p.path.v));
+      const q = offPos(c, r, Math.max(c.snapT, t - 0.2)), u = clamp((tt - CS.READ_T) / blend, 0, 1);
+      return [P0[0] + (q[0] - P0[0]) * u, P0[1] + (q[1] + cush - P0[1]) * u];
+    }
+    return along(p.path.pts, p.path.v * Math.max(0, tt - num(p.path.delay, 0)), false);
   }
+  CS.TRAIL = 1.0;           // yd a trail-technique defender sits behind his man
+  CS.CARRY = 2.0;           // yd over the top of a vertical #2 a reading safety stays
+  CS.DRIVE = 0.8;           // yd above a breaking #2 a reading safety drives to
   // Defenders in coverage (zone, man, spy) break on the throw toward the catch spot, then chase the
   // carrier; rushers keep rushing. Straight-line moves at their own speed, closed form, so the
   // position at any t is a pure function of t.
   function defPos(c, p, t) {
     if (t <= c.snapT) return [p.x, p.y];
+    if (c.runReady && p.track) return inField(kfAt(p.track, t));
     if (p.held != null && t > p.held) return defPlanned(c, p, p.held);       // a blocker has him
     const chase = p.role !== 'rush' && p.role !== 'still' && c.throwT != null && c.arriveT != null;
     const tr = c.throwT + CS.REACT;
@@ -414,6 +809,9 @@
       const q = posOf(qb, c.snapT + snapDur), u = (t - c.snapT) / snapDur;
       return { x: c.ballX + (q[0] - c.ballX) * u, y: q[1] * u, air: 0.15 + (HANDS - 0.15) * u + 0.6 * u * (1 - u), held: null };
     }
+    // A run: the QB holds it to the handoff, then it is the carrier's (the exchange is the moment
+    // the two meet at the mesh point, CS.RUN.MESH yd apart), down with him at the tackle.
+    if (c.run) { const h = t < c.handT ? qb : c.byId[c.carrier], q = posOf(h, t); return { x: q[0], y: q[1], air: HANDS, held: h.id }; }
     if (c.throwT == null || t < c.throwT || c.arriveT == null) { const q = posOf(qb, t); return { x: q[0], y: q[1], air: HANDS, held: qb.id }; }
     const recv = c.byId[c.target], a = posOf(qb, c.throwT), b = CS.ballEndOf(c, posOf);
     const ground = c.end === 'incomplete' ? 0.1 : HANDS;
@@ -527,6 +925,33 @@
     return { players, ball: b };
   };
 
+  // A run play's own rules (the run engine, above): a known rule token for every blocker, a gap to
+  // pull through, one carrier with a real aim (or none, on a draw), a quarterback who can reach the
+  // mesh by the handoff, run to the right as drawn (no mirrored runs yet), and no throw.
+  function runErrors(play, c, lib, L) {
+    const e = [], A = play.assign || {};
+    const runners = Object.entries(A).filter(([, a]) => a && (a.run || a.kick || a.carry || a.handoff));
+    if (!c.run) { if (runners.length) e.push(`${L}: run assignments (${runners.map(([k]) => k).join(', ')}) but no handoff`); return e; }
+    if (c.runError) return [`${L}: ${c.runError}`];
+    if (play.mirror) e.push(`${L}: runs are drawn to the right only (no mirror)`);
+    if (c.throwT != null) e.push(`${L}: a handoff and a throw on one play`);
+    const qa = A[c.qb.id] || {};
+    if (qa.handoff !== c.carrier) e.push(`${L}: the QB's handoff (${qa.handoff}) is not the ball's (${c.carrier})`);
+    const ca = (A[c.carrier] || {}).carry;
+    if (!ca) e.push(`${L}: ${c.carrier} gets the ball but has no carry`);
+    else if (ca.aim == null ? qa.drop == null : CS.gapX(ca.aim) == null) e.push(`${L}: ${c.carrier} aims at ${ca.aim} (a known gap, or none only on a draw)`);
+    if (ca && ca.follow != null && !/^pull-/.test((A[ca.follow] || {}).run || '')) e.push(`${L}: ${c.carrier} follows ${ca.follow}, who does not pull`);
+    if (!(c.handT > c.snapT)) e.push(`${L}: the handoff comes after the snap`);
+    for (const [id, a] of runners) {
+      if (a.run && !(lib.RUN_RULES && lib.RUN_RULES[a.run])) e.push(`${L}: ${id} has unknown run rule ${a.run}`);
+      if (/^pull-/.test(a.run || '') && !(a.pull && CS.gapX(a.pull.via) != null)) e.push(`${L}: ${id} pulls with no known gap to pull through`);
+      if (a.kick != null && a.kick !== 'EMOL' && !(c.byId[a.kick] && c.byId[a.kick].team === 'def')) e.push(`${L}: ${id} kicks out ${a.kick} (EMOL or a defender)`);
+    }
+    // The exchange: the quarterback's track reaches the mesh at the handoff, at no more than his speed.
+    const q = c.qb, K = q.track;
+    if (qa.drop == null && K && K.length > 1) { const v = Math.hypot(K[1][1] - K[0][1], K[1][2] - K[0][2]) / Math.max(1e-9, K[1][0] - K[0][0]); if (v > CS.SPEEDS.QB + 1e-6) e.push(`${L}: the QB would run ${v.toFixed(2)} yd/s to the mesh by ${c.handT} s (max ${CS.SPEEDS.QB})`); }
+    return e;
+  }
   CS.validatePlay = (play, lib) => {
     lib = lib || CS.lib;
     const e = [], L = `play ${play && play.id}`;
@@ -552,7 +977,10 @@
         continue;
       }
       if (!p || p.team !== 'off') { e.push(`${L}: assignment for unknown offensive player ${id}`); continue; }
-      if (a.on != null) {
+      if (a.on != null && (a.run || a.kick)) {
+        // A run block by name: any defender (the run engine sends him there).
+        if (!(c.byId[a.on] && c.byId[a.on].team === 'def')) e.push(`${L}: ${id} run-blocks unknown defender ${a.on}`);
+      } else if (a.on != null) {
         const r = c.byId[a.on];
         if (!r || r.team !== 'def' || r.role !== 'rush') e.push(`${L}: ${id} blocks ${a.on}, who is not a rusher on this play`);
         else if (p.held == null) e.push(`${L}: ${id} never meets ${a.on}`);
@@ -565,6 +993,7 @@
       if (a.block && CS.gapX(a.block) == null) e.push(`${L}: ${id} blocks unknown gap ${a.block}`);
     }
     for (const p of c.def) if (p.role === 'man' && !(c.byId[p.manOf] && c.byId[p.manOf].team === 'off')) e.push(`${L}: ${p.id} covers unknown ${p.manOf}`);
+    e.push(...runErrors(play, c, lib, L));
     const ts = (play.ball || []).map((b) => b.t);
     for (let i = 1; i < ts.length; i++) if (!(ts[i] > ts[i - 1])) e.push(`${L}: ball events out of order`);
     if (c.throwT != null) {
@@ -756,10 +1185,12 @@
   CS.ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);   // ease-in-out cubic
   // o.WX: the world's width along the field when the field art runs further downfield than the
   // window (the deep camera); o.zmin: how far out it may zoom (below 1 the view is wider than the
-  // window; an axis the view is wider than the world on is centred on it).
+  // window; an axis the view is wider than the world on is centred on it). o.VH (2026-11-12, the
+  // full-width field): the view's height in world px at zoom 1 when the canvas shows less than the
+  // world's H across the field (a short box: the field keeps the column's width and crops across).
   CS.camClamp = (cam, W, H, o) => {
     o = o || {};
-    const WX = num(o.WX, W), z = Math.max(num(o.zmin, 1), cam.z), hw = W / (2 * z), hh = H / (2 * z);
+    const WX = num(o.WX, W), VH = num(o.VH, H), z = Math.max(num(o.zmin, 1), cam.z), hw = W / (2 * z), hh = VH / (2 * z);
     return { cx: WX >= 2 * hw ? clamp(cam.cx, hw, WX - hw) : WX / 2, cy: H >= 2 * hh ? clamp(cam.cy, hh, H - hh) : H / 2, z };
   };
   /* ── the deep camera ── The window (CS.VIEW) reaches 19.6 yd downfield, so a go or a seam was
@@ -809,10 +1240,10 @@
   CS.camFrame = (r, W, H, o) => {
     o = o || {};
     const m = num(o.margin, 40), zmax = num(o.zmax, 3), step = num(o.step, 0.25), fill = num(o.fill, 1);
-    const zr = Math.min(W / (r.x1 - r.x0 + 2 * m), H / (r.y1 - r.y0 + 2 * m), fill * H / Math.max(1, r.y1 - r.y0));
+    const VH = num(o.VH, H), zr = Math.min(W / (r.x1 - r.x0 + 2 * m), VH / (r.y1 - r.y0 + 2 * m), fill * VH / Math.max(1, r.y1 - r.y0));
     // zmin (default 1): the deep camera may zoom out past the window, by `step`s like zooming in.
     const zmin = num(o.zmin, 1), z = Math.max(zmin, Math.floor(Math.min(zmax, zr) / step + 1e-9) * step);
-    return CS.camClamp({ cx: (r.x0 + r.x1) / 2, cy: (r.y0 + r.y1) / 2, z }, W, H, { WX: o.WX, zmin });
+    return CS.camClamp({ cx: (r.x0 + r.x1) / 2, cy: (r.y0 + r.y1) / 2, z }, W, H, { WX: o.WX, zmin, VH });
   };
 
   /* ── bubble placement ── CSS px inside the field box (W x H). A bubble of w x h goes where it

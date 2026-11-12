@@ -337,3 +337,60 @@ read wrong against the fact sheet, and man protection needed its rule written do
 - **Fact sheet**: man protection in order, no crossed blocks, written as a Coach School teaching
   convention with the dad's decision of 2026-11-12 (rank 3, "Pass protection"); the assign checker's
   `man` rule points at it.
+
+## 2026-11-12 — the run game in the engine; the run-scheme assign; a full-width field on puzzles
+
+Everything the library had flagged `needsEngine` is drawn now, and the flag is gone (lib check L7
+scans for it; the catalogue is `L.ENGINE_FEATURES`). Supersedes the PENDING_PLAYS arrangement of
+the full-library entry: the six runs are PLAYS, one per scheme (`RUN_SCHEMES[s].play`), each with
+2-3 sourced callouts, and two stunt plays (`STUNTS[k].play`) join them: 18 plays.
+
+- **Tracks** (cs-core, `runCompile`): a handoff makes a play a run. Every man then moves on a
+  keyframe track `[t, x, y]`, straight lines at constant speed, so a pose is still a pure function
+  of t and a test can work it out by hand. Built once at compile, in order: routes and drops; each
+  defender's own job until he reads run (`RUN.KEY_DL/LB/DB` after the snap, or `RUN.DRAW` after a
+  draw's handoff), then a straight pursuit to the first point he can reach on the carrier's track
+  (`CS.intercept`); the carrier's authored track; the blocks; the tackle.
+- **The carrier**: `carry: { aim, cut?: 'front' | 'back' | 'bounce', counterStep?, follow? }`. He
+  runs at the aim gap's point 1.5 yd behind the line, then through it, then his authored cut (the
+  read made deterministic; outside zone bounces). `follow: 'LG'` times his run so he reaches the
+  hole `RUN.FOLLOW` s after that puller does. A draw has no aim: the back takes the widest lane
+  between the steered rushers half a second after the handoff. The QB meets him `RUN.MESH` yd on
+  his backside at the handoff, then carries out a fake. validatePlay refuses a QB who would have
+  to run faster than his speed to the mesh, an unknown aim, a follow of a man who does not pull,
+  and (for now) a mirrored run.
+- **Blocks** (`CS.runBlocks`, the rules of RUN_RULES applied to the play, pure, also the assign
+  puzzle's judge): explicit `on`; kick-outs on the EMOL; back, down, zone/reach (covered or not),
+  cutoff/hinge, steer; then the linebackers: pull-lead through its gap, the uncovered zone man's
+  double team and climb, a down blocker with nobody inside, release. Pullers drop to `PULL_Y`, run
+  along the line at `PULL_V` and (leading) turn up the hole. A blocker meets his man on the way if
+  the man runs into his footwork, else goes straight at him; contact at `RUN.CONTACT`, then they
+  drive together `RUN.VD` yd/s for `RUN.DRIVE_T` s and hold. A double team holds `RUN.COMBO_T` s
+  after both men are on the lineman, then the uncovered man climbs.
+- **The tackle**: the first defender to the carrier who was not blocked before he got there
+  (`c.downT`, `c.tackleBy`, `c.tackleAt`). The carrier goes down there, the other free men pull up
+  `RUN.CLOSE` yd short of the spot, the play runs `RUN.END` s on. The tackler dives as a sacker does.
+- **Library fills**: to draw a run every man in the box needs a job; where sheet 7 gives none (the
+  TE and fullback on most schemes, trap's center and backside tackle, receivers) the play lists the
+  assignment in `fill` with why, a CS pick never taught (lib check L8). Inside zone and outside zone
+  bounce or hit front side by authored cut; the runs gain 2-5 yd against the 8-man Cover 3 front.
+- **Defense**: Cover 0's Mike rushes his lane when the back blocks and covers him otherwise; a
+  quarters safety reads #2 at `CS.READ_T` (drives `CS.DRIVE` yd over a breaking route, carries
+  `CS.CARRY` yd over a vertical); 2-man corners trail (`CS.TRAIL` yd under, half a yard inside); a
+  stunt's looper waits `delay` s and loops `CS.LOOP_DEPTH` yd deeper behind the crasher. The assign
+  check's Cover 0 fixture now pins its Mike on the back (`ifBlocks: null`) to keep its six-man
+  premise, restaged with that reason.
+- **Assign, rule `run`** (`pz-assign-power`): connect the tackle, center, fullback and pulling
+  guard to their men on power. The judge is `CS.runBlocks`. The wrong run plays his blocks, honoring
+  each only where the footwork can get there (a down block cannot reach a man outside him, a
+  kick-out is the EMOL's, a lead is a linebacker's); the man left free is free on the field and the
+  bubble says what the engine did (most wrong answers: a tackle for loss). Then the right run.
+- **Full-width field** (cs-field `fit`, `{ crop: true }` from cs-ui on puzzle and Game Day screens
+  only): when the whole W:H field would come out under 90% of the column's width, the canvas takes the column's width and the box's height and shows less across
+  the field (`world.VH` world px at zoom 1, square pixels). The camera's whole view frames the
+  ground the 22 cover across the field over the play, zoomed out by twentieths if it must be;
+  puzzle zooms and run frames fit VH. Measured on every puzzle screen at 390x844 and 360x740,
+  before and after answering (`layout.mjs`). At 360x740 a call puzzle's field after a long answer
+  is about 160 px tall: full width, but short. Lesson cards stay uncropped: a card about the sidelines or the numbers
+  needs the whole width of the field (the first crop-everywhere try left "It is 53 1/3 yards wide"
+  pointing at two sidelines off the canvas; B17 caught it).

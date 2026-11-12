@@ -29,6 +29,11 @@
             lineman "attacks and owns one gap", the one his shade puts him in (a 1 is in the A gap,
             a 3 in the B gap, a 5 outside the tackle). A head-up man (0, 2, 4, 6) is a two-gap
             player and owns no single gap: validate() refuses a puzzle that asks it.
+     run    run blocking by scheme [7 "Run schemes"]: each blocker's man is the one his scheme's
+            rule gives him on this play (CS.runBlocks, the same resolver the run engine plays:
+            down = the man on the line inside him, back = the man on him or backside, kick = the
+            EMOL, pull-lead = the linebacker through the hole). Targets are defenders; every one
+            of them is somebody's man, so a miss leaves a man free.
 
    The runs after the answer (2026-11-12, cs-core pass protection: {on} blocks, {then:'QB'}, the
    sack): the right run has every blocker meet the rusher his job gives him, and they hold. A wrong
@@ -39,7 +44,10 @@
    and the quarterback with its bubble off them. Then the right version. Engine limits still: no
    run play and no gap fit against a ball carrier, so a run fit plays the snap and the linemen
    firing into their gaps, a stepped illustration; an empty gap gets a red arrow through it from
-   the back. */
+   the back. A run (2026-11-12, cs-core's run engine): the wrong run plays his blocks ({on} for
+   each of his blockers, every other blocker pinned on the man his rule gives him), so the man he
+   left free is free on the field, and the engine's tackle says where the back goes down (behind
+   the line, most of the time: a tackle for loss); then the right run gains its yards. */
 (function (root) {
   'use strict';
   const CS = root.CS;
@@ -48,7 +56,9 @@
   const isGap = (t) => typeof t === 'string' && GAP_RE.test(t);
   const BACKS = ['RB', 'FB'];
   const gapWords = (g) => { const m = GAP_RE.exec(g); return m ? `${m[2] === 'L' ? 'left' : 'right'} ${m[1]} gap` : String(g); };
-  const RULES = ['slide', 'man', 'fit'];
+  const RULES = ['slide', 'man', 'fit', 'run'];
+  // How a run block reads out, by the blocker's rule token.
+  const RUN_VERB = { down: 'blocks down on', back: 'blocks back on', kick: 'kicks out', 'pull-kick': 'pulls and kicks out', 'pull-lead': 'pulls through the hole to', 'pull-trap': 'pulls and traps', release: 'climbs to', zone: 'zone-blocks', reach: 'reaches', cutoff: 'cuts off', hinge: 'hinges on', steer: 'steers' };
 
   /* ── the rule, applied to the play ── */
   // Everything the rule needs from the play, worked out once per question.
@@ -79,6 +89,11 @@
         else R.allowed[id] = new Set();
       }
       R.open = open;
+    }
+    if (pz.rule === 'run') {
+      // The scheme's rules on this play: each blocker's man (the run engine's own resolver).
+      R.blocks = c.run ? CS.runBlocks(c) : {};
+      for (const id of pz.blockers || []) { const b = R.blocks[id]; R.allowed[id] = new Set(b && b.target ? [b.target] : []); }
     }
     if (pz.rule === 'fit') {
       // The gap a one-gap lineman's shade puts him in: the nearest man on the offensive line, then
@@ -130,6 +145,9 @@
         const a = ln[i - 1].k, z = ln[i].k;
         if (!(z[0] > a[0] + 1e-9 || (Math.abs(z[0] - a[0]) <= 1e-9 && z[1] > a[1] + 1e-9))) v.crossed.push([ln[i - 1].b, ln[i].b]);
       }
+    } else if (R.rule === 'run') {
+      for (const b of bl) if (!v.incomplete.includes(b) && !(R.allowed[b] && R.allowed[b].has(ans[b]))) v.misfit.push(b);
+      v.free = tg.filter((t) => !taken.has(t));
     } else if (R.rule === 'fit') {
       for (const b of bl) if (!v.incomplete.includes(b) && !(R.allowed[b] && R.allowed[b].has(ans[b]))) v.misfit.push(b);
       const owned = new Set();
@@ -218,6 +236,12 @@
         if (R.rushers.length !== bl.length) e.push(`${Lb}: ${bl.length} blockers for ${R.rushers.length} rushers: man protection is one rusher each, so the answer is not one-to-one`);
         for (const r of R.rushers) if (!tg.includes(r.id)) e.push(`${Lb}: rusher ${r.id} is not a target`);
       }
+      if (pz.rule === 'run') {
+        if (!c.run) e.push(`${Lb}: a run puzzle needs a run play (a handoff)`);
+        for (const b of bl) if (c.byId[b] && !(R.blocks[b] && R.blocks[b].token)) e.push(`${Lb}: ${b} has no run rule on this play`);
+        if (bl.length && tg.some((t) => isGap(t))) e.push(`${Lb}: a run puzzle's targets are defenders`);
+        if (tg.length !== bl.length) e.push(`${Lb}: ${bl.length} blockers for ${tg.length} defenders: every target is somebody's man, one each`);
+      }
       if (pz.rule === 'fit') {
         for (const b of bl) {
           const p = c.byId[b];
@@ -276,6 +300,15 @@
       // DE-R 5 tech (30.17, outside the RT) -> right C.
       answer: { 'DE-L': 'C-gap-L', 'DT-L': 'A-gap-L', 'DT-R': 'B-gap-R', 'DE-R': 'C-gap-R' },
       tags: ['run-fit:one-gap'], why: 'In a one-gap front each lineman attacks and owns one gap, the one his shade puts him in: a 1 technique is in the A gap, a 3 in the B gap, a 5 outside the tackle in the C gap.' },
+    { id: 'pz-assign-power', type: 'assign', rule: 'run', play: 'run-power',
+      blockers: ['RT', 'C', 'FB', 'LG'], targets: ['DT-R', 'DT-L', 'DE-R', 'MIKE'],
+      prompt: 'Power right. Connect each blocker to his man: the tackle blocks down, the center blocks back, the fullback kicks out, the left guard pulls.',
+      // By hand (7, power; 1d 4-3 Over vs the I): RT down = the man on the line inside him, DT-R (3
+      // technique, 28.67); C back = the man on him or backside, DT-L (1 technique, 26.17); FB kick =
+      // the EMOL, DE-R (5 technique, 30.17; the TE has the Sam); LG pull-lead through the C gap
+      // (30.42) = the linebacker nearest it once the Sam is the TE's: the Mike (27.67).
+      answer: { RT: 'DT-R', C: 'DT-L', FB: 'DE-R', LG: 'MIKE' },
+      tags: ['run:power'], why: 'Power: the playside linemen block down on the man inside them, the center blocks back, the fullback kicks out the end man on the line, and the backside guard pulls through the hole and leads up on the linebacker.' },
   ];
 
   /* ── the runs after the answer ── */
@@ -286,9 +319,39 @@
   // just sets). The right run: every rusher met. The wrong run: the ones nobody meets keep coming
   // ({then: 'QB'}), and the first to reach the quarterback sacks him (the time measured on the run:
   // the first frame within CS.SACK_REACH + 0.05 yd), the clip ending a second later.
+  // Whether a run blocker's footwork can take him to this defender (his rule's kind of man, run to
+  // side s): down = a man on the line inside him; back = on the line, on him or backside; a kick-out
+  // = the EMOL (the playside-most man on the line); a lead or a release = a linebacker; a trap = a
+  // man on the line. Zone and the rest: any man on the line or a linebacker.
+  function canBlock(R, id, t) {
+    const c = R.c, b = c.byId[id], d = c.byId[t], tok = (R.blocks[id] || {}).token, s = c.runS || 1;
+    if (!b || !d || d.team !== 'def') return false;
+    const onLine = d.y <= CS.RUN.LINE_Y, lb = d.pos === 'LB' && !onLine;
+    if (tok === 'down') return onLine && s * (d.x - b.x) < -0.1;
+    if (tok === 'back') return onLine && s * (d.x - b.x) <= 0.25;
+    if (tok === 'kick' || tok === 'pull-kick') { const line = c.def.filter((q) => q.y <= CS.RUN.LINE_Y); return onLine && line.every((q) => s * q.x <= s * d.x + 1e-9); }
+    if (tok === 'pull-lead' || tok === 'release') return lb;
+    if (tok === 'pull-trap') return onLine;
+    return onLine || lb;
+  }
   function runPlays(pz, play, ans, ok, lib) {
     lib = lib || CS.lib;
     const c = CS.compile(play, lib), R = ruleOf(pz, lib);
+    if (pz.rule === 'run') {
+      // The right run is the play. His: his blockers on the men he gave them, every other blocker
+      // pinned on the man his rule gives him; a blocker with no answer blocks nobody.
+      const right = CS.variantOf(play, { tag: 'assign-right' });
+      if (ok) return { right };
+      // A man he gave the wrong one goes after him only if his footwork can take him there (canBlock):
+      // a down block cannot reach a man outside him, nor a kick-out a man inside the end; otherwise
+      // he blocks air and his own man is free.
+      const A = {};
+      for (const [id, b] of Object.entries(R.blocks)) {
+        const a = play.assign[id] || {}, mine = (pz.blockers || []).includes(id), t = mine ? (ans ? ans[id] : null) : b.target;
+        A[id] = t && (!mine || canBlock(R, id, t)) ? { ...a, on: t } : { ...a, miss: true };
+      }
+      return { right, bad: CS.variantOf(play, { tag: 'assign-wrong', assign: A }) };
+    }
     const rusherOf = (t) => (isGap(t) ? (R.rushers.find((r) => r.gap === t) || {}).id : R.rush[t] ? t : null) || null;
     const assignOf = (a) => {
       const o = {};
@@ -328,6 +391,21 @@
   const STATE = typeof WeakMap === 'function' ? new WeakMap() : null;
   function failureText(ctx, v) {
     const nm = (id) => ctx.lc(ctx.nameOf(id)), pz = ctx.pz, R = ruleOf(pz, ctx.lib);
+    if (pz.rule === 'run' && (v.free.length || v.misfit.length)) {
+      // What the engine does with it: who gets to the back, and where he goes down (his run, played).
+      const ans = ctx.picked || {}, bad = runPlays(pz, ctx.play, ans, false, ctx.lib).bad, cb = bad && CS.compile(bad, ctx.lib);
+      const tk = cb && cb.tackleBy, y = cb ? cb.tackleAt[1] : 0, yd = Math.round(Math.abs(y));
+      const down = y < 0 ? `tackles the back ${yd ? `${yd} yard${yd === 1 ? '' : 's'} ` : ''}behind the line` : 'makes the tackle';
+      if (v.free.length) {
+        const f = v.free[0];
+        const tail = tk === f ? ` He ${down}.` : y < 0 ? ' The back goes down behind the line.' : '';
+        return { parts: ['Nobody blocks the ', { tag: 'b', text: nm(f) }, '.' + tail], focus: tk ? [tk, cb.carrier] : [f] };
+      }
+      const b = v.misfit[0], tok = (R.blocks[b] || {}).token;
+      const job = { down: 'blocks down, on the man inside him', back: 'blocks back', kick: 'kicks out the end man on the line', 'pull-kick': 'kicks out the end man on the line', 'pull-lead': 'leads up on a linebacker', 'pull-trap': 'traps the lineman left unblocked' }[tok] || 'blocks by his rule';
+      const tail = tk && pz.targets.includes(tk) ? ['. The ', { tag: 'b', text: nm(tk) }, ` gets through and ${down}.`] : ['.'];
+      return { parts: ['The ', { tag: 'b', text: nm(b) }, ` ${job}, and that is not the ${nm(ans[b])}`, ...tail], focus: tk ? [tk, cb.carrier] : [b] };
+    }
     if (v.free.length) {
       const r = R.rush[v.free[0]];
       return { parts: ['Nobody blocks the ', { tag: 'b', text: nm(r.id) }, `. He comes free through the ${gapWords(r.gap)} at the quarterback.`], focus: [r.id] };
@@ -338,7 +416,7 @@
     if (v.droppers.length) return { parts: ['The ', { tag: 'b', text: nm(v.droppers[0]) }, ' drops into coverage. Block the men who rush.'], focus: [v.droppers[0]] };
     if (v.misfit.length) {
       const b = v.misfit[0];
-      const rule = pz.rule === 'slide' ? `In a slide every lineman takes the gap to his ${pz.slide === 'L' ? 'left' : 'right'}.` : pz.rule === 'man' ? 'Big on big: linemen on the down linemen, backs on backers.' : 'A one-gap lineman owns the gap he is shaded into.';
+      const rule = pz.rule === 'slide' ? `In a slide every lineman takes the gap to his ${pz.slide === 'L' ? 'left' : 'right'}.` : pz.rule === 'man' ? 'Big on big: linemen on the down linemen, backs on backers.' : pz.rule === 'run' ? 'Each man blocks by his rule: down, back, kick out, pull.' : 'A one-gap lineman owns the gap he is shaded into.';
       return { parts: ['The ', { tag: 'b', text: nm(b) }, ' is on the wrong job. ' + rule], focus: [b] };
     }
     return { parts: ['Connect every blocker first.'], focus: [] };
@@ -448,7 +526,7 @@
         for (const tg of v.doubled) for (const [b, x] of Object.entries(ans)) if (x === tg) wrong.add(b);
         drawLinks(S.links, (b) => (wrong.has(b) ? 'bad' : 'focus'));
         ctx.field.setMarks(ctx.focusMarks.concat(v.free.map((id) => ({ id, kind: 'bad' }))));
-        const f = failureText(ctx, v);
+        const f = failureText({ ...ctx, picked: ans }, v);
         ctx.feedback('bad', f.parts.concat(' One more try.'));
       },
       // Over: the controls lock (the handles go); the connectors then follow the runs.
@@ -492,6 +570,10 @@
       const dl = pz.blockers.length - odd.length;
       return odd.map((b) => `the ${nm(b)} takes the ${tw(t[b])}`).join(', ') + (dl ? `, and the other ${dl === 1 ? 'lineman takes the down lineman' : `linemen take the ${['', 'one', 'two', 'three', 'four', 'five'][dl] || dl} down linemen`} in order along the line` : '');
     }
+    if (pz.rule === 'run') {
+      const R = ruleOf(pz, ctx.lib);
+      return pz.blockers.map((b) => `the ${nm(b)} ${RUN_VERB[R.blocks[b].token] || 'blocks'} the ${tw(t[b])}`).join(', ');
+    }
     return pz.blockers.map((b) => `${nm(b)} on the ${tw(t[b])}`).join(', ');
   };
   // The explanation points at the man the puzzle turns on: the back and the rusher he picks up
@@ -501,6 +583,11 @@
     if (!t) return null;
     const c = CS.compile(ctx.play);
     if (pz.rule === 'fit') return ['dl'];
+    if (pz.rule === 'run') {
+      // The man the scheme turns on: the puller (else the kick-out) and his man.
+      const R = ruleOf(pz, ctx.lib), b = pz.blockers.find((x) => /^pull-/.test(R.blocks[x].token)) || pz.blockers.find((x) => R.blocks[x].token === 'kick') || pz.blockers[0];
+      return [b, t[b]];
+    }
     if (pz.rule === 'man') {
       const b = pz.blockers.find((x) => c.byId[t[x]] && !CS.DL.includes(c.byId[t[x]].pos));
       return b ? [b, t[b]] : ['ol'];
@@ -520,7 +607,7 @@
     // explanation ("The answer: ...") in the panel while this bubble shows. A free rusher: the clip
     // frames him and the quarterback over the whole run (zoom), his sack included, and the bubble
     // stays off that ground.
-    const f = failureText(ctx, v), cb = CS.compile(runs.bad, ctx.lib);
+    const f = failureText({ ...ctx, picked: ans }, v), cb = CS.compile(runs.bad, ctx.lib);
     const sacked = cb.sackBy != null;
     const parts = sacked ? f.parts.concat(' Sack.') : f.parts;
     const focus = sacked ? [cb.sackBy, 'QB'] : f.focus;

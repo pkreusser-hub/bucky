@@ -876,10 +876,13 @@
     const { speed, phase } = o;
     if (t <= c.snapT) return setPose(p);
     // Going down (the source's raFrame): the knees buckle (fall1), hands and knees (fall2), flat.
-    const dn = p.id === c.target ? c.downT : p === c.qb ? c.sackT : null;
+    // On a run (2026-11-12) the man going down is the ball carrier, at the tackle.
+    const dn = c.run ? (p.id === c.carrier ? c.downT : null) : p.id === c.target ? c.downT : p === c.qb ? c.sackT : null;
     if (dn != null && t > dn - 0.1) return t > dn + 0.26 ? 'down' : t > dn + 0.1 ? 'fall2' : 'fall1';
     // The sack: the free rusher dives into him, then lies on the grass beside him.
     if (c.sackT != null && p.id === c.sackBy && t > c.sackT - 0.15) return t > c.sackT + 0.35 ? 'down' : 'dive';
+    // The tackle on a run: the tackler dives into the carrier the same way.
+    if (c.run && c.tackleBy != null && p.id === c.tackleBy && t > c.downT - 0.15) return t > c.downT + 0.35 ? 'down' : 'dive';
     // The pass: wound up (throw1), released (throw2, the first 0.1 s), the follow-through (throw3).
     if (p === c.qb && c.throwT != null && t >= c.throwT - 0.38 && t < c.throwT + 0.32) return t < c.throwT - 0.02 ? 'throw1' : t <= c.throwT + 0.08 ? 'throw2' : 'throw3';
     // The catch: hands up, then the ball pulled in for the act's last 0.12 s.
@@ -891,7 +894,8 @@
       if (p.id === c.by && t >= A - 0.28 && t < A + (c.end === 'pick' ? CS.SECURE : 0.1)) return t >= A && c.end === 'pick' ? 'secure' : 'catch';
       if (p.id === c.target && t >= A - 0.28 && t < A + 0.06) return 'catch';
     }
-    const blocker = p.role === 'block' || p.role === 'rush';
+    // A run block: a blocker and his man (a linebacker or a back too) are locked up from contact on.
+    const blocker = p.role === 'block' || p.role === 'rush' || (c.run && p.engaged != null && t >= p.engaged);
     if (blocker && speed < 3.2 && t < c.T) return Math.floor(t * 4 + (phase || 0) * 2) % 2 ? 'block2' : 'block';
     if (speed > 0.8) {
       const gait = o.back ? 'back' : o.held ? (speed < 2.4 ? 'walk' : 'carry') : speed < 2.4 ? 'walk' : speed < 5.6 ? 'jog' : 'run';
@@ -944,9 +948,18 @@
     canvas.width = W; canvas.height = H;
     const reduceMQ = root.matchMedia ? root.matchMedia('(prefers-reduced-motion: reduce)') : null;
     const reduced = () => !!(reduceMQ && reduceMQ.matches);
-    const FULL = { cx: W / 2, cy: H / 2, z: 1 };
+    // The whole view. With the canvas showing all of the world's H across the field (st.VH = H) it is
+    // the window at zoom 1. A short box (fit, 2026-11-12) gives the canvas the column's full width and
+    // crops across the field (st.VH < H): the whole view then frames the ground the 22 cover over the
+    // play across the field (st.band, world px), zoomed out by twentieths just enough to show it.
+    const FULL0 = { cx: W / 2, cy: H / 2, z: 1 };
+    function fullCam() {
+      if (!(st.VH < H - 0.5) || !st.band) return { ...FULL0 };
+      const b = st.band, z = Math.max(ZMIN, Math.min(1, Math.floor((st.VH / (b.y1 - b.y0)) * 20 + 1e-9) / 20));
+      return CS.camClamp({ cx: W / 2, cy: (b.y0 + b.y1) / 2, z }, W, H, { WX, zmin: ZMIN, VH: st.VH });
+    }
     const st = { play: null, c: null, t: 0, playing: false, speed: 1, raf: 0, last: 0, acc: 0, kits: null, art: null, pal: {}, nums: {}, drawn: {}, marks: [], callout: true,
-      cam: { ...FULL }, camA: null, say: null, sayN: 0, shown: 0, place: null, note: null, geom: null, bw: 0, bh: 0,
+      cam: { ...FULL0 }, camA: null, VH: H, band: null, say: null, sayN: 0, shown: 0, place: null, note: null, geom: null, bw: 0, bh: 0,
       fade: null, fadeAnim: false, spotOn: false, alpha: {}, order: [], spot: null,
       ov: [], ovN: 0, ovGeom: { paths: [], links: [], gaps: [] }, moved: {}, drags: [], grab: null, stopAt: null, stopCb: null };
     const PRE = -1.2;
@@ -965,7 +978,7 @@
       st.art = fieldArt(CS.num(play.spot, 25), off, def, offHome ? off : def);
       st.pal = {}; st.nums = {}; st.marks = []; st.drawn = {};
       st.callout = o.callouts !== false;
-      st.cam = { ...FULL }; st.camA = null; st.say = null; st.note = null; st.place = null;
+      st.band = bandOf(play); st.cam = fullCam(); st.camA = null; st.say = null; st.note = null; st.place = null;
       st.fade = null; st.spotOn = false; st.alpha = {}; st.order = []; st.spot = null;
       // A new play puts everyone back on his own alignment and cancels a pending freeze. Overlays and
       // drag sessions belong to whoever made them (a puzzle type) and stay until it removes them.
@@ -1004,11 +1017,20 @@
       draw();
     }
 
+    // Across the field, the ground the 22 cover from before the snap to the end (sprite boxes, world
+    // px, a 24 px margin each side): what the whole view keeps on a cropped canvas.
+    function bandOf(play) {
+      const c = CS.compile(play);
+      let y0 = Infinity, y1 = -Infinity;
+      for (let t = PRE; t <= c.T + 1e-9; t += 0.25) for (const q of Object.values(CS.poseAt(play, t).players)) { const y = wy(q.x); y0 = Math.min(y0, y - 38); y1 = Math.max(y1, y + 2); }
+      return { y0: Math.max(0, y0 - 24), y1: Math.min(H, y1 + 24) };
+    }
     /* ── coordinates ── World px -> CSS px goes through the camera, so every tap, hit-test and
-       bubble is right while zoomed. sx, sy: CSS px per world px at zoom 1. */
-    const toCss = () => { const r = canvas.getBoundingClientRect(); return { r, sx: r.width / W, sy: r.height / H }; };
-    function w2c(X, Y) { const { r, sx, sy } = toCss(), c = st.cam; return { x: r.left + ((X - c.cx) * c.z + W / 2) * sx, y: r.top + ((Y - c.cy) * c.z + H / 2) * sy }; }
-    function c2w(px, py) { const { r, sx, sy } = toCss(), c = st.cam; return { X: ((px - r.left) / sx - W / 2) / c.z + c.cx, Y: ((py - r.top) / sy - H / 2) / c.z + c.cy }; }
+       bubble is right while zoomed. sx, sy: CSS px per world px at zoom 1 (equal: the view is W x
+       st.VH world px, H when the whole width of the field fits, less on a cropped canvas). */
+    const toCss = () => { const r = canvas.getBoundingClientRect(); return { r, sx: r.width / W, sy: r.height / st.VH }; };
+    function w2c(X, Y) { const { r, sx, sy } = toCss(), c = st.cam; return { x: r.left + ((X - c.cx) * c.z + W / 2) * sx, y: r.top + ((Y - c.cy) * c.z + st.VH / 2) * sy }; }
+    function c2w(px, py) { const { r, sx, sy } = toCss(), c = st.cam; return { X: ((px - r.left) / sx - W / 2) / c.z + c.cx, Y: ((py - r.top) / sy - st.VH / 2) / c.z + c.cy }; }
     function yardToScreen(x, y) { return w2c(wx(y), wy(x)); }
     function screenToYard(px, py) { const w = c2w(px, py); return { x: (w.Y - MT) / PY, y: w.X / PX + Y0 }; }
     // The painted box of a player's sprite as last drawn, in world pixels.
@@ -1140,11 +1162,11 @@
     function draw() {
       if (!st.play) return;
       backing();
-      const c = st.c, t = st.t, play = st.play, cam = st.cam, ax = canvas.width / W, ay = canvas.height / H;
+      const c = st.c, t = st.t, play = st.play, cam = st.cam, ax = canvas.width / W, ay = canvas.height / st.VH;
       g.setTransform(1, 0, 0, 1, 0, 0);
       // Zoomed out past the window (the deep camera) the view is wider than the art across the field:
       // the stands' dark green round it.
-      if (cam.z < 1) { g.fillStyle = '#123f1a'; g.fillRect(0, 0, canvas.width, canvas.height); }
+      if (cam.z < 1 || st.VH < H) { g.fillStyle = '#123f1a'; g.fillRect(0, 0, canvas.width, canvas.height); }
       g.imageSmoothingEnabled = ax * cam.z < 0.999;
       g.setTransform(ax * cam.z, 0, 0, ay * cam.z, canvas.width / 2 - cam.cx * cam.z * ax, canvas.height / 2 - cam.cy * cam.z * ay);
       g.drawImage(st.art, 0, 0);
@@ -1275,7 +1297,7 @@
         let ln = '';
         for (const w of words) { const t2 = ln ? ln + ' ' + w : w; if (ln && g.measureText(t2).width > W - 32) { lines.push(ln); ln = w; } else ln = t2; }
         if (ln) lines.push(ln);
-        const lh = FS + 5, bh = lines.length * lh + 12, top = f.sy > H / 2 ? 6 : H - bh - 6;
+        const lh = FS + 5, bh = lines.length * lh + 12, top = f.sy > st.VH / 2 ? 6 : st.VH - bh - 6;
         g.fillStyle = 'rgba(6,10,16,0.88)'; g.fillRect(6, top, W - 12, bh);
         g.fillStyle = '#ffe14d'; g.fillRect(6, top, 3, bh);
         g.fillStyle = '#f4f1e6'; g.textBaseline = 'top';
@@ -1613,7 +1635,7 @@
 
     /* ── the camera ── */
     function camTo(to, instant) {
-      to = CS.camClamp(to, W, H, { WX, zmin: ZMIN });
+      to = CS.camClamp(to, W, H, { WX, zmin: ZMIN, VH: st.VH });
       const c = st.cam;
       if (Math.abs(c.z - to.z) < 1e-3 && Math.hypot(c.cx - to.cx, c.cy - to.cy) < 0.5) { st.cam = to; st.camA = null; return; }
       if (instant || reduced()) { st.cam = to; st.camA = null; return; }   // reduced motion: a cut, not an ease
@@ -1630,7 +1652,7 @@
         if (f.ids) for (const id of f.ids) { const b = bodyBox(id); if (b) add(b.x0, b.x1, b.y0, b.fy); }
         else { const fr = f.frame; add(wx(fr.y0), wx(fr.y1), wy(fr.x0), wy(fr.x1)); }
       }
-      return R ? CS.camFrame(R, W, H, { margin: 36, zmax: 3, step: 0.25, fill: 0.55 }) : { ...FULL };
+      return R ? CS.camFrame(R, W, H, { margin: 36, zmax: 3, step: 0.25, fill: 0.55, VH: st.VH }) : fullCam();
     }
     // Say something: {text | parts, focus, tone, zoom, frame, n}. zoom true frames the focus (and
     // `frame`, extra tokens that must stay in view); false eases back to the whole window.
@@ -1639,7 +1661,7 @@
       st.say = b ? { ...b, focus: CS.toArr(b.focus), key: st.sayN } : null;
       st.spotOn = !!b;
       if (b && b.zoom) camTo(frameOf(st.say.focus.concat(CS.toArr(b.frame))));
-      else if (b && b.zoom === false) camTo(FULL);
+      else if (b && b.zoom === false) camTo(fullCam());
       draw();
     }
 
@@ -1750,8 +1772,9 @@
       const w = st.deep;
       // Zoomed out by twentieths, rounded down so the window's yards always fit (tidy scales, as
       // camFrame's steps are when zooming in).
-      if (w) { const x0 = wx(w.y0), x1 = wx(w.y1), z = Math.max(ZMIN, Math.floor((W / (x1 - x0)) * 20 + 1e-9) / 20); return CS.camClamp({ cx: (x0 + x1) / 2, cy: H / 2, z }, W, H, { WX, zmin: ZMIN }); }
-      return { ...FULL };
+      const f = fullCam();
+      if (w) { const x0 = wx(w.y0), x1 = wx(w.y1), z = Math.max(ZMIN, Math.min(f.z, Math.floor((W / (x1 - x0)) * 20 + 1e-9) / 20)); return CS.camClamp({ cx: (x0 + x1) / 2, cy: f.cy, z }, W, H, { WX, zmin: ZMIN, VH: st.VH }); }
+      return f;
     }
     // A run's camera (cs-ui, a run's `zoom` tokens): frame where these men go over the whole run
     // (their sprites' boxes from the snap to the end), and the ball's flight for 'ball'; and keep the
@@ -1780,23 +1803,37 @@
         R = R ? { x0: Math.min(R.x0, r.x0), x1: Math.max(R.x1, r.x1), y0: Math.min(R.y0, r.y0), y1: Math.max(R.y1, r.y1) } : r;
       }
       if (!R) return null;
-      st.runFrame = CS.camFrame(R, W, H, { margin: 30, zmax: 2.5, step: 0.25, fill: 0.55, WX, zmin: st.deep ? ZMIN : 1 });   // out past the window only on a deep run
+      st.runFrame = CS.camFrame(R, W, H, { margin: 30, zmax: 2.5, step: 0.25, fill: 0.55, WX, zmin: st.deep || st.VH < H ? ZMIN : 1, VH: st.VH });   // out past the window only on a deep run
       st.keepOff = rects;
       return { ...st.runFrame };
     }
     // Frame these focus tokens (CS.focusOf), or the whole window for null; instant = a cut.
-    function zoomTo(tokens, o) { camTo(tokens && CS.toArr(tokens).length ? frameOf(CS.toArr(tokens)) : { ...FULL }, !!(o && o.instant)); draw(); }
+    function zoomTo(tokens, o) { camTo(tokens && CS.toArr(tokens).length ? frameOf(CS.toArr(tokens)) : fullCam(), !!(o && o.instant)); draw(); }
     function sizeHint() {
       // The backing store follows the device pixels (backing()), so the browser never rescales it.
       canvas.style.imageRendering = 'pixelated';
     }
     // Size the canvas (or the wrapper it fills) to the largest W:H box that fits inside `box`, so
     // the field grows into whatever height the screen leaves it and never pushes the page to scroll.
-    function fit(box) {
+    // RESTAGED 2026-11-12 (the dad's plates: a puzzle's panels left the field 200 of 390 px wide):
+    // on a puzzle screen (o.crop), when that box would be under FULL_W of the box's width, the canvas takes the box's whole width
+    // and its height, and shows less across the field (st.VH world px at zoom 1, the scale the same
+    // both ways): the camera's whole view frames the players (fullCam), a puzzle's zoom its men.
+    const FULL_W = 0.9;
+    function fit(box, o) {
       if (!box) return;
+      const crop = !!(o && o.crop);
       const bw = box.clientWidth, bh = box.clientHeight;
       if (!(bw > 0 && bh > 0)) return;
-      const s = Math.min(bw / W, bh / H), w = Math.floor(W * s), h = Math.floor(H * s);
+      let s = Math.min(bw / W, bh / H), w = Math.floor(W * s), h = Math.floor(H * s);
+      // A new VH (the panel grew or shrank): a camera on the whole view (or easing to it) takes the
+      // new whole view at once; any other is kept, clamped to the new view.
+      const VH0 = st.VH, f0 = st.play ? fullCam() : null;
+      if (crop && w < FULL_W * bw) { s = bw / W; w = Math.floor(bw); h = Math.floor(Math.min(bh, H * s)); st.VH = Math.min(H, h / (w / W)); } else st.VH = H;
+      if (Math.abs(st.VH - VH0) > 0.5 && st.play) {
+        const keep = st.camA ? st.camA.to : st.cam, same = Math.abs(keep.z - f0.z) < 1e-3 && Math.hypot(keep.cx - f0.cx, keep.cy - f0.cy) < 0.5;
+        st.camA = null; st.cam = same ? fullCam() : CS.camClamp(keep, W, H, { WX, zmin: ZMIN, VH: st.VH });
+      }
       const el = opts.wrap || canvas;
       el.style.width = w + 'px'; el.style.height = h + 'px';
       if (el !== canvas) { canvas.style.width = '100%'; canvas.style.height = '100%'; }
@@ -1850,7 +1887,7 @@
       get shown() { return st.play ? shownAt() : null; },
       get spread() { return st.spread ? JSON.parse(JSON.stringify(st.spread)) : null; },
       get chalk() { return st.chalk ? { routes: st.chalk.routes.slice(), zones: st.chalk.zones.slice() } : null; },
-      PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT, WX, ZMIN },
+      PRE, hitRadius: HIT_R, get world() { return { W, H, PX, PY, Y0, Y1, MT, WX, ZMIN, VH: st.VH }; },
     };
     return api;
   };

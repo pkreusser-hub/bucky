@@ -160,7 +160,13 @@ for (const p of Object.values(L.PLAYS)) {
   // puzzle diagram and still has none, since a note would give the puzzle's answer away.
   const watched = (CS.RANK_DATA || []).some((r) => r && r.units.some((u) => u.play === p.id));
   const conceptPlay = !!p.concept && L.CONCEPTS[p.concept] && L.CONCEPTS[p.concept].play === p.id;
-  if (watched || conceptPlay) check((p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${p.id}: a ${watched ? 'lesson' : 'concept'} play has 2-3 callouts`);
+  // RESTAGED 2026-11-12 (the run engine): the six run plays (RUN_SCHEMES[s].play) and the two stunt
+  // plays (STUNTS[k].play) joined PLAYS as canonical plays of their scheme or stunt, exactly as a
+  // concept's play is of its concept: a lesson will watch them, so they carry 2-3 sourced callouts
+  // (lib check L6) and the puzzle-only rule below does not apply to them.
+  const runPlay = !!p.scheme && L.RUN_SCHEMES[p.scheme] && L.RUN_SCHEMES[p.scheme].play === p.id;
+  const stuntPlay = !!p.stunt && L.STUNTS[p.stunt] && L.STUNTS[p.stunt].play === p.id;
+  if (watched || conceptPlay || runPlay || stuntPlay) check((p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${p.id}: a ${watched ? 'lesson' : conceptPlay ? 'concept' : runPlay ? 'run scheme' : 'stunt'} play has 2-3 callouts`);
   else check(!(p.callouts || []).length, `${p.id}: a puzzle-only play has no callouts`);
 }
 const SM = L.PLAYS['smash-vs-c2'];
