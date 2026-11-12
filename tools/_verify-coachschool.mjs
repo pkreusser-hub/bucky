@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const PORT = 8971;
+const PORT = Number(process.env.CS_PORT) || 8971;   // CS_PORT lets parallel worktrees run the battery at once without fighting over one port
 const argv = process.argv.slice(2);
 const PLATES = argv.includes('--plates') ? argv[argv.indexOf('--plates') + 1] : null;
 const NODE_ONLY = argv.includes('--node-only');
