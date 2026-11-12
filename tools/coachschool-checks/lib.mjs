@@ -1,34 +1,28 @@
-#!/usr/bin/env node
 /**
- * Coach School library suite (Node only, vm-loaded cs-core.js + cs-lib.js). Standalone for now;
- * it folds into the modular Coach School suite later.
+ * The library suite (fact sheet -> cs-lib.js), folded into the modular Coach School suite. Node only:
+ * a vm with cs-core.js + cs-lib.js and nothing else (no puzzle types, no rank files, which add plays of
+ * their own), so what is checked is the library as cs-lib.js ships it.
  *
  * Every expected number below is typed by hand from docs/coachschool-facts.md (section named at
  * each table), never read back from the library, so a library value that drifts from the sheet
  * fails here.
  *
- *   node tools/_verify-coachschool-lib.mjs              check the real library
- *   node tools/_verify-coachschool-lib.mjs --lib FILE   check another cs-lib.js (bite proofs)
+ *   node tools/_verify-coachschool.mjs --only lib --node-only              the library checks (plus the main A checks)
+ *   node tools/_verify-coachschool.mjs --only lib --node-only --lib FILE   check another cs-lib.js (bite proofs)
+ *
+ * Was tools/_verify-coachschool-lib.mjs (647 checks standalone); L1-L10 moved here unchanged apart
+ * from taking check / near / ROOT from the shared harness. L11 (ROUTE_BEATS) is new.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
-import { fileURLToPath } from 'node:url';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '..');
-const argv = process.argv.slice(2);
-const LIB = argv.includes('--lib') ? path.resolve(argv[argv.indexOf('--lib') + 1]) : path.join(ROOT, 'assets/coachschool/cs-lib.js');
-
-let PASS = 0, FAIL = 0;
-const fails = [];
-function check(cond, msg) {
-  if (cond) { PASS++; console.log('  ok   ' + msg); }
-  else { FAIL++; fails.push(msg); console.log('  FAIL ' + msg); }
-}
-const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+export async function node(H) {
+const { check, near, ROOT } = H;
 const J = JSON.stringify;
 const sortJ = (a) => J([...a].sort());
+const argv = process.argv.slice(2);
+const LIB = argv.includes('--lib') ? path.resolve(argv[argv.indexOf('--lib') + 1]) : path.join(ROOT, 'assets/coachschool/cs-lib.js');
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'assets/coachschool/cs-core.js'), 'utf8'), ctx, { filename: 'cs-core.js' });
@@ -511,5 +505,75 @@ console.log('\n[L10] techniques and holes (sheet 1c, 8)');
   check(J(L.HOLES) === J({ 1: 'A-gap-L', 2: 'A-gap-R', 3: 'B-gap-L', 4: 'B-gap-R', 5: 'C-gap-L', 6: 'C-gap-R', 7: 'D-gap-L', 8: 'D-gap-R' }) && Object.values(L.HOLES).every((g) => CS.gapX(g) != null), 'holes: even right, odd left, from the center out (CS convention)');
 }
 
-console.log(`\n${PASS}/${PASS + FAIL} passed`);
-if (FAIL) { console.log('failures:'); for (const f of fails) console.log('  ' + f); process.exit(1); }
+/* ═════ L11. ROUTE_BEATS (fact sheet 6) ═════ */
+console.log('\n[L11] ROUTE_BEATS (sheet 6)');
+{
+  // Typed by hand from section 6, primary pairings only: the "Basic beater routes" table, then each
+  // concept whose routes column names a route per numbered receiver, once per coverage in its "beats"
+  // column. [route or concept, routes by receiver number (combos), coverage, side (Cover 6 rows)].
+  // Four verticals, mesh and levels name no route per number and have no row; post-dig's "(or
+  // reversed)" is two rows; dagger's "#1 dig at 15-18" is the library's 15-yd dagger-dig (L4).
+  const SHEET_RB = [
+    ['hitch', null, 'cov:3'], ['seam', null, 'cov:2'], ['corner', null, 'cov:2'], ['corner', null, 'cov:6', 'the Cover 2 side'],
+    ['post', null, 'cov:2'], ['slant', null, 'cov:0'],
+    ['concept:smash', { '#1': ['hitch'], '#2': ['corner'] }, 'cov:2'],
+    ['concept:smash', { '#1': ['hitch'], '#2': ['corner'] }, 'cov:6', 'the Cover 2 side'],
+    ['concept:flood', { '#1': ['go'], '#2': ['sail', 'out'], '#3/RB': ['flat'] }, 'cov:3'],
+    ['concept:stick', { '#1': ['go'], '#2': ['flat', 'arrow'], '#3': ['stick'] }, 'cov:3'],
+    ['concept:slant-flat', { '#1': ['slant'], '#2': ['flat', 'arrow'] }, 'cov:3'],
+    ['concept:curl-flat', { '#1': ['curl'], '#2': ['flat'] }, 'cov:3'],
+    ['concept:curl-flat', { '#1': ['curl'], '#2': ['flat'] }, 'cov:2'],
+    ['concept:dagger', { '#1': ['dagger-dig'], '#2': ['seam'] }, 'cov:3'],
+    ['concept:dagger', { '#1': ['dagger-dig'], '#2': ['seam'] }, 'cov:4'],
+    ['concept:post-dig', { '#1': ['post'], '#2': ['dig'] }, 'cov:4'],
+    ['concept:post-dig', { '#1': ['dig'], '#2': ['post'] }, 'cov:4'],
+  ];
+  const keyOf = (r) => `${r.route || r.concept} ${r.routes ? J(r.routes) : ''} @${r.cov}${r.side ? ' (' + r.side + ')' : ''}`;
+  const want = SHEET_RB.map(([k, routes, cov, side]) => keyOf(routes ? { concept: k, routes, cov, side } : { route: k, cov, side }));
+  const rows = L.ROUTE_BEATS || [];
+  check(Array.isArray(L.ROUTE_BEATS) && sortJ(rows.map(keyOf)) === sortJ(want), `ROUTE_BEATS = section 6's ${want.length} primary rows (6 single routes, 11 concept combos) (${rows.length})`);
+  // A row agrees with the concept/route tables: in BEATS for that coverage (no side), or in
+  // BEATS_SIDE with the same side; and never CONTESTED or POOR for that coverage.
+  const agrees = (r) => {
+    const k = r.route ? 'route:' + r.route : r.concept;
+    const prim = r.side ? (L.BEATS_SIDE[k] || []).some((s) => s.cov === r.cov && s.side === r.side) : (L.BEATS[k] || []).includes(r.cov);
+    const contested = (L.CONTESTED[k] || { covs: [] }).covs.includes(r.cov) || (L.POOR[k] || { covs: [] }).covs.includes(r.cov);
+    return prim && !contested;
+  };
+  const off = rows.filter((r) => !agrees(r)).map(keyOf);
+  check(off.length === 0, `every ROUTE_BEATS row is a primary pairing in BEATS / BEATS_SIDE and none is CONTESTED or POOR ${off.join(' | ')}`);
+  check(!agrees({ route: 'hitch', cov: 'cov:2' }) && !agrees({ concept: 'concept:smash', routes: {}, cov: 'cov:4' }) && !agrees({ route: 'corner', cov: 'cov:6' }) && !agrees({ concept: 'concept:four-verts', routes: {}, cov: 'cov:4' }),
+    'the agreement rule bites: hitch vs Cover 2 (not a beater), smash vs Cover 4 (contested), the corner vs Cover 6 with no side, four verts vs Cover 4 (poor)');
+  // Completeness the other way: every single-route pairing in BEATS and BEATS_SIDE has its row.
+  const singles = [];
+  for (const [k, covs] of Object.entries(L.BEATS)) if (k.startsWith('route:')) for (const cov of covs) singles.push(keyOf({ route: k.slice(6), cov }));
+  for (const [k, ss] of Object.entries(L.BEATS_SIDE)) if (k.startsWith('route:')) for (const s of ss) singles.push(keyOf({ route: k.slice(6), cov: s.cov, side: s.side }));
+  const have = new Set(rows.map(keyOf));
+  check(singles.length === 6 && singles.every((k) => have.has(k)), `every beater-route pairing in BEATS / BEATS_SIDE has a ROUTE_BEATS row (${singles.length})`);
+  const names = rows.flatMap((r) => (r.route ? [r.route] : Object.values(r.routes).flat()));
+  check(names.every((n) => L.ROUTES[n]), `every route a row names is in ROUTES (${[...new Set(names)].sort().join(', ')})`);
+  const srcBad = rows.filter((r) => !(r.src && r.src.sec === '6' && quoteOk(r.src))).map(keyOf);
+  check(srcBad.length === 0, `every row carries a src quote found verbatim in section 6 ${srcBad.join(' | ')}`);
+  check(rows.filter((r) => r.route).every((r) => typeof r.why === 'string' && SECTIONS['6'].includes(norm(r.why))), 'every single-route row carries the sheet\'s "why" verbatim');
+  // The combo rows describe each concept's canonical play: against the coverage the play is drawn
+  // against, the numbered receivers on one side run routes one of that concept's rows allows ("#3/RB"
+  // = #3 or the back; post-dig's two orders are two rows, and the play draws one of them).
+  const comboBad = [], groups = {};
+  for (const r of rows.filter((q) => q.routes)) (groups[`${r.concept} @${r.cov}`] = groups[`${r.concept} @${r.cov}`] || []).push(r);
+  let drawn = 0;
+  for (const [g, rs] of Object.entries(groups)) {
+    const play = L.CONCEPTS[rs[0].concept] && L.PLAYS[L.CONCEPTS[rs[0].concept].play];
+    if (!play) { comboBad.push(`${g}: no canonical play`); continue; }
+    if (play.beats !== rs[0].cov) continue;
+    drawn++;
+    const n = numbers(CS.compile(play)), rt = (id) => routeOf(play, id);
+    const fits = (r) => ['L', 'R'].some((s) => Object.entries(r.routes).every(([who, ok]) => {
+      if (who === '#3/RB') return ok.includes(rt(n[s][2])) || ok.includes(rt('RB'));
+      return ok.includes(rt(n[s][Number(who.slice(1)) - 1]));
+    }));
+    if (!rs.some(fits)) comboBad.push(g);
+  }
+  // 7 concepts have combo rows (smash, flood, stick, slant-flat, curl-flat, dagger, post-dig), each with a canonical play.
+  check(comboBad.length === 0 && drawn === 7, `each concept's combo rows match its canonical play against the coverage it is drawn against (${drawn} of 7 concepts) ${comboBad.join(' | ')}`);
+}
+}

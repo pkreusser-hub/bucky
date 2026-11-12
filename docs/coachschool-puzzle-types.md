@@ -246,11 +246,10 @@ number made up in the type.
   e.g. `'cov:2'`).
 - **Answer**: `{ id: 'Z', route: 'corner' }` (`id` is the receiver he dropped it on).
 - **Checker = BEATS**: right when `id === pz.receiver` and the route beats the coverage per fact
-  sheet 6 ("Basic beater routes"; concept rows via `L.BEATS`). `cs-lib.js` has no per-route table
-  yet: keep `ROUTE_BEATS` in the type file, transcribed row by row with the section cited, and check
-  it against the fact sheet in your module; the orchestrator moves it to the library at merge. A
-  *contested* pairing is never the single right answer, and `validate` flags a puzzle where two
-  offered routes both beat the coverage.
+  sheet 6, read from the library's `CS.lib.ROUTE_BEATS` (superseded: this line used to say "keep
+  `ROUTE_BEATS` in the type file"; see the 2026-11-12 entry at the bottom). A *contested* pairing is
+  never the single right answer, and `validate` flags a puzzle where two offered routes both beat the
+  coverage.
 - **Interaction**: route chips in the panel (buttons, 44 px); pick one, then drag it (a `moves: false`
   handle with a rubber band, or tap-select then tap the receiver) onto a receiver. The chosen route
   shows as `overlay.path` from `CS.routeWaypoints`, anchored to him. "Lock it in" with `ctx.action`.
@@ -310,3 +309,19 @@ number made up in the type.
   there; then the question opens (tap a receiver, `onTap`). No answer is taken before the freeze.
 - **Wrong**: the play runs from the snap as drawn (the ball goes where it goes); his pick gets a
   `bad` mark and the right man a `good` mark (`resolved` returns them).
+
+## 2026-11-12 — ROUTE_BEATS lives in the library
+
+The route type's per-route truth is `CS.lib.ROUTE_BEATS` in `cs-lib.js` (17 rows, fact sheet 6,
+primary pairings only; checked in `tools/coachschool-checks/lib.mjs`, L11). Route agents read it
+from the library and keep no table of their own; a row they think is missing goes in the report,
+not in the type file. Each row is one coverage:
+- `{ route, cov, why, src }`: a single route from the "Basic beater routes" table, any receiver
+  (hitch vs Cover 3, seam / corner / post vs Cover 2, slant vs Cover 0).
+- `{ concept, routes: { '#1': [...], '#2': [...] }, cov, src }`: a concept's route on each numbered
+  receiver (#1 outermost; `'#3/RB'` = #3 or the back); the lists are the routes the sheet allows there.
+- `side` (the corner and smash vs Cover 6, "the Cover 2 side"): only right when thrown to that side;
+  a puzzle that uses such a row must name the side in its prompt, or not use it.
+Nothing that is only CONTESTED or POOR has a row, so a route that has no row against the shown
+coverage is not a right answer. Four verticals, mesh and levels have no combo rows (the sheet names
+no route per numbered receiver); their truth stays `L.BEATS`.

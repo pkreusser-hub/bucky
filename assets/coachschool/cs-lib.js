@@ -12,12 +12,12 @@
      - route tree and named routes ......................... section 3
      - zone landmarks ...................................... section 4
      - coverage assignments (who drops where) .............. section 5a, tells and holes 5b
-     - concepts, BEATS, contested pairings ................. section 6
+     - concepts, BEATS, contested pairings, ROUTE_BEATS .... section 6
      - run schemes ......................................... section 7
      - gaps, holes, techniques ............................. section 8
      - pressure packages ................................... section 9
    `src` on an entry names the sheet section it comes from. A callout's `src` is a list of
-   {sec, q}: q is a verbatim phrase of that section (tools/_verify-coachschool-lib.mjs finds it
+   {sec, q}: q is a verbatim phrase of that section (tools/coachschool-checks/lib.mjs finds it
    there), so every sentence a play says can be traced to the sheet.
 
    Where the sheet leaves a gap the engine still has to fill (which gap a blitzer takes, how the
@@ -456,6 +456,39 @@
     'concept:post-dig': { covs: ['cov:2', 'cov:tampa2', 'cov:6', 'cov:2man'], why: 'vs Cover 2/split safeties contested' },
   };
   L.POOR = { 'concept:four-verts': { covs: ['cov:4'], why: 'poor vs Cover 4' } };
+
+  /* ── ROUTE_BEATS (fact sheet 6) ── per-route truth for the route puzzle: which single route, or which
+     route on which numbered receiver of a concept, beats which coverage. Primary pairings only (the
+     "beats" columns); nothing that is only CONTESTED or POOR. One row per route-or-combo and coverage:
+       route    a single route (the "Basic beater routes" table), any receiver
+       routes   a combo: receiver number (#1/#2/#3 from the outside; "#3/RB" = #3 or the back) -> the
+                route names the sheet allows there; `concept` names the concept it is
+       side     only when thrown to that side (Cover 6): a puzzle using the row must name the side
+       src      { sec: '6', q }: a phrase found verbatim in section 6
+     Left out because the routes column names no route per numbered receiver: four verticals ("four
+     receivers on go/seam routes"), mesh (crossers "plus a sit/dig and outside clears") and levels ("two
+     in-breaking routes ... e.g."). Their truth stays the concept row in BEATS. */
+  L.ROUTE_BEATS = [
+    // Basic beater routes (single route vs coverage).
+    { route: 'hitch', cov: 'cov:3', why: 'deep-third corners bail; the hitch sits in front of them', src: { sec: '6', q: 'Hitch | Cover 3 (off corners)' } },
+    { route: 'seam', cov: 'cov:2', why: 'the deep middle between two half safeties is open', src: { sec: '6', q: 'Seam | Cover 2' } },
+    { route: 'corner', cov: 'cov:2', why: 'the sideline hole behind the squatting corner and outside the half safety', src: { sec: '6', q: 'Corner | Cover 2; Cover 6 (Cover 2 side)' } },
+    { route: 'corner', cov: 'cov:6', side: 'the Cover 2 side', why: 'the sideline hole behind the squatting corner and outside the half safety', src: { sec: '6', q: 'Corner | Cover 2; Cover 6 (Cover 2 side)' } },
+    { route: 'post', cov: 'cov:2', why: 'splits the two half safeties', src: { sec: '6', q: 'Post | Cover 2' } },
+    { route: 'slant', cov: 'cov:0', why: 'quick throw before unblocked pressure arrives, no deep help needed', src: { sec: '6', q: 'Slant | Cover 0' } },
+    // Concepts whose routes column names a route per numbered receiver.
+    { concept: 'concept:smash', routes: { '#1': ['hitch'], '#2': ['corner'] }, cov: 'cov:2', src: { sec: '6', q: '#1 hitch (5-6), #2 corner (break 10-12) | Cover 2' } },
+    { concept: 'concept:smash', routes: { '#1': ['hitch'], '#2': ['corner'] }, cov: 'cov:6', side: 'the Cover 2 side', src: { sec: '6', q: 'Cover 2; Cover 6 (thrown to the Cover 2 side)' } },
+    { concept: 'concept:flood', routes: { '#1': ['go'], '#2': ['sail', 'out'], '#3/RB': ['flat'] }, cov: 'cov:3', src: { sec: '6', q: '#1 go (clear), #2 sail/out at 12-15, #3 or RB flat | Cover 3' } },
+    { concept: 'concept:stick', routes: { '#1': ['go'], '#2': ['flat', 'arrow'], '#3': ['stick'] }, cov: 'cov:3', src: { sec: '6', q: '#1 go/fade (clear), #2 flat or arrow, #3 stick (6 yd sit) | Cover 3' } },
+    { concept: 'concept:slant-flat', routes: { '#1': ['slant'], '#2': ['flat', 'arrow'] }, cov: 'cov:3', src: { sec: '6', q: '#1 slant, #2 flat or arrow | Cover 3' } },
+    { concept: 'concept:curl-flat', routes: { '#1': ['curl'], '#2': ['flat'] }, cov: 'cov:3', src: { sec: '6', q: '#1 curl at 12, #2 flat | Cover 3; Cover 2' } },
+    { concept: 'concept:curl-flat', routes: { '#1': ['curl'], '#2': ['flat'] }, cov: 'cov:2', src: { sec: '6', q: '#1 curl at 12, #2 flat | Cover 3; Cover 2' } },
+    { concept: 'concept:dagger', routes: { '#1': ['dagger-dig'], '#2': ['seam'] }, cov: 'cov:3', src: { sec: '6', q: '#2 seam (clear), #1 dig at 15-18 | Cover 3; Cover 4' } },
+    { concept: 'concept:dagger', routes: { '#1': ['dagger-dig'], '#2': ['seam'] }, cov: 'cov:4', src: { sec: '6', q: '#2 seam (clear), #1 dig at 15-18 | Cover 3; Cover 4' } },
+    { concept: 'concept:post-dig', routes: { '#1': ['post'], '#2': ['dig'] }, cov: 'cov:4', src: { sec: '6', q: '#1 post, #2 dig (or reversed) | Cover 4' } },
+    { concept: 'concept:post-dig', routes: { '#1': ['dig'], '#2': ['post'] }, cov: 'cov:4', src: { sec: '6', q: '#1 post, #2 dig (or reversed) | Cover 4' } },
+  ];
 
   /* ── run schemes (fact sheet 7) ── Per-lineman rules as data, drawn for a run to the RIGHT (the
      playside); mirror the side for a run left. Rule tokens are explained in RUN_RULES. None of this

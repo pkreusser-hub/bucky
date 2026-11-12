@@ -12,6 +12,8 @@
  *   node tools/_verify-coachschool.mjs --node-only     section A only
  *   node tools/_verify-coachschool.mjs --only pz-route  only these check modules (comma-separated); this file's
  *                                                      own A checks still run (seconds), its Chrome checks do not
+ *   node tools/_verify-coachschool.mjs --only lib --lib FILE   the library checks against another cs-lib.js
+ *                                                      (bite proofs; lib.mjs reads --lib, Node only)
  *
  * CHECK MODULES. Everything below in this file is the original suite. New checks live in
  * tools/coachschool-checks/*.mjs, one file per subject (pz-<type>.mjs for a puzzle type), so agents
@@ -105,16 +107,33 @@ check(has(broken((f) => { const x = f.players.find((p) => p.id === 'X'); x.x = 2
 // A2. Defenses and coverages. Deep counts are hand-written from the coverage definitions
 // (C2 = two half-field safeties; C3 = two corners + the free safety in thirds).
 console.log('\n[A2] defenses');
-const DEEP = { 'c2-43-over': 2, 'c3-nickel': 3, 'c3-43-over': 3, 'c3-34': 3, 'c2-nickel': 2 };
+// RESTAGED for the full library (75c0590): this table used to name the phase-1 seed's five defenses by
+// id, so each of the 37 defenses the library added read "undefined deep" and failed. The rule it holds
+// is unchanged: the deep count is typed here by hand, never read back from the library. It is now
+// written once per coverage, keyed by the coverage prefix of the defense id (the library's naming:
+// c2-43-over = Cover 2 from the 4-3 over), from fact sheet 5a's "deep" column and section 9:
+//   c0  Cover 0 = 0 (all man, no deep help)      c1 Cover 1 = 1 (the FS in the deep middle)
+//   c2  Cover 2 = 2 (FS + SS, a half each)       t2 Tampa 2 = 2, + the Mike in the middle hole, which
+//   c3  Cover 3 = 3 (two corners + the FS)          5a writes "2 + Mike": not a third deep zone
+//   c4  Cover 4 = 4 (four quarters)              c6 Cover 6 = 3 (FS half L + SS Q3 + CB-R Q4)
+//   c2m 2-man   = 2 (FS + SS halves)             fz fire zone = 3 (9: "two corners + one safety")
+//   sim sim pressure = 3: 9 says "varies (often 2 or 3)"; the library draws it behind Cover 3 (its
+//       `mapped` note says so), so 3 for this drawing.
+// Every defense in the library must carry one of these prefixes, and its declared coverage must be
+// the prefix's: a new coverage fails here until someone writes its number down.
+const DEEP = { c0: 0, c1: 1, c2: 2, t2: 2, c3: 3, c4: 4, c6: 3, c2m: 2, fz: 3, sim: 3 };
+const COV_OF = { c0: 'cov:0', c1: 'cov:1', c2: 'cov:2', t2: 'cov:tampa2', c3: 'cov:3', c4: 'cov:4', c6: 'cov:6', c2m: 'cov:2man', fz: 'cov:3', sim: 'cov:3' };
 for (const d of Object.values(L.DEFENSES)) {
   const ps = CS.resolveSet(d);
   check(ps.length === 11, `${d.id}: 11 defenders`);
   check(CS.validateDefense(d).length === 0, `${d.id}: validator clean ${JSON.stringify(CS.validateDefense(d))}`);
+  const pre = d.id.split('-')[0], want = DEEP[pre];
   const deepByName = d.players.filter((p) => /^deep-/.test(p.zone || '')).length;
-  check(DEEP[d.id] !== undefined && deepByName === DEEP[d.id], `${d.id}: ${DEEP[d.id]} deep defenders by zone name (${deepByName})`);
-  check(CS.deepCount(d) === DEEP[d.id], `${d.id}: CS.deepCount = ${DEEP[d.id]} (${CS.deepCount(d)})`);
+  check(want !== undefined && d.coverage === COV_OF[pre] && deepByName === want, `${d.id}: ${want} deep defenders by zone name (${deepByName}; ${pre} = ${COV_OF[pre]}, library says ${d.coverage})`);
+  check(CS.deepCount(d) === want, `${d.id}: CS.deepCount = ${want} (${CS.deepCount(d)})`);
+  if (pre === 't2') check(d.players.some((p) => p.id === 'MIKE' && p.zone === 'hole-M') && L.ZONES['hole-M'] && !L.ZONES['hole-M'].deep, `${d.id}: the Mike runs the middle hole, which is not counted deep (5a: 2 + Mike)`);
 }
-check(Object.keys(DEEP).every((k) => L.DEFENSES[k]), 'seed defenses: 4-3 over Cover 2 and nickel Cover 3');
+check(['c2-43-over', 'c3-nickel', 'c3-43-over', 'c3-34', 'c2-nickel'].every((k) => L.DEFENSES[k]), 'seed defenses: 4-3 over Cover 2 and nickel Cover 3');
 check(L.DEFENSES['c2-43-over'].players.filter((p) => p.zone).length === 7 && L.DEFENSES['c2-43-over'].players.filter((p) => p.rush).length === 4, 'Cover 2: 4 rush, 5 under + 2 deep');
 
 // A3. Library sanity: routes, zones, hashes, BEATS starter row.
@@ -133,8 +152,15 @@ for (const p of Object.values(L.PLAYS)) {
   // RESTAGED in phase 2: puzzle diagrams are plays too, and they carry no callouts (the puzzle asks
   // the question; a note would give the answer away). The 2-3 rule now holds for every play a
   // lesson WATCHES (the phase-1 seed and each unit's own play); a puzzle-only play has none.
-  const watched = p.id === 'smash-vs-c2' || (CS.RANK_DATA || []).some((r) => r && r.units.some((u) => u.play === p.id));
-  if (watched) check((p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${p.id}: 2-3 callouts`);
+  // RESTAGED for the full library (75c0590): the library's ten concept plays (one canonical play per
+  // concept, L.CONCEPTS[k].play) carry 2-3 sourced callouts by design (lib check L6): a lesson will
+  // watch them. Before, only smash was a library play and the rest of PLAYS was rank-1 puzzle
+  // diagrams, so "not watched by a unit" meant "puzzle-only". The split is now explicit: a lesson
+  // play (watched by a unit, or a concept's canonical play) has 2-3 callouts; every other play is a
+  // puzzle diagram and still has none, since a note would give the puzzle's answer away.
+  const watched = (CS.RANK_DATA || []).some((r) => r && r.units.some((u) => u.play === p.id));
+  const conceptPlay = !!p.concept && L.CONCEPTS[p.concept] && L.CONCEPTS[p.concept].play === p.id;
+  if (watched || conceptPlay) check((p.callouts || []).length >= 2 && (p.callouts || []).length <= 3, `${p.id}: a ${watched ? 'lesson' : 'concept'} play has 2-3 callouts`);
   else check(!(p.callouts || []).length, `${p.id}: a puzzle-only play has no callouts`);
 }
 const SM = L.PLAYS['smash-vs-c2'];
@@ -1213,11 +1239,41 @@ async function sectionB() {
         let presses = 0, end = false;
         while (!end && presses < u.k + 4) {
           const before = await snap();
+          // RESTAGED after one flake under load: the 400 ms used to be Node's wall clock, polled through
+          // puppeteer round trips (snap() runs poseAt for 22 men per call), so on a busy machine a change
+          // the page made at 300 ms could be first SEEN by the poll after 400. The rule is unchanged (no
+          // more than 400 ms of the old picture after a press); it is now measured inside the page: a
+          // capture-phase click listener stamps the press (event.timeStamp) and a rAF sampler compares
+          // every frame to the before-picture with the same changed() test. What must be under 400 ms
+          // is the last frame that still showed the old picture, on the page's own clock, so the
+          // dead-press bug (0.5 s of frozen pre-snap frames; 1.2 s more under Reduce Motion) still fails,
+          // while a stall that paints no frame at all is not blamed on the app. The change must still come.
+          await pw.evaluate((changedSrc) => {
+            const C = window.__CS__, f = C.field;
+            const changedF = new Function('return (' + changedSrc + ')')();
+            const pic = () => ({ cam: f.camera ? { ...f.camera } : null,
+              notes: [...document.querySelectorAll('#callout, .bubble')].filter((e) => e.offsetParent !== null).map((e) => e.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | '),
+              pose: C.play ? window.CS.poseAt(C.play, C.t).players : {} });
+            const S = window.__b16 = { before: pic(), press: null, lastStale: null, firstNew: null, frames: 0 };
+            const onClick = (e) => { if (S.press == null && e.target.closest && e.target.closest('#btnMain')) S.press = e.timeStamp; };
+            window.addEventListener('click', onClick, true);
+            const tick = () => {
+              const now = performance.now();
+              if (S.press != null && now >= S.press) {
+                S.frames++;
+                if (changedF(S.before, pic())) { S.firstNew = now; window.removeEventListener('click', onClick, true); return; }
+                S.lastStale = now;
+              }
+              if (now - (S.press == null ? now : S.press) < 5000) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          }, changed.toString());
           await pw.click('#btnMain'); presses++;
-          let seen = false;
-          const t0 = Date.now();
-          while (Date.now() - t0 < 400) { await settle(pw, 25); if (changed(before, await snap())) { seen = true; break; } }
-          if (!seen) dead.push(`${u.id} press ${presses} (t ${before.t.toFixed(2)})`);
+          await pw.waitForFunction(() => window.__b16.firstNew != null || (window.__b16.press != null && performance.now() - window.__b16.press > 5000), { timeout: 15000, polling: 50 }).catch(() => {});
+          const m16 = await pw.evaluate(() => window.__b16 && { press: window.__b16.press, firstNew: window.__b16.firstNew, lastStale: window.__b16.lastStale, frames: window.__b16.frames });
+          const stale = m16 && m16.press != null && m16.lastStale != null ? m16.lastStale - m16.press : 0;
+          const seen = !!m16 && m16.press != null && m16.firstNew != null && stale < 400;
+          if (!seen) dead.push(`${u.id} press ${presses} (t ${before.t.toFixed(2)}; ${!m16 || m16.firstNew == null ? 'never changed' : `old picture still up ${Math.round(stale)} ms after the press, ${m16.frames} frames`})`);
           // Let it run to its next stop: a note or the end.
           let s = await snap();
           for (let w = 0; w < 300 && (s.playing || s.animating); w++) { await settle(pw, 50); s = await snap(); }
@@ -1607,7 +1663,8 @@ async function sectionB() {
   }
 }
 
-if (!NODE_ONLY) {
+// With --only and no chosen module that has a browser half (e.g. --only lib), there is nothing for Chrome to run.
+if (!NODE_ONLY && !(ONLY && !MODS.some((m) => m.mod.browser))) {
   try { await sectionB(); } catch (e) { FAIL++; fails.push('section B crashed: ' + e.message); console.log('  FAIL section B crashed: ' + (e.stack || e)); }
 }
 console.log(`\n${PASS}/${PASS + FAIL} passed`);
