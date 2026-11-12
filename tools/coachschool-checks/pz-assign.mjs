@@ -128,6 +128,30 @@ export async function node(H) {
   check(eSl.some((e) => /0 rushers the slide leaves open for 1 back/.test(e)), `validate(): a slide that leaves the back nobody to block is flagged ${J(eSl)}`);
   for (const pz of T.examples) check(T.validate(pz, L).length === 0, `${pz.id}: validates clean ${J(T.validate(pz, L))}`);
 
+  // ── the failure clip's sack, by hand (2026-11-12: cs-core can now carry a free rusher to the QB) ──
+  // fz-man, RT on the Will (a dropper): DE-R is nobody's. His rush (fire zone, C-gap-R) runs from
+  // his alignment to the gap's point on the line (CS.gapX + the hash shift, 0.4 yd past it) and on to
+  // CS.SACK_REACH in front of the quarterback's set spot (a 3-step from the gun: 2 yd back, at 4 yd/s,
+  // set at 0.5 s), at his speed. The clip's sack is the first 0.02 s frame within SACK_REACH + 0.05 yd
+  // of the QB: the last leg runs straight at the QB, so that is (path length - 0.05) / v.
+  {
+    const pz = T.examples.find((p) => p.id === 'pz-assign-fz-man'), p = playOf(pz);
+    const ans = { LT: 'DE-L', LG: 'DT-L', C: 'MIKE', RG: 'DT-R', RT: 'WILL' }, rw = T.runs(pz, p, ans, false, L), c = CS.compile(rw.bad);
+    const de = CS.compile(p).byId['DE-R'], qb0 = CS.compile(p).byId.QB, dX = CS.compile(p).dX;
+    const gp = [CS.gapX('C-gap-R') + dX, -0.4], qbSet = [qb0.x, qb0.y - 2], end = [qbSet[0], qbSet[1] + CS.SACK_REACH];
+    const len = Math.hypot(gp[0] - de.x, gp[1] - de.y) + Math.hypot(end[0] - gp[0], end[1] - gp[1]), v = CS.SPEEDS[de.pos];
+    const tHand = (len - 0.05) / v, sack = rw.bad.ball.find((b) => b.ev === 'sack');
+    const P = CS.poseAt(rw.bad, sack ? sack.t : 0).players, gapQB = Math.hypot(P['DE-R'].x - P.QB.x, P['DE-R'].y - P.QB.y);
+    check(CS.validatePlay(rw.bad).length === 0 && sack && sack.by === 'DE-R' && Math.abs(sack.t - tHand) <= 0.04 && gapQB <= CS.SACK_REACH + 0.05 && c.throwT === null && Math.abs(c.T - (sack.t + 1)) < 1e-9,
+      `fz-man, RT on the Will: DE-R comes free and sacks the QB at ${sack && sack.t} s (by hand ${tHand.toFixed(3)} s: ${len.toFixed(2)} yd at ${v} yd/s), ${gapQB.toFixed(2)} yd from him, no throw, the clip ends a second later`);
+    const hold = Object.entries(rw.bad.assign).filter(([, a]) => a.on).map(([id, a]) => [id, a.on, CS.compile(rw.bad).byId[id].held != null]);
+    check(J(hold) === J([['LT', 'DE-L', true], ['LG', 'DT-L', true], ['C', 'MIKE', true], ['RG', 'DT-R', true]]) && !rw.bad.assign.RT.on,
+      `fz-man, RT on the Will: the four linemen with a rusher meet him and hold; the right tackle, on a dropper, blocks nobody ${J(hold)}`);
+    const rr = T.runs(pz, p, pz.answer, true, L), cr = CS.compile(rr.right);
+    check(['LT', 'LG', 'C', 'RG', 'RT'].every((id) => rr.right.assign[id].on === pz.answer[id] && cr.byId[id].held != null) && !rr.right.ball.some((b) => b.ev === 'sack'),
+      'fz-man right run: every lineman meets the man he was connected to and holds; no sack');
+  }
+
   // ── every outcome run is a legal play; the wrong clip stops before any throw ──
   const bad = [];
   for (const pz of T.examples) {
@@ -251,7 +275,26 @@ export async function browser(H) {
   await page.evaluate(() => { const C = window.__CS__; C.field.pause(); document.getElementById('btnReplay').click(); });
   await page.evaluate(async () => { const F = window.__CS__.field; F.pause(); F.seek(0.9); await new Promise((r) => setTimeout(r, 80)); });
   await plate(page, 'assign-man-wrong.png');
-  check(ord.mode.done && ord.mode.ok === false && /^The answer: /.test(ord.bubble) && /Nobody blocks the mike linebacker/i.test(ord.fb), `man: wrong twice: the bubble names the answer and the panel says what went wrong ("${ord.fb.slice(0, 50)}")`);
+  // 2026-11-12: the free Mike gets home. At the sack the clip's camera frames him and the QB (the
+  // run's zoom), and its bubble sits off both of them (placeBubble's block: the ground they cover
+  // over the whole run).
+  const sk = await page.evaluate(async () => {
+    const C = window.__CS__, F = C.field, CS = window.CS, c = CS.compile(C.play);
+    F.pause(); F.seek(c.sackT); await new Promise((r) => setTimeout(r, 700));
+    const bb = document.getElementById('bubble').getBoundingClientRect(), hit = (q) => q && bb.left < q.right && bb.right > q.left && bb.top < q.bottom && bb.bottom > q.top;
+    const P = CS.poseAt(C.play, c.sackT).players, cr = F.canvas.getBoundingClientRect(), s = (id) => C.yardToScreen(P[id].x, P[id].y);
+    const on = (p) => p.x >= cr.left && p.x <= cr.right && p.y >= cr.top && p.y <= cr.bottom;
+    return { play: C.play.id, sackT: c.sackT, by: c.sackBy, gap: Math.hypot(P[c.sackBy].x - P.QB.x, P[c.sackBy].y - P.QB.y), z: F.camera.z, saying: !!C.saying,
+      covers: [hit(C.spriteRect(c.sackBy)), hit(C.spriteRect('QB'))], onScreen: on(s(c.sackBy)) && on(s('QB')) };
+  });
+  check(sk.play === 'pz-assign-fz-slant-flat~assign-wrong' && sk.by === 'MIKE' && sk.gap <= 0.75 + 1e-9 && sk.z > 1 && sk.saying && sk.onScreen && !sk.covers[0] && !sk.covers[1],
+    `man: in the failure clip the free Mike sacks the QB at ${sk.sackT} s (${sk.gap.toFixed(2)} yd off him), framed (zoom ${sk.z}), both on screen, the bubble covering neither ${J(sk.covers)}`);
+  await plate(page, 'assign-man-sack.png');
+  // Restaged 2026-11-12 (outcome bubbles): the answer used to be the bubble and what went wrong the
+  // panel line. Now the failure clip's own bubble says what went wrong, on the man (and the QB) it
+  // happens to, and the explanation ("The answer: ...") stays in the panel: the dad saw the clip's
+  // bubble cover it.
+  check(ord.mode.done && ord.mode.ok === false && ord.mode.explain === 'panel' && /^The answer: /.test(ord.fb) && /^Nobody blocks the mike linebacker\..* Sack\.$/i.test(ord.bubble), `man: wrong twice: the panel names the answer and the clip's bubble says what went wrong ("${ord.fb.slice(0, 40)}" | "${ord.bubble}")`);
   check(J(ord.seen) === J(['pz-assign-fz-slant-flat~assign-wrong', 'pz-assign-fz-slant-flat~assign-right']), `man: the failure clip runs first, then the right one ${J(ord.seen)}`);
   check(ord.paths.length === 1 && Math.hypot(ord.paths[0].pts[0].x - ord.arrow0.x, ord.paths[0].pts[0].y - ord.arrow0.y) < 1 && ord.marks.some((m) => m.id === 'MIKE' && m.kind === 'bad'), `man: during the failure a red arrow runs from the right A gap (the Mike's lane) to the quarterback, and the Mike is ringed ${J(ord.paths.map((p) => p.pts[0]))}`);
   check(ord.paths2 === 0 && J(ord.links2) === J(['C>MIKE', 'LG>DT-L', 'LT>DE-L', 'RG>DT-R', 'RT>DE-R']), `man: in the right run the arrow is gone and the connectors are the right ones ${J(ord.links2)}`);

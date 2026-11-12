@@ -233,10 +233,14 @@ export async function browser(H) {
   await dragTo('FS', { x: 35.33, y: 16.3 });
   const lb3 = await mainBtn();
   await page.mouse.click(lb3.x, lb3.y); await settle(page, 400);
-  const o1 = await page.evaluate(() => { const C = window.__CS__; return { mode: C.ui.mode, play: C.play.id, chalk: C.field.chalk, saying: C.saying, bubble: document.getElementById('bubble').textContent.replace(/\s+/g, ' ').trim(), running: C.playing || C.t > C.PRE }; });
+  const o1 = await page.evaluate(() => { const C = window.__CS__; return { mode: C.ui.mode, play: C.play.id, chalk: C.field.chalk, saying: C.saying, bubble: document.getElementById('bubble').textContent.replace(/\s+/g, ' ').trim(), fb: document.getElementById('stFb').textContent.replace(/\s+/g, ' ').trim(), running: C.playing || C.t > C.PRE, lib: Object.keys(window.CS.lib.FORMATIONS).concat(Object.keys(window.CS.lib.DEFENSES)).filter((k) => k.startsWith('pz-place~')) }; });
   check(o1.mode.done && o1.mode.ok === false, `c3-deep: on Game Day the wrong lineup is final and scores wrong ${J(o1.mode)}`);
   check(o1.play === 'four-verts-vs-c3~wrong' && o1.running, `c3-deep: the failure runs first (${o1.play})`);
-  check(/^The answer: Each corner to the deep third on his side/.test(o1.bubble) && /free safety drops to the deep right half\./i.test(o1.bubble) && /Nobody has the deep middle third\./.test(o1.bubble) && J(o1.saying.focus) === J(['FS']), `c3-deep: its bubble names the empty deep third and points at FS (${o1.bubble})`);
+  // Restaged 2026-11-12 (outcome bubbles): the answer is named in the panel; the run's bubble says
+  // only what his lineup costs (it used to open "The answer:" and cover the explanation).
+  check(/^The answer: Each corner to the deep third on his side/.test(o1.fb) && o1.mode.explain === 'panel' && /^The free safety drops to the deep right half\. Nobody has the deep middle third\.$/.test(o1.bubble) && J(o1.saying.focus) === J(['FS']), `c3-deep: the panel names the answer, and the run's bubble names the empty deep third and points at FS (${o1.fb.slice(0, 40)} | ${o1.bubble})`);
+  // 2026-11-12: the wrong run moves his men with CS.variantOf's align; nothing is registered.
+  check(o1.lib.length === 0, `c3-deep: the wrong run registers no pz-place~ formation or defense in the library ${J(o1.lib)}`);
   check(J(o1.chalk && o1.chalk.zones) === J(['CB-L', 'CB-R', 'FS']), `c3-deep: zone chalk only for the three he moved ${J(o1.chalk)}`);
   const fsWrong = await page.evaluate(() => { const c = window.CS.compile(window.__CS__.play), p = c.byId.FS.path.pts; return p[p.length - 1]; });
   check(J(fsWrong) === J([35.33, 16]), `c3-deep: in the failure run FS drops to (35.33,16), the deep right half (fact sheet 4) ${J(fsWrong)}`);
@@ -247,11 +251,13 @@ export async function browser(H) {
     F.setSpeed(4); F.start();
     const t0 = Date.now();
     while (C.play.id === first && Date.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 50));
-    const out = { play: C.play.id, chalk: F.chalk, running: C.playing || C.t > C.PRE, bubble: document.getElementById('bubble').textContent.replace(/\s+/g, ' ').trim() };
+    const out = { play: C.play.id, chalk: F.chalk, running: C.playing || C.t > C.PRE, saying: !!C.saying, fb: document.getElementById('stFb').textContent.replace(/\s+/g, ' ').trim() };
     F.setSpeed(1); F.pause();
     return out;
   });
-  check(o2.play === 'four-verts-vs-c3' && o2.running && /^The answer: /.test(o2.bubble), `c3-deep: then the right play runs with the explanation (${o2.play}: ${o2.bubble.slice(0, 70)})`);
+  // Restaged 2026-11-12: the explanation stays in the panel through the right run (it used to come
+  // back as the bubble); no bubble on the field.
+  check(o2.play === 'four-verts-vs-c3' && o2.running && /^The answer: /.test(o2.fb) && !o2.saying, `c3-deep: then the right play runs, the explanation still in the panel, no bubble (${o2.play}: ${o2.fb.slice(0, 70)})`);
   await page.evaluate(() => window.__CS__.ui.destroyOnly());
   await bare();
   const a3 = await snap();

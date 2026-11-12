@@ -21,23 +21,25 @@
             (every down lineman blocked by an offensive lineman), backs on backers (a back never
             takes a down lineman); and the linemen's blocks never cross (left to right along the
             line, their men come in the same left-to-right order, by the gap each one rushes).
-            The no-crossing part is a CS reading of "big on big", not a sentence of the sheet: it is
-            what makes the count rule pick one assignment (without it any shuffle of the same five
-            men passes). Flagged for the dad in the type's report.
+            The no-crossing part is the fact sheet's "Man protection in order" line (rank 3, "Pass
+            protection", docs/coachschool-facts.md line 164: a CS teaching convention, the dad's
+            decision 2026-11-12); it is what makes the count rule pick one assignment (without it
+            any shuffle of the same five men passes).
      fit    run fit, one-gap front [rank 4 "One-gap vs two-gap", "Run fits"; 8 techniques]: a one-gap
             lineman "attacks and owns one gap", the one his shade puts him in (a 1 is in the A gap,
             a 3 in the B gap, a 5 outside the tackle). A head-up man (0, 2, 4, 6) is a two-gap
             player and owns no single gap: validate() refuses a puzzle that asks it.
 
-   Engine limits (cs-lib NEEDS_ENGINE): cs-core draws a pass rusher straight to his gap on the line
-   and a pass blocker stepping back; it cannot draw a block meeting a named man, a free rusher
-   carrying on to the quarterback, a sack, a run play or a gap fit against a ball carrier. So the
-   runs after the answer are: the play with the protection set the right way (it animates); for a
-   wrong answer first a short clip to the moment the rushers reach the line, his connectors drawn
-   in red where they break the rule and a red chalk arrow from each free rusher's gap to the
-   quarterback (a still illustration of "he gets home"), then the right version. A run fit plays
-   the snap and the linemen firing into their gaps, a stepped illustration; an empty gap gets a
-   red arrow through it from the back. */
+   The runs after the answer (2026-11-12, cs-core pass protection: {on} blocks, {then:'QB'}, the
+   sack): the right run has every blocker meet the rusher his job gives him, and they hold. A wrong
+   answer first plays his protection: each blocker meets the rusher his answer gives him, every
+   rusher nobody meets keeps coming to the quarterback, and the first to get there sacks him (the
+   time measured on the run); his connectors are drawn in red where they break the rule, a red
+   chalk arrow runs from each free rusher's gap to the quarterback, and the clip frames the rusher
+   and the quarterback with its bubble off them. Then the right version. Engine limits still: no
+   run play and no gap fit against a ball carrier, so a run fit plays the snap and the linemen
+   firing into their gaps, a stepped illustration; an empty gap gets a red arrow through it from
+   the back. */
 (function (root) {
   'use strict';
   const CS = root.CS;
@@ -278,21 +280,46 @@
 
   /* ── the runs after the answer ── */
   const PASS = (side) => (side ? { pass: 'slide-' + side } : { pass: 'set' });
-  function runPlays(pz, play, ans, ok) {
+  // Pass protection (2026-11-12): each blocker meets the rusher his answer gives him ({on}: cs-core
+  // walks him to that man's gap and the two hold where they meet). Under a slide that is the rusher
+  // in the gap he takes; in man protection the man he was connected to (a dropper is nobody's: he
+  // just sets). The right run: every rusher met. The wrong run: the ones nobody meets keep coming
+  // ({then: 'QB'}), and the first to reach the quarterback sacks him (the time measured on the run:
+  // the first frame within CS.SACK_REACH + 0.05 yd), the clip ending a second later.
+  function runPlays(pz, play, ans, ok, lib) {
+    lib = lib || CS.lib;
+    const c = CS.compile(play, lib), R = ruleOf(pz, lib);
+    const rusherOf = (t) => (isGap(t) ? (R.rushers.find((r) => r.gap === t) || {}).id : R.rush[t] ? t : null) || null;
     const assignOf = (a) => {
       const o = {};
-      if (pz.rule === 'slide') for (const id of pz.blockers) {
-        const p = CS.compile(play).byId[id];
-        if (p && CS.OL.includes(p.pos)) o[id] = PASS(pz.slide);
-        else if (p && a && isGap(a[id])) o[id] = { block: a[id] };
+      if (pz.rule === 'fit') return o;
+      for (const id of pz.blockers) {
+        const p = c.byId[id], t = a ? a[id] : null, on = t != null ? rusherOf(t) : null;
+        if (!p) continue;
+        const base = CS.OL.includes(p.pos) ? (pz.rule === 'slide' ? PASS(pz.slide) : PASS(null)) : pz.rule === 'slide' && isGap(t) ? { block: t } : PASS(null);
+        o[id] = on ? { ...base, on } : base;
       }
       return o;
     };
     const fit = pz.rule === 'fit';
-    const right = CS.variantOf(play, { tag: 'assign-right', assign: assignOf(T.truth(pz)), ...(fit ? { ball: [{ t: 0, ev: 'snap' }], T: 1.2 } : {}) });
+    const right = CS.variantOf(play, { tag: 'assign-right', assign: assignOf(T.truth(pz, lib)), ...(fit ? { ball: [{ t: 0, ev: 'snap' }], T: 1.2 } : {}) });
     if (ok) return { right };
-    // Wrong: a clip to the moment the rushers reach the line (or the linemen fire into their gaps), no throw.
-    const bad = CS.variantOf(play, { tag: 'assign-wrong', assign: assignOf(ans), ball: [{ t: 0, ev: 'snap' }], T: fit ? 1.2 : 1.6 });
+    if (fit) return { right, bad: CS.variantOf(play, { tag: 'assign-wrong', assign: {}, ball: [{ t: 0, ev: 'snap' }], T: 1.2 }) };
+    // Wrong: his blocks; every rusher left free keeps coming; no throw.
+    const A = assignOf(ans), met = new Set(Object.values(A).map((a) => a.on).filter(Boolean));
+    const free = R.rushers.map((r) => r.id).filter((id) => !met.has(id));
+    for (const id of free) A[id] = { then: 'QB' };
+    const snap = [{ t: 0, ev: 'snap' }];
+    let bad = CS.variantOf(play, { tag: 'assign-wrong', assign: A, ball: snap, T: 6 });
+    if (free.length) {
+      let hit = null;
+      for (let t = 0; t <= 6 + 1e-9 && !hit; t += 0.02) {
+        const P = CS.poseAt(bad, t, lib).players, q = P[c.qb.id];
+        for (const id of free) if (Math.hypot(P[id].x - q.x, P[id].y - q.y) <= CS.SACK_REACH + 0.05) { hit = { t: Math.round(t * 100) / 100, by: id }; break; }
+      }
+      if (hit) bad = CS.variantOf(play, { tag: 'assign-wrong', assign: A, ball: snap.concat({ t: hit.t, ev: 'sack', by: hit.by }) });
+      else bad = CS.variantOf(play, { tag: 'assign-wrong', assign: A, ball: snap, T: 2.4 });
+    } else bad = CS.variantOf(play, { tag: 'assign-wrong', assign: A, ball: snap, T: 1.6 });
     return { right, bad };
   }
   T.runs = runPlays;
@@ -429,7 +456,7 @@
         S.locked = true; S.picked = picked && typeof picked === 'object' ? picked : {};
         status.disabled = true;
         if (S.drag) { S.drag.destroy(); S.drag = null; }
-        if (!S.runs) S.runs = runPlays(pz, ctx.play, S.picked, ok);
+        if (!S.runs) S.runs = runPlays(pz, ctx.play, S.picked, ok, ctx.lib);
         show(ok ? 'right' : 'bad');
         watch();
         const v = judge(ruleOf(pz, ctx.lib), S.picked);
@@ -485,16 +512,20 @@
   // Right: the play with the protection set his way. Wrong: the failure clip, then the right one.
   T.outcome = function outcome(pz, ans, ok, ctx) {
     const S = STATE && STATE.get(ctx);
-    const runs = runPlays(pz, ctx.play, ans && typeof ans === 'object' ? ans : {}, ok);
+    const runs = runPlays(pz, ctx.play, ans && typeof ans === 'object' ? ans : {}, ok, ctx.lib);
     if (S) S.runs = runs;
     if (ok) return [{ play: runs.right }];
     const v = judge(ruleOf(pz, ctx.lib), ans);
-    // What went wrong goes on the panel's feedback line; the field keeps cs-ui's explanation bubble
-    // ("The answer: ...") over both runs, so the answer is named the moment he has missed.
-    const f = failureText(ctx, v);
-    ctx.feedback('bad', f.parts);
+    // The failure clip says what went wrong, on the man it happens to (2026-11-12): cs-ui keeps the
+    // explanation ("The answer: ...") in the panel while this bubble shows. A free rusher: the clip
+    // frames him and the quarterback over the whole run (zoom), his sack included, and the bubble
+    // stays off that ground.
+    const f = failureText(ctx, v), cb = CS.compile(runs.bad, ctx.lib);
+    const sacked = cb.sackBy != null;
+    const parts = sacked ? f.parts.concat(' Sack.') : f.parts;
+    const focus = sacked ? [cb.sackBy, 'QB'] : f.focus;
     return [
-      { play: runs.bad, marks: ctx.focusMarks.concat(v.free.map((id) => ({ id, kind: 'bad' }))) },
+      { play: runs.bad, say: { parts, focus, tone: 'bad' }, zoom: focus.length ? focus : null, marks: ctx.focusMarks.concat(v.free.map((id) => ({ id, kind: 'bad' }))) },
       { play: runs.right, marks: ctx.focusMarks.slice() },
     ];
   };

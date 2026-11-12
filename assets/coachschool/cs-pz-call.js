@@ -25,9 +25,10 @@
    Answer: the index of the option he picked (as `choice`).
 
    Outcome: a wrong audible plays out first (the wrong concept, run against the coverage on the
-   field, the QB holding the ball while the target's man defender stays on him: validate() measures
-   that he is within COVERED_YD at the concept's throw time), then the right concept's own library
-   play. A rule puzzle needs no play: the situation card shows what the call does to the clock and
+   field, the target's man defender on him: validate() measures that he is within COVERED_YD at the
+   concept's throw time; the QB throws there and the man breaks it up when the run measures him
+   within CS.CONTACT_YD as the ball arrives, else the QB holds it), then the right concept's own
+   library play. A rule puzzle needs no play: the situation card shows what the call does to the clock and
    the down (CONSEQUENCE below), and the field shows the snap. */
 (function (root) {
   'use strict';
@@ -90,8 +91,12 @@
   }
 
   // The wrong-run variant for an audible option: the concept's canonical play, run against the
-  // defense on the field (same teams, spot, distance), the QB holding the ball (no throw: the target
-  // is covered). Also returns who the target is, his man defender and the concept's throw time.
+  // defense on the field (same teams, spot, distance). The QB throws to the concept's target at the
+  // concept's own throw time and the ball arrives at about 30 yd/s (the route type's pace); when his
+  // man defender is within CS.CONTACT_YD of him as it arrives (measured on this run), it is broken up
+  // by that man (2026-11-12: the dad wanted to see the covered throw fail, not a QB who just holds
+  // it). Further off than that the QB holds the ball, as before: nothing on the screen is invented.
+  // Also returns who the target is, his man defender, the throw time and how the run ends ('breakup' | 'hold').
   function wrongRun(pz, v, lib) {
     const shown = lib.PLAYS[pz.play], con = lib.CONCEPTS[v], base = con && lib.PLAYS[con.play];
     if (!shown || !base) return null;
@@ -104,7 +109,22 @@
     const c = CS.compile(play, lib), man = c.def.find((d) => d.role === 'man' && d.manOf === c0.target);
     let gap = null;
     if (man) { const P = CS.poseAt(play, c0.throwT, lib).players; gap = Math.hypot(P[man.id].x - P[c0.target].x, P[man.id].y - P[c0.target].y); }
-    return { play, target: c0.target, man: man ? man.id : null, throwT: c0.throwT, gap, name: con.name };
+    const out = { play, target: c0.target, man: man ? man.id : null, throwT: c0.throwT, gap, name: con.name, ends: 'hold' };
+    if (!man) return out;
+    const thr = c0.throwT, R1 = (x) => Math.ceil(x * 10 - 1e-9) / 10, ball = (end) => [{ t: 0, ev: 'snap' }, { t: thr, ev: 'throw', to: c0.target }, end];
+    let arr = R1(thr + 0.4);
+    for (let k = 0; k < 4; k++) {
+      const v = CS.variantOf(play, { ball: ball({ t: arr, ev: 'catch' }), T: null });
+      const q = CS.poseAt(v, thr, lib).players.QB, r = CS.poseAt(v, arr, lib).players[c0.target];
+      arr = R1(thr + Math.max(0.4, Math.hypot(q.x - r.x, q.y - r.y) / 30));
+    }
+    const thrown = CS.variantOf(base, {
+      tag: 'wrong-' + pz.play, name: play.name, defense: shown.defense, teams: shown.teams, home: shown.home, spot: shown.spot, dist: shown.dist, hash: shown.hash, mirror: shown.mirror,
+      ball: ball({ t: arr, ev: 'breakup', by: man.id }), callouts: [],
+    });
+    const P = CS.poseAt(thrown, arr, lib).players, d = Math.hypot(P[man.id].x - P[c0.target].x, P[man.id].y - P[c0.target].y);
+    if (d > CS.CONTACT_YD) return out;
+    return { ...out, play: thrown, ends: 'breakup', arriveT: arr, contact: d };
   }
 
   const T = {
@@ -326,9 +346,13 @@
     if (ok) return [right];
     const o = pz.options[ans], w = o && wrongRun(pz, o.v, ctx.lib);
     if (!w) return [right];
+    // The consequence only: the explanation ("The answer: ...", the why) stays in the panel (cs-ui).
+    const man = ctx.lc(ctx.nameOf(w.man, w.play)), tgt = ctx.lc(ctx.nameOf(w.target, w.play));
     return [{
-      play: w.play, chalk: { routes: true },
-      say: { parts: [{ tag: 'b', text: 'The answer: ' + T.rightName(pz) + '.' }, ` ${o.t} against man: the ${ctx.lc(ctx.nameOf(w.man, w.play))} is on the ${ctx.lc(ctx.nameOf(w.target, w.play))} when the ball should come out. No throw there.`], focus: [w.man, w.target], tone: 'bad', zoom: false },
+      play: w.play, chalk: { routes: true }, zoom: [w.man, w.target, 'ball'],
+      say: { parts: w.ends === 'breakup'
+        ? [`${o.t} against man: the ${man} is on the ${tgt} when the ball gets there. Broken up.`]
+        : [`${o.t} against man: the ${man} is on the ${tgt} when the ball should come out. No throw there.`], focus: [w.man, w.target], tone: 'bad' },
     }, right];
   };
 

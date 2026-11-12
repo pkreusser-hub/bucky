@@ -58,7 +58,7 @@ CS.puzzleTypes[name] = {
   lookOf(pz, ctx)            -> tokens|null CS.focusOf tokens the explanation bubble points at;
                                             null = the explanation stays in the panel
   outcome?(pz, ans, ok, ctx) -> runs|null   what plays after the answer, in order:
-                                            [{ play, say?, marks?, chalk? }]
+                                            [{ play, say?, marks?, chalk?, zoom? }]
 }
 handle = {
   destroy()                  remove EVERY control, listener, overlay and drag session it added
@@ -100,7 +100,7 @@ Flow for one puzzle:
 | `panel` | `#stOpts`, empty and hidden at mount; fill it and set `hidden = false` |
 | `submit(ans)` | answer; ignored once the puzzle is done |
 | `feedback(kind, parts)` | the panel feedback line; kind `'good' | 'bad' | null`; parts = strings / `{tag, text, cls}` |
-| `say(bubble)` | a coach bubble on the field: `{ parts, focus, tone, zoom, spot }`; `say(null)` clears |
+| `say(bubble)` | a coach bubble on the field: `{ parts, focus, tone, zoom, spot }`; `say(null)` clears. `zoom: true` frames the focus; `zoom: false` eases OUT to the whole window; no `zoom` key leaves the camera where it is |
 | `action(label, fn)` | the main button: e.g. `ctx.action('Lock it in', () => ctx.submit(current))`; `ctx.action(null)` hides it |
 | `focusMarks` | the puzzle's own `focus` marks (to keep when you set marks) |
 | `tries`, `tryNo`, `done`, `gameDay` | 2 or 1; the current try; over yet; on Game Day |
@@ -169,6 +169,8 @@ d.destroy();      // handles gone, moved players back on their alignment, touch-
 ctx.field.freezeAtSnap((t) => { /* t === 0: the snap, held */ });
 ctx.field.playTo(1.5, cb);        // run from where it is, stop ON 1.5 exactly, then cb(1.5)
 ctx.field.zoomTo(['ol', 'dl']);   // CS.focusOf tokens; zoomTo(null) = the whole view; { instant: true } cuts
+ctx.field.frameRun(['CB-R', 'Z', 'ball']); // the run's camera: where these men go over the whole run
+                                  // ('ball' = its flight); the coach bubble keeps off that ground
 ctx.field.gapsOf();               // the gaps of the play on the field, {'A-gap-L': x, ...}
 ```
 
@@ -178,8 +180,9 @@ key frames, and `playTo` still stops on its time exactly.
 ### Pure helpers (cs-core.js)
 
 `CS.gapsOf(compiled)`, `CS.snapTo(pos, landmarks, tol)` (nearest within `tol` yd, inclusive),
-`CS.routeWaypoints(play, id, route)`, `CS.variantOf(play, { tag, assign: { X: {route: 'slant'} }, ... })`
-(a new legal play for an outcome run: his wrong route, the unblocked rusher), `CS.compile(play)`
+`CS.routeWaypoints(play, id, route)`, `CS.variantOf(play, { tag, assign: { X: {route: 'slant'} }, align: { MIKE: {x, y} }, ... })`
+(a new legal play for an outcome run: his wrong route, the unblocked rusher, his men where he put
+them; `align` is field yards, merged per man), `CS.compile(play)`
 (`.byId`, `.off`, `.def`, `.target` = who the ball is thrown to, `.snapT`), `CS.poseAt(play, t)`,
 `CS.focusOf(play, token, t)`. Zone landmarks: `CS.lib.ZONES` (fact sheet 4).
 
@@ -193,14 +196,20 @@ outcome(pz, ans, ok, ctx) {
   if (ok) return null;                                    // the puzzle's own play, once
   const bad = ctx.CS.variantOf(ctx.play, { tag: 'wrong', assign: { [ans.id]: { route: ans.route } }, ball: [...] });
   return [
-    { play: bad, say: { parts: ['Corner sits on it. Picked.'], focus: ['CB-L'], tone: 'bad', zoom: false } },
+    { play: bad, say: { parts: ['His out is picked off.'], focus: ['CB-L'], tone: 'bad' }, zoom: ['CB-L', ans.id, 'ball'] },
     { play: ctx.play },                                   // then the right version
   ];
 }
 ```
 
-cs-ui plays the runs back to back (the next starts when one ends), Replay starts the list again, and
-the explanation bubble shows on any run without its own `say`. Each run's `play` must pass
+cs-ui plays the runs back to back (the next starts when one ends), Replay starts the list again.
+When any run has its own `say`, the explanation ("The answer: X." and the why) goes in the panel's
+feedback line and stays there for the whole list, and a run without `say` shows no bubble; the run's
+bubble says only the consequence ("His comeback is broken up."), never "The answer:" (superseded:
+this used to say the explanation bubble shows on any run without its own `say`, and a run's bubble
+opened with the answer; see the 2026-11-12 entry at the bottom). With no run's `say`, the
+explanation is a bubble at `lookOf` (or the panel) as before. A run's `zoom` tokens set its camera
+(`field.frameRun`); a run's bubble must not carry `zoom` (`zoom: false` would pull the camera out). Each run's `play` must pass
 `CS.validatePlay` (check it in your module). Keep a wrong run honest: it shows what the fact sheet
 says goes wrong, nothing invented.
 
@@ -241,8 +250,10 @@ number made up in the type.
 
 ### route — drag a route onto a receiver to beat the shown coverage
 
-- **Puzzle**: `{ id, type: 'route', play, receiver: 'Z', routes: ['hitch', 'corner', 'post', ...],
-  prompt, tags, why, answer }`. The play's defense names its coverage (`DEFENSES[id].coverage`,
+- **Puzzle**: `{ id, type: 'route', play, receiver: 'Z', offer: ['hitch', 'corner', 'post', ...],
+  side?, accept?, routes?, zones?, prompt, tags, why, answer }` (`offer`, not `routes`: cs-ui reads a
+  puzzle's `routes` as its route-chalk flag. `side` 'L' | 'R' names the Cover 2 side when a Cover 6
+  "side" row applies; `accept` lists every right route when more than one is offered). The play's defense names its coverage (`DEFENSES[id].coverage`,
   e.g. `'cov:2'`).
 - **Answer**: `{ id: 'Z', route: 'corner' }` (`id` is the receiver he dropped it on).
 - **Checker = BEATS**: right when `id === pz.receiver` and the route beats the coverage per fact
@@ -254,61 +265,81 @@ number made up in the type.
   handle with a rubber band, or tap-select then tap the receiver) onto a receiver. The chosen route
   shows as `overlay.path` from `CS.routeWaypoints`, anchored to him. "Lock it in" with `ctx.action`.
 - **Wrong**: the failure plays out: `variantOf` with his route on that receiver and the ball thrown
-  to him, so the defender the fact sheet names (the conflict defender, the squatting corner) is on it;
-  then the right route runs and is caught.
+  to him; the man who owns that spot breaks it up or picks it (a pick when he is on the QB's side of
+  the receiver) when the catch-timed run measures him within `CS.CONTACT_YD` as it arrives, else the
+  catch with him there; then the right route runs and is caught.
 
 ### place — drag players to their alignments
 
-- **Puzzle**: `{ id, type: 'place', play, move: ['RB'], at: { RB: { x, y } | 'landmark-name' },
-  tol: 1, prompt, tags, why, answer }`. Targets come from the formation / defense in the library or
-  zone landmarks (fact sheet 1, 4); `tol` in yards (default 1, never above 1.5).
+- **Puzzle**: `{ id, type: 'place', play, move: ['CB-L', ...], at: { id: 'align' | '<ZONES name>' },
+  from?, swap?, marks?, tol, tolWhy, zoom?, whyAt?, trap?, answerName?, prompt, tags, why, answer }`.
+  Targets are read from the library: `'align'` = his alignment in the play, a ZONES name = his drop
+  landmark, which must be his job in the play's defense (fact sheet 1, 4, 5a); `tol` in yards.
 - **Answer**: `{ RB: { x, y } }`, one position per moved man, yards.
 - **Checker**: every man within `tol` yards (inclusive, `CS.snapTo` semantics) of his target; any
   other man listed, or one missing, is wrong.
 - **Interaction**: `field.drag` with player handles; `snap` to the landmarks within `tol`; the men
   start somewhere neutral (`d.set` after mount) that is not already right. "Lock it in".
-- **Wrong**: the play runs from where he put them (`variantOf` with the moved alignments, as far as
-  the library lets a variant move a man; else a bubble on the misplaced man), then from the right
-  alignment.
+- **Wrong**: the play runs from where he put them (`variantOf` with `align`, and for a man on a
+  zone target `assign: { zone }` when he was dropped on another landmark or `{ still: true }` when on
+  none; nothing is registered in the library), else a bubble on the misplaced man when that lineup
+  is not legal; then from the right alignment.
 
 ### assign — connect blockers to gaps / defenders
 
-- **Puzzle**: `{ id, type: 'assign', play, blockers: ['LT', 'LG', 'C', 'RG', 'RT'], targets:
-  ['B-gap-L', ..., 'MIKE'], prompt, tags, why, answer }`.
+- **Puzzle**: `{ id, type: 'assign', play, rule: 'slide' | 'man' | 'fit', slide?: 'L' | 'R',
+  blockers: ['LT', 'LG', 'C', 'RG', 'RT'], targets: ['B-gap-L', ..., 'MIKE'], prompt, tags, why,
+  answer }`.
 - **Answer**: `{ LT: 'B-gap-L', LG: 'A-gap-L', ... }`.
-- **Checker**: a **bijection**: every blocker has exactly one target, no target is taken twice, and
-  each pair matches the play's scheme (the run scheme's rules, fact sheet 7-8). `validate` flags a
-  puzzle whose truth is not a bijection.
+- **Checker**: the puzzle's `rule` applied to the play, never a stored map. `slide`: each lineman
+  the next gap on the slide side, the back the rushed gap the line leaves open away from the slide.
+  `man` (BOB): every rusher blocked once, big on big, backs on backers, nobody on a dropper, and the
+  linemen's blocks in order along the line, no crossing (the fact sheet's "Man protection in order"
+  convention, rank 3). `fit`: a one-gap lineman owns the gap his shade puts him in. `validate`
+  enumerates every one-to-one assignment and insists exactly one passes.
 - **Interaction**: `overlay.gaps()` for the letters, `moves: false` drag handles on the blockers
   (rubber band), drop on a gap letter or a defender (`snapTo` over the gap points and the defenders'
   yards) and draw an `overlay.link`. A blocker can be re-connected; "Lock it in" once all are.
-- **Wrong**: the failure plays out: the man left unblocked rushes free (`variantOf` with his rush
-  through the open gap), then the right fits.
+- **Wrong**: the failure plays out: each blocker meets the rusher his answer gives him (`{ pass |
+  block, on }`), every rusher nobody meets keeps coming (`{ then: 'QB' }`) and the first to reach the
+  quarterback sacks him; the clip frames the rusher and the quarterback. Then the right protection.
 
 ### call — situation card, pick the call or audible
 
-- **Puzzle**: `{ id, type: 'call', play?, situation: { down, dist, yardline, quarter, clock, score,
-  timeouts }, options: [{ t, v }], answer (index), prompt, tags, why, src }`.
+- **Puzzle**: `{ id, type: 'call', kind, play, situation: { quarter, clock, running, down, dist,
+  yardline, score, timeouts }, options: [{ t, v, no? }], answer (index), prompt, tags, why, src,
+  look? }`. `play` is required (its spot and distance agree with the situation). `kind` is
+  `'audible'` (every option a concept, right = the one whose BEATS row holds the coverage on the
+  field) or a rule kind (`'stop-clock'`, `'sideline'`: a clock rule of fact sheet 10). Every wrong
+  option carries `no`, why it is worse. `src` is `[{ sec, q }]`, a section and a phrase found
+  verbatim in it.
 - **Answer**: the option index (like `choice`).
 - **Checker**: the option whose `v` the rule picks for the situation, from fact sheet 10 (clock,
   scoring, 4th-down and two-point principles; principles only, no invented numbers). `src` names the
   fact-sheet section. `validate` flags two options the rule accepts.
 - **Interaction**: the situation card in the panel (down and distance, clock, score, timeouts, as
   text), options as buttons. The field shows the play (or the snap picture) if one is given.
-- **Wrong**: the explanation says what the call costs; if a `play` is given it runs. No invented
-  outcome.
+- **Wrong**: a wrong audible runs the wrong concept against the coverage on the field: the QB
+  throws at the concept's throw time and the target's man breaks it up (when measured within
+  `CS.CONTACT_YD` at the arrival), then the right concept's play. A rule call: the card shows what
+  the call does to the clock and the down. No invented outcome.
 
 ### predict — freeze at the snap: where does the ball go
 
-- **Puzzle**: `{ id, type: 'predict', play, prompt, tags, why, answer }` (the answer a receiver id).
+- **Puzzle**: `{ id, type: 'predict', play, at?: 'snap' | t, routes?, prompt, tags, why, answer }`
+  (the answer a receiver id).
 - **Answer**: a player id (a field tap on an eligible receiver).
-- **Checker**: `CS.compile(play).target` (the `throw` event's `to`). `validate` flags a play with no
-  throw and a puzzle whose read is not decidable from the snap picture the fact sheet teaches
-  (e.g. the coverage's hole for the concept, fact sheet 5-6).
-- **Interaction**: mount runs the pre-snap picture into the snap with `field.freezeAtSnap` and holds
-  there; then the question opens (tap a receiver, `onTap`). No answer is taken before the freeze.
-- **Wrong**: the play runs from the snap as drawn (the ball goes where it goes); his pick gets a
-  `bad` mark and the right man a `good` mark (`resolved` returns them).
+- **Checker**: `CS.compile(play).target` (the `throw` event's `to`). `validate` makes three sources
+  agree: the play's throw, the type's READS row (the section-6 "conflict defender" cell, quoted)
+  whose landmark sits nearer the man he takes, and the engine (where that defender is at the throw,
+  nearer one man by `READ_MARGIN` = 2 yd). It refuses two right answers in the frame.
+- **Interaction**: freeze at the snap (`at: 'snap'`, the default, `field.freezeAtSnap`) or at the
+  QB's read point (`at: t`, `field.playTo`): after the snap, before the throw, with the conflict
+  defender at most `FREEZE_MAX` (half) of the way to his landmark. No answer before the freeze.
+- **Wrong**: when he picked the man the conflict defender took, the ball goes to him at the play's
+  throw time and the defender breaks it up (when measured within `CS.CONTACT_YD` as it arrives);
+  any other wrong man, the play stops at the throw. Then the real play. His pick gets a `bad` mark
+  and the right man a `good` mark.
 
 ## 2026-11-12 — ROUTE_BEATS lives in the library
 
@@ -325,3 +356,32 @@ not in the type file. Each row is one coverage:
 Nothing that is only CONTESTED or POOR has a row, so a route that has no row against the shown
 coverage is not a right answer. Four verticals, mesh and levels have no combo rows (the sheet names
 no route per numbered receiver); their truth stays `L.BEATS`.
+
+## 2026-11-12 — ball events, pass protection, outcome bubbles, the deep camera
+
+Engine features a type may now use (all in `cs-core.js`, checked against hand-computed numbers in
+`tools/coachschool-checks/engine-events.mjs`):
+- **How a thrown ball ends** (the first of these after the `throw`): `{ ev: 'catch' }`,
+  `{ ev: 'incomplete' }` (it lands on the grass by the target), `{ ev: 'breakup', by }` (it flies
+  to where that defender is as it arrives, he plays it, it drops `CS.DEFLECT` yd on) and
+  `{ ev: 'pick', by }` (the same, and he secures it and runs back with it). `validatePlay` refuses a
+  breakup or a pick by a man more than `CS.CONTACT_YD` (2 yd) from the target as the ball arrives:
+  a defender is only shown playing a ball he measurably got to.
+- **Pass protection on a man**: `{ pass | block, on: 'DE-L' }` walks the blocker to a spot
+  `CS.ENGAGE_SET` behind that rusher's gap; the first moment they are within `CS.ENGAGE` yd they
+  meet and both hold. `on` must name a rusher he actually meets.
+- **A rusher who keeps coming**: a defender's per-play assign `{ then: 'QB' }` carries his rush on
+  to `CS.SACK_REACH` in front of the quarterback's set spot; `{ t, ev: 'sack', by }` puts the QB down
+  (no throw in the same play; `by` within `SACK_REACH + 0.3` of the QB at `t`). A per-play
+  defender assign may also replace his job (`zone | rush | man | spy | still`) or aim his drop
+  (`aim`: a ZONES landmark; his zone stays his job).
+- **`CS.variantOf(play, { align: { id: { x, y } } })`**: men moved for the run, field yards.
+- **The deep camera**: when the ball's flight (throw to arrival) goes past `CS.DEEP_EDGE` yd short
+  of the window's far edge, the run's view widens along the field to `CS.DEEP_PAD` yd past it
+  (`CS.runWindow`), portrait kept, zoomed out by twentieths; the field art is drawn 50 yd deep.
+
+**Outcome bubbles** (supersedes the "explanation bubble shows on any run without its own say" rule
+above, and the practice of opening a run's bubble with "The answer:"): the failure clip's bubble
+covered the explanation. Now the explanation stays in the panel whenever a run talks, and a run's
+bubble names only the consequence, on the man it happens to. A run's `zoom` frames its action
+(`field.frameRun`) and the bubble keeps off the ground those men cover.

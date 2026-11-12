@@ -76,11 +76,25 @@ export async function node(H) {
   const eX = v({ ...SM, play: 'fx-toX', answer: 'X' }, withPlay('fx-toX', toX));
   check(CS.validatePlay(toX).length === 0 && has(eX, /opens H, but the play throws to X/), `validate: a legal play whose throw disagrees with the sheet's read is refused ${J(eX)}`);
   const eOwn = (id) => v({ id: 't-' + id, type: 'predict', play: id, prompt: 'p', why: 'w', answer: CS.compile(L.PLAYS[id]).target });
-  check(has(eOwn('post-dig-vs-c4'), /SS take Y, which opens Z, but the play throws to Y/), `validate: the library's own post-dig vs Cover 4 throws the dig its quarters safety is sitting on, and is refused ${J(eOwn('post-dig-vs-c4'))}`);
+  // Restaged 2026-11-12: this check used the library's post-dig vs Cover 4, which threw the dig its
+  // quarters safety sat on. The library play was fixed to the sheet ("drive on the dig (post opens)":
+  // the safety drives on the dig, the ball goes to the post), so it now passes, and the refusal is
+  // held by a fixture that still disagrees: the same play thrown to the dig.
+  const toY = CS.variantOf(L.PLAYS['post-dig-vs-c4'], { tag: 'toY', ball: [{ t: 0, ev: 'snap' }, { t: 1.8, ev: 'throw', to: 'Y' }, { t: 2.3, ev: 'catch' }] });
+  const eY = v({ id: 'fx-pd', type: 'predict', play: 'fx-toY', prompt: 'p', why: 'w', answer: 'Y' }, withPlay('fx-toY', toY));
+  check(CS.validatePlay(toY).length === 0 && has(eY, /SS take Y, which opens Z, but the play throws to Y/), `validate: post-dig vs Cover 4 thrown to the dig its quarters safety drives on is refused ${J(eY)}`);
+  check(eOwn('post-dig-vs-c4').length === 0 && CS.compile(L.PLAYS['post-dig-vs-c4']).target === 'Z', `validate: the library's post-dig vs Cover 4 throws the post the read opens, and passes ${J(eOwn('post-dig-vs-c4'))}`);
   check(has(eOwn('smash-vs-c2'), /runs on both sides/) && has(eOwn('smash-vs-c2'), /Y runs a corner, which beats cov:2/), 'validate: smash on both sides (the library play) is two right answers');
   check(has(eOwn('flood-vs-c3'), /X runs a hitch, which beats cov:3/), 'validate: a backside hitch vs Cover 3 (the library flood) is two right answers');
   check(has(eOwn('slant-flat-vs-c3'), /runs on both sides/), 'validate: slant-flat on both sides is two right answers even where one side is undecided');
-  check(has(eOwn('stick-vs-c3'), /NB is 8\.3 yd from H and 8\.6 from Y.*has not chosen/), 'validate: a conflict defender equally near both men (stick vs Cover 3) is undecided and refused');
+  // Restaged 2026-11-12: the library's stick vs Cover 3 used to leave the nickel undecided (8.3 yd
+  // from the arrow, 8.6 from the stick) under a callout saying "He widens". The library play now
+  // aims him at the flat, so the undecided case is held by a fixture: the same play with his aim
+  // taken away (his plain curl-flat drop, the old picture).
+  const sit = CS.variantOf(L.PLAYS['stick-vs-c3'], { tag: 'sit', assign: { NB: {} } });
+  const eS = v({ id: 'fx-st', type: 'predict', play: 'fx-sit', prompt: 'p', why: 'w', answer: 'Y' }, withPlay('fx-sit', sit));
+  check(CS.validatePlay(sit).length === 0 && has(eS, /NB is 8\.3 yd from H and 8\.6 from Y.*has not chosen/), `validate: a conflict defender equally near both men (stick vs Cover 3, his plain drop) is undecided and refused ${J(eS)}`);
+  check(!has(eOwn('stick-vs-c3'), /has not chosen/), `validate: the library's stick vs Cover 3 shows the nickel's choice (he widens) ${J(eOwn('stick-vs-c3'))}`);
   check(has(eOwn('mesh-vs-c1'), /no documented two-way read/), 'validate: a concept with no two-way read on the sheet (mesh) is refused');
   const noThrow = CS.variantOf(L.PLAYS[SM.play], { tag: 'nt', ball: [{ t: 0, ev: 'snap' }] });
   check(has(v({ ...SM, play: 'fx-nt' }, withPlay('fx-nt', noThrow)), /no throw/), 'validate: a play with no throw is refused');
@@ -95,21 +109,43 @@ export async function node(H) {
   check(has(v({ ...SM, prompt: '' }), /no prompt/) && has(v({ ...SM, why: '' }), /no why/), 'validate: a prompt and a why are required');
 
   // ── outcome ──
+  // Restaged 2026-11-12. Two changes, each reversing an earlier rule:
+  // 1. The man the conflict defender TOOK (X on smash: CB-L squats on the hitch; Y on flood: NB sinks
+  //    under the sail) no longer gets a run that stops at the throw "because the engine has no
+  //    breakup": the ball goes to him at the play's throw time and the defender breaks it up. By hand
+  //    here: arrival = throw + flight at 30 yd/s (QB at the throw to him at the arrival, rounded up to
+  //    a tenth), the defender within CS.CONTACT_YD of him then, the ball within 0.5 yd of the
+  //    defender. Every other wrong man still gets the stop-at-the-throw run (no throw is invented).
+  // 2. The run's bubble no longer opens "The answer:" (cs-ui keeps the explanation in the panel
+  //    while a run talks; the bubble says only the consequence).
   const ctxOf = (pz) => ({ pz, play: L.PLAYS[pz.play], lib: L, CS, focusMarks: [], nameOf: (id) => id, lc: (s) => s });
+  const TOOK = { 'pz-predict-ex-smash': { X: 'CB-L' }, 'pz-predict-ex-flood': { Y: 'NB' } };
   const bad = [];
+  let broke = 0;
   for (const pz of [SM, FL]) {
     const c = CS.compile(L.PLAYS[pz.play]);
     if (T.outcome(pz, pz.answer, true, ctxOf(pz)) !== null) bad.push(`${pz.id}: right answer has runs`);
     for (const a of T.distractors(pz, L)) {
-      const runs = T.outcome(pz, a, false, ctxOf(pz)), r0 = runs[0].play, c0 = CS.compile(r0);
+      const runs = T.outcome(pz, a, false, ctxOf(pz)), r0 = runs[0].play, c0 = CS.compile(r0), by = TOOK[pz.id][a];
       if (runs.length !== 2 || runs[1].play !== L.PLAYS[pz.play]) bad.push(`${pz.id}/${a}: not [failure, the real play]`);
       if (CS.validatePlay(r0).length) bad.push(`${pz.id}/${a}: ${CS.validatePlay(r0).join(';')}`);
-      if (c0.throwT !== null || c0.T !== c.throwT || (r0.callouts || []).length) bad.push(`${pz.id}/${a}: failure run throws, has notes, or does not stop at ${c.throwT} (T ${c0.T})`);
+      if ((r0.callouts || []).length) bad.push(`${pz.id}/${a}: failure run has notes`);
+      if (by) {
+        const end = r0.ball.find((b) => b.ev === 'breakup');
+        if (c0.throwT !== c.throwT || c0.target !== a || !end || end.by !== by) { bad.push(`${pz.id}/${a}: not thrown to him at ${c.throwT} and broken up by ${by} ${J(r0.ball)}`); continue; }
+        const qb = CS.poseAt(r0, c0.throwT).players.QB, P = CS.poseAt(r0, end.t), me = P.players[a], d = P.players[by];
+        const arr = Math.ceil((c0.throwT + Math.max(0.4, Math.hypot(qb.x - me.x, qb.y - me.y) / 30)) * 10 - 1e-9) / 10;
+        if (Math.abs(arr - end.t) > 1e-9) bad.push(`${pz.id}/${a}: arrives ${end.t}, by hand ${arr}`);
+        if (Math.hypot(d.x - me.x, d.y - me.y) > CS.CONTACT_YD) bad.push(`${pz.id}/${a}: ${by} ${Math.hypot(d.x - me.x, d.y - me.y).toFixed(2)} yd off him`);
+        if (Math.hypot(P.ball.x - d.x, P.ball.y - d.y) > 0.5) bad.push(`${pz.id}/${a}: the ball is not at ${by}`);
+        if (!/Broken up\.$/.test(runs[0].say.parts.join(''))) bad.push(`${pz.id}/${a}: bubble does not say broken up`);
+        broke++;
+      } else if (c0.throwT !== null || c0.T !== c.throwT) bad.push(`${pz.id}/${a}: failure run throws or does not stop at ${c.throwT} (T ${c0.T})`);
       if (!runs[0].marks.some((m) => m.id === a && m.kind === 'bad') || !runs[0].say.focus.includes(a)) bad.push(`${pz.id}/${a}: his pick not ringed`);
-      if (!/^The answer: /.test(runs[0].say.parts[0].text)) bad.push(`${pz.id}/${a}: bubble does not open with the answer`);
+      if (runs[0].say.parts.some((p) => /The answer/.test(typeof p === 'string' ? p : p.text)) || 'zoom' in runs[0].say) bad.push(`${pz.id}/${a}: bubble opens with the answer or moves the camera`);
     }
   }
-  check(bad.length === 0, `outcome: right = the play once; wrong = a legal run that stops on the throw without one (pick ringed, defender in the bubble), then the real play ${bad.slice(0, 3).join(' | ')}`);
+  check(bad.length === 0 && broke === 2, `outcome: right = the play once; wrong = the man the read took is thrown to and broken up (${broke} of 2), any other a legal run that stops on the throw; pick ringed, defender in the bubble, then the real play ${bad.slice(0, 3).join(' | ')}`);
 }
 
 export async function browser(H) {
@@ -204,7 +240,9 @@ export async function browser(H) {
     await tap('X');
     const g0 = await state();
     check(g0.mode.done && g0.mode.ok === false && g0.play === 'pz-predict-smash-c2~pick-X', `a wrong Game Day tap is final, and the failure run plays first (${g0.play})`);
-    check(/^The answer: Slot receiver\. The cornerback took the X receiver/.test(g0.bubble) && J(g0.focus) === '["CB-L","X"]' && g0.marks.some((m) => m.id === 'X' && m.kind === 'bad'), `its bubble names the answer and points at the corner and his pick: "${g0.bubble}"`);
+    // Restaged 2026-11-12 (outcome bubbles): the answer is named in the panel, and the run's bubble
+    // says only what happened (it used to open "The answer:" and cover the explanation).
+    check(/^The answer: Slot receiver\./.test(g0.fb) && /^The cornerback took the X receiver\. Broken up\.$/.test(g0.bubble) && g0.mode.explain === 'panel' && J(g0.focus) === '["CB-L","X"]' && g0.marks.some((m) => m.id === 'X' && m.kind === 'bad'), `the answer is named in the panel ("${g0.fb.slice(0, 30)}"), and the run's bubble points at the corner and his pick with the consequence only: "${g0.bubble}"`);
     const g1 = await page.evaluate(async () => {
       const C = window.__CS__, CS = window.CS, first = C.play.id, out = {};
       C.field.setSpeed(3);
@@ -217,11 +255,14 @@ export async function browser(H) {
       return out;
     });
     check(g1.second === 'pz-predict-smash-c2' && g1.runs && g1.held === 'H', `when it ends, the real play runs and the slot receiver has the ball (${g1.second}, ${g1.held})`);
-    check(g1.lastT > 2.2, `the failure run went on to the moment of the throw (2.4 s) before handing over (last frame seen ${g1.lastT.toFixed(2)})`);
-    // The plate after a wrong answer: replay the failure run and hold its last frame (the throw that is not there).
-    await page.evaluate(async () => { const C = window.__CS__; document.getElementById('btnReplay').click(); C.field.pause(); C.seek(2.4); await new Promise((r) => setTimeout(r, 300)); });
+    // Restaged 2026-11-12: the failure run used to stop at the throw (2.4 s); it now throws to X and
+    // the corner breaks it up at 3.2 s (the node check computes that by hand), ending a second later.
+    check(g1.lastT > 3.2, `the failure run went on past the breakup (3.2 s) before handing over (last frame seen ${g1.lastT.toFixed(2)})`);
+    // The plate after a wrong answer: replay the failure run and hold the breakup (the corner's hands on the ball).
+    await page.evaluate(async () => { const C = window.__CS__; document.getElementById('btnReplay').click(); C.field.pause(); C.seek(3.2); await new Promise((r) => setTimeout(r, 300)); const t0 = Date.now(); while (C.field.camAnimating && Date.now() - t0 < 2000) await new Promise((r) => setTimeout(r, 30)); await new Promise((r) => setTimeout(r, 60)); });
     const pl = await state();
-    check(pl.play === 'pz-predict-smash-c2~pick-X' && Math.abs(pl.t - 2.4) < 1e-9, 'Replay starts the list again from the failure run');
+    const atBk = await page.evaluate(() => { const C = window.__CS__, P = window.CS.poseAt(C.play, C.t); return Math.hypot(P.ball.x - P.players['CB-L'].x, P.ball.y - P.players['CB-L'].y); });
+    check(pl.play === 'pz-predict-smash-c2~pick-X' && Math.abs(pl.t - 3.2) < 1e-9 && atBk <= 0.5, `Replay starts the list again from the failure run; at 3.2 s the ball is on the corner (${atBk.toFixed(2)} yd)`);
     await plate(page, 'cs-pz-predict-wrong-390.png');
     await page.evaluate(() => { window.__CS__.field.pause(); window.__CS__.ui.destroyOnly(); });
 

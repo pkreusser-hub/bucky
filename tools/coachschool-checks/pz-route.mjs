@@ -22,7 +22,9 @@ export async function node(H) {
   // Hand truth, distractors and hand-made wrong answers, per example.
   const HAND = {
     'pz-route-smash-c2': { right: { id: 'H', route: 'corner' }, wrong: ['out', 'dig', 'flat'], unoffered: 'post', other: 'X' },
-    'pz-route-hitch-c3': { right: { id: 'Z', route: 'hitch' }, wrong: ['comeback', 'dig', 'post'], unoffered: 'slant', other: 'Y' },
+    // The go is offered again (2026-11-12, the deep camera): no row of fact sheet 6 has a lone go
+    // beat Cover 3 ("#1 go (clear)" only inside flood and stick, which this play does not run).
+    'pz-route-hitch-c3': { right: { id: 'Z', route: 'hitch' }, wrong: ['comeback', 'dig', 'post', 'go'], unoffered: 'slant', other: 'Y' },
   };
   for (const [id, h] of Object.entries(HAND)) {
     const pz = EX[id];
@@ -75,9 +77,19 @@ export async function node(H) {
   // Outcome runs: legal plays; wrong = his route thrown into the man who owns that spot, then the right one.
   const OWNER = {
     'pz-route-smash-c2': { out: 'CB-L', dig: 'WILL', flat: 'CB-L' },
-    'pz-route-hitch-c3': { comeback: 'CB-R', dig: 'NB', post: 'CB-R' },
+    'pz-route-hitch-c3': { comeback: 'CB-R', dig: 'NB', post: 'CB-R', go: 'CB-R' },
   };
-  const at = (play) => { const c = CS.compile(play), s = CS.poseAt(play, c.catchT), r = s.players[c.target]; return { c, s, r, d: (id) => Math.hypot(s.players[id].x - r.x, s.players[id].y - r.y) }; };
+  // Restaged 2026-11-12: a wrong route's run used to end in a catch with the owner "on the ball"
+  // (within T.ON_BALL yd at the catch), its bubble opening "The answer:". The owner now plays the
+  // ball: the throw keeps its catch timing (30 yd/s) and ends in a breakup or a pick by him; a pick
+  // when he is nearer the QB (at the throw) than the receiver is as it arrives, so he is in the
+  // ball's path. That is only shown when he is within CS.CONTACT_YD of the receiver as it arrives
+  // (validatePlay's rule), and the bubble says only the consequence ("broken up" / "picked off");
+  // cs-ui keeps the answer in the panel. Checked below with the arrival worked out by hand and the
+  // ball measured on the owner. And "inside the view" now means inside the run's own window: the
+  // deep camera (CS.runWindow) widens it when the flight passes the plain window's far edge.
+  const at = (play) => { const c = CS.compile(play), t = c.catchT != null ? c.catchT : c.arriveT, s = CS.poseAt(play, t), r = s.players[c.target]; return { c, t, s, r, d: (id) => Math.hypot(s.players[id].x - r.x, s.players[id].y - r.y) }; };
+  const farEdge = (play) => { const w = CS.runWindow(play); return (w ? w.y1 : CS.VIEW.Y1) - 0.5 + 1e-9; };
   for (const [id, own] of Object.entries(OWNER)) {
     const pz = EX[id], tr = HAND[id].right, bad = [];
     const right = T.runs(pz, tr, true, L);
@@ -94,17 +106,32 @@ export async function node(H) {
       const shape = ww.c.target === ans.id && w.play.assign[ans.id].route === ans.route && rs[1].play.id === right[0].play.id;
       check(legal && shape, `${id} ${J(ans)}: two legal runs, his ${ans.route} thrown to ${ans.id} first, then the right one (${rs.map((r) => r.play.id).join(' -> ')})`);
       // The ball comes out after the drop (3-step from the gun: 2 yd at 4 yd/s = 0.5 s).
-      check(ww.c.throwT >= 0.5 && ww.c.catchT > ww.c.throwT, `${id} ${J(ans)}: thrown after the drop (${ww.c.throwT} s), caught at ${ww.c.catchT} s`);
-      // The failure must be seen: the catch inside the field's window (CS.VIEW, -9 to 19.6 yd from the LOS).
-      // The plate review found a go caught at 21 yd, off the top of the screen.
-      check(ww.r.y <= CS.VIEW.Y1 - 0.5, `${id} ${J(ans)}: caught ${ww.r.y.toFixed(1)} yd downfield, inside the view (to ${CS.VIEW.Y1.toFixed(1)})`);
+      check(ww.c.throwT >= 0.5 && ww.t > ww.c.throwT, `${id} ${J(ans)}: thrown after the drop (${ww.c.throwT} s), arriving at ${ww.t} s`);
+      // The failure must be seen: the ball's end inside the run's window (CS.VIEW, -9 to 19.6 yd,
+      // widened along the field by the deep camera when the flight goes past it). The plate review
+      // found a go caught at 21 yd, off the top of the screen, before there was a deep camera.
+      check(ww.r.y <= farEdge(w.play), `${id} ${J(ans)}: arrives ${ww.r.y.toFixed(1)} yd downfield, inside the run's view (to ${(farEdge(w.play) + 0.5).toFixed(1)}${CS.runWindow(w.play) ? ', the deep camera' : ''})`);
+      const txt = w.say.parts.map((p) => p.text || p).join('');
+      check(!/The answer/.test(txt) && !('zoom' in w.say), `${id} ${J(ans)}: the run's bubble says only the consequence, and leaves the camera to the run ("${txt}")`);
       if (ans.id !== pz.receiver) {
-        check(/^The answer: /.test(w.say.parts[0].text) && /wrong man/.test(w.say.parts.map((p) => p.text || p).join('')), `${id} ${J(ans)}: the wrong man's run says so`);
+        check(/wrong man/.test(txt), `${id} ${J(ans)}: the wrong man's run says so`);
         continue;
       }
-      const o = own[ans.route], txt = w.say.parts.map((p) => p.text || p).join('');
-      check(o && w.owner === o && ww.d(o) <= T.ON_BALL && J(w.marks) === J([{ id: o, kind: 'bad' }]), `${id} ${J(ans)}: the run goes into ${o}, the man 5a gives that spot, within ${T.ON_BALL} yd at the catch (${o ? ww.d(o).toFixed(2) : '?'} yd)`);
-      check(/^The answer: /.test(txt) && /is covered/.test(txt) && w.say.focus[0] === o && w.say.tone === 'bad', `${id} ${J(ans)}: its bubble names the answer, then the covering man ("${txt}")`);
+      const o = own[ans.route], end = w.play.ball.find((b) => b.ev === 'breakup' || b.ev === 'pick');
+      check(o && w.owner === o && J(w.marks) === J([{ id: o, kind: 'bad' }]) && end && end.by === o, `${id} ${J(ans)}: the ball goes into ${o}, the man 5a gives that spot, and he plays it (${end ? end.ev + ' by ' + end.by : 'no breakup or pick'})`);
+      if (!end) continue;
+      // By hand: the arrival is the throw time plus the flight at 30 yd/s from the QB at the throw to
+      // the receiver at the arrival, rounded up to a tenth (never under 0.4 s); the owner is within
+      // CS.CONTACT_YD of him then; the ball is on the owner (0.5 yd); a pick when the owner is nearer
+      // the QB than the receiver; after a pick he still has it a second later.
+      const qb = CS.poseAt(w.play, ww.c.throwT).players.QB, me = ww.r, dm = ww.s.players[o];
+      const arr = Math.ceil((ww.c.throwT + Math.max(0.4, Math.hypot(qb.x - me.x, qb.y - me.y) / 30)) * 10 - 1e-9) / 10;
+      const ballOn = Math.hypot(ww.s.ball.x - dm.x, ww.s.ball.y - dm.y);
+      const pick = Math.hypot(dm.x - qb.x, dm.y - qb.y) < Math.hypot(me.x - qb.x, me.y - qb.y);
+      check(Math.abs(end.t - arr) < 1e-9 && ww.d(o) <= CS.CONTACT_YD && ballOn <= 0.5 && end.ev === (pick ? 'pick' : 'breakup'),
+        `${id} ${J(ans)}: arrives at ${end.t} s (by hand ${arr}), ${o} ${ww.d(o).toFixed(2)} yd from him (max ${CS.CONTACT_YD}), the ball ${ballOn.toFixed(2)} yd from ${o}: a ${end.ev}${pick ? ' (he is in the ball\'s path)' : ''}`);
+      check(new RegExp(`is ${end.ev === 'pick' ? 'picked off' : 'broken up'}\\.`).test(txt) && w.say.focus[0] === o && w.say.tone === 'bad', `${id} ${J(ans)}: its bubble says what happened and points at ${o} ("${txt}")`);
+      if (end.ev === 'pick') { const later = CS.poseAt(w.play, end.t + 1).ball; check(later.held === o, `${id} ${J(ans)}: picked, the ball stays with ${o} a second later (held by ${later.held})`); }
       check(ww.d(o) < Math.min(...cover), `${id} ${J(ans)}: the wrong route is covered tighter (${ww.d(o).toFixed(2)} yd) than the right one is (${Math.min(...cover).toFixed(2)} yd)`);
     }
   }
@@ -213,18 +240,23 @@ export async function browser(H) {
   await tapPlayer('Z'); await tapChip('comeback'); await tapMain();
   const f1 = await page.evaluate(() => {
     const C = window.__CS__, F = C.field, c = window.CS.compile(C.play);
-    return { play: C.play.id, target: c.target, route: C.play.assign.Z.route, catchT: c.catchT, marks: F.marks, focus: C.saying && C.saying.focus,
+    return { play: C.play.id, target: c.target, route: C.play.assign.Z.route, catchT: c.arriveT, marks: F.marks, focus: C.saying && C.saying.focus,
       bubble: document.getElementById('bubble').textContent.replace(/\s+/g, ' ').trim(), done: C.ui.mode.done, ok: C.ui.mode.ok,
+      fb: document.getElementById('stFb').textContent.replace(/\s+/g, ' ').trim(), explain: C.ui.mode.explain,
       chips: [...document.querySelectorAll('#stOpts button')].map((b) => [b.dataset.route, b.className.replace('rt', '').trim(), b.getAttribute('aria-pressed'), getComputedStyle(b).borderTopColor]) };
   });
   check(f1.done && f1.ok === false && f1.play === 'slant-flat-vs-c3~route-wrong' && f1.target === 'Z' && f1.route === 'comeback', `browser: a wrong answer first runs his own route, the comeback thrown to Z (${f1.play})`);
-  check(/^The answer: Hitch for the Z receiver\./.test(f1.bubble) && /cornerback/.test(f1.bubble) && J(f1.focus) === J(['CB-R']) && f1.marks.some((m) => m.id === 'CB-R' && m.kind === 'bad'), `browser: its bubble names the answer and points at the cornerback who has the deep third ("${f1.bubble}")`);
+  // Restaged 2026-11-12 (outcome bubbles): the answer is named in the panel, and the run's bubble
+  // says what happened to his throw, on the cornerback (it used to open "The answer:" and cover the
+  // explanation). The comeback is picked: the node checks work out why (he is in the ball's path).
+  check(f1.explain === 'panel' && /^The answer: Hitch for the Z receiver\./.test(f1.fb) && /^His comeback is picked off\. Cover 3: the cornerback has a deep third/.test(f1.bubble) && J(f1.focus) === J(['CB-R']) && f1.marks.some((m) => m.id === 'CB-R' && m.kind === 'bad'),
+    `browser: the panel names the answer ("${f1.fb.slice(0, 32)}"), and the run's bubble says the comeback is picked off by the cornerback who has the deep third ("${f1.bubble}")`);
   // Over: his pick red and no longer drawn as picked (the plate review found the yellow "picked"
   // look hiding the red), the right one green.
   const red = f1.chips.find((c) => c[0] === 'comeback'), green = f1.chips.find((c) => c[0] === 'hitch');
   check(red[1] === 'bad' && green[1] === 'good' && f1.chips.every((c) => c[2] === 'false') && red[3] !== 'rgb(255, 225, 77)', `browser: after the miss his comeback chip is red, the hitch green, none drawn as picked ${J(f1.chips)}`);
-  // The plate at the catch: the ball arrives with the corner on it.
-  await page.evaluate((t) => { window.__CS__.field.pause(); window.__CS__.seek(t); }, f1.catchT);
+  // The plate as the ball arrives: in the corner's hands.
+  await page.evaluate(async (t) => { const F = window.__CS__.field; F.pause(); window.__CS__.seek(t); const t0 = Date.now(); while (F.camAnimating && Date.now() - t0 < 2000) await new Promise((r) => setTimeout(r, 30)); await new Promise((r) => setTimeout(r, 60)); }, f1.catchT);
   const ch = await page.evaluate(() => window.__CS__.field.chalk);
   check(J(ch.routes) === J(['Z']), `browser: in the failure run only Z's route is chalked ${J(ch)}`);
   await plate(page, 'route-failure.png');

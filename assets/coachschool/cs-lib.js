@@ -618,7 +618,10 @@
     routes: true, zones: true,
     assign: {
       X: { route: 'hitch' }, H: { route: 'corner' }, Z: { route: 'hitch' }, Y: { route: 'corner' },
-      RB: { block: 'B-gap-L' }, QB: { drop: 3 },
+      // The slide goes left, so the back takes the first threat away from it (fact sheet rank 3,
+      // "Pass protection"): the end rushing outside the right tackle, DE-R in C-gap-R in c2-43-over
+      // (2026-11-12; this said B-gap-L, a gap the slide itself already takes).
+      RB: { block: 'C-gap-R' }, QB: { drop: 3 },
       LT: { pass: 'slide-L' }, LG: { pass: 'slide-L' }, C: { pass: 'slide-L' }, RG: { pass: 'slide-L' }, RT: { pass: 'slide-L' },
     },
     ball: [{ t: 0, ev: 'snap' }, { t: 2.4, ev: 'throw', to: 'H' }, { t: 3.3, ev: 'catch' }],
@@ -663,7 +666,10 @@
 
   CP('stick-vs-c3', { name: 'Stick vs Cover 3', formation: 'gun-trips-rt', defense: 'c3-nickel', concept: 'concept:stick', beats: 'cov:3',
     teams: { off: 'PHI', def: 'DAL' },
-    assign: { Z: { route: 'go' }, H: { route: 'arrow' }, Y: { route: 'stick' }, X: { route: 'slant' }, RB: { block: 'B-gap-L' }, QB: { drop: 3 } },
+    // The nickel shows his read (2026-11-12): the arrow takes him wide, so he aims at the flat's
+    // landmark (his zone stays curl-flat). At the throw he is 2.5 yd from the arrow and 9.5 from the
+    // stick (it was 8.3 and 8.6: the callout said "he widens" over a picture where he hadn't).
+    assign: { Z: { route: 'go' }, H: { route: 'arrow' }, Y: { route: 'stick' }, X: { route: 'slant' }, RB: { block: 'B-gap-L' }, QB: { drop: 3 }, NB: { aim: 'flat-R' } },
     to: 'Y', throwT: 1.0, catchT: 1.5,
     callouts: [
       { t: -1.0, focus: 'NB', text: 'Cover 3 gives this defender the curl, then the flat.', src: [S('5a', 'curl-flat R'), S('4', 'one defender responsible for the curl then the flat')] },
@@ -713,12 +719,18 @@
 
   CP('post-dig-vs-c4', { name: 'Post-dig vs Cover 4', formation: 'gun-2x2', defense: 'c4-nickel', concept: 'concept:post-dig', beats: 'cov:4',
     teams: { off: 'MIN', def: 'CHI' },
-    assign: { Z: { route: 'post' }, Y: { route: 'dig' }, X: { route: 'curl' }, H: { route: 'hitch' }, RB: { block: 'B-gap-R' }, QB: { drop: 5 } },
-    to: 'Y', throwT: 1.8, catchT: 2.3,
+    // The read (fact sheet 6): "the quarters safety: drive on the dig (post opens) or stay deep (dig
+    // opens)". The strong safety drives on the dig (2026-11-12: he aims at the hook-curl landmark,
+    // his quarter stays his job), so the ball goes to the post. It used to go to the dig with him
+    // sitting on it. Thrown at 2.3, caught at 3.3 (31 yd in 1.0 s, the plays' flight cap; Z 19.8 yd
+    // downfield: the deep camera takes it in); at the throw the safety is 2.2 yd from the dig and 13
+    // from the post; nearest defender at the catch 3.9 yd away.
+    assign: { Z: { route: 'post' }, Y: { route: 'dig' }, X: { route: 'curl' }, H: { route: 'hitch' }, RB: { block: 'B-gap-R' }, QB: { drop: 5 }, SS: { aim: 'hook-curl-R' } },
+    to: 'Z', throwT: 2.3, catchT: 3.3,
     callouts: [
       { t: -1.0, focus: ['FS', 'SS'], text: 'Cover 4: four deep quarters, and these two safeties read the number 2 receiver.', src: [S('5b', '4 deep quarters, 3 underneath; safeties read #2')] },
       { t: 1.0, focus: ['Z', 'Y'], text: 'Post outside, dig inside, and the quarters safety in between.', src: [S('6', '#1 post, #2 dig')] },
-      { t: 2.0, focus: 'Y', text: 'He stays deep for the post, so the dig opens.', src: [S('6', 'stay deep (dig opens)')] },
+      { t: 2.0, focus: 'SS', text: 'He drives on the dig, so the post opens.', src: [S('6', 'drive on the dig (post opens)')] },
     ] });
 
   /* ── plays the engine cannot draw yet ── One canonical run per scheme (7), run right. Not in

@@ -122,21 +122,32 @@
     const play = lib.PLAYS[pz.play], chalkIds = [pz.receiver].concat(Array.isArray(pz.routes) ? pz.routes : []);
     const right = { play: rightRun(pz, lib), marks: [{ id: pz.receiver, kind: 'good' }], chalk: { routes: chalkIds } };
     if (ok || !ans || !lib.ROUTES[ans.route] || !CS.compile(play, lib).byId[ans.id] || CS.compile(play, lib).byId[ans.id].team !== 'off') return [right];
-    const bad = timedRun(play, ans.id, ans.route, 'route-wrong', lib, true), own = ownerAt(bad, lib), c = CS.compile(bad, lib);
+    const timed = timedRun(play, ans.id, ans.route, 'route-wrong', lib, true), own = ownerAt(timed, lib);
+    // The owner plays the ball (2026-11-12) when the catch-timed run measures him within
+    // CS.CONTACT_YD of the receiver as it arrives: then the same throw ends in his hands or off them.
+    // A pick when he is on the QB's side of the receiver at the throw's end (he is in the ball's
+    // path: undercut), a breakup when he is beside or behind him. Further off than that, the run
+    // shows the catch with him there, and the bubble says no more than that.
+    let bad = timed, ev = null;
+    if (own && own.d <= CS.CONTACT_YD) {
+      const ct = CS.compile(timed, lib), s = CS.poseAt(timed, ct.catchT, lib), qb = CS.poseAt(timed, ct.throwT, lib).players.QB;
+      const r = s.players[ct.target], d = s.players[own.id];
+      ev = Math.hypot(d.x - qb.x, d.y - qb.y) < Math.hypot(r.x - qb.x, r.y - qb.y) ? 'pick' : 'breakup';
+      bad = CS.variantOf(play, { tag: 'route-wrong', assign: { [ans.id]: timed.assign[ans.id] }, ball: [{ t: 0, ev: 'snap' }, { t: ct.throwT, ev: 'throw', to: ct.target }, { t: ct.catchT, ev, by: own.id }] });
+    }
+    const c = CS.compile(bad, lib);
     const cov = (lib.COVERAGES[covOf(play, lib)] || {}).name || 'This coverage', job = jobWords(own.p);
     const nm = (id) => (name ? name(id, bad) : nameIn(c, id, lib));
-    // Said only as far as the run shows it: "on the ball" when he is within ON_BALL yards at the
-    // catch; a throw to the wrong man says so instead of inventing a defender's play.
-    // The bubble of this run replaces cs-ui's explanation while it shows, so it opens with the
-    // answer the way the explanation does ("The answer: ...").
-    const on = own.d <= ON_BALL, tr = T.truth(pz, lib);
-    const head = { tag: 'b', text: `The answer: ${tr ? titleOf(tr.route, lib) : '?'} for the ${lower(nm(pz.receiver))}.` };
+    // The consequence only: the explanation ("The answer: ...", the why) stays in the panel while
+    // this run's bubble shows (cs-ui), so this says what happened to his throw and why, no more.
+    // A throw to the wrong man says so instead of inventing a defender's play.
+    const what = ev === 'pick' ? 'picked off' : ev === 'breakup' ? 'broken up' : 'no good';
     const say = ans.id !== pz.receiver
-      ? { parts: [head, ` This throw went to the ${lower(nm(ans.id))}: the wrong man.`], focus: [ans.id], tone: 'bad', zoom: false }
-      : { parts: [head, ` His ${titleOf(ans.route, lib).toLowerCase()} is ${on ? 'covered' : 'no good'}. ${cov}: the `, { tag: 'b', text: lower(nm(own.id)) },
-        job ? ` ${job}${on ? ', and he is on the ball.' : '.'}` : (on ? ' is on the ball.' : ' is there.')], focus: [own.id], tone: 'bad', zoom: false };
+      ? { parts: [`This throw went to the ${lower(nm(ans.id))}: the wrong man.`], focus: [ans.id], tone: 'bad' }
+      : { parts: [`His ${titleOf(ans.route, lib).toLowerCase()} is ${what}. ${cov}: the `, { tag: 'b', text: lower(nm(own.id)) },
+        job ? ` ${job}${ev ? ', and he is on the ball.' : '.'}` : (ev ? ' is on the ball.' : ' is there.')], focus: [own.id], tone: 'bad' };
     const marks = [{ id: ans.id === pz.receiver ? own.id : ans.id, kind: 'bad' }];
-    return [{ play: bad, say, marks, chalk: { routes: [ans.id] }, owner: own.id, ownerD: own.d }, right];
+    return [{ play: bad, say, marks, chalk: { routes: [ans.id] }, zoom: [ans.id, own.id, 'ball'], owner: own.id, ownerD: own.d, ev }, right];
   }
 
   const T = {
@@ -239,9 +250,11 @@
       why: 'The corner route goes to the hole behind the squatting corner and outside the half safety.' },
     // Hitch vs Cover 3 (6): "Hitch | Cover 3 (off corners)": "deep-third corners bail; the hitch sits
     // in front of them". The slant and the curl are left out: with Y on the flat they would be
-    // slant-flat and curl-flat, also right against Cover 3. The go is left out too: it is caught past
-    // the 19.6 yd the field shows, so its failure would play out off the screen.
-    { id: 'pz-route-hitch-c3', type: 'route', play: 'slant-flat-vs-c3', receiver: 'Z', offer: ['comeback', 'hitch', 'dig', 'post'], zones: true,
+    // slant-flat and curl-flat, also right against Cover 3. The go is offered (2026-11-12): no row of
+    // ROUTE_BEATS has a lone go beat Cover 3 (fact sheet 6: "#1 go (clear)" only inside flood and
+    // stick, whose #2 and #3 this play doesn't run), so it is a graded wrong answer; it is caught past
+    // the 19.6 yd window, and the deep camera (CS.runWindow) now takes in its whole flight.
+    { id: 'pz-route-hitch-c3', type: 'route', play: 'slant-flat-vs-c3', receiver: 'Z', offer: ['comeback', 'hitch', 'dig', 'post', 'go'], zones: true,
       prompt: 'Cover 3. Tap the Z receiver, then pick the route that beats it.',
       tags: ['route:hitch', 'cov:3'], answer: { id: 'Z', route: 'hitch' },
       why: 'Deep-third corners bail, and the hitch sits in front of them.' },
@@ -341,7 +354,7 @@
   };
   T.rightName = (pz, ctx) => { const tr = T.truth(pz, ctx.lib); return `${titleOf(tr.route, ctx.lib)} for the ${ctx.lc(ctx.nameOf(tr.id))}`; };
   T.lookOf = (pz) => [pz.receiver];
-  T.outcome = (pz, ans, ok, ctx) => runs(pz, ans, ok, ctx.lib, (id, play) => ctx.nameOf(id, play)).map(({ owner, ownerD, ...r }) => r);
+  T.outcome = (pz, ans, ok, ctx) => runs(pz, ans, ok, ctx.lib, (id, play) => ctx.nameOf(id, play)).map(({ owner, ownerD, ev, ...r }) => r);
 
   CS.puzzleTypes = CS.puzzleTypes || {};
   CS.puzzleTypes.route = T;

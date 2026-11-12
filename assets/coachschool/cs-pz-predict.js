@@ -224,25 +224,49 @@
       const r = readOf(ctx.play, ctx.lib), S = mainSide(r);
       return S ? [r.target, S.defender] : [r.target];
     },
-    // Wrong: first the play runs up to the throw with no throw (the engine has no breakup to show,
-    // so it stops on the moment the QB would have let it go), the conflict defender and his pick
-    // ringed; then the real play to the right man.
+    // Wrong: the failure, then the real play to the right man. When he picked the man the conflict
+    // defender took, the ball goes to him at the play's own throw time and the defender breaks it up
+    // (2026-11-12) -- but only when this run measures him within CS.CONTACT_YD of that receiver as
+    // the ball arrives (wrongRun). Otherwise (a man the read is not about, or a defender not there)
+    // the play stops on the moment the QB would have let it go, as before: no throw is invented.
     outcome(pz, ans, ok, ctx) {
       if (ok) return null;
       const r = readOf(ctx.play, ctx.lib), S = mainSide(r);
-      const stop = CS.variantOf(ctx.play, { tag: 'pick-' + ans, ball: [{ t: CS.compile(ctx.play, ctx.lib).snapT, ev: 'snap' }], T: r.throwT, callouts: [] });
-      const def = S ? S.defender : null, took = S && S.taken.includes(ans);
-      // cs-ui's explanation opens "The answer: ..."; this run's bubble replaces it while it plays,
-      // so it opens the same way (the explanation itself returns with the real play).
-      const head = { tag: 'b', text: 'The answer: ' + T.rightName(pz, ctx) + '.' };
-      const parts = took
-        ? [head, ' The ', ctx.lc(ctx.nameOf(def)), ' took the ', ctx.lc(ctx.nameOf(ans)), ', so that throw is not there.']
-        : [head, ' The read is the ', ctx.lc(ctx.nameOf(def)), ', not the ', ctx.lc(ctx.nameOf(ans)), '.'];
+      const def = S ? S.defender : null, took = !!(S && S.taken.includes(ans));
+      const w = took ? T.wrongRun(pz, ans, ctx.lib) : null;
+      const stop = w || CS.variantOf(ctx.play, { tag: 'pick-' + ans, ball: [{ t: CS.compile(ctx.play, ctx.lib).snapT, ev: 'snap' }], T: r.throwT, callouts: [] });
+      // The consequence only: cs-ui keeps the explanation ("The answer: ...", the why) in the panel.
+      const parts = w
+        ? ['The ', ctx.lc(ctx.nameOf(def)), ' took the ', ctx.lc(ctx.nameOf(ans)), '. Broken up.']
+        : took
+          ? ['The ', ctx.lc(ctx.nameOf(def)), ' took the ', ctx.lc(ctx.nameOf(ans)), ', so that throw is not there.']
+          : ['The read is the ', ctx.lc(ctx.nameOf(def)), ', not the ', ctx.lc(ctx.nameOf(ans)), '.'];
       const marks = ctx.focusMarks.concat([{ id: ans, kind: 'bad' }], def ? [{ id: def, kind: 'focus' }] : []);
       return [
-        { play: stop, say: { parts, focus: def ? [def, ans] : [ans], tone: 'bad', zoom: false }, marks },
+        { play: stop, say: { parts, focus: def ? [def, ans] : [ans], tone: 'bad' }, marks, zoom: (def ? [def, ans] : [ans]).concat(w ? ['ball'] : []) },
         { play: ctx.play },
       ];
+    },
+    // The throw to the man the conflict defender took, broken up by him: the play's own throw time,
+    // the ball at about 30 yd/s (arrival iterated, as the route type does). null unless the defender
+    // is measurably on him (within CS.CONTACT_YD) when it arrives.
+    wrongRun(pz, ans, lib) {
+      lib = lib || CS.lib;
+      const play = playOf(pz, lib);
+      if (!play) return null;
+      const r = readOf(play, lib), S = mainSide(r);
+      if (!S || !S.taken.includes(ans)) return null;
+      const c = CS.compile(play, lib), thr = c.throwT, R1 = (x) => Math.ceil(x * 10 - 1e-9) / 10;
+      const ball = (end) => [{ t: c.snapT, ev: 'snap' }, { t: thr, ev: 'throw', to: ans }, end];
+      let arr = R1(thr + 0.4);
+      for (let k = 0; k < 4; k++) {
+        const v = CS.variantOf(play, { tag: 'pick-' + ans, ball: ball({ t: arr, ev: 'catch' }), T: null, callouts: [] });
+        const q = CS.poseAt(v, thr, lib).players.QB, p = CS.poseAt(v, arr, lib).players[ans];
+        arr = R1(thr + Math.max(0.4, Math.hypot(q.x - p.x, q.y - p.y) / 30));
+      }
+      const v = CS.variantOf(play, { tag: 'pick-' + ans, ball: ball({ t: arr, ev: 'breakup', by: S.defender }), T: null, rac: null, callouts: [] });
+      const P = CS.poseAt(v, arr, lib).players;
+      return Math.hypot(P[S.defender].x - P[ans].x, P[S.defender].y - P[ans].y) <= CS.CONTACT_YD ? v : null;
     },
   };
 

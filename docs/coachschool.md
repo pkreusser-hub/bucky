@@ -305,3 +305,35 @@ every registered type to the contract (pure and on the page, including a clean `
 `field-hooks.mjs` measures the hooks against yardToScreen / spriteRect and hand-computed gap yards.
 `--only a,b` runs just those modules. The brief for the type agents, with the files each may touch
 and a spec per type: `docs/coachschool-puzzle-types.md`.
+
+## 2026-11-12 — the failure plays out: breakups, picks, sacks; outcome bubbles; the deep camera
+
+The dad's review of phase 3a: a wrong answer stopped short of showing what went wrong, the failure
+clip's bubble sat on top of the explanation, a go was caught off the screen, three library plays
+read wrong against the fact sheet, and man protection needed its rule written down.
+
+- **Ball events** (cs-core): a thrown ball ends `catch`, `incomplete`, `breakup` (by a defender,
+  the ball flies to him and drops on) or `pick` (he secures it). validatePlay only allows a breakup
+  or pick by a man within 2 yd of the target as the ball arrives. Route: a wrong route's owner
+  breaks it up or picks it when the catch-timed run measures him that close. Call: a wrong audible
+  throws and the target's man breaks it up. Predict: the man the conflict defender took gets the
+  ball, and he breaks it up.
+- **Pass protection** (cs-core): `{pass|block, on}` blockers meet their rusher and hold; a rusher
+  with `{then: 'QB'}` keeps coming; `{ev: 'sack', by}` puts the QB down. Assign's failure clip now
+  shows the unblocked man getting home, framed on him and the QB, the red arrow kept.
+- **Outcome bubbles** (cs-ui): when a run has its own bubble, the explanation ("The answer: X." and
+  the why) stays in the panel, and the run's bubble says only the consequence. A run's `zoom` tokens
+  frame its action and keep the bubble off it. Supersedes the earlier rule that a run's bubble
+  opens with "The answer:" (the conformance check's bubble rule is restaged with that reason).
+- **The deep camera**: when the ball's flight passes the window's far edge, the run zooms out along
+  the field to take it in (the field art now runs 50 yd deep). Route's Cover 3 hitch puzzle offers
+  the go again.
+- **`CS.variantOf(play, {align})`**: place's wrong run moves the men with it; the `pz-place~<id>`
+  registrations in the library are gone.
+- **Library reads**: post-dig vs Cover 4 now throws the post (the safety drives on the dig, sheet 6:
+  "drive on the dig (post opens)"); stick vs Cover 3's nickel widens to the flat so the picture
+  matches "He widens, so the stick is open"; smash's back takes C-gap-R (the slide goes left, so the
+  back takes the first threat away from it, DE-R).
+- **Fact sheet**: man protection in order, no crossed blocks, written as a Coach School teaching
+  convention with the dad's decision of 2026-11-12 (rank 3, "Pass protection"); the assign checker's
+  `man` rule points at it.

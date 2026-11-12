@@ -108,9 +108,15 @@ export async function node(H) {
   }
   check(section(md, '10').includes('uses a down') && !section(md, '6').includes('uses a down'), 'src check bites: a phrase is found only under its own section');
 
-  // Outcome runs: each wrong audible's run is a legal play, against the same defense, with the QB
-  // holding the ball, and its target is covered: measured here from poseAt at the concept's own
-  // throw time, against the defender whose assignment (the defense table) is man on him.
+  // Outcome runs: each wrong audible's run is a legal play, against the same defense, and its target
+  // is covered: measured here from poseAt at the concept's own throw time, against the defender whose
+  // assignment (the defense table) is man on him.
+  // Restaged 2026-11-12: the wrong run used to be "no throw" (the QB held the ball: the engine had no
+  // breakup to show). The dad wanted the covered throw to fail on screen, so the QB now throws to the
+  // target at the concept's throw time and the man defender breaks it up. Checked by hand here: the
+  // arrival is the throw time plus the flight at 30 yd/s (QB at the throw to the target at the
+  // arrival, rounded up to a tenth), the defender within CS.CONTACT_YD (2 yd) of the target then,
+  // and the ball at that moment within 0.5 yd of the defender (it went to his hands).
   for (const pz of ex.filter((p) => p.kind === 'audible')) {
     const shown = L.PLAYS[pz.play];
     for (const [i, o] of pz.options.entries()) {
@@ -119,8 +125,16 @@ export async function node(H) {
       const thr = base.ball.find((b) => b.ev === 'throw'), to = thr.to;
       const manDef = L.DEFENSES[shown.defense].players.find((d) => d.man === to);
       const P = CS.poseAt(w.play, thr.t).players, gap = manDef ? Math.hypot(P[manDef.id].x - P[to].x, P[manDef.id].y - P[to].y) : Infinity;
-      check(CS.validatePlay(w.play).length === 0 && w.play.defense === shown.defense && w.play.formation === shown.formation && !w.play.ball.some((b) => b.ev === 'throw'),
-        `call ${pz.id} / ${o.t}: the wrong run is a legal play, against the ${shown.defense} on the field, same formation, no throw ${J(CS.validatePlay(w.play))}`);
+      const wb = w.play.ball, wt = wb.find((b) => b.ev === 'throw'), we = wb.find((b) => b.ev === 'breakup');
+      check(CS.validatePlay(w.play).length === 0 && w.play.defense === shown.defense && w.play.formation === shown.formation && wt && wt.t === thr.t && wt.to === to && we && we.by === (manDef && manDef.id),
+        `call ${pz.id} / ${o.t}: the wrong run is a legal play, against the ${shown.defense} on the field, same formation, thrown to ${to} at ${thr.t} s and broken up by his man ${J(wb)} ${J(CS.validatePlay(w.play))}`);
+      if (wt && we && manDef) {
+        const qb = CS.poseAt(w.play, wt.t).players.QB, Pa = CS.poseAt(w.play, we.t), tg = Pa.players[to], dm = Pa.players[manDef.id];
+        const flight = Math.ceil((wt.t + Math.max(0.4, Math.hypot(qb.x - tg.x, qb.y - tg.y) / 30)) * 10 - 1e-9) / 10;
+        const contact = Math.hypot(dm.x - tg.x, dm.y - tg.y), onHim = Math.hypot(Pa.ball.x - dm.x, Pa.ball.y - dm.y);
+        check(Math.abs(we.t - flight) < 1e-9 && contact <= CS.CONTACT_YD && onHim <= 0.5,
+          `call ${pz.id} / ${o.t}: the ball arrives at ${we.t} s (by hand ${flight}: 30 yd/s), ${manDef.id} ${contact.toFixed(2)} yd from ${to} (max ${CS.CONTACT_YD}), the ball ${onHim.toFixed(2)} yd from ${manDef.id}`);
+      }
       check(manDef && gap <= 1.5 && w.man === manDef.id && w.target === to, `call ${pz.id} / ${o.t}: at ${thr.t} s the ${manDef && manDef.id} (man on ${to}) is ${gap.toFixed(2)} yd from him (covered: within 1.5)`);
     }
     check(CS.validatePlay(shown).length === 0, `call ${pz.id}: the right run (the library's ${pz.play}) is a legal play`);
@@ -238,8 +252,11 @@ export async function browser(H) {
   await page.evaluate(() => window.__CS__.field.setSpeed(0.6));
   await settle(page, 900);
   s = await state();
-  check(s.play === 'smash-vs-c2~wrong-mesh-vs-c1' && /^The answer: Mesh\. Smash against man: the strong safety is on the slot receiver when the ball should come out\. No throw there\./.test(s.bubble) && JSON.stringify(s.focus) === JSON.stringify(['SS', 'H']) && s.chalk.routes.length > 0,
-    `call audible: a wrong call plays out first, smash against the Cover 1, the bubble on the man defender and his receiver, routes drawn (${s.play} | ${s.bubble} | ${JSON.stringify(s.focus)})`);
+  // Restaged 2026-11-12 (outcome bubbles): the run's bubble says only the consequence, and the
+  // explanation ("The answer: Mesh.") stays in the panel; it used to open the run's bubble, which
+  // then covered it. The throw is now made and broken up (see the node check above).
+  check(s.play === 'smash-vs-c2~wrong-mesh-vs-c1' && /^Smash against man: the strong safety is on the slot receiver when the ball gets there\. Broken up\.$/.test(s.bubble) && /^The answer: Mesh\./.test(s.fb) && s.mode.explain === 'panel' && JSON.stringify(s.focus) === JSON.stringify(['SS', 'H']) && s.chalk.routes.length > 0,
+    `call audible: a wrong call plays out first, smash against the Cover 1, the bubble on the man defender and his receiver with the consequence only, the answer in the panel, routes drawn (${s.play} | ${s.bubble} | ${s.fb.slice(0, 40)} | ${JSON.stringify(s.focus)})`);
   // The plate at the moment smash would throw to the slot (2.4 s in the library play): his man is on him.
   const atThrow = await page.evaluate(() => {
     const C = window.__CS__, CS = window.CS;

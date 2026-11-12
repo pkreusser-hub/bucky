@@ -39,11 +39,9 @@
   'use strict';
   const CS = root.CS;
   const EPS = 1e-9;
-  const PREFIX = 'pz-place~';
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const isPt = (p) => !!p && typeof p === 'object' && !Array.isArray(p) && isNum(p.x) && isNum(p.y);
-  const OL_SWAP = { LT: 'RT', RT: 'LT', LG: 'RG', RG: 'LG' };
 
   function playOf(pz, lib) {
     const play = lib.PLAYS[pz.play];
@@ -316,68 +314,41 @@
       const wrong = T.wrongPlay(pz, ans, lib);
       const p = placed(pz, ans, lib), bad = move.filter((id) => !p[id]);
       const badMarks = ctx.focusMarks.concat(bad.map((id) => ({ id, kind: 'bad' })));
-      // The bubble opens with the answer (the explanation's own first words, which this run's
-      // bubble replaces), then what his lineup costs.
-      const say = { parts: [{ tag: 'b', text: 'The answer: ' + T.rightName(pz, ctx) + '.' }, ' '].concat(T.wrongWords(pz, ans, lib, wrong, ctx)), focus: bad, tone: 'bad', zoom: false };
+      // What his lineup costs, no more: cs-ui keeps the explanation ("The answer: ...", the why)
+      // in the panel while this run's bubble shows.
+      const say = { parts: T.wrongWords(pz, ans, lib, wrong, ctx), focus: bad, tone: 'bad' };
       return [
         { play: wrong.play || play, say, chalk, marks: badMarks },
         { play, chalk, marks: ctx.focusMarks.concat(good) },
       ];
     },
 
-    /* ── the wrong run (pure: the suite runs it in Node) ── The library cannot move a man in a
-       variant (CS.variantOf merges assignments; alignments come from the formation and the
-       defense), so the variant points at a copy of the play's formation or defense with his men
-       moved, registered as `pz-place~<puzzle id>` (one per puzzle, replaced on every wrong answer;
-       never a library id). A man on a zone target who was dropped on another zone's landmark keeps
-       his alignment and drops to that zone instead; one dropped on no landmark stands where he was
-       put. Returns { play, errors, moved: {id: what} }; play is null when the lineup is not legal
-       (validatePlay / validateFormation), and the page then shows the right play with the bubble. */
+    /* ── the wrong run (pure: the suite runs it in Node) ── A variant of the play with his men where
+       he put them (CS.variantOf's `align`, field yards) and, for a man on a zone target, the job his
+       spot gives him (`assign`): dropped on another zone's landmark he keeps his alignment and
+       drops to that zone; dropped on no landmark he stands where he was put ({still: true}). Nothing
+       is registered in the library (2026-11-12: this used to copy the formation or defense into
+       `pz-place~<puzzle id>` entries, before a variant could move a man). Returns
+       { play, errors, moved: {id: what} }; play is null when the lineup is not legal (validatePlay,
+       which holds an aligned lineup to validateFormation), and the page then shows the right play. */
     wrongPlay(pz, ans, lib) {
       lib = lib || CS.lib;
-      const play = playOf(pz, lib), c = CS.compile(play, lib), p = placed(pz, ans, lib), id0 = PREFIX + pz.id;
-      const mir = !!play.mirror, baseX = (x) => (mir ? CS.mirrorX(x - c.dX) : x - c.dX);
+      const play = playOf(pz, lib), c = CS.compile(play, lib), p = placed(pz, ans, lib);
       const zoneMarks = marksOf(pz, lib).filter((m) => lib.ZONES[m.name]);
-      const moved = {}, offSet = {}, defSet = {};
+      const moved = {}, align = {}, assign = {};
       for (const id of pz.move) {
         if (p[id]) continue;
         const a = ans[id], man = c.byId[id];
-        const into = man.team === 'off' ? offSet : defSet;
-        const bid = man.team === 'off' ? (mir && OL_SWAP[id]) || id : mir ? CS.swapLR(id) : id;
-        if (pz.at[id] !== 'align') {
+        if (!isPt(a)) continue;                              // never dragged: he stays on his own spot
+        if (pz.at[id] !== 'align' && man.team === 'def') {
           const sn = CS.snapTo(a, zoneMarks, pz.tol);
-          if (sn) { into[bid] = { zone: mir ? CS.swapLR(sn.name) : sn.name }; moved[id] = { zone: sn.name }; continue; }
-          into[bid] = { x: baseX(a.x), y: a.y, still: true }; moved[id] = { at: { x: a.x, y: a.y } };
-        } else { into[bid] = { x: baseX(a.x), y: a.y }; moved[id] = { at: { x: a.x, y: a.y } }; }
+          if (sn) { assign[id] = { zone: sn.name }; moved[id] = { zone: sn.name }; continue; }
+          align[id] = { x: a.x, y: a.y }; assign[id] = { still: true }; moved[id] = { at: { x: a.x, y: a.y } };
+        } else { align[id] = { x: a.x, y: a.y }; moved[id] = { at: { x: a.x, y: a.y } }; }
       }
-      const copy = (set, base) => {
-        const o = JSON.parse(JSON.stringify(base));
-        o.id = id0; delete o.mirrored;
-        o.players = o.players.map((q) => {
-          const s = set[q.id];
-          if (!s) return q;
-          const r = { ...q };
-          if (s.zone) { r.zone = s.zone; delete r.man; delete r.rush; }
-          if (isNum(s.x)) { r.x = s.x; r.y = s.y; delete r.dx; if (r.on != null) r.on = s.y >= CS.ON_LINE_Y; }
-          if (s.still) { delete r.zone; delete r.man; delete r.rush; delete r.read; }
-          return r;
-        });
-        return o;
-      };
-      const errors = [], o = { tag: 'wrong' };
-      if (Object.keys(offSet).length) {
-        const f = copy(offSet, lib.FORMATIONS[play.formation]);
-        errors.push(...CS.validateFormation(f));
-        lib.FORMATIONS[id0] = f; o.formation = id0;
-      }
-      if (Object.keys(defSet).length) {
-        const d = copy(defSet, lib.DEFENSES[play.defense]);
-        errors.push(...CS.validateDefense(d, lib).filter((m) => !/has no assignment/.test(m)));
-        lib.DEFENSES[id0] = d; o.defense = id0;
-      }
-      if (!o.formation && !o.defense) return { play: null, errors: ['nobody to move'], moved };
-      const v = CS.variantOf(play, o);
-      errors.push(...CS.validatePlay(v, lib));
+      if (!Object.keys(moved).length) return { play: null, errors: ['nobody to move'], moved };
+      const v = CS.variantOf(play, { tag: 'wrong', align, assign });
+      const errors = CS.validatePlay(v, lib);
       return { play: errors.length ? null : v, errors, moved };
     },
     // The wrong run's bubble: who is off his spot, what that costs (an empty zone), or the

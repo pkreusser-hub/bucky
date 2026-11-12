@@ -221,18 +221,30 @@
     const shift = (p) => ({ ...p, x: p.x + dX, side: CS.sideOf(p.x + dX, ballX) });
     const off = CS.resolveSet(f).map((p) => ({ ...shift(p), team: 'off' }));
     const def = CS.resolveSet(d).map((p) => ({ ...shift(p), team: 'def' }));
+    // play.align (CS.variantOf's `align`): a man moved for this play, in FIELD yards (after the
+    // mirror and the hash shift, the ids as compiled). An outcome run "from where he put them".
+    for (const p of off.concat(def)) {
+      const a = play.align && play.align[p.id];
+      if (a && isNum(a.x) && isNum(a.y)) { p.x = a.x; p.y = a.y; p.side = CS.sideOf(p.x, ballX); p.aligned = true; }
+    }
     const byId = {};
     for (const p of off.concat(def)) byId[p.id] = p;
     const ev = (name) => (play.ball || []).find((b) => b.ev === name);
-    const snap = ev('snap'), thr = ev('throw'), cat = ev('catch');
+    const snap = ev('snap'), thr = ev('throw'), cat = ev('catch'), sack = ev('sack');
+    // How a thrown ball ends: caught, incomplete (it lands on the grass by him), broken up
+    // ({ev:'breakup', by}: a defender gets a hand on it) or picked ({ev:'pick', by}: he secures it).
+    const end = thr ? (play.ball || []).find((b) => CS.BALL_ENDS.includes(b.ev) && b.t > thr.t) || null : null;
     const c = {
       play, off, def, all: off.concat(def), byId, ballX, dX, formation: f, defense: d,
       snapT: snap ? snap.t : 0, throwT: thr ? thr.t : null, catchT: cat ? cat.t : null,
       target: thr ? thr.to : null, qb: off.find((p) => p.pos === 'QB'),
       rac: num(play.rac, 0.7),
+      end: end ? end.ev : null, arriveT: end ? end.t : null, by: end && end.by != null ? end.by : null,
+      sackT: sack ? sack.t : null, sackBy: sack ? sack.by : null,
     };
-    c.downT = c.catchT != null ? c.catchT + c.rac : null;
-    c.T = num(play.T, c.downT != null ? c.downT + 0.8 : 4);
+    c.downT = c.catchT != null && c.end === 'catch' ? c.catchT + c.rac : null;
+    const tail = c.downT != null ? c.downT + 0.8 : c.end === 'pick' ? c.arriveT + 1.6 : c.arriveT != null ? c.arriveT + 1.0 : c.sackT != null ? c.sackT + 1.0 : 4;
+    c.T = num(play.T, tail);
     // Offense: every player gets a path (a polyline, a speed, a delay, and whether it runs on).
     const A = play.assign || {};
     for (const p of off) {
@@ -250,6 +262,8 @@
         const back = a.drop === 5 ? 3.5 : a.drop === 7 ? 5 : 2;          // 3-step from the gun = 2 yd back
         p.path = { pts: [start, [p.x, p.y - back]], v: num(a.v, 4), delay: 0, ext: false };
         p.role = 'qb';
+      } else if (a.on != null && (a.pass || a.block)) {
+        p.role = 'block'; p.on = a.on;                              // pass pro on a named rusher: path set below
       } else if (a.block) {
         const gx = CS.gapX(a.block);
         p.path = { pts: [start, [gx == null ? p.x : gx + dX, Math.min(p.y + 2, -2)]], v, delay: 0, ext: false };
@@ -263,15 +277,32 @@
         p.role = CS.OL.includes(p.pos) ? 'block' : 'still';
       }
     }
-    // Defense: zone drops, rushes, man and spy.
+    // Defense: zone drops, rushes, man and spy. play.assign may give a defender this play's own job
+    // ({zone|rush|man|spy|still}, replacing the defense's; or just {then:'QB'}, {aim}, {v} on top of
+    // it): the unblocked rusher who keeps coming, the curl-flat defender who widens to the flat.
+    const qbEnd = c.qb ? c.qb.path.pts[c.qb.path.pts.length - 1] : null;
     for (const p of def) {
+      const ov = A[p.id];
+      if (ov) {
+        const s0 = { ...p.src };
+        if (DEF_JOBS.some((k) => ov[k] != null)) for (const k of DEF_JOBS) delete s0[k];
+        p.src = { ...s0, ...ov };
+      }
       const s = p.src, v = num(s.v, CS.SPEEDS[p.pos]), start = [p.x, p.y];
-      if (s.zone != null) {
-        const z = lib.ZONES[s.zone];
+      if (s.still) { p.path = { pts: [start], v, delay: 0, ext: false }; p.role = 'still'; }
+      else if (s.zone != null) {
+        // aim: where his drop goes when the play shows his read (a curl-flat defender widening to
+        // the flat aims at the flat's landmark); his zone, his job, stays the defense's.
+        const z = lib.ZONES[s.aim != null ? s.aim : s.zone];
         p.path = { pts: [start, [z.x + dX, z.y]], v, delay: 0, ext: false };
         p.role = 'zone';
       } else if (s.rush != null) {
-        p.path = { pts: [start, [CS.gapX(s.rush) + dX, -0.4]], v, delay: 0, ext: false };
+        const gp = [CS.gapX(s.rush) + dX, -0.4];
+        // then:'QB': nobody blocks him, so he keeps coming, through his gap to the quarterback's
+        // spot at the end of his drop, stopping CS.SACK_REACH yd in front of him (on the ball side).
+        const pts = [start, gp];
+        if (s.then === 'QB' && qbEnd) pts.push([qbEnd[0], qbEnd[1] + CS.SACK_REACH]);
+        p.path = { pts, v, delay: 0, ext: false };
         p.role = 'rush';
       } else if (s.man != null) {
         p.role = 'man'; p.manOf = s.man;
@@ -279,13 +310,45 @@
         p.role = 'spy'; p.spyOf = s.spy;
       } else { p.path = { pts: [start], v, delay: 0, ext: false }; p.role = 'still'; }
     }
+    // Pass protection on a named rusher ({pass|block, on:'DE-L'}): the blocker steps to a spot
+    // CS.ENGAGE_SET yd behind the point where his man crosses the line (his gap), and the first
+    // moment the two are within CS.ENGAGE yd they meet and hold there: both stop (p.held = t).
+    for (const p of off) {
+      if (p.on == null) continue;
+      const r = byId[p.on], a = p.assign, start = [p.x, p.y];
+      const gx = r && r.role === 'rush' ? r.path.pts[1][0] : r ? r.x : p.x;
+      // A lineman sets half a yard back (never shallower than the set point); a back set deeper than
+      // the set point steps up to it (into the hole his man comes through).
+      const setY = -0.4 - CS.ENGAGE_SET, to = [gx, p.y < setY ? setY : Math.min(setY, p.y - 0.5)];
+      p.path = { pts: [start, to], v: num(a.v, a.pass ? 2.5 : CS.SPEEDS[p.pos]), delay: 0, ext: false };
+    }
+    for (const p of off) {
+      const r = p.on != null ? byId[p.on] : null;
+      if (!r || r.team !== 'def' || r.role !== 'rush') continue;
+      for (let t = c.snapT; t <= c.T + 1e-9; t = Math.round((t + 0.02) * 1000) / 1000) {
+        const a = offPos(c, p, t), b = defPlanned(c, r, t);
+        if (dist(a, b) <= CS.ENGAGE) {
+          p.held = t;
+          // Two men on one rusher: he is held from the first of them.
+          if (!(r.held <= t)) r.held = t;
+          break;
+        }
+      }
+    }
     if (CACHE) CACHE.set(play, c);
     return c;
   };
+  CS.BALL_ENDS = ['catch', 'incomplete', 'breakup', 'pick'];
+  const DEF_JOBS = ['zone', 'rush', 'man', 'spy', 'still'];
+  CS.ENGAGE = 1.0;          // yd: a blocker and his rusher this close have met
+  CS.ENGAGE_SET = 0.9;      // yd: where a pass blocker sets, behind his man's gap
+  CS.SACK_REACH = 0.7;      // yd: a free rusher stops this far in front of the quarterback (he has him)
+  CS.CONTACT_YD = 2.0;      // yd: a breakup or a pick is by a defender at most this far from the target as the ball arrives
 
   // Where the offense is at t (no defensive reactions needed: the offense never reads the defense here).
   function offPos(c, p, t) {
     const path = p.path, tt = t - c.snapT;
+    if (p.held != null && t > p.held) return offPos(c, { ...p, held: null }, p.held);   // engaged: he holds his ground
     if (c.downT != null && p.id === c.target && t > c.downT) return offPos(c, p, c.downT);
     const d = path.v * (tt - path.delay);
     return inField(along(path.pts, d, path.ext));
@@ -311,25 +374,34 @@
   // position at any t is a pure function of t.
   function defPos(c, p, t) {
     if (t <= c.snapT) return [p.x, p.y];
-    const chase = p.role !== 'rush' && p.role !== 'still' && c.throwT != null && c.catchT != null;
+    if (p.held != null && t > p.held) return defPlanned(c, p, p.held);       // a blocker has him
+    const chase = p.role !== 'rush' && p.role !== 'still' && c.throwT != null && c.arriveT != null;
     const tr = c.throwT + CS.REACT;
     if (!chase || t <= tr) return defPlanned(c, p, t);
     const P0 = defPlanned(c, p, tr), v = num(p.src.v, CS.SPEEDS[p.pos]);
     const recv = c.byId[c.target];
-    const C = offPos(c, recv, c.catchT);
+    // Everyone in coverage breaks on the ball: toward where the target is when it arrives.
+    const C = offPos(c, recv, c.arriveT);
     const step = (from, to, dt) => {
       const L = dist(from, to), go = clamp(Math.min(v * dt, L - 1), 0, Infinity);
       if (L === 0) return from.slice();
       return [from[0] + (to[0] - from[0]) * go / L, from[1] + (to[1] - from[1]) * go / L];
     };
-    if (t <= c.catchT) return step(P0, C, t - tr);
-    const Q = step(P0, C, c.catchT - tr);
+    if (t <= c.arriveT) return step(P0, C, t - tr);
+    const Q = step(P0, C, c.arriveT - tr);
+    // A pick: he secures it (CS.SECURE s), then runs it back toward the offense's goal line.
+    if (c.end === 'pick' && p.id === c.by) {
+      const run = Math.max(0, t - c.arriveT - CS.SECURE) * v * 0.85;
+      return [Q[0], Q[1] - run];
+    }
     // After the catch: a pursuit angle straight at the spot where the carrier goes down. Aiming
     // at his moving position instead swings the heading every frame and the swept point outran
-    // the defender's own speed by up to 4% (caught by the suite's speed check).
+    // the defender's own speed by up to 4% (caught by the suite's speed check). With no catch
+    // (incomplete, broken up, picked) they pull up where the ball came down.
     const end = c.downT != null ? offPos(c, recv, c.downT) : C;
-    return step(Q, end, t - c.catchT);
+    return step(Q, end, t - c.arriveT);
   }
+  CS.SECURE = 0.25;         // s: an interceptor pulls the ball in before he runs
 
   // The ball: on the spot before the snap, a quick low snap to the QB, held, thrown on an arc that
   // lands on the receiver's spot at the catch time, then carried.
@@ -342,16 +414,30 @@
       const q = posOf(qb, c.snapT + snapDur), u = (t - c.snapT) / snapDur;
       return { x: c.ballX + (q[0] - c.ballX) * u, y: q[1] * u, air: 0.15 + (HANDS - 0.15) * u + 0.6 * u * (1 - u), held: null };
     }
-    if (c.throwT == null || t < c.throwT) { const q = posOf(qb, t); return { x: q[0], y: q[1], air: HANDS, held: qb.id }; }
-    const recv = c.byId[c.target];
-    if (t < c.catchT) {
-      const a = posOf(qb, c.throwT), b = posOf(recv, c.catchT), u = (t - c.throwT) / (c.catchT - c.throwT);
+    if (c.throwT == null || t < c.throwT || c.arriveT == null) { const q = posOf(qb, t); return { x: q[0], y: q[1], air: HANDS, held: qb.id }; }
+    const recv = c.byId[c.target], a = posOf(qb, c.throwT), b = CS.ballEndOf(c, posOf);
+    const ground = c.end === 'incomplete' ? 0.1 : HANDS;
+    if (t < c.arriveT) {
+      const u = (t - c.throwT) / (c.arriveT - c.throwT);
       const apex = clamp(dist(a, b) * 0.12, 0.5, 6);
-      return { x: a[0] + (b[0] - a[0]) * u, y: a[1] + (b[1] - a[1]) * u, air: HANDS + 4 * apex * u * (1 - u), held: null };
+      return { x: a[0] + (b[0] - a[0]) * u, y: a[1] + (b[1] - a[1]) * u, air: HANDS + (ground - HANDS) * u + 4 * apex * u * (1 - u), held: null };
     }
-    const r = posOf(recv, t);
-    return { x: r[0], y: r[1], air: HANDS, held: recv.id };
+    if (c.end === 'catch') { const r = posOf(recv, t); return { x: r[0], y: r[1], air: HANDS, held: recv.id }; }
+    if (c.end === 'pick') { const r = posOf(c.byId[c.by], t); return { x: r[0], y: r[1], air: HANDS, held: c.by }; }
+    if (c.end === 'breakup') {
+      // Knocked away: it carries on CS.DEFLECT yd along its flight, falling to the grass over 0.4 s, and lies there.
+      const L = dist(a, b) || 1, u = clamp((t - c.arriveT) / 0.4, 0, 1);
+      return { x: b[0] + (b[0] - a[0]) / L * CS.DEFLECT * u, y: b[1] + (b[1] - a[1]) / L * CS.DEFLECT * u, air: 0.1 + (HANDS - 0.1) * (1 - u) + 1.2 * u * (1 - u), held: null };
+    }
+    return { x: b[0], y: b[1], air: 0.1, held: null };                    // incomplete: on the grass where it landed
   }
+  CS.DEFLECT = 1.5;
+  // Where a thrown ball's flight ends, yards: the receiver at the catch (or where an incomplete pass
+  // lands by him), else the defender who plays it, where he is when it gets there (the contact point).
+  CS.ballEndOf = (c, posOf) => {
+    if (c.end === 'breakup' || c.end === 'pick') return posOf(c.byId[c.by], c.arriveT);
+    return posOf(c.byId[c.target], c.arriveT);
+  };
 
   // THE pure pose function. t <= snap returns the alignment exactly.
   CS.poseAt = (play, t, lib) => {
@@ -454,7 +540,23 @@
     for (const p of c.all) { if (ids.has(p.id)) e.push(`${L}: id ${p.id} on both teams`); ids.add(p.id); }
     for (const [id, a] of Object.entries(play.assign || {})) {
       const p = c.byId[id];
+      if (p && p.team === 'def') {
+        // A defender's job for this play (compile merges it over the defense's).
+        const s = p.src;
+        if (s.zone != null && !lib.ZONES[s.zone]) e.push(`${L}: ${id} has unknown zone ${s.zone}`);
+        if (s.aim != null && (!lib.ZONES[s.aim] || s.zone == null)) e.push(`${L}: ${id} aims at ${s.aim}: needs a zone job and a known landmark`);
+        if (s.rush != null && CS.gapX(s.rush) == null) e.push(`${L}: ${id} rushes unknown gap ${s.rush}`);
+        if (s.then != null && (s.then !== 'QB' || s.rush == null)) e.push(`${L}: ${id}: then:'QB' is the only follow-on, and only for a rusher`);
+        if (s.then === 'QB' && c.off.some((q) => q.on === id)) e.push(`${L}: ${id} keeps coming to the QB, but a blocker has him`);
+        if (s.man != null && !(c.byId[s.man] && c.byId[s.man].team === 'off')) e.push(`${L}: ${id} covers unknown ${s.man}`);
+        continue;
+      }
       if (!p || p.team !== 'off') { e.push(`${L}: assignment for unknown offensive player ${id}`); continue; }
+      if (a.on != null) {
+        const r = c.byId[a.on];
+        if (!r || r.team !== 'def' || r.role !== 'rush') e.push(`${L}: ${id} blocks ${a.on}, who is not a rusher on this play`);
+        else if (p.held == null) e.push(`${L}: ${id} never meets ${a.on}`);
+      }
       if (a.route) {
         e.push(...CS.validateRoute(a.route, lib.ROUTES[a.route]));
         const usesSide = (lib.ROUTES[a.route] || { pts: [] }).pts.some((pt) => typeof pt[0] === 'string');
@@ -468,8 +570,36 @@
     if (c.throwT != null) {
       const r = c.byId[c.target];
       if (!r || r.team !== 'off') e.push(`${L}: throw to unknown ${c.target}`);
-      if (c.catchT == null) e.push(`${L}: a throw needs a catch`);
+      const ends = (play.ball || []).filter((b) => CS.BALL_ENDS.includes(b.ev));
+      if (!ends.length) e.push(`${L}: a throw needs a catch (or an incomplete, a breakup, a pick)`);
+      if (ends.length > 1) e.push(`${L}: a throw ends once: ${ends.map((b) => b.ev).join(' and ')}`);
+      if (c.end && (c.end === 'breakup' || c.end === 'pick')) {
+        const d = c.byId[c.by];
+        if (!d || d.team !== 'def') e.push(`${L}: ${c.end} by unknown defender ${c.by}`);
+        else if (r && r.team === 'off') {
+          // Honest contact: the man who plays it is on the target when the ball gets there.
+          const P = CS.poseAt(play, c.arriveT, lib).players, gap = Math.hypot(P[c.by].x - P[c.target].x, P[c.by].y - P[c.target].y);
+          if (gap > CS.CONTACT_YD) e.push(`${L}: ${c.by} is ${gap.toFixed(2)} yd from ${c.target} when the ball arrives: too far to play it (max ${CS.CONTACT_YD})`);
+        }
+      }
+      if (c.sackT != null) e.push(`${L}: a sack and a throw on one play`);
+    } else if ((play.ball || []).some((b) => CS.BALL_ENDS.includes(b.ev))) e.push(`${L}: a catch with no throw`);
+    if (c.sackT != null) {
+      const d = c.byId[c.sackBy];
+      if (!d || d.team !== 'def') e.push(`${L}: sack by unknown defender ${c.sackBy}`);
+      else if (c.qb) {
+        const P = CS.poseAt(play, c.sackT, lib).players, gap = Math.hypot(P[d.id].x - P[c.qb.id].x, P[d.id].y - P[c.qb.id].y);
+        if (gap > CS.SACK_REACH + 0.3) e.push(`${L}: ${d.id} is ${gap.toFixed(2)} yd from the QB at the sack (max ${(CS.SACK_REACH + 0.3).toFixed(1)})`);
+      }
     }
+    // Men moved for this play (align): still a legal lineup.
+    const al = Object.keys(play.align || {});
+    for (const id of al) if (!c.byId[id]) e.push(`${L}: align moves unknown ${id}`);
+    if (al.some((id) => c.byId[id] && c.byId[id].team === 'off')) {
+      const g = CS.validateFormation({ id: 'aligned', personnel: c.formation.personnel, players: c.off.map((p) => ({ id: p.id, pos: p.pos, x: p.x, y: p.y })) });
+      e.push(...g.filter((m) => !/out of bounds|apart \(min/.test(m)).map((m) => `${L}: ${m}`));
+    }
+    for (const id of al) { const p = c.byId[id]; if (p && p.team === 'def' && !(p.y >= CS.DEF_MIN_Y)) e.push(`${L}: ${id} is in the neutral zone or offside (y ${p.y})`); }
     e.push(...spacingErrors(c.all, L), ...boundsErrors(c.all, L));
     for (const k of play.callouts || []) {
       const fs = CS.toArr(k.focus);
@@ -624,9 +754,36 @@
   /* ── the camera ── World pixels; {cx, cy} is the centre of the view, z the zoom (1 = the whole
      window). Pure, so the renderer's rAF loop only ever asks "where is the camera at u". */
   CS.ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);   // ease-in-out cubic
-  CS.camClamp = (cam, W, H) => {
-    const z = Math.max(1, cam.z), hw = W / (2 * z), hh = H / (2 * z);
-    return { cx: clamp(cam.cx, hw, W - hw), cy: clamp(cam.cy, hh, H - hh), z };
+  // o.WX: the world's width along the field when the field art runs further downfield than the
+  // window (the deep camera); o.zmin: how far out it may zoom (below 1 the view is wider than the
+  // window; an axis the view is wider than the world on is centred on it).
+  CS.camClamp = (cam, W, H, o) => {
+    o = o || {};
+    const WX = num(o.WX, W), z = Math.max(num(o.zmin, 1), cam.z), hw = W / (2 * z), hh = H / (2 * z);
+    return { cx: WX >= 2 * hw ? clamp(cam.cx, hw, WX - hw) : WX / 2, cy: H >= 2 * hh ? clamp(cam.cy, hh, H - hh) : H / 2, z };
+  };
+  /* ── the deep camera ── The window (CS.VIEW) reaches 19.6 yd downfield, so a go or a seam was
+     caught off the screen. A run's camera takes in the whole flight of the ball: when the ball's
+     furthest point (from the throw to where it is caught or played) is past DEEP_EDGE yd short of
+     the window's far edge (the line the route checks used to call "inside the view"), the view
+     widens along the field, from the same near edge to DEEP_PAD yd past that point, zooming out to
+     fit (portrait kept: the field's width stays across the screen). Returns the yards {y0, y1} the
+     run shows along the field, or null for the plain window. */
+  CS.DEEP_EDGE = 0.5;
+  CS.DEEP_PAD = 2.5;
+  CS.ballSpan = (play, lib) => {
+    const c = CS.compile(play, lib);
+    if (c.throwT == null || c.arriveT == null) return null;
+    // The flight, and a knocked-away ball's last yard and a half; not the run after a catch.
+    const P = (t) => CS.poseAt(play, t, lib).ball, ys = [], t1 = Math.min(c.T, c.arriveT + (c.end === 'breakup' ? 0.4 : 0));
+    for (let t = c.throwT; t <= t1 + 1e-9; t += 0.05) ys.push(P(t).y);
+    ys.push(P(c.arriveT).y, P(t1).y);
+    return { y0: Math.min(...ys), y1: Math.max(...ys) };
+  };
+  CS.runWindow = (play, lib) => {
+    const s = CS.ballSpan(play, lib), { Y0, Y1 } = CS.VIEW;
+    if (!s || s.y1 <= Y1 - CS.DEEP_EDGE) return null;
+    return { y0: Y0, y1: s.y1 + CS.DEEP_PAD };
   };
   // Zoom eases geometrically (equal ratios per frame read as an even speed); the centre eases linearly.
   CS.camLerp = (a, b, u) => {
@@ -653,8 +810,9 @@
     o = o || {};
     const m = num(o.margin, 40), zmax = num(o.zmax, 3), step = num(o.step, 0.25), fill = num(o.fill, 1);
     const zr = Math.min(W / (r.x1 - r.x0 + 2 * m), H / (r.y1 - r.y0 + 2 * m), fill * H / Math.max(1, r.y1 - r.y0));
-    const z = Math.max(1, Math.floor(Math.min(zmax, zr) / step + 1e-9) * step);
-    return CS.camClamp({ cx: (r.x0 + r.x1) / 2, cy: (r.y0 + r.y1) / 2, z }, W, H);
+    // zmin (default 1): the deep camera may zoom out past the window, by `step`s like zooming in.
+    const zmin = num(o.zmin, 1), z = Math.max(zmin, Math.floor(Math.min(zmax, zr) / step + 1e-9) * step);
+    return CS.camClamp({ cx: (r.x0 + r.x1) / 2, cy: (r.y0 + r.y1) / 2, z }, W, H, { WX: o.WX, zmin });
   };
 
   /* ── bubble placement ── CSS px inside the field box (W x H). A bubble of w x h goes where it
@@ -669,7 +827,7 @@
   const rectGap = (a, r) => Math.hypot(Math.max(r.l - (a.x + a.w), 0, a.x - r.r), Math.max(r.t - (a.y + a.h), 0, a.y - r.b));
   const rectDist = (a, p) => Math.hypot(Math.max(a.x - p.x, 0, p.x - (a.x + a.w)), Math.max(a.y - p.y, 0, p.y - (a.y + a.h)));
   CS.placeBubble = (o) => {
-    const { W, H, w, h } = o, pad = num(o.pad, 6), gap = num(o.gap, 40), targets = o.targets || [], avoid = o.avoid || [];
+    const { W, H, w, h } = o, pad = num(o.pad, 6), gap = num(o.gap, 40), targets = o.targets || [], avoid = o.avoid || [], block = o.block || [];
     const cx = (t) => (t.pt ? t.pt.x : (t.rect.l + t.rect.r) / 2);   // a group's arrow point is chosen after placement: aim at its rect
     const mx = targets.length ? targets.reduce((s, t) => s + cx(t), 0) / targets.length : W / 2;
     const xs = [...new Set([clamp(mx - w / 2, pad, W - pad - w), pad, W - pad - w, clamp((W - w) / 2, pad, W - pad - w)])];
@@ -677,6 +835,8 @@
       const b = { x, y, w, h };
       if (x < pad - 0.01 || y < pad - 0.01 || x + w > W - pad + 0.01 || y + h > H - pad + 0.01) return Infinity;
       if (targets.some((t) => hits(b, t.rect, 6))) return Infinity;
+      // block: ground the bubble may never cover (an outcome run's action, swept over the whole run).
+      if (block.some((r) => hits(b, r, 4))) return Infinity;
       let s = 0;
       // A spot that leaves any arrow under 26 px from bubble to point is a last resort: its arrow,
       // stopped 9 px short, is a stub you can't see (2026-11-11: with production's sprites, four
@@ -689,6 +849,7 @@
     for (let y = pad; y <= H - pad - h + 0.01; y += 4) for (const x of xs) { const s = score(x, y); if (s < Infinity && (!best || s < best.s)) best = { x, y, s }; }
     if (o.prev && best) { const s = score(o.prev.x, o.prev.y); if (s < best.s + 30) best = { x: o.prev.x, y: o.prev.y, s }; }
     if (best) return { x: best.x, y: best.y, ok: true };
+    if (block.length) return { ...CS.placeBubble({ ...o, block: [] }), ok: false };
     return { x: clamp((W - w) / 2, pad, W - pad - w), y: pad, ok: false };
   };
   // The arrow from a bubble {x, y, w, h} to a point: it leaves the bubble's nearest edge (kept 10 px
@@ -745,13 +906,20 @@
   // A variant of a play for an outcome run (his wrong route, the unblocked rusher): a NEW object (so
   // the compile cache never mixes them), id suffixed, assignments merged per player, other keys
   // replaced: CS.variantOf(play, { tag: 'wrong', assign: { X: { route: 'slant' } }, ball: [...] }).
+  // align: { id: {x, y} } moves men for the run, in FIELD yards (after the play's mirror and hash
+  // shift, ids as compiled), merged per man over the play's own align; validatePlay still holds the
+  // lineup to the formation's rules. A defender's id in assign gives him this play's job.
   CS.variantOf = (play, o) => {
     o = o || {};
     const v = { ...play };
-    for (const [k, val] of Object.entries(o)) if (k !== 'tag' && k !== 'assign') v[k] = val;
+    for (const [k, val] of Object.entries(o)) if (k !== 'tag' && k !== 'assign' && k !== 'align') v[k] = val;
     v.id = play.id + '~' + (o.tag == null ? 'v' : o.tag);
     v.assign = { ...(play.assign || {}) };
     for (const [id, a] of Object.entries(o.assign || {})) v.assign[id] = a;
+    if (o.align || play.align) {
+      v.align = { ...(play.align || {}) };
+      for (const [id, a] of Object.entries(o.align || {})) v.align[id] = { x: a.x, y: a.y };
+    }
     return v;
   };
 

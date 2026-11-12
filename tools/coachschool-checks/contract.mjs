@@ -151,15 +151,23 @@ export async function browser(H) {
           out.fb = txt('stFb'); out.bubble = C.saying ? txt('bubble') : '';
           out.focus = C.saying ? C.saying.focus : [];
           out.focusOk = out.focus.every((t) => !!window.CS.focusOf(C.play, t, C.t));
+          out.explain = ui.mode.explain;
           out.runs = C.playing || C.t > C.PRE;
           return out;
         }, tries);
         if (tries === 2) {
           check(res.afterWrong.tryNo === 2 && !res.afterWrong.done && res.afterRight.done && res.afterRight.ok === true, `${L}: a wrong first try keeps it open; the right answer then scores right`);
-          check(/^Right\./.test(res.bubble || res.fb), `${L}: the explanation opens "Right." (${(res.bubble || res.fb).slice(0, 60)})`);
+          check(/^Right\./.test(res.explain === 'panel' ? res.fb : res.bubble || res.fb), `${L}: the explanation opens "Right." (${(res.explain === 'panel' ? res.fb : res.bubble || res.fb).slice(0, 60)})`);
         } else {
           check(res.afterWrong.done && res.afterWrong.ok === false, `${L}: a wrong answer on Game Day is final and scores wrong`);
-          check(/^The answer: \S.*?\./.test(res.bubble || res.fb), `${L}: the explanation names the answer (${(res.bubble || res.fb).slice(0, 60)})`);
+          // Restaged 2026-11-12 (outcome bubbles): this used to read the explanation from the bubble
+          // when one was up, and so required an outcome run's bubble to open "The answer:" too. The
+          // dad saw that bubble cover the explanation; now, when a run talks for itself, cs-ui puts
+          // the explanation in the panel (mode.explain === 'panel') and the run's bubble says only the
+          // consequence. So: the explanation, wherever cs-ui says it is, names the answer; and a run's
+          // own bubble never repeats it.
+          const ex = res.explain === 'panel' ? res.fb : res.bubble || res.fb;
+          check(/^The answer: \S.*?\./.test(ex) && (res.explain !== 'panel' || !/The answer:/.test(res.bubble)), `${L}: the explanation names the answer (${res.explain}: ${ex.slice(0, 60)}), and an outcome run's bubble does not repeat it (${res.bubble.slice(0, 40)})`);
         }
         check(res.focusOk, `${L}: the explanation bubble points only at things on the field ${JSON.stringify(res.focus)}`);
         check(res.runs, `${L}: after the answer the play runs`);
@@ -178,7 +186,7 @@ export async function browser(H) {
     const CS = window.CS, C = window.__CS__, F = C.field, out = {};
     const base = CS.RANK_DATA[0].units.flatMap((u) => u.puzzles).find((p) => p.type === 'tap');
     CS.puzzleTypes['zz-outcome'] = { ...CS.puzzleTypes.tap, name: 'zz-outcome',
-      outcome: (pz, ans, ok, ctx) => (ok ? null : [{ play: CS.variantOf(ctx.play, { tag: 'wrong' }), say: { parts: ['The failure run.'], focus: [ans], tone: 'bad', zoom: false } }, { play: ctx.play }]) };
+      outcome: (pz, ans, ok, ctx) => (ok ? null : [{ play: CS.variantOf(ctx.play, { tag: 'wrong' }), say: { parts: ['The failure run.'], focus: [ans], tone: 'bad' }, zoom: [ans] }, { play: ctx.play }]) };
     const pz = { ...base, id: base.id + '-zz', type: 'zz-outcome' };
     out.legal = CS.validatePlay(CS.variantOf(CS.lib.PLAYS[pz.play], { tag: 'wrong' })).length === 0;
     location.hash = '#unit/' + CS.RANK_DATA[0].units[0].id;
@@ -187,9 +195,16 @@ export async function browser(H) {
     F.setSpeed(4);
     C.ui.answer(false);
     out.first = C.play.id; out.firstSay = C.saying ? document.getElementById('bubble').textContent.replace(/\s+/g, ' ').trim() : '';
+    out.fb = document.getElementById('stFb').textContent.replace(/\s+/g, ' ').trim(); out.explain = C.ui.mode.explain;
+    // The run's camera and the ground its bubble keeps off (field.frameRun, from the run's zoom).
+    await new Promise((r) => setTimeout(r, 700));
+    out.cam = F.runCamera; out.keepOff = F.keepOff;
+    const bb = document.getElementById('bubble').getBoundingClientRect();
+    out.overlap = (out.keepOff || []).some((q) => bb.left < q.right && bb.right > q.left && bb.top < q.bottom && bb.bottom > q.top);
     const t0 = Date.now();
     while (C.play.id === out.first && Date.now() - t0 < 6000) await new Promise((r) => setTimeout(r, 50));
-    out.second = C.play.id; out.secondRuns = C.playing || C.t > C.PRE;
+    out.second = C.play.id; out.secondRuns = C.playing || C.t > C.PRE; out.secondSay = !!C.saying;
+    out.fb2 = document.getElementById('stFb').textContent.replace(/\s+/g, ' ').trim();
     document.getElementById('btnReplay').click();
     out.replay = C.play.id;
     F.setSpeed(1); F.pause();
@@ -199,6 +214,10 @@ export async function browser(H) {
     return out;
   });
   check(oc.legal && oc.first === oc.base + '~wrong' && /The failure run\./.test(oc.firstSay), `outcome(): a wrong answer plays the failure run first (${oc.first}), with its own bubble`);
+  // 2026-11-12 (outcome bubbles): a run that talks puts the explanation in the panel, for the whole list.
+  check(oc.explain === 'panel' && /^The answer: /.test(oc.fb) && !/The answer/.test(oc.firstSay) && !oc.secondSay && /^The answer: /.test(oc.fb2),
+    `outcome(): with a talking run the explanation stays in the panel through both runs, and the run's bubble does not repeat it ("${oc.fb.slice(0, 30)}" | "${oc.firstSay}" | second run bubble: ${oc.secondSay})`);
+  check(oc.cam && oc.cam.z >= 1 && Array.isArray(oc.keepOff) && oc.keepOff.length === 1 && !oc.overlap, `outcome(): the run's zoom frames its man (z ${oc.cam && oc.cam.z}) and the bubble keeps off the ground he covers (${JSON.stringify(oc.keepOff)})`);
   check(oc.second === oc.base && oc.secondRuns, `outcome(): when the failure run ends, the right one runs (${oc.second})`);
   check(oc.replay === oc.base + '~wrong', `outcome(): Replay starts the list again from the failure run (${oc.replay})`);
   check(errors.length === 0, `zero page errors through the conformance check ${JSON.stringify(errors.slice(0, 3))}`);

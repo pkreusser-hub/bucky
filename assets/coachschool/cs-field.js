@@ -95,6 +95,9 @@
   const MT = 22, MB = 14;            // turf above the far (offense's left) sideline / below the near one
   const FH = Math.round(CS.FIELD_W * PY);
   const W = Math.round((Y1 - Y0) * PX); // 400
+  // The field art runs on past the window downfield, so the deep camera (CS.runWindow) has grass
+  // to show: DEEP_YD yards from the window's near edge in all. ZMIN: how far out it may zoom.
+  const DEEP_YD = 50, WX = Math.round(DEEP_YD * PX), ZMIN = 0.5;
   const H = MT + FH + MB;            // 836
   const wx = (y) => (y - Y0) * PX;   // yards from the LOS -> world x
   const wy = (x) => MT + x * PY;     // yards across -> world y
@@ -782,29 +785,29 @@
     const key = [spot, offT.abbr, defT.abbr, homeT.abbr].join('|');
     if (ART.has(key)) return ART.get(key);
     const c = document.createElement('canvas');
-    c.width = W; c.height = H;
+    c.width = WX; c.height = H;
     const g = c.getContext('2d');
     const rng = raRng('field' + offT.abbr + defT.abbr);
     const f0 = MT, f1 = MT + FH;
     const hx = (Ha) => Math.round(wx(Ha - spot));             // absolute yard line (0 = offense's goal) -> world x
-    g.fillStyle = '#1d7a2a'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#1d7a2a'; g.fillRect(0, 0, WX, H);
     for (let Ha = -10; Ha < 110; Ha += 5) {
       g.fillStyle = (Ha / 5) % 2 ? '#248f30' : '#21862d';
       g.fillRect(hx(Ha), f0, hx(Ha + 5) - hx(Ha), FH);
     }
-    for (let i = 0; i < (W * FH * 0.035); i++) {
+    for (let i = 0; i < (WX * FH * 0.035); i++) {
       g.fillStyle = rng() < 0.55 ? 'rgba(0,40,0,0.18)' : 'rgba(120,200,110,0.12)';
-      g.fillRect(Math.floor(rng() * W), f0 + Math.floor(rng() * FH), K, rng() < 0.3 ? K : K / 2);
+      g.fillRect(Math.floor(rng() * WX), f0 + Math.floor(rng() * FH), K, rng() < 0.3 ? K : K / 2);
     }
     g.fillStyle = 'rgba(255,255,255,0.55)';                   // the coaching-box dashes outside the sidelines
-    for (let x = 0; x < W; x += 6 * K) { g.fillRect(x, f1 + 6 * K, 3 * K, K); g.fillRect(x, f0 - 7 * K, 3 * K, K); }
+    for (let x = 0; x < WX; x += 6 * K) { g.fillRect(x, f1 + 6 * K, 3 * K, K); g.fillRect(x, f0 - 7 * K, 3 * K, K); }
     // End zones: both in the HOME team's own paint (the source since 2026-09-28: fill, hatch, words in
     // the team's lettering colour with its outline). The source also paints the team logo beside the
     // word where the team does (an ESPN CDN image); this page never fetches it, so the word stands alone.
     const Z = ezStyle(homeT);
     const zone = (Ha, Hb, word, rot) => {
       const x0 = hx(Ha), w = hx(Hb) - x0;
-      if (x0 > W || x0 + w < 0) return;
+      if (x0 > WX || x0 + w < 0) return;
       g.fillStyle = Z.fill; g.fillRect(x0, f0, w, FH);
       if (Z.pattern) {                                                                      // a diagonal hatch
         g.fillStyle = Z.pattern;
@@ -822,8 +825,8 @@
     zone(-10, 0, Z.words[1], -Math.PI / 2);                  // the left-hand end zone (the offense's own)
     zone(100, 110, Z.words[0], Math.PI / 2);                 // the right-hand one (the source's words[0] is its right)
     g.fillStyle = '#ffffff';
-    g.fillRect(0, f0, W, 2 * K);
-    g.fillRect(0, f1 - 2 * K, W, 2 * K);
+    g.fillRect(0, f0, WX, 2 * K);
+    g.fillRect(0, f1 - 2 * K, WX, 2 * K);
     for (let Ha = 0; Ha <= 100; Ha += 5) g.fillRect(hx(Ha), f0, Ha % 100 === 0 ? 2 * K : K, FH);
     for (let Ha = 1; Ha < 100; Ha++) {
       if (Ha % 5 === 0) continue;
@@ -846,6 +849,8 @@
       if (dir) { g.fillStyle = '#f7f7f7'; const ax = x + dir * (lab.width / 2 + 4 * K), ay = nearY + Math.floor(lab.height / 2) - 2 * K; g.fillRect(ax, ay, K, 3 * K); g.fillRect(ax + dir * K, ay + K, K, K); }
     }
     ART.set(key, c);
+    // Each art is WX x H; keep the last few (a long session sees many teams and spots).
+    while (ART.size > 12) ART.delete(ART.keys().next().value);
     return c;
   }
 
@@ -871,12 +876,21 @@
     const { speed, phase } = o;
     if (t <= c.snapT) return setPose(p);
     // Going down (the source's raFrame): the knees buckle (fall1), hands and knees (fall2), flat.
-    const dn = p.id === c.target ? c.downT : null;
+    const dn = p.id === c.target ? c.downT : p === c.qb ? c.sackT : null;
     if (dn != null && t > dn - 0.1) return t > dn + 0.26 ? 'down' : t > dn + 0.1 ? 'fall2' : 'fall1';
+    // The sack: the free rusher dives into him, then lies on the grass beside him.
+    if (c.sackT != null && p.id === c.sackBy && t > c.sackT - 0.15) return t > c.sackT + 0.35 ? 'down' : 'dive';
     // The pass: wound up (throw1), released (throw2, the first 0.1 s), the follow-through (throw3).
     if (p === c.qb && c.throwT != null && t >= c.throwT - 0.38 && t < c.throwT + 0.32) return t < c.throwT - 0.02 ? 'throw1' : t <= c.throwT + 0.08 ? 'throw2' : 'throw3';
     // The catch: hands up, then the ball pulled in for the act's last 0.12 s.
     if (p.id === c.target && c.catchT != null && t >= c.catchT - 0.28 && t < c.catchT + 0.12) return t > c.catchT ? 'secure' : 'catch';
+    // A ball that is not caught: the target still reaches for it; the defender who plays it gets his
+    // hands up for it (a breakup), and on a pick pulls it in before he runs.
+    if (c.arriveT != null && c.end !== 'catch') {
+      const A = c.arriveT;
+      if (p.id === c.by && t >= A - 0.28 && t < A + (c.end === 'pick' ? CS.SECURE : 0.1)) return t >= A && c.end === 'pick' ? 'secure' : 'catch';
+      if (p.id === c.target && t >= A - 0.28 && t < A + 0.06) return 'catch';
+    }
     const blocker = p.role === 'block' || p.role === 'rush';
     if (blocker && speed < 3.2 && t < c.T) return Math.floor(t * 4 + (phase || 0) * 2) % 2 ? 'block2' : 'block';
     if (speed > 0.8) {
@@ -956,6 +970,9 @@
       // A new play puts everyone back on his own alignment and cancels a pending freeze. Overlays and
       // drag sessions belong to whoever made them (a puzzle type) and stay until it removes them.
       st.moved = {}; st.stopAt = null; st.stopCb = null;
+      // The run's camera: none set (frameRun sets one), and the deep window when the ball's flight
+      // leaves the plain one (CS.runWindow).
+      st.runFrame = null; st.keepOff = null; st.deep = CS.runWindow(play);
       st.c.all.forEach((p, i) => {
         const side = p.team === 'off' ? 'o' : 'd';
         st.pal[p.id] = raPalette(st.kit[p.team], i, side, play.teams[p.team]);
@@ -1125,6 +1142,9 @@
       backing();
       const c = st.c, t = st.t, play = st.play, cam = st.cam, ax = canvas.width / W, ay = canvas.height / H;
       g.setTransform(1, 0, 0, 1, 0, 0);
+      // Zoomed out past the window (the deep camera) the view is wider than the art across the field:
+      // the stands' dark green round it.
+      if (cam.z < 1) { g.fillStyle = '#123f1a'; g.fillRect(0, 0, canvas.width, canvas.height); }
       g.imageSmoothingEnabled = ax * cam.z < 0.999;
       g.setTransform(ax * cam.z, 0, 0, ay * cam.z, canvas.width / 2 - cam.cx * cam.z * ax, canvas.height / 2 - cam.cy * cam.z * ay);
       g.drawImage(st.art, 0, 0);
@@ -1155,7 +1175,9 @@
         g.lineWidth = 1; g.setLineDash([3, 3]);
         g.beginPath(); g.ellipse(zx, zy, (deep ? 6.5 : 3.6) * PX, (deep ? 8 : 4.5) * PY, 0, 0, Math.PI * 2); g.fill(); g.stroke();
         if (t <= c.snapT) {                                  // the drop he will make, before the snap
-          const s0 = sh(p.id); g.beginPath(); g.moveTo(wx(p.y + s0.dy), wy(p.x + s0.dx)); g.lineTo(zx, zy); g.stroke();
+          // to where he actually goes: his aim's landmark when the play shows his read (src.aim)
+          const a = p.src.aim != null ? CS.lib.ZONES[p.src.aim] : z;
+          const s0 = sh(p.id); g.beginPath(); g.moveTo(wx(p.y + s0.dy), wy(p.x + s0.dx)); g.lineTo(wx(a.y), wy(a.x + c.dX)); g.stroke();
         }
         g.setLineDash([]);
       }
@@ -1536,7 +1558,8 @@
       const tids = new Set(T.flatMap((q) => q.ids || (q.id ? [q.id] : [])));
       const avoid = [];
       for (const id of Object.keys(st.drawn)) { if (tids.has(id)) continue; const q = spriteRect(id); if (q) avoid.push({ l: q.left - r.left, r: q.right - r.left, t: q.top - r.top, b: q.bottom - r.top }); }
-      const pl = CS.placeBubble({ W: BW, H: BH, w, h: st.bh, targets: T.map((q) => ({ rect: q.rect, pt: q.pt })), avoid, pad: 6, gap: 38, prev: st.place });
+      const block = (st.keepOff || []).map((q) => { const a = w2c(q.x0, q.y0), b = w2c(q.x1, q.y1); return { l: a.x - r.left, r: b.x - r.left, t: a.y - r.top, b: b.y - r.top }; });
+      const pl = CS.placeBubble({ W: BW, H: BH, w, h: st.bh, targets: T.map((q) => ({ rect: q.rect, pt: q.pt })), avoid, block, pad: 6, gap: 38, prev: st.place });
       st.place = pl;
       bubbleEl.style.left = pl.x + 'px'; bubbleEl.style.top = pl.y + 'px';
       const B = { x: pl.x, y: pl.y, w, h: st.bh }, bcx = B.x + w / 2, bcy = B.y + B.h / 2;
@@ -1590,7 +1613,7 @@
 
     /* ── the camera ── */
     function camTo(to, instant) {
-      to = CS.camClamp(to, W, H);
+      to = CS.camClamp(to, W, H, { WX, zmin: ZMIN });
       const c = st.cam;
       if (Math.abs(c.z - to.z) < 1e-3 && Math.hypot(c.cx - to.cx, c.cy - to.cy) < 0.5) { st.cam = to; st.camA = null; return; }
       if (instant || reduced()) { st.cam = to; st.camA = null; return; }   // reduced motion: a cut, not an ease
@@ -1688,7 +1711,7 @@
       if (st.t >= st.c.T) st.t = PRE;
       st.note = null;
       if (st.say && st.say.src === 'callout') st.say = null;
-      camTo(FULL);                                           // the play runs zoomed out,
+      camTo(runCam());                                       // the play runs zoomed out (or as its run frames it),
       st.spotOn = false;                                     // and with nobody faded
       // REGRESSION (dad's playtest, PR #182): every lesson play opened with notes before the snap,
       // so a press ran a few tenths of a second of a frozen picture and stopped again. Before the
@@ -1720,6 +1743,47 @@
       if (st.t >= T0) advance(performance.now());
     }
     const freezeAtSnap = (cb) => playTo(st.c.snapT, cb);
+    // Where the camera goes when the play runs: the run's own framing (frameRun), else the deep
+    // window when the ball's flight leaves the plain one, else the whole window.
+    function runCam() {
+      if (st.runFrame) return { ...st.runFrame };
+      const w = st.deep;
+      // Zoomed out by twentieths, rounded down so the window's yards always fit (tidy scales, as
+      // camFrame's steps are when zooming in).
+      if (w) { const x0 = wx(w.y0), x1 = wx(w.y1), z = Math.max(ZMIN, Math.floor((W / (x1 - x0)) * 20 + 1e-9) / 20); return CS.camClamp({ cx: (x0 + x1) / 2, cy: H / 2, z }, W, H, { WX, zmin: ZMIN }); }
+      return { ...FULL };
+    }
+    // A run's camera (cs-ui, a run's `zoom` tokens): frame where these men go over the whole run
+    // (their sprites' boxes from the snap to the end), and the ball's flight for 'ball'; and keep the
+    // coach bubble off that ground for the run (st.keepOff, placeBubble's block). null clears it.
+    const SPR = { l: 17, r: 17, t: 38, b: 2 };      // a sprite's box round his feet, world px (RA_FW x RA_FH, feet at 17, 38)
+    function frameRun(tokens) {
+      st.runFrame = null; st.keepOff = null;
+      const toks = CS.toArr(tokens);
+      if (!st.play || !toks.length) return null;
+      const c = st.c, rects = [];
+      let R = null;
+      const grow = (q, X, Y, e) => ({ x0: Math.min(q ? q.x0 : Infinity, X - e.l), x1: Math.max(q ? q.x1 : -Infinity, X + e.r), y0: Math.min(q ? q.y0 : Infinity, Y - e.t), y1: Math.max(q ? q.y1 : -Infinity, Y + e.b) });
+      for (const tok of toks) {
+        let r = null;
+        if (tok === 'ball') {
+          if (c.throwT == null || c.arriveT == null) continue;
+          for (let t = c.throwT; t <= Math.min(c.T, c.arriveT + 0.4) + 1e-9; t += 0.05) { const b = CS.poseAt(st.play, t).ball; r = grow(r, wx(b.y), wy(b.x) - b.air * HK, { l: 6, r: 6, t: 6, b: 6 }); }
+        } else {
+          const f = CS.focusOf(st.play, tok, c.snapT);
+          if (!f) continue;
+          if (f.ids) for (let t = PRE; t <= c.T + 1e-9; t += 0.1) { const P = CS.showAt(st.play, t, st.spread).players; for (const id of f.ids) r = grow(r, wx(P[id].y), wy(P[id].x), SPR); }
+          else { const fr = f.frame; r = { x0: wx(fr.y0), x1: wx(fr.y1), y0: wy(fr.x0), y1: wy(fr.x1) }; }
+        }
+        if (!r) continue;
+        rects.push(r);
+        R = R ? { x0: Math.min(R.x0, r.x0), x1: Math.max(R.x1, r.x1), y0: Math.min(R.y0, r.y0), y1: Math.max(R.y1, r.y1) } : r;
+      }
+      if (!R) return null;
+      st.runFrame = CS.camFrame(R, W, H, { margin: 30, zmax: 2.5, step: 0.25, fill: 0.55, WX, zmin: st.deep ? ZMIN : 1 });   // out past the window only on a deep run
+      st.keepOff = rects;
+      return { ...st.runFrame };
+    }
     // Frame these focus tokens (CS.focusOf), or the whole window for null; instant = a cut.
     function zoomTo(tokens, o) { camTo(tokens && CS.toArr(tokens).length ? frameOf(CS.toArr(tokens)) : { ...FULL }, !!(o && o.instant)); draw(); }
     function sizeHint() {
@@ -1760,7 +1824,8 @@
         get count() { return st.ov.length; },
       },
       drag, endDrags: () => { for (const d of st.drags.slice()) { st.drags.splice(st.drags.indexOf(d), 1); for (const h of d.handles) if (h.id) delete st.moved[h.id]; } st.grab = null; listen(false); draw(); },
-      playTo, freezeAtSnap, zoomTo,
+      playTo, freezeAtSnap, zoomTo, frameRun,
+      get runCamera() { return st.play ? runCam() : null; }, get keepOff() { return st.keepOff ? st.keepOff.map((q) => { const a = w2c(q.x0, q.y0), b = w2c(q.x1, q.y1); return { left: a.x, top: a.y, right: b.x, bottom: b.y }; }) : null; },
       gapsOf: () => (st.c ? CS.gapsOf(st.c) : {}),
       // What the hooks drew this frame, in client CSS px (the suite's measure).
       get overlays() { return JSON.parse(JSON.stringify(st.ovGeom)); },
@@ -1785,7 +1850,7 @@
       get shown() { return st.play ? shownAt() : null; },
       get spread() { return st.spread ? JSON.parse(JSON.stringify(st.spread)) : null; },
       get chalk() { return st.chalk ? { routes: st.chalk.routes.slice(), zones: st.chalk.zones.slice() } : null; },
-      PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT },
+      PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT, WX, ZMIN },
     };
     return api;
   };

@@ -161,6 +161,10 @@ Every concept: **What it is** (plain definition), **Spot it** (how to recognise 
   rather than a man; the back takes the first threat away from the slide. *Hot*: when more
   defenders rush than the protection can block, one rusher is unblocked; the QB must get rid of it
   before he arrives (section 9). Spot it: the line's first step at the snap.
+  *Man protection in order* (**CS teaching convention**, the dad's decision 2026-11-12): in man/BOB
+  the linemen take the rushers in order along the line, no crossed blocks: the left tackle has the
+  outside man on his side, the left guard the next man in, and so on across to the right tackle.
+  This is how man protection is normally taught; teams vary.
 - **Run schemes.** Zone vs gap. *Zone*: linemen step together and block whoever shows up in their
   zone; the back reads and cuts. *Gap / man-gap (power, counter, trap)*: linemen block angles on
   defenders, someone pulls, the hole is pre-set. Details in section 7.

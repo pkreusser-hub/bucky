@@ -324,22 +324,31 @@
       const parts = ok ? [{ tag: 'b', text: 'Right.' }, xp ? ' ' : '', xp ? { tag: 'span', cls: 'xpflash', text: `+${xp} XP` } : '', ' ' + pz.why]
         : [{ tag: 'b', text: 'The answer: ' + T.rightName(pz, ctx) + '.' }, ' ' + pz.why];
       if (ok) SFX.right(); else SFX.wrong();
-      const look = T.lookOf(pz, ctx);
-      const bubble = look ? { parts: parts.filter((p) => p !== ''), focus: look, tone: ok ? 'good' : 'bad', zoom: false } : null;
-      if (bubble) { feedback(null); field.say(bubble); }
-      else feedback(ok ? 'good' : 'bad', parts);
-      mode.done = true; mode.main = o.next; mode.ok = ok;
-      actions({ replay: true, main: o.nextLabel || 'Next' });
       // After any answer, the play runs. A type with an outcome plays a list of runs in order (a
       // wrong answer's failure, then the right version); without one, the puzzle's own play once.
       const runs = T.outcome ? T.outcome(pz, picked, ok, ctx) : null;
+      // Where the explanation ("The answer: X." and the why) goes. When an outcome run talks for
+      // itself (its own `say`: the consequence, on the man it happens to), the explanation stays in
+      // the panel the whole time, so the two never fight for the one bubble (the dad, 2026-11-12:
+      // the failure clip's bubble covered the explanation). Otherwise, as before: a bubble on the
+      // type's lookOf, or the panel when it has none.
+      const runsTalk = !!(runs && runs.some((r) => r.say));
+      const look = runsTalk ? null : T.lookOf(pz, ctx);
+      const bubble = look ? { parts: parts.filter((p) => p !== ''), focus: look, tone: ok ? 'good' : 'bad', zoom: false } : null;
+      if (bubble) { feedback(null); field.say(bubble); }
+      else feedback(ok ? 'good' : 'bad', parts);
+      mode.done = true; mode.main = o.next; mode.ok = ok; mode.explain = bubble ? 'bubble' : 'panel';
+      actions({ replay: true, main: o.nextLabel || 'Next' });
       if (!runs || !runs.length) { field.seek(field.PRE); field.start(); return; }
       const m = mode;
       const runAt = (i) => {
         const r = runs[i];
         field.setPlay(r.play, { callouts: false, ...chalkOf(pz), ...(r.chalk || {}) });
         field.setMarks(r.marks || marks);
-        if (r.say) field.say(r.say); else if (bubble) field.say(bubble);
+        // A run's own camera: `zoom` tokens frame where those men go over the run (and keep its
+        // bubble off that ground); without them the run's default (the window, or the deep view).
+        if (r.zoom) field.frameRun(r.zoom);
+        if (r.say) field.say(r.say); else if (bubble) field.say(bubble); else field.say(null);
         m.run = i;
         m.onEnd = i + 1 < runs.length ? () => { if (mode === m) runAt(i + 1); } : null;
         field.seek(field.PRE); field.start();
@@ -590,7 +599,7 @@
     get camera() { return active.camera; }, get coach() { return active.coach; }, get saying() { return active.saying; }, get spot() { return active.spot; },
     ui: {
       get state() { return JSON.parse(JSON.stringify(S)); }, get key() { return KEY; }, get screen() { return screen; },
-      get mode() { return mode ? { kind: mode.kind, bubble: mode.bubble, step: mode.step, ended: !!mode.ended, pz: mode.pz ? mode.pz.id : null, done: !!mode.done, ok: mode.ok, tryNo: mode.tryNo, gdIndex: mode.gdIndex, passed: mode.passed, right: mode.right } : null; },
+      get mode() { return mode ? { kind: mode.kind, bubble: mode.bubble, step: mode.step, ended: !!mode.ended, pz: mode.pz ? mode.pz.id : null, done: !!mode.done, ok: mode.ok, explain: mode.explain || null, run: mode.run, tryNo: mode.tryNo, gdIndex: mode.gdIndex, passed: mode.passed, right: mode.right } : null; },
       get promoCount() { return promoCount; },
       next: () => { if (mode && mode.main) mode.main(); },
       // Answer the current Game Day / lesson puzzle right or wrong through the same path a tap or
