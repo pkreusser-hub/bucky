@@ -10,6 +10,18 @@
  *   node tools/_verify-coachschool.mjs                 run everything
  *   node tools/_verify-coachschool.mjs --plates DIR    also write review screenshots to DIR
  *   node tools/_verify-coachschool.mjs --node-only     section A only
+ *   node tools/_verify-coachschool.mjs --only pz-route  only these check modules (comma-separated); this file's
+ *                                                      own A checks still run (seconds), its Chrome checks do not
+ *
+ * CHECK MODULES. Everything below in this file is the original suite. New checks live in
+ * tools/coachschool-checks/*.mjs, one file per subject (pz-<type>.mjs for a puzzle type), so agents
+ * working in parallel never edit the same file. Each module may export
+ *   export async function node(H)     run in section A, after this file's own A checks
+ *   export async function browser(H)  run in section B, with the shared Chrome
+ * H = { CS, L, ctx, loadVm(extraFiles?), check, near, ROOT, PLATES, J } in node(), and the same plus
+ * { open(vp, opts), plate(page, name), settle(page, ms), BASE } in browser(). open() takes
+ * opts.hash (default '#demo'), opts.reduced, opts.storage, opts.init (a function run in the page
+ * before any script, page.evaluateOnNewDocument). Modules load in file-name order.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +36,7 @@ const PORT = 8971;
 const argv = process.argv.slice(2);
 const PLATES = argv.includes('--plates') ? argv[argv.indexOf('--plates') + 1] : null;
 const NODE_ONLY = argv.includes('--node-only');
+const ONLY = argv.includes('--only') ? argv[argv.indexOf('--only') + 1].split(',') : null;
 
 let PASS = 0, FAIL = 0;
 const fails = [];
@@ -35,9 +48,20 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 /* ═════════════ A. Node ═════════════ */
 console.log('\n[A] core + library in a vm context');
-const ctx = vm.createContext({});
-const FILES = ['cs-core.js', 'cs-lib.js', 'cs-pz-tap.js', 'cs-pz-choice.js', 'cs-rank-1.js'];
-for (const f of FILES) vm.runInContext(fs.readFileSync(path.join(ROOT, 'assets/coachschool', f), 'utf8'), ctx, { filename: f });
+// RESTAGED for the puzzle-type plugin contract: the type and rank files are found, not listed, so a new
+// cs-pz-<type>.js (or cs-rank-<n>.js) is in the vm without anyone editing this line. Order as the page
+// loads them: core, library, puzzle types, rank content.
+const ASSETS = path.join(ROOT, 'assets/coachschool');
+const byNum = (a, b) => (parseInt(a.replace(/\D+/g, ''), 10) || 0) - (parseInt(b.replace(/\D+/g, ''), 10) || 0) || (a < b ? -1 : 1);
+const FILES = ['cs-core.js', 'cs-lib.js',
+  ...fs.readdirSync(ASSETS).filter((f) => /^cs-pz-[a-z0-9-]+\.js$/.test(f)).sort(),
+  ...fs.readdirSync(ASSETS).filter((f) => /^cs-rank-\d+\.js$/.test(f)).sort(byNum)];
+function loadVm(extra) {
+  const c = vm.createContext({});
+  for (const f of FILES.concat(extra || [])) vm.runInContext(fs.readFileSync(path.isAbsolute(f) ? f : path.join(ASSETS, f), 'utf8'), c, { filename: f });
+  return c;
+}
+const ctx = loadVm();
 const CS = ctx.CS, L = CS.lib;
 check(typeof CS.poseAt === 'function' && typeof CS.validateFormation === 'function', 'CS loads in Node with no DOM');
 
@@ -584,6 +608,30 @@ if (typeof CS.spreadOf === 'function') {
   check(near(pre.players.C.y, -18 / 14, 1e-9) && pre.ball.y === 0, 'before the snap the ball stays on the spot (y 0) while the center is drawn behind the line');
 }
 
+/* ═════════════ check modules (tools/coachschool-checks/*.mjs) ═════════════ */
+const MOD_DIR = path.join(HERE, 'coachschool-checks');
+const MODS = [];
+if (fs.existsSync(MOD_DIR)) {
+  for (const f of fs.readdirSync(MOD_DIR).filter((x) => x.endsWith('.mjs')).sort()) {
+    const name = f.replace(/\.mjs$/, '');
+    if (ONLY && !ONLY.includes(name)) continue;
+    MODS.push({ name, mod: await import(new URL('coachschool-checks/' + f, import.meta.url).href) });
+  }
+}
+const H = { CS, L, ctx, loadVm, check, near, ROOT, PLATES, J: JSON.stringify, FILES };
+// Every type file on disk must be on the page too (each agent swaps its own placeholder line in
+// coachschool.html for its script tag), or the page would never register it.
+{
+  const html = fs.readFileSync(path.join(ROOT, 'coachschool.html'), 'utf8');
+  const pz = FILES.filter((f) => /^cs-pz-/.test(f)), missing = pz.filter((f) => !html.includes(`<script src="assets/coachschool/${f}"></script>`));
+  check(missing.length === 0, `every puzzle-type file (${pz.join(', ')}) has its script tag on the page ${missing.join(', ')}`);
+}
+for (const { name, mod } of MODS) {
+  if (!mod.node) continue;
+  console.log(`\n[A-${name}] tools/coachschool-checks/${name}.mjs`);
+  try { await mod.node(H); } catch (e) { check(false, `${name}: node checks crashed: ${e.stack || e}`); }
+}
+
 /* ═════════════ B. Headless Chrome ═════════════ */
 async function sectionB() {
   console.log('\n[B] headless Chrome');
@@ -605,6 +653,7 @@ async function sectionB() {
     const page = await browser.newPage();
     await page.setViewport(vp);
     if (opts.reduced) await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    if (opts.init) await page.evaluateOnNewDocument(opts.init);
     await page.setRequestInterception(true);
     page.on('request', (r) => { if (/googleapis|gstatic|firebase|firestore/.test(r.url())) { blocked.push(r.url()); r.abort(); } else r.continue(); });
     const errors = [];
@@ -619,7 +668,19 @@ async function sectionB() {
     return { page, errors };
   }
   const plate = async (page, name) => { if (PLATES) { fs.mkdirSync(PLATES, { recursive: true }); await page.screenshot({ path: path.join(PLATES, name) }); console.log('  plate ' + path.join(PLATES, name)); } };
+  const settleP = (pg, ms = 120) => pg.evaluate((m) => new Promise((r) => setTimeout(r, m)), ms);
   try {
+    if (!ONLY) await legacyB();
+    for (const { name, mod } of MODS) {
+      if (!mod.browser) continue;
+      console.log(`\n[B-${name}] tools/coachschool-checks/${name}.mjs`);
+      try { await mod.browser({ ...H, open, plate, settle: settleP, BASE, browser }); } catch (e) { check(false, `${name}: browser checks crashed: ${e.stack || e}`); }
+    }
+  } finally {
+    await browser.close();
+    server.close();
+  }
+  async function legacyB() {
     // B1. Boot on a phone.
     console.log('\n[B1] boot at 390x844');
     const { page, errors } = await open({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
@@ -1543,9 +1604,6 @@ async function sectionB() {
       check(ev.length === 0, `zero page errors through B20 ${J(ev.slice(0, 3))}`);
       await pv.close();
     }
-  } finally {
-    await browser.close();
-    server.close();
   }
 }
 

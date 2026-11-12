@@ -701,9 +701,106 @@
     return { x0, y0, x1: x0 + (pt.x - x0) * k, y1: y0 + (pt.y - y0) * k };
   };
 
-  /* ── puzzles ── Each type file (cs-pz-*.js) registers {check, truth, validate}. check() is pure
-     and is what the UI and the suite both call. */
+  /* ── yard helpers the interactive puzzle types share (pure) ── */
+  // Gaps from where the linemen actually stand (fact sheet 8: A center-guard, B guard-tackle,
+  // C tackle-TE or outside the tackle with no TE, D outside the TE). A and B are the midpoints; C is
+  // the tackle-TE midpoint when an inline tight end (on the line, within 2 yd of the tackle) is
+  // there, else half a split outside the tackle; D is half a split outside the TE, else one and a
+  // half splits outside the tackle. On the fact sheet's line (1.5 yd splits, TE at 4.5) that is
+  // CS.GAPS exactly; with the ball on a hash it moves with the line. Returns {'A-gap-L': x, ...}.
+  CS.gapsOf = (c) => {
+    const ol = c.off.filter((p) => CS.OL.includes(p.pos)).sort((a, b) => a.x - b.x), out = {};
+    if (ol.length !== 5) return out;
+    const C = ol[2], mid = (a, b) => (a + b) / 2;
+    for (const [side, s, G, T] of [['L', -1, ol[1], ol[0]], ['R', 1, ol[3], ol[4]]]) {
+      const te = c.off.find((p) => p.pos === 'TE' && p.y >= CS.ON_LINE_Y && Math.abs(p.x - T.x) <= 2 && s * (p.x - T.x) > 0);
+      const half = Math.abs(T.x - G.x) / 2;
+      out['A-gap-' + side] = mid(C.x, G.x);
+      out['B-gap-' + side] = mid(G.x, T.x);
+      out['C-gap-' + side] = te ? mid(T.x, te.x) : T.x + s * half;
+      out['D-gap-' + side] = te ? te.x + s * half : T.x + s * 3 * half;
+    }
+    return out;
+  };
+  // The nearest landmark {x, y, name?} within `tol` yards of pos (inclusive), or null.
+  CS.snapTo = (pos, landmarks, tol) => {
+    let best = null;
+    for (const m of landmarks || []) {
+      const d = Math.hypot(m.x - pos.x, m.y - pos.y);
+      if (d <= tol + 1e-9 && (!best || d < best.d)) best = { x: m.x, y: m.y, name: m.name == null ? null : m.name, d };
+    }
+    return best;
+  };
+  // A route's waypoints in absolute yards for one receiver of a play: from his alignment (the ball's
+  // hash included), "in"/"out" by his side (or his assignment's side). route = a ROUTES name or {pts}.
+  CS.routeWaypoints = (play, id, route, lib) => {
+    lib = lib || CS.lib;
+    const c = CS.compile(play, lib), p = c.byId[id];
+    if (!p) throw new Error(`routeWaypoints: ${id} is not on the field`);
+    const r = typeof route === 'string' ? lib.ROUTES[route] : route;
+    if (!r) throw new Error('routeWaypoints: unknown route ' + route);
+    const a = (play.assign || {})[id] || {};
+    return CS.routePoints(r, [p.x, p.y], a.side || p.side);
+  };
+  // A variant of a play for an outcome run (his wrong route, the unblocked rusher): a NEW object (so
+  // the compile cache never mixes them), id suffixed, assignments merged per player, other keys
+  // replaced: CS.variantOf(play, { tag: 'wrong', assign: { X: { route: 'slant' } }, ball: [...] }).
+  CS.variantOf = (play, o) => {
+    o = o || {};
+    const v = { ...play };
+    for (const [k, val] of Object.entries(o)) if (k !== 'tag' && k !== 'assign') v[k] = val;
+    v.id = play.id + '~' + (o.tag == null ? 'v' : o.tag);
+    v.assign = { ...(play.assign || {}) };
+    for (const [id, a] of Object.entries(o.assign || {})) v.assign[id] = a;
+    return v;
+  };
+
+  /* ── puzzles: the puzzle-type plugin contract ── (full brief: docs/coachschool-puzzle-types.md)
+     Each type lives in its own file, assets/coachschool/cs-pz-<name>.js, and registers
+
+       CS.puzzleTypes[name] = {
+         name,
+         // PURE (no DOM; the suite runs these in a Node vm). `ans` is the type's answer shape, any
+         // JSON value: a player id (tap), an option index (choice), an object for the drag types.
+         check(pz, ans, lib)        -> boolean    right or wrong; the one judge, for the UI and the suite
+         truth(pz, lib)             -> ans        the right answer, worked out from the play, in answer shape
+         distractors(pz, lib)       -> ans[]      wrong answers worth testing (non-empty; each must fail check)
+         validate(pz, lib)          -> string[]   authoring errors ([] = clean); must flag two right answers
+         examples?                  : pz[]        fixture puzzles on library plays; the conformance check
+                                                  runs them, so a type no content uses yet is still tested
+         // PAGE (cs-ui calls these with a ctx; a type never reaches into cs-ui)
+         mount(ctx)                 -> handle     put up the type's controls and field hooks for one puzzle
+         rightName(pz, ctx)         -> string     the right answer in words: "The answer: <rightName>."
+         lookOf(pz, ctx)            -> tokens|null  CS.focusOf tokens the explanation bubble points at
+                                                  (null = the explanation stays in the panel)
+         outcome?(pz, ans, ok, ctx) -> runs|null  what plays after the answer, in order:
+                                                  [{ play, say?, marks?, chalk? }]; null = the puzzle's own
+                                                  play once. Wrong: the failure plays out, then the right one.
+       }
+       handle = { destroy()                       remove every control, listener, overlay and drag it added
+                  onTap?(id)                      a tap on the field (a player id, or null for grass)
+                  missed?(ans)                    first wrong try in a lesson: show what he picked
+                  resolved?({ ok, picked })       the puzzle is over: lock the controls; may return
+                                                  extra marks [{id, kind}] for the field }
+
+     cs-ui's askPuzzle is type-agnostic and owns the rest: tries (2 in lessons, 1 on Game Day), XP and
+     review boxes, the right / wrong sound, the explanation (bubble or panel), "after any answer the
+     play runs", Game Day scoring. The ctx (cs-ui.js, makeCtx) carries pz, play, lib, CS, doc, field
+     (the stage field and its interaction hooks, cs-field.js), panel (#stOpts: empty and hidden at
+     mount), submit(ans), feedback(kind, parts), say(bubble), action(label, fn) (the main button),
+     focusMarks, tries, tryNo, done, gameDay, reduced, sfx, nameOf(id), lc(text).
+     CS.PUZZLE_API lists the members; CS.contractErrors(T) is what the conformance check calls. */
   CS.puzzleTypes = CS.puzzleTypes || {};
+  CS.PUZZLE_API = { pure: ['check', 'truth', 'distractors', 'validate'], page: ['mount', 'rightName', 'lookOf'], optional: ['outcome', 'examples'] };
+  CS.contractErrors = (T, name) => {
+    const e = [], L = `puzzle type ${name == null ? T && T.name : name}`;
+    if (!T || typeof T !== 'object') return [`${L}: not registered`];
+    if (name != null && T.name !== name) e.push(`${L}: registered as ${name} but names itself ${T.name}`);
+    for (const k of [...CS.PUZZLE_API.pure, ...CS.PUZZLE_API.page]) if (typeof T[k] !== 'function') e.push(`${L}: no ${k}()`);
+    if (T.outcome != null && typeof T.outcome !== 'function') e.push(`${L}: outcome must be a function`);
+    if (T.examples != null && !Array.isArray(T.examples)) e.push(`${L}: examples must be an array of puzzles`);
+    return e;
+  };
   CS.checkPuzzle = (pz, answer, lib) => {
     const T = CS.puzzleTypes[pz.type];
     if (!T) throw new Error('unknown puzzle type ' + pz.type);

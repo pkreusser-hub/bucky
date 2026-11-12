@@ -92,6 +92,7 @@
   const SCREENS = ['scrMap', 'scrStage', 'scrResult', 'scrFilm', 'scrDemo'];
   let screen = null;
   function show(id) {
+    if (id !== 'scrStage') unmountPuzzle();
     for (const s of SCREENS) $(s).hidden = s !== id;
     screen = id;
     setBack(id !== 'scrMap');
@@ -122,17 +123,13 @@
 
   /* ── the panel ── */
   function panel(o) {
+    unmountPuzzle();
     $('stStep').textContent = o.step || '';
     $('stTitle').hidden = !o.title; $('stTitle').textContent = o.title || '';
     const tx = $('stText');
     tx.textContent = o.text || ''; tx.className = o.prompt ? 'prompt' : '';
     const op = $('stOpts');
-    op.innerHTML = ''; op.hidden = !o.options;
-    (o.options || []).forEach((t, i) => {
-      const b = doc.createElement('button'); b.type = 'button'; b.textContent = t; b.dataset.i = String(i);
-      b.addEventListener('click', () => onChoice(i));
-      op.appendChild(b);
-    });
+    op.innerHTML = ''; op.hidden = true; op.className = 'opts'; op.removeAttribute('style');
     feedback(null);
   }
   function feedback(kind, html) {
@@ -172,7 +169,7 @@
     } else m.textContent = mainLabel;
   }
   $('btnPrev').addEventListener('click', () => mode && mode.prev && mode.prev());
-  $('btnReplay').addEventListener('click', () => { field.seek(field.PRE); field.start(); });
+  $('btnReplay').addEventListener('click', () => { if (mode && mode.replay) return mode.replay(); field.seek(field.PRE); field.start(); });
   $('btnMain').addEventListener('click', () => mode && mode.main && mode.main());
 
   /* ── the lesson loop ── */
@@ -277,81 +274,94 @@
     });
     ask();
   }
+  /* ── one puzzle, any type ── The type (CS.puzzleTypes[pz.type], the plugin contract in cs-core.js)
+     puts up its own controls and names its own answer; this owns tries, XP, review boxes, the
+     sounds, the explanation, Game Day and "after any answer the play runs". */
+  let pzHandle = null;
+  // Take the current puzzle type down: its own destroy(), then a safety sweep of everything a type
+  // can leave on the stage (the conformance check holds each type to a clean destroy() on its own).
+  function unmountPuzzle() {
+    const h = pzHandle;
+    pzHandle = null;
+    if (h && h.destroy) h.destroy();
+    if (h) { field.overlay.clear(); field.endDrags(); }
+  }
+  function makeCtx(pz, play, o, focus, st) {
+    return {
+      pz, play, lib: L, CS, doc,
+      field,                                   // the stage field and its hooks (cs-field.js)
+      panel: $('stOpts'),                      // empty and hidden at mount; the type fills and shows it
+      submit: (ans) => st.answer(ans),
+      feedback, say: (b) => field.say(b),
+      // The main button: a type that needs a "Lock it in" press (drag types) puts it here.
+      action: (label, fn) => { if (st.done) return; mode.main = fn || null; actions(label ? { main: label } : {}); },
+      focusMarks: focus.slice(), tries: o.tries, gameDay: !!o.gameDay,
+      get tryNo() { return st.tryNo; }, get done() { return st.done; }, get reduced() { return field.reduced; },
+      sfx: { right: () => SFX.right(), wrong: () => SFX.wrong() },
+      nameOf: (id, p) => nameOf(p || play, id), lc,
+    };
+  }
   // One puzzle. tries = 2 in lessons (10 XP first try, 5 second, then the reveal), 1 on Game Day.
   function askPuzzle(pz, o) {
     const play = L.PLAYS[pz.play], T = CS.puzzleTypes[pz.type];
-    let tryNo = 1, done = false;
+    const st = { tryNo: 1, done: false, answer: null };
     field.setPlay(play, { callouts: false, ...chalkOf(pz) });
     const focus = (pz.focus || []).map((id) => ({ id, kind: 'focus' }));
     field.setMarks(focus);
-    panel({ step: o.step, text: pz.prompt, prompt: true, options: pz.type === 'choice' ? pz.options.map((x) => x.t) : null });
+    panel({ step: o.step, text: pz.prompt, prompt: true });
     actions({});
     mode = { kind: o.gameDay ? 'gameday' : 'puzzle', pz, tryNo: 1 };
-    const rightName = () => (pz.type === 'tap' ? nameOf(play, T.truth(pz)) : pz.options[pz.answer].t);
-    // Where the answer's explanation points: the right player on a tap puzzle, the thing a choice
-    // question is about when there is one. A pure fact question has nothing on the field to show,
-    // so its explanation stays in the panel under the options.
-    function lookOf() {
-      if (pz.type === 'tap') return [T.truth(pz)];
-      if (pz.look) return CS.toArr(pz.look);
-      const c = CS.compile(play), tes = c.off.filter((p) => p.pos === 'TE');
-      const byQ = { fieldSide: ['field'], boundarySide: ['boundary'], redZone: ['redzone'], onLineCount: ['line'], qbAlign: ['QB'],
-        strength: tes.length === 1 ? [tes[0].id] : ['field'], count: pz.pos && pz.pos.includes('LB') ? ['lb'] : pz.pos && pz.pos.includes('CB') ? ['db'] : null };
-      const f = pz.of ? [pz.of] : byQ[pz.q] || null;
-      return f && f.every((tok) => CS.focusOf(play, tok, field.PRE)) ? f : null;
-    }
+    const ctx = makeCtx(pz, play, o, focus, st);
     function resolve(ok, picked) {
-      done = true;
-      const xp = o.gameDay ? 0 : recordAnswer(pz, tryNo, ok);
+      st.done = true;
+      const xp = o.gameDay ? 0 : recordAnswer(pz, st.tryNo, ok);
       if (o.gameDay) for (const tag of pz.tags || []) S.srs = CS.srsReview(S.srs, tag, ok, Date.now());
       if (o.gameDay) save();
-      if (o.onResolved) o.onResolved(ok, tryNo);
-      const marks = focus.slice();
-      if (pz.type === 'tap') { if (!ok && picked) marks.push({ id: picked, kind: 'bad' }); marks.push({ id: T.truth(pz), kind: 'good' }); }
+      if (o.onResolved) o.onResolved(ok, st.tryNo);
+      const extra = h.resolved ? h.resolved({ ok, picked }) : null;
+      const marks = focus.concat(extra || []);
       field.setMarks(marks);
-      if (pz.type === 'choice') markOptions(picked, ok);
       const parts = ok ? [{ tag: 'b', text: 'Right.' }, xp ? ' ' : '', xp ? { tag: 'span', cls: 'xpflash', text: `+${xp} XP` } : '', ' ' + pz.why]
-        : [{ tag: 'b', text: 'The answer: ' + rightName() + '.' }, ' ' + pz.why];
+        : [{ tag: 'b', text: 'The answer: ' + T.rightName(pz, ctx) + '.' }, ' ' + pz.why];
       if (ok) SFX.right(); else SFX.wrong();
-      const look = lookOf();
-      if (look) { feedback(null); field.say({ parts: parts.filter((p) => p !== ''), focus: look, tone: ok ? 'good' : 'bad', zoom: false }); }
+      const look = T.lookOf(pz, ctx);
+      const bubble = look ? { parts: parts.filter((p) => p !== ''), focus: look, tone: ok ? 'good' : 'bad', zoom: false } : null;
+      if (bubble) { feedback(null); field.say(bubble); }
       else feedback(ok ? 'good' : 'bad', parts);
       mode.done = true; mode.main = o.next; mode.ok = ok;
       actions({ replay: true, main: o.nextLabel || 'Next' });
-      field.seek(field.PRE); field.start();                   // after any answer, the play runs
+      // After any answer, the play runs. A type with an outcome plays a list of runs in order (a
+      // wrong answer's failure, then the right version); without one, the puzzle's own play once.
+      const runs = T.outcome ? T.outcome(pz, picked, ok, ctx) : null;
+      if (!runs || !runs.length) { field.seek(field.PRE); field.start(); return; }
+      const m = mode;
+      const runAt = (i) => {
+        const r = runs[i];
+        field.setPlay(r.play, { callouts: false, ...chalkOf(pz), ...(r.chalk || {}) });
+        field.setMarks(r.marks || marks);
+        if (r.say) field.say(r.say); else if (bubble) field.say(bubble);
+        m.run = i;
+        m.onEnd = i + 1 < runs.length ? () => { if (mode === m) runAt(i + 1); } : null;
+        field.seek(field.PRE); field.start();
+      };
+      m.replay = () => runAt(0);
+      runAt(0);
     }
-    function markOptions(picked, ok) {
-      [...$('stOpts').children].forEach((b, i) => {
-        b.disabled = true;
-        if (i === pz.answer) b.classList.add('good');
-        else if (i === picked && !ok) b.classList.add('bad');
-      });
-    }
-    mode.answer = (ans) => {
-      if (done) return;
-      if (pz.type === 'tap' && !ans) { field.say(null); feedback('bad', ['No player there. Tap right on him.']); return; }   // grass is not a guess
+    st.answer = mode.answer = (ans) => {
+      if (st.done) return;
       const ok = CS.checkPuzzle(pz, ans);
-      if (ok || tryNo >= o.tries) return resolve(ok, ans);
-      // First miss in a lesson: show what he picked, keep the question open for one more try.
+      if (ok || st.tryNo >= o.tries) return resolve(ok, ans);
+      // First miss in a lesson: the type shows what he picked; the question stays open for one more try.
       SFX.wrong();
-      tryNo = 2; mode.tryNo = 2;
-      if (pz.type === 'tap') {
-        field.setMarks(focus.concat([{ id: ans, kind: 'bad' }]));
-        field.say({ parts: ['That is the ', { tag: 'b', text: lc(nameOf(play, ans)) }, '. One more try.'], focus: [ans], tone: 'bad', zoom: false, spot: false });
-      } else {
-        const b = $('stOpts').children[ans];
-        if (b) { b.classList.add('bad'); b.disabled = true; }
-        feedback('bad', ['Not that one. One more try.']);
-      }
+      st.tryNo = 2; mode.tryNo = 2;
+      if (h.missed) h.missed(ans); else feedback('bad', ['Not that one. One more try.']);
     };
+    const h = pzHandle = T.mount(ctx) || {};
   }
   function onTap(id) {
     if (!mode || screen !== 'scrStage') return;
     if (mode.kind === 'walk' && mode.tap) return mode.tap(id);
-    if ((mode.kind === 'puzzle' || mode.kind === 'gameday') && mode.pz && mode.pz.type === 'tap' && !mode.done) mode.answer(id);
-  }
-  function onChoice(i) {
-    if (mode && mode.pz && mode.pz.type === 'choice' && !mode.done) mode.answer(i);
+    if ((mode.kind === 'puzzle' || mode.kind === 'gameday') && mode.pz && !mode.done && pzHandle && pzHandle.onTap) pzHandle.onTap(id);
   }
   function unitDone(u, firstTry) {
     show('scrResult');
@@ -587,11 +597,21 @@
       // a button press takes (the suite uses this to reach the Game Day boundary quickly).
       answer: (right) => {
         if (!mode || !mode.pz || mode.done) return false;
-        const pz = mode.pz;
-        if (pz.type === 'choice') { const i = right ? pz.answer : pz.options.findIndex((o, j) => j !== pz.answer); onChoice(i); return true; }
-        const ans = right ? CS.puzzleTypes.tap.truth(pz) : CS.puzzleTypes.tap.distractors(pz)[0];
-        mode.answer(ans); return true;
+        const pz = mode.pz, T = CS.puzzleTypes[pz.type];
+        mode.answer(right ? T.truth(pz, L) : T.distractors(pz, L)[0]); return true;
       },
+      // The conformance check (tools/coachschool-checks/contract.mjs): put up any puzzle on the stage
+      // as a lesson would (tries 2) or Game Day (tries 1), and take a type down with ONLY its own
+      // destroy(), so a leak it leaves is still there to be seen.
+      ask: (pz, o) => {
+        show('scrStage');
+        $('scoreboard').hidden = true; $('stDots').hidden = true;
+        askPuzzle(pz, { step: 'Check', tries: o && o.tries === 1 ? 1 : 2, gameDay: !!(o && o.gameDay), next: () => {} });
+        fitStage();
+        return true;
+      },
+      get handle() { return pzHandle ? Object.keys(pzHandle).sort() : null; },
+      destroyOnly: () => { const h = pzHandle; pzHandle = null; if (h && h.destroy) h.destroy(); return !!h; },
     },
   };
 })(window);

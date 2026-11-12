@@ -64,6 +64,34 @@
       if (m.length === 1 && m[0] !== pz.answer) e.push(`${L}: the description picks ${m[0]} but the stored answer is ${pz.answer}`);
       return e;
     },
+
+    /* ── page side (the plugin contract, cs-core.js): moved here unchanged from cs-ui's askPuzzle ── */
+    // A tap puzzle has no controls of its own: the field is the control. A tap on grass is not a
+    // guess; it costs no try.
+    mount(ctx) {
+      return {
+        onTap(id) {
+          if (!id) { ctx.say(null); ctx.feedback('bad', ['No player there. Tap right on him.']); return; }
+          ctx.submit(id);
+        },
+        // First miss: ring the man he tapped and name him, and keep the question open.
+        missed(ans) {
+          ctx.field.setMarks(ctx.focusMarks.concat([{ id: ans, kind: 'bad' }]));
+          ctx.say({ parts: ['That is the ', { tag: 'b', text: ctx.lc(ctx.nameOf(ans)) }, '. One more try.'], focus: [ans], tone: 'bad', zoom: false, spot: false });
+        },
+        // Over: the man he tapped in red (if wrong), the right man in green.
+        resolved({ ok, picked }) {
+          const m = [];
+          if (!ok && picked) m.push({ id: picked, kind: 'bad' });
+          m.push({ id: T.truth(ctx.pz, ctx.lib), kind: 'good' });
+          return m;
+        },
+        destroy() {},
+      };
+    },
+    rightName(pz, ctx) { return ctx.nameOf(T.truth(pz, ctx.lib)); },
+    // The explanation points at the right player.
+    lookOf(pz, ctx) { return [T.truth(pz, ctx.lib)]; },
   };
   CS.puzzleTypes = CS.puzzleTypes || {};
   CS.puzzleTypes.tap = T;

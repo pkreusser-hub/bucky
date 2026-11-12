@@ -287,3 +287,21 @@ backfield player is eligible. It now teaches the spot AND the number, reporting 
 lines up at an eligible spot, and the QB-under-center exception. r1-u2-p4 and the slot card say
 why by his number too. Suite A6 holds the card to the corrected wording and no rank-1 string may
 carry either old claim.
+
+## 2026-11-12 — puzzle types become plugins; the suite splits into modules
+
+Before phase 3a (five types built in parallel, one agent each), the seams they would have collided
+on were cut. **The contract**: a type registers `CS.puzzleTypes[name]` with a pure half (`check`,
+`truth`, `distractors`, `validate`, `examples`) and a page half (`mount(ctx) -> handle`, `rightName`,
+`lookOf`, optional `outcome` for "the failure plays out, then the right one"). `askPuzzle` in cs-ui
+no longer names a type: it owns tries, XP, review boxes, sounds, the explanation, Game Day and the
+runs after the answer, and hands the type a `ctx`. `tap` and `choice` moved their page code into
+their own files unchanged (every pre-existing check green). **Field hooks** in cs-field so no type
+edits it: `overlay.path/link/gaps`, `drag()` (44 px handles, snap callback in yards, tap-select then
+tap-place), `freezeAtSnap` / `playTo` (stop on the time exactly), `zoomTo`; pure helpers `CS.gapsOf`
+(gaps from where the linemen stand, fact sheet 8), `CS.snapTo`, `CS.routeWaypoints`, `CS.variantOf`.
+**The suite** keeps its entry file and loads `tools/coachschool-checks/*.mjs`; `contract.mjs` holds
+every registered type to the contract (pure and on the page, including a clean `destroy()`), and
+`field-hooks.mjs` measures the hooks against yardToScreen / spriteRect and hand-computed gap yards.
+`--only a,b` runs just those modules. The brief for the type agents, with the files each may touch
+and a spec per type: `docs/coachschool-puzzle-types.md`.

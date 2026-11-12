@@ -7,7 +7,11 @@
    the section in `src`. Exactly one option may carry the true value: two options that are both
    right are flagged, as is a stored answer that is not the true one.
 
-   puzzle: { id, type:'choice', play, prompt, q, of?, truth?, src?, options:[{t, v}], answer, tags, focus?, why } */
+   puzzle: { id, type:'choice', play, prompt, q, of?, truth?, src?, options:[{t, v}], answer, tags, focus?, look?, why }
+
+   Plugin contract (cs-core.js): the answer is the index of the option he picked; T.truth() is the
+   index of the one true option (T.value() is the true value itself). The page side builds the
+   option buttons in ctx.panel; it is the code that used to sit in cs-ui's askPuzzle, unchanged. */
 (function (root) {
   'use strict';
   const CS = root.CS;
@@ -36,7 +40,7 @@
     // QB depth (fact sheet, rank 1): under center about 1 yd, pistol about 4, shotgun about 5.
     qbAlign: (c) => { const y = c.qb.y; return y >= -1.5 ? 'under' : y >= -4.5 ? 'pistol' : 'gun'; },
   };
-  function truth(pz, lib) {
+  function value(pz, lib) {
     lib = lib || CS.lib;
     const play = lib.PLAYS[pz.play];
     if (!play) throw new Error(`puzzle ${pz.id}: unknown play ${pz.play}`);
@@ -48,12 +52,18 @@
   const T = {
     name: 'choice',
     Q,
-    truth,
+    value,
+    // The right answer in answer shape: the index of the one option carrying the true value (null
+    // when there is not exactly one; validate() says why).
+    truth(pz, lib) {
+      const v = value(pz, lib), right = (pz.options || []).map((o, i) => (v != null && same(o.v, v) ? i : -1)).filter((i) => i >= 0);
+      return right.length === 1 ? right[0] : null;
+    },
     // answer = the index of the option he picked.
     check(pz, answer, lib) {
       const o = (pz.options || [])[answer];
       if (!o) return false;
-      const v = truth(pz, lib);
+      const v = value(pz, lib);
       return v != null && same(o.v, v);
     },
     distractors(pz) { return (pz.options || []).map((o, i) => i).filter((i) => i !== pz.answer); },
@@ -68,13 +78,54 @@
       if (new Set(os.map((o) => String(o.t).toLowerCase())).size !== os.length) e.push(`${L}: two options read the same`);
       if (pz.q === 'fact' && !pz.src) e.push(`${L}: a fact question must name its fact-sheet section in src`);
       let v;
-      try { v = truth(pz, lib); } catch (err) { return e.concat(`${L}: ${err.message}`); }
+      try { v = value(pz, lib); } catch (err) { return e.concat(`${L}: ${err.message}`); }
       if (v == null) e.push(`${L}: the question has no answer on this play`);
       const right = os.map((o, i) => (same(o.v, v) ? i : -1)).filter((i) => i >= 0);
       if (right.length === 0) e.push(`${L}: no option is right (true value ${v})`);
       if (right.length > 1) e.push(`${L}: options ${right.join(' and ')} are both right: two right answers`);
       if (right.length === 1 && right[0] !== pz.answer) e.push(`${L}: the right option is ${right[0]} but the stored answer is ${pz.answer}`);
       return e;
+    },
+
+    /* ── page side (the plugin contract): moved here unchanged from cs-ui's askPuzzle ── */
+    // The options are buttons in the panel; a press is the answer.
+    mount(ctx) {
+      const op = ctx.panel;
+      (ctx.pz.options || []).forEach((o, i) => {
+        const b = ctx.doc.createElement('button'); b.type = 'button'; b.textContent = o.t; b.dataset.i = String(i);
+        b.addEventListener('click', () => ctx.submit(i));
+        op.appendChild(b);
+      });
+      op.hidden = false;
+      return {
+        // First miss: that option goes red and stays pressed out; one more try.
+        missed(ans) {
+          const b = op.children[ans];
+          if (b) { b.classList.add('bad'); b.disabled = true; }
+          ctx.feedback('bad', ['Not that one. One more try.']);
+        },
+        // Over: every option locks, the right one green, his wrong pick red.
+        resolved({ ok, picked }) {
+          [...op.children].forEach((b, i) => {
+            b.disabled = true;
+            if (i === ctx.pz.answer) b.classList.add('good');
+            else if (i === picked && !ok) b.classList.add('bad');
+          });
+        },
+        destroy() { op.textContent = ''; op.hidden = true; },
+      };
+    },
+    rightName(pz) { return pz.options[pz.answer].t; },
+    // Where the explanation points: the thing the question is about when there is one. A pure fact
+    // question has nothing on the field to show, so its explanation stays in the panel.
+    lookOf(pz, ctx) {
+      const CS = ctx.CS, play = ctx.play;
+      if (pz.look) return CS.toArr(pz.look);
+      const c = CS.compile(play), tes = c.off.filter((p) => p.pos === 'TE');
+      const byQ = { fieldSide: ['field'], boundarySide: ['boundary'], redZone: ['redzone'], onLineCount: ['line'], qbAlign: ['QB'],
+        strength: tes.length === 1 ? [tes[0].id] : ['field'], count: pz.pos && pz.pos.includes('LB') ? ['lb'] : pz.pos && pz.pos.includes('CB') ? ['db'] : null };
+      const f = pz.of ? [pz.of] : byQ[pz.q] || null;
+      return f && f.every((tok) => CS.focusOf(play, tok, ctx.field.PRE)) ? f : null;
     },
   };
   CS.puzzleTypes = CS.puzzleTypes || {};

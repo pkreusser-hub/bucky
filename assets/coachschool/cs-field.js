@@ -933,7 +933,8 @@
     const FULL = { cx: W / 2, cy: H / 2, z: 1 };
     const st = { play: null, c: null, t: 0, playing: false, speed: 1, raf: 0, last: 0, acc: 0, kits: null, art: null, pal: {}, nums: {}, drawn: {}, marks: [], callout: true,
       cam: { ...FULL }, camA: null, say: null, sayN: 0, shown: 0, place: null, note: null, geom: null, bw: 0, bh: 0,
-      fade: null, fadeAnim: false, spotOn: false, alpha: {}, order: [], spot: null };
+      fade: null, fadeAnim: false, spotOn: false, alpha: {}, order: [], spot: null,
+      ov: [], ovN: 0, ovGeom: { paths: [], links: [], gaps: [] }, moved: {}, drags: [], grab: null, stopAt: null, stopCb: null };
     const PRE = -1.2;
     const CAM_MS = 480;                  // the camera's ease in or out (the brief: 400-600 ms)
     const bubbleEl = opts.bubbleEl || null, tailsEl = opts.tailsEl || null;
@@ -952,6 +953,9 @@
       st.callout = o.callouts !== false;
       st.cam = { ...FULL }; st.camA = null; st.say = null; st.note = null; st.place = null;
       st.fade = null; st.spotOn = false; st.alpha = {}; st.order = []; st.spot = null;
+      // A new play puts everyone back on his own alignment and cancels a pending freeze. Overlays and
+      // drag sessions belong to whoever made them (a puzzle type) and stay until it removes them.
+      st.moved = {}; st.stopAt = null; st.stopCb = null;
       st.c.all.forEach((p, i) => {
         const side = p.team === 'off' ? 'o' : 'd';
         st.pal[p.id] = raPalette(st.kit[p.team], i, side, play.teams[p.team]);
@@ -1109,6 +1113,13 @@
       return a;
     }
 
+    // Where everyone is drawn now: CS.showAt, except that a man a drag hook has moved is drawn on his
+    // new yards with his share of the spread (the picture keeps everyone else's rule), until setPlay.
+    function shownAt() {
+      const pose = CS.showAt(st.play, st.t, st.spread), w = CS.spreadW(st.c, st.t);
+      for (const [id, m] of Object.entries(st.moved)) if (pose.players[id]) { const s = st.spread[id] || { dx: 0, dy: 0 }; pose.players[id] = { x: m.x + s.dx * w, y: m.y + s.dy * w }; }
+      return pose;
+    }
     function draw() {
       if (!st.play) return;
       backing();
@@ -1123,8 +1134,8 @@
       g.globalAlpha = 0.75; vline(0, '#4aa8ff'); if (play.dist) vline(play.dist, '#ffe000'); g.globalAlpha = 1;
       // Drawn where CS.showAt puts them (the neutral zone spread before the snap); gait and facing
       // still come from the yards (poseAt), so the spread easing out never reads as a run.
-      const pose = CS.showAt(play, t, st.spread), truth = CS.poseAt(play, t), prev = CS.poseAt(play, Math.max(PRE, t - 0.1));
-      const w = CS.spreadW(c, t), sh = (id) => { const s = st.spread[id]; return { dx: s.dx * w, dy: s.dy * w }; };
+      const pose = shownAt(), truth = CS.poseAt(play, t), prev = CS.poseAt(play, Math.max(PRE, t - 0.1));
+      const w = CS.spreadW(c, t), sh = (id) => { const s = st.spread[id]; return s ? { dx: s.dx * w, dy: s.dy * w } : { dx: 0, dy: 0 }; };
 
       // Chalk under the players: zone shapes and drops, then routes, each only where the step or
       // the bubble on screen asks for it (chalkSet: true = all, a list = those ids, else none).
@@ -1216,8 +1227,11 @@
         const spr = raBallSprite(k);
         g.drawImage(spr, Math.round(xb - spr.width / 2), Math.round(yb - spr.height / 2));
       } });
+      st.ovGeom = { paths: [], links: [], gaps: [] };
+      drawOverlaysUnder(sh);                                 // paths and connectors, under the players
       items.sort((p, q) => p.layer - q.layer || p.y - q.y).forEach((it) => it.draw());
       st.order = items.filter((it) => it.id).map((it) => it.id);
+      drawOverlaysOver();                                    // gap letters and drag handles, over them
 
       // Chalk over the players: marks the lesson asked for, rings on the players a coach bubble is
       // talking about, and (the engine demo only, which has no bubble layer) the callout on the canvas.
@@ -1247,6 +1261,207 @@
       }
       renderCoach();
       if (opts.onFrame) opts.onFrame(st.t, k);
+    }
+
+    /* ── interaction hooks for puzzle types (docs/coachschool-puzzle-types.md) ──
+       Overlays are chalk a type draws on the field in YARDS, through the camera, so they zoom with
+       it: a path (waypoints), a connector (player / gap / point to player / gap / point) and the gap
+       letters. Each frame records what it drew in client CSS px (field.overlays), which is what the
+       suite measures. Drag sessions put 44 px handles on players or free markers. */
+    const OV_TONE = { chalk: '#f4f1e6', focus: '#ffe14d', good: '#4be37a', bad: '#ff5a4d' };
+    const HANDLE_R = 22;                 // CSS px: a 44 px handle under the finger, at any zoom
+    function addOverlay(kind, o) {
+      const ov = { n: ++st.ovN, kind, o: { ...o } };
+      st.ov.push(ov);
+      draw();
+      return {
+        remove() { const i = st.ov.indexOf(ov); if (i >= 0) { st.ov.splice(i, 1); draw(); } },
+        update(p) { Object.assign(ov.o, p); draw(); },
+      };
+    }
+    const toClient = (X, Y) => w2c(X, Y);
+    // The painted box's centre of a man as drawn this frame (world px), or null.
+    function centreOf(id) { const b = bodyBox(id); return b ? { X: (b.x0 + b.x1) / 2, Y: (b.y0 + b.y1) / 2 } : null; }
+    // A connector end: a player id, a gap name ('B-gap-L': at the line of scrimmage), or {x, y} yards.
+    function endOf(e) {
+      if (e && typeof e === 'object' && CS.num(e.x, null) != null) return { X: wx(e.y), Y: wy(e.x) };
+      if (typeof e !== 'string') return null;
+      if (st.drawn[e]) return centreOf(e);
+      const g = CS.gapsOf(st.c)[e];
+      return g == null ? null : gapPt(g);
+    }
+    // Where a gap is DRAWN. Its yards are the fact sheet's (CS.gapsOf, on the line of scrimmage), but
+    // the camera is side-on: a lineman's sprite stands up the screen from his feet, so a letter on the
+    // feet line sits on the next man's face. The letter (and a connector's end) is lifted by half the
+    // center's painted height, so it sits between two linemen's bodies, as the eye reads a gap.
+    function gapLift() {
+      const ctr = st.c.off.find((q) => q.pos === 'C'), b = ctr ? bodyBox(ctr.id) : null;
+      return b ? b.fy - (b.y0 + b.y1) / 2 : 10;
+    }
+    function gapPt(gx) { return { X: wx(0), Y: wy(gx) - gapLift() }; }
+    function strokeLine(pts, col, dashed, arrow) {
+      if (pts.length < 2) return;
+      g.setLineDash(dashed ? [4, 4] : []);
+      for (const [c0, lw, o] of [['rgba(10,20,10,0.6)', 3.2, 1], [col, 2, 0]]) {
+        g.strokeStyle = c0; g.lineWidth = lw; g.lineCap = 'round'; g.lineJoin = 'round';
+        g.beginPath(); pts.forEach((q, i) => (i ? g.lineTo(q.X + o, q.Y + o) : g.moveTo(q.X + o, q.Y + o))); g.stroke();
+      }
+      g.setLineDash([]);
+      if (arrow) {
+        const a = pts[pts.length - 2], b = pts[pts.length - 1], ang = Math.atan2(b.Y - a.Y, b.X - a.X);
+        g.fillStyle = col;
+        g.beginPath(); g.moveTo(b.X + Math.cos(ang) * 5, b.Y + Math.sin(ang) * 5);
+        g.lineTo(b.X + Math.cos(ang + 2.5) * 5, b.Y + Math.sin(ang + 2.5) * 5); g.lineTo(b.X + Math.cos(ang - 2.5) * 5, b.Y + Math.sin(ang - 2.5) * 5); g.fill();
+      }
+    }
+    function drawOverlaysUnder(sh) {
+      const G = st.ovGeom;
+      for (const ov of st.ov) {
+        const o = ov.o, col = OV_TONE[o.tone] || OV_TONE.chalk;
+        if (ov.kind === 'path') {
+          // anchor: the man it belongs to; the path rides with his drawn spot (the spread) like route chalk.
+          const s0 = o.anchor ? sh(o.anchor) : { dx: 0, dy: 0 };
+          const pts = (o.pts || []).map((q) => ({ X: wx(q[1] + s0.dy), Y: wy(q[0] + s0.dx) }));
+          strokeLine(pts, col, o.dashed !== false, o.arrow !== false);
+          G.paths.push({ n: ov.n, anchor: o.anchor || null, pts: pts.map((q) => toClient(q.X, q.Y)) });
+        }
+      }
+      // A rubber band from a handle being dragged (or held) to the pointer.
+      for (const d of st.drags) for (const h of d.handles) if (h.band) {
+        const a = handleCentre(h), b = { X: wx(h.band.y), Y: wy(h.band.x) };
+        if (a) strokeLine([a, b], OV_TONE.focus, true, true);
+      }
+    }
+    function drawOverlaysOver() {
+      const G = st.ovGeom, gaps = CS.gapsOf(st.c);
+      // Connectors over the players (under them, a short blocker-to-gap line vanished behind the sprites).
+      for (const ov of st.ov) {
+        if (ov.kind !== 'link') continue;
+        const o = ov.o, a = endOf(o.from), b = endOf(o.to);
+        if (!a || !b) continue;
+        strokeLine([a, b], OV_TONE[o.tone] || OV_TONE.chalk, !!o.dashed, o.arrow !== false);
+        G.links.push({ n: ov.n, from: o.from, to: o.to, a: toClient(a.X, a.Y), b: toClient(b.X, b.Y) });
+      }
+      for (const ov of st.ov) {
+        if (ov.kind !== 'gaps') continue;
+        const o = ov.o, names = Object.keys(gaps).filter((nm) => (!o.names || o.names.includes(nm)) && (!o.side || nm.endsWith('-' + o.side)));
+        g.font = '700 9px Inter, system-ui, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        for (const nm of names) {
+          const { X, Y } = gapPt(gaps[nm]), L = nm.charAt(0);
+          g.fillStyle = 'rgba(7,11,17,0.82)'; g.fillRect(X - 5, Y - 5.5, 10, 11);
+          g.strokeStyle = OV_TONE[o.tone] || OV_TONE.focus; g.lineWidth = 1; g.strokeRect(X - 4.5, Y - 5, 9, 10);
+          g.fillStyle = OV_TONE[o.tone] || OV_TONE.focus; g.fillText(L, X, Y + 0.5);
+          G.gaps.push({ n: ov.n, name: nm, letter: L, yd: gaps[nm], ...toClient(X, Y), ground: toClient(wx(0), wy(gaps[nm])) });   // yd: the gap's x in yards; x, y: where drawn (client px); ground: its yards on the LOS
+        }
+        g.textAlign = 'start'; g.textBaseline = 'alphabetic';
+      }
+      const { sx } = toCss(), rw = HANDLE_R / ((sx || 1) * st.cam.z);
+      for (const d of st.drags) for (const h of d.handles) {
+        const c0 = handleCentre(h);
+        if (!c0) continue;
+        if (!h.id) {                                       // a free marker: a chalk disc with its label
+          g.fillStyle = 'rgba(7,11,17,0.85)'; g.beginPath(); g.arc(c0.X, c0.Y, 6.5, 0, Math.PI * 2); g.fill();
+          g.fillStyle = '#ffe14d'; g.beginPath(); g.arc(c0.X, c0.Y, 5, 0, Math.PI * 2); g.fill();
+          if (h.label) { g.fillStyle = '#10151d'; g.font = '700 7px Inter, system-ui, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(h.label).slice(0, 2), c0.X, c0.Y + 0.5); g.textAlign = 'start'; g.textBaseline = 'alphabetic'; }
+        }
+        const sel = d.sel === h.key || (st.grab && st.grab.h === h);
+        g.setLineDash(sel ? [] : [4, 3]);
+        g.strokeStyle = 'rgba(7,11,17,0.7)'; g.lineWidth = 3.5 / st.cam.z; g.beginPath(); g.arc(c0.X, c0.Y, rw, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = sel ? '#ffffff' : '#ffe14d'; g.lineWidth = 1.6 / st.cam.z; g.beginPath(); g.arc(c0.X, c0.Y, rw, 0, Math.PI * 2); g.stroke();
+        g.setLineDash([]);
+      }
+    }
+    // Where a handle sits, in world px: a player's painted centre, or a marker's own point.
+    function handleCentre(h) { return h.id ? centreOf(h.id) : { X: wx(h.pos.y), Y: wy(h.pos.x) }; }
+
+    /* drag(o): o = { handles: [{ key, id? | x, y, label? }], snap?(pos, key) -> {x, y, name?} | null,
+       moves? (default true; false = the handle stays and a rubber band follows the pointer, for
+       "connect this to that"), onStart?(key), onMove?(key, pos, snapped), onDrop?(key, pos, snapped) }.
+       pos is in yards, the fact-sheet yards (a player's handle starts on his poseAt spot, never the
+       spread picture). A press-and-drag moves a handle; a tap on a handle selects it and the next tap
+       on the field drops it there (one finger, no drag needed). Returns { destroy(), set(key, pos),
+       positions, selected }. */
+    function onMoveEv(e) { if (st.grab && e.pointerId === st.grab.pid) { grabTo(e, false); e.preventDefault(); } }
+    function onUpEv(e) { if (st.grab && e.pointerId === st.grab.pid) { grabTo(e, true); e.preventDefault(); } }
+    function listen(on) {
+      const f = on ? 'addEventListener' : 'removeEventListener';
+      canvas[f]('pointermove', onMoveEv); canvas[f]('pointerup', onUpEv); canvas[f]('pointercancel', onUpEv);
+      canvas.style.touchAction = on ? 'none' : '';
+    }
+    function drag(o) {
+      const d = { o, sel: null, handles: (o.handles || []).map((h) => {
+        const q = h.id ? CS.poseAt(st.play, st.t).players[h.id] : { x: h.x, y: h.y };
+        return { key: h.key == null ? h.id : h.key, id: h.id || null, label: h.label || null, pos: { x: q.x, y: q.y }, band: null };
+      }) };
+      if (!st.drags.length) listen(true);
+      st.drags.push(d);
+      draw();
+      return {
+        destroy() {
+          const i = st.drags.indexOf(d);
+          if (i < 0) return;
+          st.drags.splice(i, 1);
+          if (st.grab && st.grab.d === d) st.grab = null;
+          for (const h of d.handles) if (h.id) delete st.moved[h.id];
+          if (!st.drags.length) listen(false);
+          draw();
+        },
+        set(key, pos) { const h = d.handles.find((q) => q.key === key); if (h) { place(d, h, pos); draw(); } },
+        get positions() { const out = {}; for (const h of d.handles) out[h.key] = { ...h.pos }; return out; },
+        get selected() { return d.sel; },
+      };
+    }
+    function place(d, h, pos) {
+      if (d.o.moves === false) return;
+      h.pos = { x: pos.x, y: pos.y };
+      if (h.id) st.moved[h.id] = { ...h.pos };
+    }
+    const snapOf = (d, h, raw) => (d.o.snap ? d.o.snap({ ...raw }, h.key) : null);
+    // A press on the field while a drag session is up: grab the handle under the finger, or drop the
+    // selected one where he tapped. Returns true when the press was the drag's (no tap is sent).
+    function dragDown(e) {
+      if (!st.drags.length) return false;
+      const { sx } = toCss(), px = e.clientX, py = e.clientY;
+      let best = null;
+      for (const d of st.drags) for (const h of d.handles) {
+        const c0 = handleCentre(h);
+        if (!c0) continue;
+        const cc = toClient(c0.X, c0.Y), dd = Math.hypot(cc.x - px, cc.y - py);
+        if (dd <= HANDLE_R && (!best || dd < best.dd)) best = { d, h, dd };
+      }
+      const at = screenToYard(px, py);
+      if (best) {
+        st.grab = { d: best.d, h: best.h, pid: e.pointerId, x0: px, y0: py, at0: at, pos0: { ...best.h.pos }, moved: false };
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer: no capture needed */ }
+        if (best.d.o.onStart) best.d.o.onStart(best.h.key);
+        draw();
+        return true;
+      }
+      const d = st.drags.find((q) => q.sel != null);
+      if (!d) return false;
+      const h = d.handles.find((q) => q.key === d.sel);
+      d.sel = null;
+      const sn = snapOf(d, h, at), pos = sn ? { x: sn.x, y: sn.y } : at;
+      place(d, h, pos);
+      if (d.o.onDrop) d.o.onDrop(h.key, pos, sn);
+      draw();
+      return true;
+    }
+    function grabTo(e, up) {
+      const G = st.grab, { d, h } = G;
+      if (Math.hypot(e.clientX - G.x0, e.clientY - G.y0) > 6) G.moved = true;
+      const at = screenToYard(e.clientX, e.clientY);
+      const raw = d.o.moves === false ? at : { x: G.pos0.x + at.x - G.at0.x, y: G.pos0.y + at.y - G.at0.y };
+      const sn = G.moved ? snapOf(d, h, raw) : null, pos = sn ? { x: sn.x, y: sn.y } : raw;
+      if (!up) {
+        if (G.moved) { place(d, h, pos); h.band = d.o.moves === false ? pos : null; if (d.o.onMove) d.o.onMove(h.key, pos, sn); }
+        draw();
+        return;
+      }
+      st.grab = null; h.band = null;
+      if (!G.moved) d.sel = d.sel === h.key ? null : h.key;   // a tap: select (or let go of) this handle
+      else { place(d, h, pos); if (d.o.onDrop) d.o.onDrop(h.key, pos, sn); }
+      draw();
     }
 
     /* ── coach bubbles ── HTML text over the field (the body font), with an SVG layer under it for
@@ -1418,6 +1633,7 @@
       if (st.playing || st.camA || st.fadeAnim) loop();
     }
     function seek(t) {
+      st.stopAt = null; st.stopCb = null;
       st.t = clamp(t, PRE, st.c ? st.c.T : 0);
       st.note = null;
       if (st.say && st.say.src === 'callout') st.say = null;
@@ -1446,7 +1662,8 @@
         st.acc += dt * st.speed;
         if (st.acc >= 1.2) {
           st.acc = 0;
-          const nx = st.keys.find((v) => v > st.t + 1e-6);
+          let nx = st.keys.find((v) => v > st.t + 1e-6);
+          if (st.stopAt != null && (nx == null || nx > st.stopAt)) nx = st.stopAt;
           const stop = nx == null ? null : nextStop(st.t, nx);
           st.t = nx == null ? st.c.T : nx;
           if (stop != null) return stopAt(stop);
@@ -1455,6 +1672,14 @@
         const to = Math.min(st.c.T, st.t + dt * st.speed), stop = nextStop(st.t, to);
         st.t = stop == null ? to : stop;
         if (stop != null) return stopAt(stop);
+      }
+      // playTo(t): the clock stops ON t exactly (a freeze at the snap is t = 0, not 0.016).
+      if (st.stopAt != null && st.t >= st.stopAt) {
+        st.t = st.stopAt; st.playing = false;
+        const cb = st.stopCb; st.stopAt = null; st.stopCb = null;
+        if (opts.onState) opts.onState();
+        if (cb) cb(st.t);
+        return;
       }
       if (st.t >= st.c.T) { st.playing = false; if (opts.onState) opts.onState(); if (opts.onEnd) opts.onEnd(); }
     }
@@ -1483,7 +1708,20 @@
       loop();
       if (opts.onState) opts.onState();
     }
-    function pause() { st.playing = false; if (opts.onState) opts.onState(); }
+    function pause() { st.playing = false; st.stopAt = null; st.stopCb = null; if (opts.onState) opts.onState(); }
+    // Run the clock from where it is and stop exactly on t, then cb(t). freezeAtSnap: from the
+    // pre-snap picture to the snap, and hold there (predict puzzles).
+    function playTo(t, cb) {
+      if (!st.play) return;
+      const T0 = clamp(t, PRE, st.c.T);
+      if (st.t >= T0) seek(PRE);
+      play();
+      st.stopAt = T0; st.stopCb = cb || null;
+      if (st.t >= T0) advance(performance.now());
+    }
+    const freezeAtSnap = (cb) => playTo(st.c.snapT, cb);
+    // Frame these focus tokens (CS.focusOf), or the whole window for null; instant = a cut.
+    function zoomTo(tokens, o) { camTo(tokens && CS.toArr(tokens).length ? frameOf(CS.toArr(tokens)) : { ...FULL }, !!(o && o.instant)); draw(); }
     function sizeHint() {
       // The backing store follows the device pixels (backing()), so the browser never rescales it.
       canvas.style.imageRendering = 'pixelated';
@@ -1503,6 +1741,7 @@
       draw();
     }
     canvas.addEventListener('pointerdown', (e) => {
+      if (dragDown(e)) { e.preventDefault(); return; }       // a drag hook took the press
       const id = hitTest(e.clientX, e.clientY);
       if (opts.onTap) opts.onTap(id, e);
     });
@@ -1512,6 +1751,25 @@
     const api = {
       setPlay, seek, start: play, pause, draw, hitTest, yardToScreen, screenToYard, sizeHint, fit, spriteRect, say,
       setSpeed: (s) => { st.speed = s; if (opts.onState) opts.onState(); },
+      // Interaction hooks for puzzle types (docs/coachschool-puzzle-types.md).
+      overlay: {
+        path: (o) => addOverlay('path', o),           // { pts: [[x, y] yards...], anchor?: id, tone?, dashed? (true), arrow? (true) }
+        link: (o) => addOverlay('link', o),           // { from, to: id | 'B-gap-L' | {x, y}, tone?, dashed? (false), arrow? (true) }
+        gaps: (o) => addOverlay('gaps', o || {}),     // { names?: ['A-gap-L', ...], side?: 'L' | 'R', tone? }
+        clear: () => { st.ov = []; draw(); },
+        get count() { return st.ov.length; },
+      },
+      drag, endDrags: () => { for (const d of st.drags.slice()) { st.drags.splice(st.drags.indexOf(d), 1); for (const h of d.handles) if (h.id) delete st.moved[h.id]; } st.grab = null; listen(false); draw(); },
+      playTo, freezeAtSnap, zoomTo,
+      gapsOf: () => (st.c ? CS.gapsOf(st.c) : {}),
+      // What the hooks drew this frame, in client CSS px (the suite's measure).
+      get overlays() { return JSON.parse(JSON.stringify(st.ovGeom)); },
+      get drags() {
+        const { sx } = toCss();
+        return st.drags.map((d) => ({ selected: d.sel, handles: d.handles.map((h) => { const c0 = handleCentre(h), cc = c0 ? toClient(c0.X, c0.Y) : null; return { key: h.key, id: h.id, x: h.pos.x, y: h.pos.y, cx: cc && cc.x, cy: cc && cc.y, r: HANDLE_R, rWorld: HANDLE_R / ((sx || 1) * st.cam.z) }; }) }));
+      },
+      get moved() { return JSON.parse(JSON.stringify(st.moved)); },
+      get freezing() { return st.stopAt; },
       setMarks: (m) => { st.marks = (m || []).slice(); draw(); },
       get t() { return st.t; }, get play() { return st.play; }, get playing() { return st.playing; }, get speed() { return st.speed; },
       get T() { return st.c ? st.c.T : 0; }, get keys() { return st.keys.slice(); }, get reduced() { return reduced(); },
@@ -1524,7 +1782,7 @@
       get coach() { return st.geom ? JSON.parse(JSON.stringify(st.geom)) : null; },
       // Where each man is drawn this frame, in yards (CS.showAt: the spread neutral zone before the snap),
       // the spread itself at full strength, and the chalk this frame drew (route runners, zone droppers).
-      get shown() { return st.play ? CS.showAt(st.play, st.t, st.spread) : null; },
+      get shown() { return st.play ? shownAt() : null; },
       get spread() { return st.spread ? JSON.parse(JSON.stringify(st.spread)) : null; },
       get chalk() { return st.chalk ? { routes: st.chalk.routes.slice(), zones: st.chalk.zones.slice() } : null; },
       PRE, hitRadius: HIT_R, world: { W, H, PX, PY, Y0, Y1, MT },
