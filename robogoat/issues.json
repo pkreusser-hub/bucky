@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 10,
+   "type": "preview",
+   "path": "2026/week-10-preview/",
+   "published": "2026-11-14",
+   "headline": "Joe Cleans Out the Garage",
+   "description": "Joe cuts Jayden Daniels a day before Daniels throws three touchdowns, Sandy starts the receiver Joe dropped, Calvin starts a Bear on bye, and Tom trades the Bengals kicker for the Steelers kicker in the same game.",
+   "subject": "RoboGoat: Joe cuts Daniels a day before three TDs (Week 10 preview)",
+   "share": "2026/week-10-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 9,
    "type": "recap",
    "path": "2026/week-9/",
