@@ -144,6 +144,24 @@
     "team": 3,
     "result": "W"
    }
+  ],
+  "10": [
+   {
+    "team": 9,
+    "result": ""
+   },
+   {
+    "team": 5,
+    "result": ""
+   },
+   {
+    "team": 12,
+    "result": ""
+   },
+   {
+    "team": 3,
+    "result": ""
+   }
   ]
  },
  "rankings": {
