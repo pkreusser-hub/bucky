@@ -148,19 +148,19 @@
   "10": [
    {
     "team": 9,
-    "result": ""
+    "result": "W"
    },
    {
     "team": 5,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 12,
-    "result": ""
+    "result": "W"
    },
    {
     "team": 3,
-    "result": ""
+    "result": "W"
    }
   ]
  },
@@ -243,6 +243,16 @@
    5,
    4,
    3,
+   1
+  ],
+  "10": [
+   9,
+   12,
+   2,
+   11,
+   3,
+   5,
+   4,
    1
   ]
  },
@@ -892,6 +902,78 @@
      "name": "Christian Watson",
      "pos": "WR",
      "pts": 29.6
+    }
+   ]
+  },
+  "10": {
+   "bench": {
+    "1": 22.2,
+    "2": 16.06,
+    "3": 37.4,
+    "4": 12.92,
+    "5": 34.58,
+    "9": 39.2,
+    "11": 4.1,
+    "12": 0
+   },
+   "scores": {
+    "1": 101.4,
+    "2": 122.96,
+    "3": 139.88,
+    "4": 113.3,
+    "5": 105.94,
+    "9": 186.82,
+    "11": 119.18,
+    "12": 205.06
+   },
+   "games": [
+    {
+     "away": 9,
+     "home": 1
+    },
+    {
+     "away": 5,
+     "home": 11
+    },
+    {
+     "away": 4,
+     "home": 12
+    },
+    {
+     "away": 3,
+     "home": 2
+    }
+   ],
+   "top": [
+    {
+     "team": 12,
+     "name": "Christian McCaffrey",
+     "pos": "RB",
+     "pts": 47.3
+    },
+    {
+     "team": 9,
+     "name": "Jahmyr Gibbs",
+     "pos": "RB",
+     "pts": 43.7
+    },
+    {
+     "team": 12,
+     "name": "Joe Burrow",
+     "pos": "QB",
+     "pts": 37.16
+    },
+    {
+     "team": 9,
+     "name": "Emmett Johnson",
+     "pos": "RB",
+     "pts": 35.1
+    },
+    {
+     "team": 2,
+     "name": "Brock Purdy",
+     "pos": "QB",
+     "pts": 34.66
     }
    ]
   }
