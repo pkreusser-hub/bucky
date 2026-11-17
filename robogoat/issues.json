@@ -3,6 +3,17 @@
   {
    "season": 2026,
    "week": 10,
+   "type": "recap",
+   "path": "2026/week-10/",
+   "published": "2026-11-17",
+   "headline": "Isaac's Perfect Lineup Eats Tom's Lunch",
+   "description": "Isaac starts his best 11 and scores 205.1 to beat Tom by 91.8, Calvin fixes his lineup on Saturday and beats Sandy by 13.2, Joe wins with 41.0 on his bench, and John beats Perry by 85.4 after losing his quarterback on the first drive.",
+   "subject": "RoboGoat: Isaac's perfect lineup eats Tom's lunch (Week 10 recap)",
+   "share": "2026/week-10/share.png"
+  },
+  {
+   "season": 2026,
+   "week": 10,
    "type": "preview",
    "path": "2026/week-10-preview/",
    "published": "2026-11-14",
