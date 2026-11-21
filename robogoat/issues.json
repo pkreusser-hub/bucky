@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 11,
+   "type": "preview",
+   "path": "2026/week-11-preview/",
+   "published": "2026-11-21",
+   "headline": "John Cuts Maye, and Tom Is the Favorite",
+   "description": "John cuts Drake Maye three days before the Patriots announce a broken fibula and is an underdog to Tom, Tom and Joe trade quarterbacks and kickers by waiver, and Isaac leads 30.0 to nothing after a Thursday safety.",
+   "subject": "RoboGoat: John cuts Maye, and Tom is the favorite (Week 11 preview)",
+   "share": "2026/week-11-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 10,
    "type": "recap",
    "path": "2026/week-10/",
