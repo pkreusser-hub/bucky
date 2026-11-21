@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c1017">
+<title>Coach School</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;600&display=swap">
+<style>
+  /* GFFL tokens (league.html :root, navy base). Fonts fall back to system stacks when the
+     Google Fonts request is blocked or offline. Every word a player reads is set in these two
+     faces; the 8-bit pixel font is only for the field's own markings and jersey numbers. */
+  :root {
+    --bg:#0c1017; --bg-page:#070a0f; --tabbar:#0d1320; --band:#101724;
+    --card:#151b26; --nested:#1a2231; --nested2:#0e131d;
+    --border-card:#263043; --divider:#263043; --border-hover:#3a4558;
+    --ink:#e9edf4; --ink2:#c3cbdb; --mut:#8a94a7; --faint:#5b6579;
+    --accent:#d50a0a; --green:#2e8659; --gold:#ffb612; --blue:#013369;
+    --good:#4be37a; --bad:#ff5a4d; --legendary:#ff8000;
+    --radius-card:10px; --radius-sm:7px; --radius-pill:16px;
+    --font-display:'Barlow Condensed','Arial Narrow','Helvetica Neue',Arial,system-ui,sans-serif;
+    --font-body:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg-page); color:var(--ink); font:15px/1.4 var(--font-body); }
+  body { display:flex; flex-direction:column; height:100vh; height:100dvh; overflow:hidden; -webkit-text-size-adjust:100%; }
+  [hidden] { display:none !important; }   /* styled containers below set display; this keeps hidden hidden */
+
+  header.bar { flex:0 0 auto; display:flex; align-items:center; gap:8px; height:52px; padding:0 calc(6px + env(safe-area-inset-right)) 0 calc(4px + env(safe-area-inset-left));
+               background:var(--tabbar); border-bottom:1px solid var(--divider); }
+  header.bar h1 { margin:0; flex:1 1 auto; min-width:0; font:700 22px var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .back { display:inline-flex; align-items:center; gap:2px; min-width:44px; height:44px; padding:0 8px 0 4px; color:var(--ink2);
+          text-decoration:none; font:600 13px var(--font-display); letter-spacing:1px; text-transform:uppercase; border-radius:var(--radius-sm); }
+  .back:hover, .back:focus-visible { color:var(--ink); background:var(--nested); }
+  .back svg { width:22px; height:22px; }
+  .lvl { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 10px; border-radius:var(--radius-pill); background:var(--nested);
+         border:1px solid var(--border-card); font:700 14px var(--font-display); letter-spacing:1px; color:var(--gold); white-space:nowrap; }
+  .iconbtn { padding:0; width:44px; }
+
+  main { flex:1 1 auto; min-height:0; width:100%; max-width:520px; margin:0 auto; display:flex; flex-direction:column;
+         padding:8px calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left)); }
+  .screen { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+  .scroll { overflow-y:auto; }
+  .card { background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-card); padding:10px; }
+  h2 { margin:0; font:600 12px var(--font-display); color:var(--mut); text-transform:uppercase; letter-spacing:2px; }
+  h3 { margin:0; font:700 20px/1.15 var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
+  .chip { display:inline-flex; align-items:center; padding:3px 10px; border-radius:var(--radius-pill); background:var(--nested);
+          border:1px solid var(--border-card); font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--ink2); }
+
+  button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; min-width:44px; padding:0 14px;
+           background:var(--nested); color:var(--ink); border:1px solid var(--border-card); border-radius:var(--radius-sm);
+           font:600 14px var(--font-display); letter-spacing:1px; text-transform:uppercase; cursor:pointer; }
+  button:hover { border-color:var(--border-hover); }
+  button:disabled { opacity:.45; cursor:default; }
+  button svg { width:18px; height:18px; flex:0 0 auto; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; flex:1 1 auto; }
+  button[aria-pressed="true"] { background:var(--blue); border-color:#2d5aa0; }
+
+  /* ── career map ── */
+  .xpcard { display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px 10px; margin-bottom:10px; }
+  .xpcard .lvtitle { font:700 22px var(--font-display); letter-spacing:1px; text-transform:uppercase; }
+  .xpcard .lvsub { color:var(--mut); font-size:13px; }
+  .xpbar { grid-column:1 / -1; height:10px; border-radius:5px; background:var(--nested2); border:1px solid var(--border-card); overflow:hidden; }
+  .xpbar > i { display:block; height:100%; background:linear-gradient(90deg, var(--gold), #ffd25e); }
+  .rank { margin-bottom:8px; }
+  .rank .rhead { display:flex; align-items:center; gap:10px; }
+  .rank .rnum { flex:0 0 auto; width:32px; height:32px; border-radius:50%; display:grid; place-items:center; background:var(--nested2);
+                border:1px solid var(--border-card); font:700 16px var(--font-display); color:var(--ink2); }
+  .rank.now .rnum { background:var(--gold); color:#14100a; border-color:var(--gold); }
+  .rank.done .rnum { background:var(--green); color:#fff; border-color:var(--green); }
+  .rank .rtitle { font:700 18px var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
+  .rank .rsub { color:var(--mut); font-size:13px; }
+  .rank.locked { opacity:.6; }
+  .rank.locked .rtitle::after { content:''; }
+  .lock { width:18px; height:18px; color:var(--mut); flex:0 0 auto; margin-left:auto; }
+  .units { display:grid; gap:6px; margin-top:10px; }
+  .unit { justify-content:flex-start; width:100%; min-height:52px; padding:6px 10px; text-align:left; text-transform:none; letter-spacing:0; font:600 15px var(--font-body); }
+  .unit .un { flex:0 0 auto; width:26px; height:26px; border-radius:50%; display:grid; place-items:center; background:var(--nested2); border:1px solid var(--border-card); font:700 14px var(--font-display); }
+  .unit .ut { flex:1 1 auto; min-width:0; }
+  .unit .ut small { display:block; color:var(--mut); font-weight:400; font-size:12.5px; }
+  .unit.isdone .un { background:var(--green); border-color:var(--green); color:#fff; }
+  .unit.gd { border-color:#6a4b00; background:linear-gradient(180deg, #2a1f05, #1a1406); }
+  .unit.gd .un { background:var(--gold); color:#14100a; border-color:var(--gold); }
+  .maprow { display:flex; gap:8px; margin-top:8px; }
+  .maprow button { flex:1 1 0; }
+
+  /* ── the stage: field + panel + actions, sized to the screen with no page scroll ── */
+  .sthead { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:30px; margin:0 2px 6px; }
+  .sthead .step { font:600 13px var(--font-display); color:var(--ink2); letter-spacing:1.5px; text-transform:uppercase; }
+  .dots { display:flex; gap:4px; }
+  .dots i { width:8px; height:8px; border-radius:50%; background:var(--nested); border:1px solid var(--border-card); }
+  .dots i.on { background:var(--gold); border-color:var(--gold); }
+  .dots i.past { background:var(--ink2); border-color:var(--ink2); }
+  .scoreboard { display:flex; align-items:stretch; gap:2px; padding:2px; border-radius:6px; background:#05070a; border:1px solid #3a2a00; }
+  .scoreboard > span { display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:52px; padding:1px 6px; background:#0d0a03; border-radius:4px; }
+  .scoreboard small { font:600 9.5px var(--font-display); letter-spacing:1.5px; color:#b08a3a; text-transform:uppercase; }
+  .scoreboard b { font:700 18px/1 var(--font-display); color:#ffb612; font-variant-numeric:tabular-nums; letter-spacing:1px; }
+  .scoreboard .miss b { color:#ff7a5c; }
+  .stbox { flex:1 1 auto; min-height:120px; display:flex; align-items:center; justify-content:center; }
+  .fieldwrap { position:relative; flex:0 0 auto; }
+  .fieldwrap canvas { display:block; width:100%; height:100%; border-radius:6px; background:#1d7a2a; touch-action:manipulation; cursor:pointer;
+    -webkit-tap-highlight-color:transparent; }   /* Android Chrome washes a tapped canvas in translucent blue: the whole field went teal on every answer (plate review, phase 2) */
+  /* Coach bubbles (the dad, after the first playtest: "text should be in bubbles with visible
+     arrows to where the student should be looking"). The field places them; the SVG layer under
+     them carries the arrows, brackets and glows. Neither takes taps: a tap goes through to the field. */
+  .tails { position:absolute; inset:0; width:100%; height:100%; z-index:2; pointer-events:none; overflow:visible; }
+  .tails .rlab { font:700 14px var(--font-display); letter-spacing:1.5px; text-transform:uppercase; paint-order:stroke; stroke:rgba(7,11,17,.85); stroke-width:4px; }
+  .bubble { position:absolute; left:6px; top:6px; z-index:3; margin:0; padding:8px 11px 9px; border-radius:9px; pointer-events:none;
+            background:rgba(7,11,17,.95); border:2px solid #ffe14d; color:#f6f3ea; font:600 15.5px/1.38 var(--font-body);
+            box-shadow:0 4px 14px rgba(0,0,0,.45); }
+  .bubble[data-tone="good"] { border-color:var(--good); }
+  .bubble[data-tone="bad"] { border-color:var(--bad); }
+  .bubble b { color:#ffe14d; font-weight:700; }
+  .bubble[data-tone="good"] b { color:var(--good); }
+  .bubble[data-tone="bad"] b { color:#ff8a7f; }
+  .bubble .bn { display:block; margin-top:3px; font:600 11px var(--font-display); letter-spacing:1.5px; color:#9aa5b8; text-transform:uppercase; }
+  .panel { flex:0 0 auto; margin-top:8px; }
+  .panel h3 { margin-bottom:4px; }
+  .panel p:empty { display:none; }
+  .panel p { margin:0; color:var(--ink); font:15px/1.45 var(--font-body); }
+  .panel .prompt { font:600 16px/1.35 var(--font-body); }
+  .fb { margin-top:6px; padding:8px 10px; border-radius:var(--radius-sm); background:var(--nested); font:15px/1.4 var(--font-body); }
+  .fb.good { border-left:3px solid var(--good); }
+  .fb.bad { border-left:3px solid var(--bad); }
+  .fb b { font-weight:600; }
+  .opts { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+  .opts button { min-height:48px; padding:6px 10px; text-transform:none; letter-spacing:0; font:600 15px/1.25 var(--font-body); }
+  .opts button.good { border-color:var(--good); background:#0f2a1a; }
+  .opts button.bad { border-color:var(--bad); background:#2a1210; }
+  .actions { flex:0 0 auto; display:flex; gap:8px; margin-top:8px; }
+  .xpflash { color:var(--gold); font-weight:600; }
+
+  /* ── results ── */
+  .result { display:flex; flex-direction:column; gap:10px; }
+  .result .big { font:700 56px/1 var(--font-display); letter-spacing:2px; text-align:center; font-variant-numeric:tabular-nums; }
+  .result .big.pass { color:var(--good); }
+  .result .big.fail { color:var(--bad); }
+  .tags { display:flex; flex-wrap:wrap; gap:6px; }
+  .films { display:grid; gap:6px; margin-top:8px; }
+
+  /* ── engine demo (dev route #demo) ── */
+  #readout { margin:6px 2px 0; min-height:22px; font:600 15px var(--font-body); color:var(--ink); }
+  #readout b { color:var(--gold); font-weight:600; }
+  .controls { flex:0 0 auto; display:flex; gap:8px; margin-top:8px; }
+  .scrub { flex:0 0 auto; display:flex; align-items:center; gap:10px; margin-top:6px; }
+  .scrub input { flex:1 1 auto; height:44px; margin:0; accent-color:var(--gold); }
+  #clock { min-width:74px; text-align:right; font:700 14px var(--font-display); letter-spacing:1px; color:var(--ink2); font-variant-numeric:tabular-nums; }
+  #cs-field { display:block; border-radius:6px; background:#1d7a2a; touch-action:manipulation; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+
+  /* ── sheets and the promotion ── */
+  .sheet { position:fixed; inset:0; z-index:20; display:flex; align-items:flex-end; justify-content:center; background:rgba(0,0,0,.55); }
+  .sheet .card { width:min(520px, 100%); padding:16px; border-radius:var(--radius-card) var(--radius-card) 0 0; }
+  .sheet h3 { margin:0 0 10px; font:700 18px var(--font-display); letter-spacing:1px; text-transform:uppercase; }
+  .sheet ul { margin:0 0 14px; padding:0; list-style:none; }
+  .sheet li { display:flex; align-items:center; gap:10px; padding:6px 0; color:var(--ink2); }
+  .sheet li svg { width:44px; height:16px; flex:0 0 auto; }
+  .sheet button { width:100%; }
+  .promo { position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; padding:16px;
+           background:radial-gradient(circle at 50% 35%, rgba(255,128,0,.18), rgba(0,0,0,.88) 70%); }
+  /* The contract card wears GFFL's legendary rim (league.html, "LEGENDARY, and only legendary,
+     keeps a breathing rim"): an outline, painted not laid out, breathing orange. */
+  @keyframes csLegendary { 0%, 100% { outline-color:rgba(255,128,0,.30); } 50% { outline-color:rgba(255,168,60,.85); } }
+  .contract { width:min(420px, 100%); padding:20px 18px 16px; border-radius:12px; color:#1d1a14;
+              background:linear-gradient(180deg, #fbf6e8, #f1e8d0); box-shadow:0 18px 50px rgba(0,0,0,.6);
+              outline:3px solid rgba(255,128,0,.3); outline-offset:3px; animation:csLegendary 2.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .contract { animation:none; outline-color:rgba(255,150,40,.7); } }
+  .contract .org { font:700 12px var(--font-display); letter-spacing:3px; text-transform:uppercase; color:#7a5a1a; text-align:center; }
+  .contract h3 { margin:6px 0 12px; text-align:center; font:700 26px var(--font-display); letter-spacing:2px; color:#1d1a14; }
+  .contract p { margin:0 0 8px; font:15px/1.45 var(--font-body); color:#2b261d; }
+  .contract .newtitle { margin:10px 0 14px; text-align:center; font:700 30px/1.05 var(--font-display); letter-spacing:1px; text-transform:uppercase; color:#b34700; }
+  .contract .sig { display:flex; align-items:flex-end; gap:10px; margin:6px 0 14px; }
+  .contract .sig svg { flex:1 1 auto; height:46px; border-bottom:1.5px solid #3b3326; }
+  .contract .sig svg path { fill:none; stroke:#13306b; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:420; stroke-dashoffset:420; animation:csSign 1.6s .4s ease-out forwards; }
+  @keyframes csSign { to { stroke-dashoffset:0; } }
+  @media (prefers-reduced-motion: reduce) { .contract .sig svg path { animation:none; stroke-dashoffset:0; } }
+  .contract .sig small { font:600 11px var(--font-display); letter-spacing:1.5px; text-transform:uppercase; color:#6b5a3a; white-space:nowrap; }
+  .contract button { width:100%; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  @media (min-width:700px) { main { padding-top:16px; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <nav aria-label="Back"><a class="back" id="navBack" href="games.html" aria-label="Back to games">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span id="navBackText">Games</span></a></nav>
+  <h1 id="title">Coach School</h1>
+  <span class="lvl" id="lvlChip" title="Coach Level">LV 1</span>
+  <button class="iconbtn" id="btnMute" type="button" aria-pressed="false" aria-label="Sound off">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="cross" d="M16 9l5 6M21 9l-5 6" hidden/></svg>
+  </button>
+</header>
+<main>
+  <!-- career map -->
+  <section class="screen scroll" id="scrMap" aria-labelledby="mapTitle" hidden>
+    <h2 id="mapTitle" class="sr-only">Career</h2>
+    <div class="card xpcard">
+      <div><div class="lvtitle" id="xpLevel">Coach Level 1</div><div class="lvsub" id="xpSub">0 XP</div></div>
+      <span class="chip" id="xpRank">Intern</span>
+      <div class="xpbar" role="progressbar" aria-label="XP to the next level" aria-valuemin="0" aria-valuemax="100" id="xpBar"><i id="xpFill" style="width:0%"></i></div>
+    </div>
+    <div id="ranks"></div>
+  </section>
+
+  <!-- the stage: lessons, Game Day, film -->
+  <section class="screen" id="scrStage" aria-labelledby="stStep" hidden>
+    <div class="sthead">
+      <h2 class="step" id="stStep">Chalk talk</h2>
+      <div class="dots" id="stDots" aria-hidden="true"></div>
+      <div class="scoreboard" id="scoreboard" hidden aria-live="polite">
+        <span><small>Question</small><b id="sbQ">1/12</b></span>
+        <span><small>Right</small><b id="sbRight">0</b></span>
+        <span class="miss"><small>Missed</small><b id="sbMiss">0</b></span>
+      </div>
+    </div>
+    <div class="stbox" id="stBox">
+      <div class="fieldwrap" id="fieldWrap">
+        <canvas id="cs-stage" width="400" height="836" role="img" aria-label="Play diagram. Tap a player to answer."></canvas>
+        <svg class="tails" id="tails" aria-hidden="true"></svg>
+        <p class="bubble" id="bubble" aria-live="polite" hidden></p>
+      </div>
+    </div>
+    <div class="panel" id="stPanel">
+      <h3 id="stTitle" hidden></h3>
+      <p id="stText"></p>
+      <div class="opts" id="stOpts" hidden></div>
+      <div class="fb" id="stFb" hidden aria-live="polite"></div>
+    </div>
+    <div class="actions" id="stActions">
+      <button id="btnPrev" type="button">Back</button>
+      <button id="btnReplay" type="button" aria-label="Replay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v5h5"/></svg></button>
+      <button id="btnMain" class="primary" type="button">Next</button>
+    </div>
+  </section>
+
+  <!-- results: unit done, Game Day final -->
+  <section class="screen scroll" id="scrResult" aria-labelledby="resTitle" hidden>
+    <div class="card result">
+      <h3 id="resTitle">Unit complete</h3>
+      <div class="big" id="resBig" hidden></div>
+      <p id="resText"></p>
+      <div class="tags" id="resTags" hidden></div>
+      <div class="maprow"><button id="resMap" type="button">Career map</button><button id="resNext" class="primary" type="button">Next</button></div>
+    </div>
+  </section>
+
+  <!-- film room -->
+  <section class="screen scroll" id="scrFilm" aria-labelledby="filmTitle" hidden>
+    <div class="card">
+      <h3 id="filmTitle">Film room</h3>
+      <p id="filmEmpty" style="margin:6px 0 0;color:var(--mut)">Finish a unit to put its play on the shelf.</p>
+      <div class="films" id="films"></div>
+    </div>
+  </section>
+
+  <!-- engine demo, a developer route (#demo) -->
+  <section class="screen" id="scrDemo" aria-labelledby="stageTitle" hidden>
+    <div class="sthead"><h2 id="stageTitle">Engine demo</h2><span class="chip" id="playName">Smash vs Cover 2</span></div>
+    <div class="stbox" id="demoBox"><canvas id="cs-field" width="400" height="836" role="img" aria-label="Animated play diagram. Tap a player to hear his position."></canvas></div>
+    <p id="readout" aria-live="polite">Tap any player to name him.</p>
+    <div class="controls">
+      <button id="btnPlay" class="primary" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4l13 8-13 8z"/></svg><span>Play</span></button>
+      <button id="btnSlow" type="button" aria-pressed="false">0.5x</button>
+      <button id="btnKey" type="button" aria-haspopup="dialog">Chalk key</button>
+    </div>
+    <div class="scrub">
+      <input id="scrub" type="range" min="-1.2" max="5" step="0.01" value="-1.2" aria-label="Play clock">
+      <span id="clock">PRE-SNAP</span>
+    </div>
+    <p class="sr-only" id="calloutLive" aria-live="polite"></p>
+  </section>
+</main>
+
+<div id="legend" class="sheet" role="dialog" aria-modal="true" aria-labelledby="legendTitle" hidden>
+  <div class="card">
+    <h3 id="legendTitle">Reading the chalk</h3>
+    <ul>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M2 8h40" stroke="#f4f1e6" stroke-width="2" stroke-dasharray="4 4"/></svg>Dotted line: the route he is about to run.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M2 8h40" stroke="#f4f1e6" stroke-width="2"/></svg>Solid line: the part he has already run.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><ellipse cx="22" cy="8" rx="19" ry="6" fill="rgba(90,160,255,.3)" stroke="#b4d7ff" stroke-dasharray="3 3"/></svg>Blue zone: a deep defender's area.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><ellipse cx="22" cy="8" rx="19" ry="6" fill="rgba(255,214,64,.28)" stroke="#ffe896" stroke-dasharray="3 3"/></svg>Yellow zone: an underneath defender's area.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M22 1v14" stroke="#4aa8ff" stroke-width="3"/></svg>Blue line: the line of scrimmage.</li>
+      <li><svg viewBox="0 0 44 16" aria-hidden="true"><path d="M22 1v14" stroke="#ffe000" stroke-width="3"/></svg>Yellow line: the first-down marker.</li>
+    </ul>
+    <button id="btnKeyClose" type="button">Close</button>
+  </div>
+</div>
+
+<div id="promo" class="promo" role="dialog" aria-modal="true" aria-labelledby="promoTitle" hidden>
+  <div class="contract">
+    <div class="org">Coach School Football Operations</div>
+    <h3 id="promoTitle">Contract</h3>
+    <p id="promoText">This agreement promotes Coach from Intern to</p>
+    <div class="newtitle" id="promoNew">Quality Control Coach</div>
+    <p id="promoBody">You passed Game Day. The staff room is yours now: groupings and formations are next.</p>
+    <div class="sig"><svg viewBox="0 0 240 46" aria-hidden="true"><path d="M6 34c10-18 18-26 22-20s-8 22-2 20 12-22 20-22-4 18 4 18 10-14 18-14-2 12 6 12 14-16 22-12-6 14 2 14 18-10 30-12 30 4 44 0"/></svg><small id="promoDate">Signed</small></div>
+    <button id="promoOk" class="primary" type="button">Sign and continue</button>
+  </div>
+</div>
+
+<script src="assets/coachschool/cs-core.js"></script>
+<script src="assets/coachschool/cs-lib.js"></script>
+<script src="assets/coachschool/cs-field.js"></script>
+<script src="assets/coachschool/cs-pz-tap.js"></script>
+<script src="assets/coachschool/cs-pz-choice.js"></script>
+<!-- Puzzle types built in parallel: each agent replaces ONLY its own line below with its script tag.
+     The blank lines between them are there so the five branches merge without a conflict. -->
+<script src="assets/coachschool/cs-pz-route.js"></script>
+
+<script src="assets/coachschool/cs-pz-place.js"></script>
+
+<script src="assets/coachschool/cs-pz-assign.js"></script>
+
+<script src="assets/coachschool/cs-pz-call.js"></script>
+
+<script src="assets/coachschool/cs-pz-predict.js"></script>
+
+<script src="assets/coachschool/cs-rank-1.js"></script>
+<script src="assets/coachschool/cs-ui.js"></script>
+</body>
+</html>
