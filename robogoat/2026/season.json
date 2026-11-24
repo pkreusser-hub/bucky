@@ -166,19 +166,19 @@
   "11": [
    {
     "team": 1,
-    "result": ""
+    "result": "W"
    },
    {
     "team": 4,
-    "result": ""
+    "result": "W"
    },
    {
     "team": 3,
-    "result": ""
+    "result": "L"
    },
    {
     "team": 12,
-    "result": ""
+    "result": "L"
    }
   ]
  },
@@ -272,6 +272,16 @@
    5,
    4,
    1
+  ],
+  "11": [
+   9,
+   12,
+   2,
+   11,
+   3,
+   1,
+   4,
+   5
   ]
  },
  "weeks": {
@@ -992,6 +1002,78 @@
      "name": "Brock Purdy",
      "pos": "QB",
      "pts": 34.66
+    }
+   ]
+  },
+  "11": {
+   "bench": {
+    "1": 2.5,
+    "2": 3.8,
+    "3": 2.4,
+    "4": 23.3,
+    "5": 27.4,
+    "9": 16,
+    "11": 0.9,
+    "12": 18.1
+   },
+   "scores": {
+    "1": 131.96,
+    "2": 171.3,
+    "3": 115.06,
+    "4": 148.26,
+    "5": 82.56,
+    "9": 131.54,
+    "11": 120.28,
+    "12": 134.3
+   },
+   "games": [
+    {
+     "away": 1,
+     "home": 5
+    },
+    {
+     "away": 9,
+     "home": 4
+    },
+    {
+     "away": 11,
+     "home": 3
+    },
+    {
+     "away": 12,
+     "home": 2
+    }
+   ],
+   "top": [
+    {
+     "team": 2,
+     "name": "Dak Prescott",
+     "pos": "QB",
+     "pts": 38.9
+    },
+    {
+     "team": 1,
+     "name": "Jonah Coleman",
+     "pos": "RB",
+     "pts": 35.9
+    },
+    {
+     "team": 11,
+     "name": "Chuba Hubbard",
+     "pos": "RB",
+     "pts": 29
+    },
+    {
+     "team": 12,
+     "name": "CeeDee Lamb",
+     "pos": "WR",
+     "pts": 27.7
+    },
+    {
+     "team": 9,
+     "name": "Jahmyr Gibbs",
+     "pos": "RB",
+     "pts": 25.8
     }
    ]
   }
