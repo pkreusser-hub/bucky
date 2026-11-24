@@ -1,0 +1,277 @@
+{
+ "season": 2026,
+ "week": 11,
+ "type": "recap",
+ "published": "2026-11-24",
+ "subject": "RoboGoat: Elan benches Purdy for Dak and beats Isaac (Week 11 recap)",
+ "description": "Elan starts Dak Prescott instead of Brock Purdy and comes back from 30 points down to beat Isaac with the top score, Tom beats John, Calvin ends Joe's five-game streak, and a Denver rookie scores three times for Perry.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-11/share.png",
+ "window": "Nov. 19 to 23, 2026",
+ "picksWeek": "2-2",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "4-7",
+  "2": "4-7",
+  "3": "6-5",
+  "4": "5-6",
+  "5": "3-8",
+  "9": "8-3",
+  "11": "7-4",
+  "12": "7-4"
+ },
+ "games": [
+  {
+   "away": 1,
+   "awayPts": 131.96,
+   "home": 5,
+   "homePts": 82.56,
+   "note": "Jonah Coleman 35.9 with three touchdowns, Bijan and Watson on bye."
+  },
+  {
+   "away": 9,
+   "awayPts": 131.54,
+   "home": 4,
+   "homePts": 148.26,
+   "note": "Kittle twice, Henry once, and Daniels drove for the winning field goal Monday night."
+  },
+  {
+   "away": 11,
+   "awayPts": 120.28,
+   "home": 3,
+   "homePts": 115.06,
+   "note": "Hubbard 29.0 and Jeanty 25.4 erased Joe's 24.7 Thursday lead."
+  },
+  {
+   "away": 12,
+   "awayPts": 134.3,
+   "home": 2,
+   "homePts": 171.3,
+   "note": "Dak 38.9 from the lineup, Purdy 22.2 on the bench. Elan was at 4.6 percent Thursday."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 8,
+   "l": 3,
+   "pf": 1753.32
+  },
+  {
+   "team": 12,
+   "w": 7,
+   "l": 4,
+   "pf": 1679.38
+  },
+  {
+   "team": 11,
+   "w": 7,
+   "l": 4,
+   "pf": 1402.84
+  },
+  {
+   "team": 3,
+   "w": 6,
+   "l": 5,
+   "pf": 1479.9
+  },
+  {
+   "team": 4,
+   "w": 5,
+   "l": 6,
+   "pf": 1371.78
+  },
+  {
+   "team": 2,
+   "w": 4,
+   "l": 7,
+   "pf": 1529.56
+  },
+  {
+   "team": 1,
+   "w": 4,
+   "l": 7,
+   "pf": 1380.58
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 8,
+   "pf": 1339.96
+  }
+ ],
+ "bench": [
+  {
+   "team": 5,
+   "left": 27.4
+  },
+  {
+   "team": 4,
+   "left": 23.3
+  },
+  {
+   "team": 12,
+   "left": 18.1
+  },
+  {
+   "team": 9,
+   "left": 16
+  },
+  {
+   "team": 2,
+   "left": 3.8
+  },
+  {
+   "team": 1,
+   "left": 2.5
+  },
+  {
+   "team": 3,
+   "left": 2.4
+  },
+  {
+   "team": 11,
+   "left": 0.9
+  }
+ ],
+ "stars": {
+  "kick": "The week’s biggest numbers",
+  "title": "Dak's 38.9 led every starter",
+  "items": [
+   {
+    "key": "2577417",
+    "pts": "38.9",
+    "name": "Dak Prescott",
+    "line": "325 yds, 4 TD passes, a TD run",
+    "team": 2
+   },
+   {
+    "key": "4241416",
+    "pts": "29.0",
+    "name": "Chuba Hubbard",
+    "line": "120 rush yds, 2 TDs, a 2-pt run",
+    "team": 11
+   },
+   {
+    "key": "4241389",
+    "pts": "27.7",
+    "name": "CeeDee Lamb",
+    "line": "11 catches, 132 yds, TD vs. Titans",
+    "team": 12
+   },
+   {
+    "key": "4429795",
+    "pts": "25.8",
+    "name": "Jahmyr Gibbs",
+    "line": "98 rush yds, 2 TDs vs. Bucs",
+    "team": 9
+   },
+   {
+    "key": "4890973",
+    "pts": "25.4",
+    "name": "Ashton Jeanty",
+    "line": "169 scrimmage yds, 68-yd TD",
+    "team": 11
+   },
+   {
+    "key": "15847",
+    "pts": "22.4",
+    "name": "Travis Kelce",
+    "line": "6 catches, 74 yds, 2 TDs vs. Cardinals",
+    "team": 2
+   }
+  ]
+ },
+ "wp": {
+  "game": {
+   "home": 2,
+   "away": 12
+  },
+  "team": 2,
+  "kick": "Elan vs. Isaac",
+  "title": "Elanikan Skywalkers’ chance to win, all week",
+  "aria": "Elanikan Skywalkers win probability from Tuesday to Monday night: 17 percent Tuesday morning, 4.6 percent at 9:06 p.m. Thursday after trailing 30.0 to nothing, 58 percent by 3 p.m. Sunday, 97 percent by 8:37 p.m. Sunday, and a win by 37.0.",
+  "t0": "2026-11-17T12:00:00Z",
+  "t1": "2026-11-24T05:00:00Z",
+  "annotations": [
+   {
+    "at": "low-after:2026-11-19T12:00:00Z",
+    "dot": true,
+    "labels": [
+     {
+      "text": "5%",
+      "dx": 10,
+      "dy": -26,
+      "cls": "strong"
+     },
+     {
+      "text": "Thu 9:06 p.m.",
+      "dx": 10,
+      "dy": -10
+     }
+    ]
+   },
+   {
+    "at": {
+     "t": "2026-11-18T12:00:00Z",
+     "p": 0.8
+    },
+    "labels": [
+     {
+      "text": "Final: 171.3 to 134.3",
+      "anchor": "middle",
+      "cls": "strong"
+     }
+    ]
+   }
+  ]
+ }
+}
