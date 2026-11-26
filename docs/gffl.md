@@ -11532,3 +11532,27 @@ left of the crest and right of the wordmark, inside the header, with no overflow
 the computed colours must give 7.69:1. `--only FT1,FT2,AVG` **23/23**. **Bite** (HEAD's
 `league.html`): FT2 fails 6 of 6; FT1's 4 still pass.
 Full `_verify-gffl.cjs` **4489/4489**.
+
+## 2026-11-26 — RoboGoat Thanksgiving special, and announce.mjs for specials
+
+Perry: "write a Thanksgiving special article ... make it fun and funny, you can invite fake letters
+... make fun of everyone", then "you can also work in playoff odds", then "yes add the push and send it".
+
+**The page** is `robogoat/2026/thanksgiving/` (`column.md`, `index.html`, `push.json`), the weekly
+masthead and `page.css`, rendered by a one-off script (scratch, not the kit). It has **no
+`issue.json`**, so `listIssues`, the archive, `build.mjs` and the suite's per-issue checks never treat
+it as a week. The imagined letters are labelled as imagined at the section head and on every
+signature. Playoff odds: 200,000 simulated finishes; Week 12 from GFFL's live win probabilities that
+morning, Weeks 13 and 14 from each roster's `rankings.mjs` best lineup with byes out, a 26-point
+spread per lineup (the measured lineup miss, see "Win probability: the measured spread"); five teams
+make it and three get byes (`settings.rules.playoffs`); ties h2h then pf (`DEFAULT_TIEBREAK`).
+
+**announce.mjs** now reads `push.json` (`title`, `body`, `description`, optional `kind`) when a
+directory has no `issue.json`. The live-page guard is unchanged: `--send` refuses unless the page is up
+and carries that `description`. A special rides kind `"recap"` (the "Week recaps" alert row) unless it
+says `"preview"`; no new alert kind was added.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **886/886** (4 new announce checks: the special's dry
+run, the weekly dry run still reading `issue.json`, the description guard, and the special staying out
+of `listIssues`). **Bite** (HEAD's `announce.mjs`, no `push.json`): 884/886, exactly the two
+push.json checks fail.

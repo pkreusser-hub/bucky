@@ -17,7 +17,7 @@
 // preview, under a label ("Week recaps") that never said so.
 "use strict";
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT, LG_PASS, FAM_KEY } from "./lib.mjs";
 import { attr } from "./build.mjs";
@@ -26,16 +26,28 @@ const SITE = "https://goatfantasyleague.com";
 const argv = process.argv.slice(2);
 const dir = argv.find((a) => !a.startsWith("--"));
 if (!dir) { console.error("usage: announce.mjs <issue-dir> [--send]"); process.exit(2); }
-const issue = JSON.parse(readFileSync(join(ROOT, dir, "issue.json"), "utf8"));
 const url = `${SITE}/${dir.replace(/^\/+|\/+$/g, "")}/`;
-// Subject "RoboGoat: <hook> (Week N recap)" → title "RoboGoat · Week N recap", body "<hook>".
-const m = /^RoboGoat:\s*(.+?)\s*\((Week \d+ (?:recap|preview))\)\s*$/.exec(issue.subject || "");
-if (!m) { console.error(`issue.json subject must read "RoboGoat: <hook> (Week N recap|preview)": ${issue.subject}`); process.exit(2); }
-const hook = m[1];
+// A weekly issue (issue.json): subject "RoboGoat: <hook> (Week N recap)" → title "RoboGoat · Week N recap",
+// body "<hook>". A one-off special (Perry, 2026-11-26, the Thanksgiving special) has no issue.json, so the
+// weekly archive, build and suite never treat it as a week; it carries push.json instead:
+// { title, body, description (its page's meta description, for the live-page check), kind? }.
+let issue, title, body, kind;
+if (existsSync(join(ROOT, dir, "issue.json"))) {
+  issue = JSON.parse(readFileSync(join(ROOT, dir, "issue.json"), "utf8"));
+  const m = /^RoboGoat:\s*(.+?)\s*\((Week \d+ (?:recap|preview))\)\s*$/.exec(issue.subject || "");
+  if (!m) { console.error(`issue.json subject must read "RoboGoat: <hook> (Week N recap|preview)": ${issue.subject}`); process.exit(2); }
+  title = `RoboGoat · ${m[2]}`; body = m[1][0].toUpperCase() + m[1].slice(1); kind = /preview$/.test(m[2]) ? "preview" : "recap";
+} else if (existsSync(join(ROOT, dir, "push.json"))) {
+  const p = JSON.parse(readFileSync(join(ROOT, dir, "push.json"), "utf8"));
+  if (!p.title || !p.body || !p.description) { console.error("push.json needs title, body and description"); process.exit(2); }
+  // kind: a special rides "recap" (the "Week recaps" alert row) unless it says "preview"; any other value
+  // would be a kind no device has a mute row for.
+  issue = { description: p.description }; title = p.title; body = p.body; kind = p.kind === "preview" ? "preview" : "recap";
+} else { console.error(`${dir}: no issue.json or push.json`); process.exit(2); }
 const payload = {
   secret: LG_PASS, familyKey: FAM_KEY,
-  title: `RoboGoat · ${m[2]}`, body: hook[0].toUpperCase() + hook.slice(1), url,
-  gfflAll: true, kind: /preview$/.test(m[2]) ? "preview" : "recap",
+  title, body, url,
+  gfflAll: true, kind,
   // Each device's link carries its own team (?r=push<team>) for the read log (Perry, 2026-10-10):
   // notify.mjs tags it per device, and the page's beacon (rgread.mjs) reads it back.
   readTag: true,
