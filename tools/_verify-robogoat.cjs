@@ -532,6 +532,22 @@ async function kitChecks() {
     () => new Date(A.sinceDefault([{ published: "2026-09-29" }, { published: "2026-10-03" }], NOW)).toISOString(), "2026-10-03T05:00:00.000Z");
   await expect("since: an issue older than 14 days is capped at 14 days back", () => new Date(A.sinceDefault([{ published: "2026-09-01" }], NOW)).toISOString(), "2026-09-20T17:00:00.000Z");
   await expect("since: no issues means 7 days back", () => new Date(A.sinceDefault([], NOW)).toISOString(), "2026-09-27T17:00:00.000Z");
+  // announce.mjs (2026-11-26, Perry: "yes add the push and send it", for the Thanksgiving special). A one-off
+  // special has no issue.json (so listIssues, the archive and these checks never treat it as a week) and
+  // carries push.json instead. Dry runs only: no network. The weekly path must still read issue.json.
+  const ann = (d) => safeSync(() => JSON.parse(execSync(`node tools/robogoat/announce.mjs ${d}`, { cwd: ROOT, encoding: "utf8" }).replace(/^[^{]*/, "")));
+  const tg = ann("robogoat/2026/thanksgiving");
+  check("announce: a special's push.json gives the push its own title, body and the special's address, on the recap row",
+    !!tg && tg.title === "RoboGoat · Thanksgiving Special" && /Turkey Awards/.test(tg.body) && tg.url === "https://goatfantasyleague.com/robogoat/2026/thanksgiving/" && tg.kind === "recap" && tg.gfflAll === true,
+    JSON.stringify(tg));
+  const wkAnn = ann("robogoat/2026/week-11");
+  check("announce: a weekly issue still reads issue.json (title RoboGoat · Week 11 recap, kind recap)",
+    !!wkAnn && wkAnn.title === "RoboGoat · Week 11 recap" && wkAnn.kind === "recap" && /^Elan benches Purdy/.test(wkAnn.body), JSON.stringify(wkAnn));
+  const Bann = await safe(() => import(pathToFileURL(path.join(ROOT, "tools/robogoat/build.mjs")).href));
+  const rd = (f) => safeSync(() => fs.readFileSync(path.join(ROOT, f), "utf8"));
+  check("announce: the special's push.json description is the description its live page carries (the --send guard)",
+    safeSync(() => rd("robogoat/2026/thanksgiving/index.html").includes(`<meta name="description" content="${Bann.attr(JSON.parse(rd("robogoat/2026/thanksgiving/push.json")).description)}">`)) === true);
+  check("announce: the special stays out of the weekly issue list", safeSync(() => !Bann.listIssues().includes("robogoat/2026/thanksgiving")) === true);
 
   // ---- 1d. known anomalies ----
   const allow = safeSync(() => JSON.parse(fs.readFileSync(path.join(ROOT, "tools/robogoat/known-anomalies.json"), "utf8")).known);

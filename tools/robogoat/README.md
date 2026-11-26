@@ -13,7 +13,7 @@ Everything that turns a week of GFFL into a RoboGoat column page at
 | `build.mjs` | `column.md` + `issue.json` (+ `wp.json`, `season.json`) → `index.html` | repo files only |
 | `share.mjs` | the 1200×630 `share.png` link preview | repo files only; bundled fonts in `fonts/` |
 | `archive.mjs` | `robogoat/index.html` (the archive page) + `robogoat/issues.json` | repo files only |
-| `announce.mjs` | the league push for a new issue; **dry run unless `--send`** | `--send` wakes every league phone |
+| `announce.mjs` | the league push for a new issue, or for a one-off special that carries `push.json` (title, body, description) instead of `issue.json`; **dry run unless `--send`** | `--send` wakes every league phone |
 | `reads.mjs` | the private read log report: per issue, which teams read it (app or push), when, and how many untagged reads | reads Firestore |
 | `lib.mjs` | Firestore read helpers, names, browser launch | — |
 | `page.css` | the issue page's stylesheet, inlined by `build.mjs` | — |
