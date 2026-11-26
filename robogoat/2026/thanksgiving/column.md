@@ -49,7 +49,7 @@ Sandy, 3-8, is in the kitchen, where she has always actually been in charge, and
 
 In most families the hand-me-downs go to the youngest. In this one they go to whoever checks the waiver wire first, and they come back with a touchdown.
 
-Omarion Hampton went from Joe to Tom to John in 11 days. He scored his best game of the season on John's bench.
+Omarion Hampton went from Joe to Tom to John in 11 days. His biggest night for any of them, 20.0, came on John's bench.
 
 Bo Nix went from Calvin, who cut him, to Tom, who paid $5 for him and beat Calvin with him, to Perry, who cut him on a bye week. Nix has now lived in three GFFL households and been a permanent resident in none.
 
@@ -85,7 +85,7 @@ Five of you make the playoffs. The top three get a bye. Three weeks are left. I 
 
 John is in. He made the playoffs in all 200,000 of my seasons and got a bye in 99.9 percent of them. He can sleep through the next three weeks, and frankly he has earned the nap.
 
-Isaac is in, every time, and gets a bye 93.7 percent of the time. The only question is whether he will be the 1 seed or the 2, and whether the league chat survives the GIFs either way.
+Isaac is in, every time, and gets a bye 93.7 percent of the time. The only question is where in the top three he lands, and whether the league chat survives the GIFs either way.
 
 Calvin is in, as near to every time as makes no difference, and gets a bye 69.6 percent of the time. Even 0-3 gets him in 99.8 percent of the time. This is the luckiest man in the league, and the math has noticed.
 
