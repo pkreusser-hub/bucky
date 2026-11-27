@@ -11757,3 +11757,6 @@ so missing values give a level sleigh still on its point. New checks: FT4 render
 heading values and requires its back on the point with a real transform (**bite**, the committed
 CSS: `transform:none`, 15.5px off, 2 of 2 fail); TF requires the real matchup card's sleigh
 anchor at the line's real last vertex with its transform applied.
+
+**VERIFY (lights chase, sleigh trail, reindeer, vapour trail, version fix, shipped together):**
+full `_verify-gffl.cjs` **4532/4532**.
