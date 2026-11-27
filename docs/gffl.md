@@ -11588,3 +11588,38 @@ chip and the football field. No lg-*.js change, so no version bump.
 `?theme=default` and `?theme=fall` leave it, 0 page errors). `--shots` writes
 `gffl_christmas_390.png` / `_1280.png` to the scratchpad. **Bite** (HEAD's `league.html`):
 FT1–FT3 24 pass / 11 fail, exactly the 11 Christmas checks; FT1 and FT2 all pass.
+
+## 2026-11-27 — Christmas goes red, with lights and snow
+
+Perry, after the plates: "I dont like the dark green it doesnt feel very christmasy feel free to
+go further on the theme". **This replaces the evergreen palette in the entry above.**
+
+**Palette:** cranberry ground `#300a11`, cards `#45121e`, snow ink `#fbf5ec`. The accent is now
+gold `#f6c84c` (a red accent would vanish on a red ground); `--blue` is green `#1d5c38`, so the
+selected fills and the banner ribbon are green; the tree is drawn in light greens with red and
+gold baubles. On `--card`: ink 14.26:1, mut 8.62, faint 5.40, accent 9.78, gold 11.37, green
+8.63, green-lt 10.28; ink on `--blue` 7.34. theme-color `#300a11`.
+
+**White on gold is 1.6:1**, so under Christmas every white-on-accent fill (`button.primary`,
+`#hAvatar`, `.draftjoin`, `.faMoveBtn:hover`, `.dldone`, `#offlineChip`) takes the card red as
+its text (9.78:1). `.health.bad` keeps a real red `#c62a36` under white (5.55:1): gold would not
+read as "bad".
+
+**Lights:** a string of red, gold, green and blue bulbs hangs off the bottom edge, with a blurred
+copy that twinkles. On a phone they hang off `header`. On a desktop the sticky `.bnav` tab row
+(z-index 30) sits right under the header and covered them in the first plate, so at ≥1024px they
+hang off `.bnav` instead. They are `::before`/`::after` with `pointer-events:none`. The header's
+top edge is a candy-cane `border-image`.
+
+**Snow:** each `.card` gets a row of white drifts along its top edge as a background layer (no
+new positioned box). Snow falls behind the cards: `body::before`/`::after`, fixed, `z-index:-1`,
+two tiles at two speeds, moved with `transform` rather than `background-position`. For that to
+show, `body` goes transparent under Christmas and `html` paints the ground.
+`prefers-reduced-motion` stops the snow and the twinkle.
+
+**VERIFY:** FT3 restaged with reasons at the checks (old hexes no longer hold), plus new checks
+for the lights (which element carries them at each width, twinkle), the snow layer and caps, text
+on gold and on the bad chip read from live probe elements, and reduced motion. FT1–FT3
+**40/40**. **Bite** (the green commit's `league.html`): 30 pass / 10 fail, exactly the restaged
+and new Christmas checks. The reduced-motion check first passed against the green page (nothing
+animated there at all), so it now also requires the snow layer to exist.
