@@ -11617,7 +11617,7 @@ two tiles at two speeds, moved with `transform` rather than `background-position
 show, `body` goes transparent under Christmas and `html` paints the ground.
 `prefers-reduced-motion` stops the snow and the twinkle.
 
-**VERIFY:** FT3 restaged with reasons at the checks (old hexes no longer hold), plus new checks
+**VERIFY:** full `_verify-gffl.cjs` **4513/4513**. FT3 restaged with reasons at the checks (old hexes no longer hold), plus new checks
 for the lights (which element carries them at each width, twinkle), the snow layer and caps, text
 on gold and on the bad chip read from live probe elements, and reduced motion. FT1–FT3
 **40/40**. **Bite** (the green commit's `league.html`): 30 pass / 10 fail, exactly the restaged
