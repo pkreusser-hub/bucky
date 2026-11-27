@@ -11623,3 +11623,24 @@ on gold and on the bad chip read from live probe elements, and reduced motion. F
 **40/40**. **Bite** (the green commit's `league.html`): 30 pass / 10 fail, exactly the restaged
 and new Christmas checks. The reduced-motion check first passed against the green page (nothing
 animated there at all), so it now also requires the snow layer to exist.
+
+## 2026-11-27 — Christmas is the default
+
+Perry: "make it the default". **This inverts the Christmas test-mode entry above**, the same
+move fall made on 11-10. A plain visit is Christmas; fall and navy are the opt-outs.
+
+**Switch:** `?theme=fall` paints fall and is now *stored* (`"fall"`), where it used to clear
+storage; `?theme=default` (or `navy`, `off`) is still navy and stored; `?theme=christmas` (or
+`xmas`) clears the stored choice. A browser that had already opted out to navy stays navy. The
+static `theme-color` meta and `league.webmanifest` are the Christmas ground `#300a11`; the head
+script sets the meta to `#1b130e` for fall and `#0c1017` for navy. Fall's tokens, stripe and
+turkey banner are untouched and still show under `?theme=fall`.
+
+**Version bumped to 20261127a** (gffl-v, gffl-version.txt and the three ?v= strings) and
+recorded, so installed home-screen apps fetch the new page. No lg-*.js bytes changed.
+
+**Restaged**, reasons at the checks: FT1 (default boot is Christmas; `?theme=fall` paints fall
+and is stored; `?theme=christmas` clears), FT2's cleanup step, FT3 (out of test mode: a plain
+boot is Christmas with nothing stored), the manifest check, and the 20 colour literals the 11-10
+entry moved to fall (now Christmas accent `rgb(246, 200, 76)`, gold `rgb(255, 217, 120)`, ink
+`rgb(251, 245, 236)`).

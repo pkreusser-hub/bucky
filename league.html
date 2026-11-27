@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The GFFL — Goat Fantasy Football League</title>
 <meta name="description" content="The Goat Fantasy Football League — fast, clean, ours.">
-<meta name="theme-color" content="#1b130e">
+<meta name="theme-color" content="#300a11">
 <!-- FALL THEME, THE DEFAULT (2026-11-10). Test mode first (Perry, after the fall mockup: "lets do
      that"), then, the same day: "lets make it the default". RESTAGED from off-by-default: fall
      now paints for everyone, and the navy theme is the opt-out. ?theme=default (or navy, or off)
@@ -16,7 +16,12 @@
      CHRISTMAS, TEST MODE (2026-11-27, Perry: "Similar to how we did a fall theme for gffl, I now
      want to do a Christmas theme"). Off by default, the way fall started: ?theme=christmas (or
      xmas) switches this browser to it and remembers it (localStorage "gffl-theme" = "christmas");
-     ?theme=fall returns to the default and ?theme=default still means navy. -->
+     ?theme=fall returns to the default and ?theme=default still means navy.
+     CHRISTMAS IS THE DEFAULT (2026-11-27, Perry: "make it the default"). RESTAGED from test mode,
+     the same move fall made on 11-10: a plain visit is Christmas; ?theme=fall and ?theme=default
+     (navy) are the opt-outs and are remembered; ?theme=christmas clears the stored choice. A
+     browser that had already opted out to navy stays navy. The static theme-color meta and the
+     manifest are the Christmas ground #300a11; this script sets the meta back for an opt-out. -->
 <script>
 (function () {
   var K = "gffl-theme", q = null, pick = null, stored = null;
@@ -25,14 +30,14 @@
   else if (q === "christmas" || q === "xmas") pick = "christmas";
   else if (q === "fall") pick = "fall";
   try {
-    if (pick === "fall") localStorage.removeItem(K);
+    if (pick === "christmas") localStorage.removeItem(K);
     else if (pick) localStorage.setItem(K, pick);
     stored = localStorage.getItem(K);
   } catch (e) {}
-  var theme = pick || (stored === "default" || stored === "christmas" ? stored : "fall");
+  var theme = pick || (stored === "default" || stored === "fall" ? stored : "christmas");
   var m = document.querySelector('meta[name="theme-color"]');
   if (theme === "default") { if (m) m.setAttribute("content", "#0c1017"); return; }
-  if (theme === "christmas" && m) m.setAttribute("content", "#300a11");
+  if (theme === "fall" && m) m.setAttribute("content", "#1b130e");
   document.documentElement.setAttribute("data-theme", theme);
 })();
 </script>
@@ -57,7 +62,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20261110b">
+<meta name="gffl-v" content="20261127a">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against the live /gffl-version.txt (a ~10 byte file, fetched
      no-store) and replace if this snapshot is stale. Browser tabs skip — they already
@@ -2717,9 +2722,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20261110b"></script>
-  <script src="assets/league/lg-data.js?v=20261110b"></script>
-  <script src="assets/league/lg-ui.js?v=20261110b"></script>
+  <script src="assets/league/lg-core.js?v=20261127a"></script>
+  <script src="assets/league/lg-data.js?v=20261127a"></script>
+  <script src="assets/league/lg-ui.js?v=20261127a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing
