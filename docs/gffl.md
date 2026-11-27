@@ -11662,3 +11662,37 @@ Christmas and `--accent` otherwise, reason at each.
 **VERIFY:** full `_verify-gffl.cjs` **4512 pass / 4 fail**, all four in AG and all of the above;
 restaged, `--only AG` **122/122**, so **4516/4516**. `--only Y,AD,AH,AJ,AL,AM,TT,TU,FT1,FT2,FT3,AVG`
 **594/594** (then FT3 +1 check, **25/25**).
+
+## 2026-11-27 — The lights chase, and the win-% line is Santa's sleigh trail
+
+Perry: "lets make the little christmas lights you made light up in a sequence. also lets have the
+probability win line be a trail coming from santa and his sleigh and the line is little stars".
+
+**Chase.** The string is two layers. `::after` is every bulb dim, plus the wire. `::before` is the
+same bulbs lit, each with a halo in its own colour, masked to one 24px slot in every 96px; the
+mask steps 24px four times per 1.6s cycle (`steps(4, end)`), so red, gold, green and blue light in
+turn down the whole string. **This replaces the all-at-once twinkle** from "Christmas goes red".
+Reduced motion: no mask, every bulb lit, still.
+
+**Sleigh trail.** `wpTrailWrap(svg, segs, w, h)` in lg-ui.js, used by both win-probability
+sparklines (the matchup card and the NFL game page). Under Christmas only, it wraps the svg in
+`.wpplot` and adds an `aria-hidden` `.wptrail`: `.wpstar` stars (CSS clip-path, every third one
+bigger, twinkling on staggered delays) laid along each segment in that segment's own stroke
+colour, and `.wpsleigh` (inline SVG Santa, sack, sleigh, 46x30) at the tip, the newest reading.
+The polyline stays at opacity .28 as the trail's glow. The svg stretches non-uniformly
+(`preserveAspectRatio="none"`), so stars and sleigh are HTML placed by percentage, and keep their
+shape at every width. Spacing is 7 units in a box 1.3x the viewBox's width. The sleigh's top is
+clamped to 13px so a line pinned at the top cannot push it out of the card. Under fall and navy
+the function returns the svg untouched. The first sleigh plate had Santa hidden behind the
+sleigh's side; he was redrawn sitting above the rim.
+
+**Version bumped to 20261127b** and recorded (lg-ui.js changed). `UI._wpTrailWrap` is exposed for
+the suite.
+
+**VERIFY:** new section **FT4** (11 checks: hand-computed star counts, 41 on a flat line and
+21 + 21 on two segments in their own colours, every star on the line, the sleigh at the tip and
+undistorted at 390 and 1280, aria-hidden and no added text, the polyline faint, fall and navy
+untouched). FT3's light check restaged to the chase (animation name, `steps(4`, a 96px mask);
+TF gains a real-render check that the live matchup card carries the trail. **Bite** (the shipped
+league.html and lg-ui.js): FT1–FT4 and TF 114 pass / 11 fail, exactly the new and restaged
+checks.
