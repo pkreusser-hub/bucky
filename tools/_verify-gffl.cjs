@@ -34278,6 +34278,42 @@ const sz = await evalOr(page, () => {
       await ctx.close();
     }
     {
+      // The REAL matchup page, its own render path, with a moving win-% series: the stored series
+      // and the view are stubbed (LG.wpSeries / LG.wpViewPlaying) so the line has a shape; every
+      // pixel after that is the shipping matchupWinGraphHtml → wpTrailWrap → CSS. The sleigh's back
+      // must land on the last vertex the page itself drew. --shots keeps the plate.
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await page.evaluate(() => {
+        const G = window.__GFFL__, LG = G.LG, now = Date.now(), t0 = now - 3 * 3600000;
+        const ps = [0.52, 0.48, 0.55, 0.61, 0.57, 0.50, 0.44, 0.47, 0.58, 0.66, 0.63, 0.71, 0.78, 0.74, 0.81];
+        const rows = ps.map((p, i) => ({ t: t0 + i * (now - t0) / (ps.length - 1), p }));
+        LG.wpSeries = () => rows.slice();
+        LG.wpViewPlaying = () => ({ rows: rows.slice(), t0, t1: now });
+        G.UI.matchup = [1, 2];
+        G.UI.go("matchup");
+      });
+      await waitOr(page, "#muWp .wpsleigh");
+      const real = (await evalOr(page, () => {
+        const el = document.getElementById("muWp");
+        const polys = [...el.querySelectorAll("polyline.muwpline")];
+        const last = polys[polys.length - 1].getAttribute("points").trim().split(/\s+/).pop().split(",").map(Number);
+        const plot = el.querySelector(".wpplot svg").getBoundingClientRect();
+        const sl = el.querySelector(".wpsleigh"), m = new DOMMatrix(getComputedStyle(sl).transform);
+        el.scrollIntoView({ block: "center" });
+        return { last, pw: plot.width, ph: plot.height, ax: sl.offsetLeft + 4 + m.e, ay: sl.offsetTop + 15.5 + m.f, deg: Math.atan2(m.b, m.a) * 180 / Math.PI, stars: el.querySelectorAll(".wpstar").length };
+      })) || {};
+      ok(real.last && Math.abs(real.ax - real.last[0] / 220 * real.pw) < 1 && Math.abs(real.ay - real.last[1] / 56 * real.ph) < 1 && real.deg < -1 && real.stars > 20,
+        "FT4 the real matchup page: the sleigh's back is on the line's last drawn point, climbing with a rising line (" + JSON.stringify(real) + ")");
+      if (SHOTS) {
+        const r = await page.evaluate(() => { const b = document.getElementById("muWp").getBoundingClientRect(); return { x: 0, y: Math.max(0, b.top - 12), width: 390, height: b.height + 24 }; });
+        await page.screenshot({ path: path.join(SCRATCH, "gffl_sleigh_matchup_390.png"), clip: r });
+      }
+      ok(errors.length === 0, "FT4 real matchup page 0 page errors (" + errors.join(" | ") + ")");
+      await ctx.close();
+    }
+    {
       // fall and navy: the sparkline is exactly the svg it always was, no wrapper, no stars
       const { ctx, page } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
       await go(page, "&theme=fall");
