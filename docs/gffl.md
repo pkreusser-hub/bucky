@@ -11644,3 +11644,14 @@ and is stored; `?theme=christmas` clears), FT2's cleanup step, FT3 (out of test 
 boot is Christmas with nothing stored), the manifest check, and the 20 colour literals the 11-10
 entry moved to fall (now Christmas accent `rgb(246, 200, 76)`, gold `rgb(255, 217, 120)`, ink
 `rgb(251, 245, 236)`).
+
+**Danger stays red.** The full battery caught what the plates did not: under Christmas the accent
+is gold, but the accent also means "bad". TU's red-zone checks failed because the red-zone ring
+(Perry 09-17: "lets have the yellow highlight turn red if that player's offense is in the
+redzone") had become gold, next to the gold possession ring, and `.inj`, `.bad` and `.delta.down`
+had become the gold `.warn` uses. Under Christmas those, plus `.chatDel`, `.rzdot`, `.scposs.rz`,
+`.scsitu.rz b` and the red-zone rings and edges, take a real red `#ff6b74` (5.60:1 on `--card`,
+5.01 on `--nested`). Live, links and selection stay gold. TU's `ACCENT` regex now reads that red,
+the AD/TT highlight regexes accept it, and FT3 has a new probe check that injury, `.bad` and a
+falling delta are red and not `.warn`'s gold. **Bite** (the WIP commit without the override): TU
+and FT3 fail exactly those 5 checks.

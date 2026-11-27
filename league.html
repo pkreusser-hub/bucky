@@ -202,6 +202,20 @@
   :root[data-theme="christmas"] .draftlive .draftjoin, :root[data-theme="christmas"] .faMoveBtn:hover,
   :root[data-theme="christmas"] .lgdeskbar .dldone, :root[data-theme="christmas"] #offlineChip { color:#45121e; }
   :root[data-theme="christmas"] .health.bad { background:#c62a36; border-color:#c62a36; color:#fff; }
+  /* Danger stays red. The accent is gold here, but several rules use it to mean "bad": an
+     injury tag, .bad, a falling delta, delete, and the red zone (Perry, 2026-09-17: "lets have the
+     yellow highlight turn red if that player's offense is in the redzone"). In gold those would
+     read as .warn / the gold possession ring, so under Christmas they take a real red: #ff6b74 is
+     5.60:1 on --card and 5.01:1 on --nested. */
+  :root[data-theme="christmas"] .bad, :root[data-theme="christmas"] .inj, :root[data-theme="christmas"] .delta.down,
+  :root[data-theme="christmas"] .chatDel, :root[data-theme="christmas"] .scsitu.rz b { color:#ff6b74; }
+  :root[data-theme="christmas"] .rzdot, :root[data-theme="christmas"] .scposs.rz { background:#ff6b74; }
+  :root[data-theme="christmas"] .pcellgrid.hasball.rz .mushot, :root[data-theme="christmas"] .lrow.hasball.rz .lkshot { border-color:#ff6b74; box-shadow:inset 0 0 0 2px #ff6b74; }
+  @media (max-width:1023px) {
+    :root[data-theme="christmas"] .pcellgrid.hasball.rz.left  { box-shadow:inset 3px 0 0 #ff6b74; }
+    :root[data-theme="christmas"] .pcellgrid.hasball.rz.right { box-shadow:inset -3px 0 0 #ff6b74; }
+    :root[data-theme="christmas"] .lrow.hasball.rz { box-shadow:inset 3px 0 0 #ff6b74; }
+  }
   /* Header: a candy-cane top edge and a string of lights hanging off the bottom (in place of
      the 1px rule). The lights are two layers of the same bulbs: ::after is the bulbs, ::before
      a blurred copy that twinkles. Both are absolutely placed inside the sticky header, so they

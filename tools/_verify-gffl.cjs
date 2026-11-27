@@ -10539,7 +10539,7 @@ async function openDetails(page, id) {
           const sh = getComputedStyle(g).boxShadow || "";
           return g && { ball: g.classList.contains("hasball"),
                         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-                        ring: /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)/.test(sh),
+                        ring: /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/.test(sh),
                         rz: g.classList.contains("rz"),
                         h: Math.round(g.getBoundingClientRect().height) };
         };
@@ -10636,7 +10636,7 @@ async function openDetails(page, id) {
         // ring is --accent, not gold. Either hue still proves "the face is
         // ringed, the card is not". TU owns the gold↔red flip.
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-        const hl = (s) => /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)/.test(s || "");
+        const hl = (s) => /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/.test(s || "");
         const cellFor = (nm) => [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
         const read = (nm) => {
           const g = cellFor(nm); if (!g) return null;
@@ -28864,7 +28864,7 @@ async function openDetails(page, id) {
         // red zone, so the bar is --accent, not gold. The gutter is about
         // SPACE, not hue — either token still names the painted edge.
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-        const hlRe = /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)/;
+        const hlRe = /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/;
         const inkRect = (el) => {
           const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
           if (!n) return null;
@@ -28969,7 +28969,7 @@ async function openDetails(page, id) {
         // RESTAGED 2026-09-17: fixture is in the red zone, so the face ring
         // is accent. Either hue still proves "the picture is ringed, the card is not".
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-        const hl = (s) => /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)/.test(s || "");
+        const hl = (s) => /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/.test(s || "");
         const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
         if (!g) return null;
         const shot = g.querySelector(".mushot");
@@ -29021,7 +29021,7 @@ async function openDetails(page, id) {
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
         const GOLD = /rgb\(255, 217, 120\)/;
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-        const ACCENT = /rgb\(246, 200, 76\)/;
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const read = (nm) => {
           const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
           if (!g) return null;
@@ -29059,7 +29059,7 @@ async function openDetails(page, id) {
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
         const GOLD = /rgb\(255, 217, 120\)/;
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-        const ACCENT = /rgb\(246, 200, 76\)/;
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const g = window.__GFFL__.D.S.games.get("PHI");
         g.rz = false;
         window.__GFFL__.UI.renderMatchup(true);
@@ -29091,7 +29091,7 @@ async function openDetails(page, id) {
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
         const GOLD = /rgb\(255, 217, 120\)/;
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-        const ACCENT = /rgb\(246, 200, 76\)/;
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
         if (!g) return null;
         const shot = g.querySelector(".mushot");
@@ -29122,7 +29122,7 @@ async function openDetails(page, id) {
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
         const GOLD = /rgb\(255, 217, 120\)/;
         // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
-        const ACCENT = /rgb\(246, 200, 76\)/;
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const row = [...document.querySelectorAll(".lrow")].find((r) => /P\. Passer/.test(r.textContent));
         if (!row) return null;
         const sh = getComputedStyle(row).boxShadow || "";
@@ -34067,6 +34067,8 @@ const sz = await evalOr(page, () => {
           return out;
         })(),
         primary: (() => { const el = document.createElement("button"); el.className = "primary"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el); const o = { fg: c.color, bg: c.backgroundColor }; el.remove(); return o; })(),
+        danger: ["inj", "bad", "delta down"].map((k) => { const el = document.createElement("span"); el.className = k; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el).color; el.remove(); return c; }),
+        warn: (() => { const el = document.createElement("span"); el.className = "warn"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el).color; el.remove(); return c; })(),
         bad: (() => { const el = document.createElement("span"); el.className = "health bad"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el); const o = { fg: c.color, bg: c.backgroundColor }; el.remove(); return o; })(),
       };
     });
@@ -34110,6 +34112,10 @@ const sz = await evalOr(page, () => {
         const pr = x.primary, hb = x.bad;
         ok(pr && hb && ratio(toHex(pr.fg), toHex(pr.bg)) >= 4.5 && ratio(toHex(hb.fg), toHex(hb.bg)) >= 4.5 && hb.bg === "rgb(198, 42, 54)",
           "FT3 text on the gold accent and on the bad chip clears AA (" + JSON.stringify({ primary: pr, bad: hb, rP: pr && ratio(toHex(pr.fg), toHex(pr.bg)).toFixed(2), rB: hb && ratio(toHex(hb.fg), toHex(hb.bg)).toFixed(2) }) + ")");
+        // danger stays red: injury, .bad and a falling delta must not share .warn's gold; #ff6b74 on
+        // --card is hand-computed 5.60:1
+        ok(x.danger && x.danger.every((c) => c === "rgb(255, 107, 116)") && x.warn !== x.danger[0] && Math.abs(ratio("#ff6b74", "#45121e") - 5.60) < 0.01,
+          "FT3 injury, .bad and a falling delta are red, not the gold that .warn uses, 5.60:1 (" + JSON.stringify({ danger: x.danger, warn: x.warn }) + ")");
         ok(x.snow && x.snow.content !== "none" && x.snow.position === "fixed" && x.snow.z === "-1" && x.snow.anim === "xmasSnow" && x.bodyBg === "rgba(0, 0, 0, 0)" && /radial-gradient/.test(x.cardImg || ""),
           "FT3 snow falls behind the cards (fixed, z -1, animated, body transparent) and the cards wear snow caps (" + JSON.stringify({ snow: x.snow, bodyBg: x.bodyBg, cardImg: (x.cardImg || "").slice(0, 40) }) + ")");
       }
