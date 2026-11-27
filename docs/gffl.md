@@ -11709,3 +11709,11 @@ read exactly x1.00 on its 390px card, so that one reading is now taken at 1280px
 viewport restored; reason at the check. FT4's sleigh checks restaged to 60x22: left edge 26px
 before the tip, right edge 34px after, short of the label. **Bite** (the big-sleigh commit): FT4
 and TF fail exactly those 3 checks.
+
+**The line trails behind the sleigh** (Perry: "the probability line should tral behind the
+sleigh"). The anchor moved from the sleigh's front (x=26) to its back (x=3), so the stars stream
+out from behind it and the whole team flies ahead of the newest reading. `.wpplot`'s margin grew
+from 24px to 46px (plus the 12px gap = 58px for the 57px the team runs past the tip); a 390px card's
+plot is now ~191px wide. FT4 restaged: left edge 3px before the tip, right edge 57px after, short
+of the label, and no star past the sleigh's back. **Bite** (the front-anchored commit): FT4 fails
+exactly its 2 sleigh-position checks.

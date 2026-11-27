@@ -34214,12 +34214,14 @@ const sz = await evalOr(page, () => {
       const xs = (f.stars || []).map((s) => s.x), ys = (f.stars || []).map((s) => s.y);
       ok(f.wrapped && f.n === 41 && ys.every((y) => Math.abs(y - f.ph / 2) < 1) && Math.abs(xs[0]) < 1 && Math.abs(xs[40] - f.pw * 280 / 286) < 1 && xs.every((x, k) => k === 0 || x > xs[k - 1]),
         "FT4 @" + W + " a flat line becomes 41 stars along the middle, evenly left to right (" + JSON.stringify({ n: f.n, pw: f.pw, first: xs[0], last: xs[40], y0: ys[0] }) + ")");
-      // RESTAGED 2026-11-27 (Perry: "sleigh should be smaller and have reindeer"): one 60x22 svg,
-      // the sleigh's front (x=26) on the tip, so it starts 26px left of the line's end and the
-      // reindeer finish 34px right of it, in the plot's 24px margin plus the 12px gap, short of
-      // the label's text.
-      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.l - (f.pw - 26)) < 1 && Math.abs(f.sleigh.r - (f.pw + 34)) < 1 && f.sleigh.r < f.labelL && f.sleigh.t < f.ph / 2 && f.sleigh.b > f.ph / 2 && f.docOver <= 0,
-        "FT4 @" + W + " Santa and the reindeer sit on the tip, undistorted 60x22, the reindeer clear of the label, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, labelL: f.labelL, docOver: f.docOver }) + ")");
+      // RESTAGED 2026-11-27 (Perry: "sleigh should be smaller and have reindeer"): one 60x22 svg.
+      // RESTAGED AGAIN (Perry: "the probability line should tral behind the sleigh"): the anchor is
+      // the sleigh's back (x=3), so the team starts 3px left of the line's end and finishes 57px
+      // right of it, in the plot's 46px margin plus the 12px gap, short of the label's text; and
+      // no star lies past the sleigh's back.
+      const lastStar = Math.max(...(f.stars || []).map((st) => st.x));
+      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.l - (f.pw - 3)) < 1 && Math.abs(f.sleigh.r - (f.pw + 57)) < 1 && f.sleigh.r < f.labelL && lastStar <= f.sleigh.l + 3 && f.sleigh.t < f.ph / 2 && f.sleigh.b > f.ph / 2 && f.docOver <= 0,
+        "FT4 @" + W + " the line trails behind the sleigh: the team flies ahead of the tip, undistorted 60x22, clear of the label, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, lastStar, labelL: f.labelL, docOver: f.docOver }) + ")");
       ok(f.hidden === "true" && f.text === f.valText && /60%/.test(f.text) && Number(f.polyOpacity) < 0.5,
         "FT4 @" + W + " the trail is decorative (aria-hidden, adds no text) and the polyline stays as a faint glow (" + JSON.stringify({ hidden: f.hidden, text: f.text, polyOpacity: f.polyOpacity }) + ")");
       if (W === 390) {

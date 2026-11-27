@@ -267,9 +267,9 @@
   /* SLEIGH TRAIL (2026-11-27): the win-probability line under Christmas. lg-ui.js wraps the svg
      in .wpplot and lays .wpstar stars along the line (each in its segment's colour) with
      .wpsleigh at the tip. The polyline stays, faint, as the trail's glow. */
-  /* margin-right: the reindeer fly 34px past the tip (a 60px team, anchored 26px in); 24px here plus
-     the .nflwp gap of 12px gives them 36px, so they never reach the label */
-  .nflwp .wpplot { position:relative; flex:1 1 auto; min-width:0; height:56px; margin-right:24px; }
+  /* margin-right: the team flies 57px past the tip (60px wide, anchored at its back, 3px in); 46px
+     here plus the .nflwp gap of 12px gives it 58px, so it never reaches the label */
+  .nflwp .wpplot { position:relative; flex:1 1 auto; min-width:0; height:56px; margin-right:46px; }
   .nflwp .wpplot svg { display:block; width:100%; height:56px; }
   .nflwp .wpplot polyline { opacity:.28; }
   .wptrail { position:absolute; inset:0; pointer-events:none; }
@@ -278,7 +278,7 @@
     animation:wpTwinkle 2.4s ease-in-out infinite alternate; }
   .wpstar.big { width:9px; height:9px; margin:-4.5px 0 0 -4.5px; }
   @keyframes wpTwinkle { from { opacity:.45; } to { opacity:1; } }
-  .wpsleigh { position:absolute; width:60px; height:22px; transform:translate(-43.33%, -68.18%); }
+  .wpsleigh { position:absolute; width:60px; height:22px; transform:translate(-5%, -68.18%); }
   .wpsleigh svg { display:block; }
   /* Snow on the cards: a row of white drifts along each card's top edge, drawn as a background
      layer so no card gets a new positioned box. */

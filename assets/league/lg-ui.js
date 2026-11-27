@@ -4818,10 +4818,11 @@
       `<i class="wpstar${st.k % 3 === 0 ? " big" : ""}" style="left:${pct(st.x, w)};top:${pct(st.y, h)};color:${st.c};animation-delay:${((st.k * 0.37) % 2.4).toFixed(2)}s"></i>`).join("");
     // SLEIGH AND REINDEER (2026-11-27, Perry: "sleigh should be smaller and have reindeer"). The
     // sleigh is drawn at 0.58 scale with two reindeer ahead of it, the front one with the red nose,
-    // on one 60x22 svg. The anchor (the tip of the line) is the sleigh's front at x=26 and the body's
-    // middle at y=15, so the sleigh covers the line's last stretch and the reindeer fly on to the
-    // right, into the room .wpplot keeps beside the label. The anchor's top is clamped to 6px so a
-    // line pinned at the top cannot push the team out of the card.
+    // on one 60x22 svg. The anchor (the tip of the line) is the sleigh's BACK at x=3 and the body's
+    // middle at y=15 (Perry, next: "the probability line should tral behind the sleigh"), so the
+    // stars stream out from behind the sleigh and the whole team flies on to the right, into the
+    // room .wpplot keeps beside the label. The anchor's top is clamped to 6px so a line pinned at
+    // the top cannot push the team out of the card.
     const sleigh = `<span class="wpsleigh" style="left:${pct(tip.x, w)};top:max(6px, ${pct(tip.y, h)})"><svg viewBox="0 0 60 22" width="60" height="22">
       <path d="M25.5 12.5 Q30 11 38.5 11.2 M38 11.4 Q44 11 53.5 11.2" fill="none" stroke="#f6c84c" stroke-width="0.7"></path>
       <g><path d="M32 13.5 l-2 4 M33.5 14 l-0.5 4.5 M37 14 l1 4.5 M38.5 13.5 l2.5 3.5" stroke="#6e4522" stroke-width="1.1" stroke-linecap="round"></path>
