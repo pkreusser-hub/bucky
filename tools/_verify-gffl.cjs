@@ -13016,7 +13016,8 @@ async function openDetails(page, id) {
         document.body.appendChild(probe);
         const injCol = getComputedStyle(probe).color;
         probe.remove();
-        return { accent: hex(root.getPropertyValue("--accent").trim()), mut: hex(root.getPropertyValue("--mut").trim()),
+        // RESTAGED 2026-11-27 (Christmas default): the "accent red" these injury checks expect is the theme's danger red. Under Christmas --accent is gold, so injury tags take #ff6b74 instead (see league.html "Danger stays red"); under fall and navy it is still --accent.
+        return { accent: (document.documentElement.getAttribute("data-theme") === "christmas" ? "rgb(255, 107, 116)" : hex(root.getPropertyValue("--accent").trim())), mut: hex(root.getPropertyValue("--mut").trim()),
           clock: clock && getComputedStyle(clock).color, clockTxt: clock && clock.textContent.trim(),
           clockWeight: clock && getComputedStyle(clock).fontWeight,
           inj: injCol, injTxt: "OUT",
@@ -13032,7 +13033,8 @@ async function openDetails(page, id) {
       const surfaces = (await evalOr(page, async () => {
         const { UI } = window.__GFFL__;
         const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
-        const accent = hex(getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+        // RESTAGED 2026-11-27 (Christmas default): the "accent red" these injury checks expect is the theme's danger red. Under Christmas --accent is gold, so injury tags take #ff6b74 instead (see league.html "Danger stays red"); under fall and navy it is still --accent.
+        const accent = (document.documentElement.getAttribute("data-theme") === "christmas" ? "rgb(255, 107, 116)" : hex(getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()));
         const out = {};
         UI.openLocker(1);
         await new Promise((r) => setTimeout(r, 400));
@@ -13118,7 +13120,8 @@ async function openDetails(page, id) {
           };
         };
         const benchCell = [...document.querySelectorAll(".benchtable .pcellgrid")].find((e) => e.textContent.includes("L. McConkey"));
-        return { accent: hex(root.getPropertyValue("--accent").trim()),
+        // RESTAGED 2026-11-27 (Christmas default): the "accent red" these injury checks expect is the theme's danger red. Under Christmas --accent is gold, so injury tags take #ff6b74 instead (see league.html "Danger stays red"); under fall and navy it is still --accent.
+        return { accent: (document.documentElement.getAttribute("data-theme") === "christmas" ? "rgb(255, 107, 116)" : hex(root.getPropertyValue("--accent").trim())),
           q: read("A. St. Brown"), healthy: read("M. Harrison Jr."), d: read("C. McCaffrey"),
           bench: benchCell ? { txt: (benchCell.querySelector(".pname .inj") || {}).textContent,
             col: benchCell.querySelector(".pname .inj") ? getComputedStyle(benchCell.querySelector(".pname .inj")).color : null } : null,

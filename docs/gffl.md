@@ -11655,3 +11655,10 @@ had become the gold `.warn` uses. Under Christmas those, plus `.chatDel`, `.rzdo
 the AD/TT highlight regexes accept it, and FT3 has a new probe check that injury, `.bad` and a
 falling delta are red and not `.warn`'s gold. **Bite** (the WIP commit without the override): TU
 and FT3 fail exactly those 5 checks.
+AG's four injury-tag checks ("the Q/D/OUT designation IS red", the shared-rule surfaces, the Q
+chip, the bench PUP) compared against the live `--accent`; they now expect the danger red under
+Christmas and `--accent` otherwise, reason at each.
+
+**VERIFY:** full `_verify-gffl.cjs` **4512 pass / 4 fail**, all four in AG and all of the above;
+restaged, `--only AG` **122/122**, so **4516/4516**. `--only Y,AD,AH,AJ,AL,AM,TT,TU,FT1,FT2,FT3,AVG`
+**594/594** (then FT3 +1 check, **25/25**).
