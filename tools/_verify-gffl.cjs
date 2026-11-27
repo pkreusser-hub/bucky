@@ -25317,7 +25317,11 @@ async function openDetails(page, id) {
             sw: p.getAttribute("stroke-width"),
           })) : [];
           return {
-            xmas: { stars: el ? el.querySelectorAll(".wptrail .wpstar").length : -1, sleigh: !!(el && el.querySelector(".wptrail .wpsleigh")), theme: document.documentElement.getAttribute("data-theme") },
+            xmas: { stars: el ? el.querySelectorAll(".wptrail .wpstar").length : -1, sleigh: !!(el && el.querySelector(".wptrail .wpsleigh")), theme: document.documentElement.getAttribute("data-theme"),
+              sleighTop: (() => { const sl = el && el.querySelector(".wpsleigh"); return sl ? sl.offsetTop : null; })(),
+              plotH: (() => { const t = el && el.querySelector(".wptrail"); return t ? t.offsetHeight : null; })(),
+              // the transform the browser actually applied: "none" means the tilt rule was thrown out
+              tf: (() => { const sl = el && el.querySelector(".wpsleigh"); return sl ? getComputedStyle(sl).transform : null; })() },
             hidden: !!(el && el.hidden),
             parent: el && el.offsetParent !== null,
             n: pts.length,
@@ -25356,6 +25360,12 @@ async function openDetails(page, id) {
         // trail (FT4 checks its geometry); this is the real render path reaching it.
         ok(painted.xmas.theme === "christmas" && painted.xmas.stars > 0 && painted.xmas.sleigh,
           "…and under Christmas it is a trail of stars from Santa's sleigh (" + JSON.stringify(painted.xmas) + ")");
+        // 2026-11-27 (Perry, with a screenshot: "you have the sleigh always stuck at the 50% line, the
+        // sleigh is supposed to be where the probability of win line is"). On the REAL card the
+        // sleigh's anchor must be the line's last vertex: lastY of 56 is lastY px down a 56px plot.
+        // FT4 only ever fed the trail hand-built lines, so this is the real render path's check.
+        ok(painted.xmas.plotH === 56 && Math.abs(painted.xmas.sleighTop - painted.lastY) < 1 && painted.xmas.tf && painted.xmas.tf !== "none",
+          "…and the sleigh rides the line's real tip, at the tip's height, with its transform applied (" + JSON.stringify({ sleighTop: painted.xmas.sleighTop, lastY: painted.lastY, tf: painted.xmas.tf }) + ")");
         ok(painted.midY === 28, "…the mid rule is the NFL midpoint (y=28) (" + painted.midY + ")");
         // RESTAGED 2026-09-14: leftover-√remaining pinned this 100-40
         // live lead to ~0% away (y ≈ 52, home 100) while 12 starters
@@ -34234,6 +34244,18 @@ const sz = await evalOr(page, () => {
       const want = Math.atan2(-24, 110 / 220 * t.pw) * 180 / Math.PI;
       ok(t.sleigh && Math.abs(t.sleigh.ax - t.pw) < 0.6 && Math.abs(t.sleigh.ay - t.ph * 4 / 56) < 0.6 && Math.abs(t.sleigh.deg - want) < 0.5,
         "FT4 @" + W + " on a rising line the sleigh sits as high as the tip (no clamp) and climbs at the line's own angle, " + want.toFixed(1) + "deg here (" + JSON.stringify({ ax: t.sleigh && t.sleigh.ax, ay: t.sleigh && t.sleigh.ay, deg: t.sleigh && t.sleigh.deg, pw: t.pw }) + ")");
+      // a sleigh whose markup carries no --dx/--dy/--w (what a cached older lg-ui.js sent, the
+      // 2026-11-27 screenshot) must still have its back on its point, level, not a dropped transform
+      const bare = (await evalOr(page, () => {
+        const host = document.createElement("div"); host.className = "nflwp";
+        host.innerHTML = '<div class="wpplot"><svg viewBox="0 0 220 56" preserveAspectRatio="none"></svg><div class="wptrail"><span class="wpsleigh" style="left:50%;top:25%"></span></div></div>';
+        (document.querySelector("main") || document.body).prepend(host);
+        const sl = host.querySelector(".wpsleigh"), tf = getComputedStyle(sl).transform, m = new DOMMatrix(tf);
+        const o = { tf, ax: sl.offsetLeft + 4 + m.e, ay: sl.offsetTop + 15.5 + m.f, x: host.querySelector(".wptrail").offsetWidth / 2, y: 14 };
+        host.remove(); return o;
+      })) || {};
+      ok(bare.tf && bare.tf !== "none" && Math.abs(bare.ax - bare.x) < 0.6 && Math.abs(bare.ay - bare.y) < 0.6,
+        "FT4 @" + W + " a sleigh with no heading values still sits with its back on its point, level (the transform is not dropped) (" + JSON.stringify(bare) + ")");
       ok(f.hidden === "true" && f.text === f.valText && /60%/.test(f.text) && Number(f.polyOpacity) < 0.5,
         "FT4 @" + W + " the trail is decorative (aria-hidden, adds no text) and the polyline stays as a faint glow (" + JSON.stringify({ hidden: f.hidden, text: f.text, polyOpacity: f.polyOpacity }) + ")");
       if (W === 390) {

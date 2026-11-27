@@ -1,9 +1,4 @@
 {
-  "20261019a": {
-    "lg-core.js": "2fad1a5fc2ed3c2ec94f364566595b8367e9f81c07225955295a3840b7e05bd4",
-    "lg-data.js": "f4c883694531df8226ebddffed68a5fd3757386fde95cfdf564cce86da8d9256",
-    "lg-ui.js": "09be31d770bad771765f9262ba75648c197cdf774fc8e4f9a5e84a093bca4bcb"
-  },
   "20261110a": {
     "lg-core.js": "2fad1a5fc2ed3c2ec94f364566595b8367e9f81c07225955295a3840b7e05bd4",
     "lg-data.js": "f4c883694531df8226ebddffed68a5fd3757386fde95cfdf564cce86da8d9256",
@@ -20,6 +15,11 @@
     "lg-ui.js": "09be31d770bad771765f9262ba75648c197cdf774fc8e4f9a5e84a093bca4bcb"
   },
   "20261127b": {
+    "lg-core.js": "2fad1a5fc2ed3c2ec94f364566595b8367e9f81c07225955295a3840b7e05bd4",
+    "lg-data.js": "f4c883694531df8226ebddffed68a5fd3757386fde95cfdf564cce86da8d9256",
+    "lg-ui.js": "4780b7b0c06a174b1dba9ea0bd8e796cf4456cf271262416323d9a5ad7ac8cf6"
+  },
+  "20261127c": {
     "lg-core.js": "2fad1a5fc2ed3c2ec94f364566595b8367e9f81c07225955295a3840b7e05bd4",
     "lg-data.js": "f4c883694531df8226ebddffed68a5fd3757386fde95cfdf564cce86da8d9256",
     "lg-ui.js": "4780b7b0c06a174b1dba9ea0bd8e796cf4456cf271262416323d9a5ad7ac8cf6"

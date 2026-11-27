@@ -11735,3 +11735,25 @@ lands on the tip, measured through the computed transform; level on a flat line;
 it sits as high as the tip and its angle is the hand-computed `atan2(-24, 110/220 * plot width)`
 at both widths. **Bite** (the untilted, back-anchored commit): FT4 fails exactly the 6
 restaged checks.
+
+**The sleigh hanging below the line** (Perry, with a screenshot: "you have the sleigh always stuck
+at the 50% line, the sleigh is supposed to be where the probability of win line is, so the stars
+trail DIRECTLY FROM THE BACK OF THE SLEIGH"). The rendering was right on the real card (tip y
+51.5, sleigh anchored at 51); the browser was running a mix. **I had re-recorded version
+20261127b four times** while the sleigh changed (deleting the AVG entry each time), and
+`/assets/league/*.js` is cached `immutable` for a year by its `?v=`, so a browser that fetched an
+early `lg-ui.js?v=20261127b` kept it while `league.html`'s CSS moved on. That old script sends no
+`--dx`/`--dy`/`--w`, and a `var()` with no value makes the tilt declaration invalid at
+computed-value time, which drops `transform` to `none` (not to the earlier fallback
+declaration): the sleigh's top-left corner sat on the tip, 15.5px low and 4px right.
+
+**Rule, again:** never re-record a version number. Every change to lg-*.js bytes gets a NEW
+gffl-v, even mid-session, even before anything reaches `main`; a branch deploy is a real browser
+with a real cache. Deleting an AVG entry to get past `--record`'s refusal is exactly the mistake
+that refusal exists to stop.
+
+**Fix:** version **20261127c**. The tilt now reads `var(--dy, 0)`, `var(--dx, 1)`, `var(--w, 220)`,
+so missing values give a level sleigh still on its point. New checks: FT4 renders a sleigh with no
+heading values and requires its back on the point with a real transform (**bite**, the committed
+CSS: `transform:none`, 15.5px off, 2 of 2 fail); TF requires the real matchup card's sleigh
+anchor at the line's real last vertex with its transform applied.
