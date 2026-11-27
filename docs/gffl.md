@@ -11733,5 +11733,5 @@ trail reaches the sleigh.
 FT4 restaged (reasons at the checks): the flat line is 42 stars (41 + the tip); the sleigh's back
 lands on the tip, measured through the computed transform; level on a flat line; on a rising line
 it sits as high as the tip and its angle is the hand-computed `atan2(-24, 110/220 * plot width)`
-at both widths. **Bite** (the untilted, back-anchored commit): FT4 fails exactly the 5
+at both widths. **Bite** (the untilted, back-anchored commit): FT4 fails exactly the 6
 restaged checks.
