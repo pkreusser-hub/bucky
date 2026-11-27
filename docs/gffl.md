@@ -11717,3 +11717,21 @@ from 24px to 46px (plus the 12px gap = 58px for the 57px the team runs past the 
 plot is now ~191px wide. FT4 restaged: left edge 3px before the tip, right edge 57px after, short
 of the label, and no star past the sleigh's back. **Bite** (the front-anchored commit): FT4 fails
 exactly its 2 sleigh-position checks.
+
+**A vapour trail** (Perry: "no like it should look like its coming out of the back of the sleigh
+like a airplane trail so the sleigh is at whatever height it needs to be for that to work"). The
+back of the sleigh (4, 15.5 in the 60x22 team) now sits exactly on the line's tip: the 6px top
+clamp is gone, and the team turns about that point to the line's heading. The heading runs from
+the last vertex at least 12 units back to the tip, so a one-minute wiggle does not spin it.
+lg-ui.js passes it as `--dx`/`--dy`/`--w` in viewBox units, and the CSS turns it into
+`rotate(clamp(-40deg, atan2(dy px, dx/w * 100cqw), 40deg))` with `container-type:inline-size` on
+`.wpplot`, so the angle follows the plot's real stretch: the same rising fixture climbs 14.1deg
+on a 390px phone and 2.8deg at 1280. A browser without `atan2` keeps an untilted fallback
+transform. One star is added on the tip when the last one falls more than 2 units short, so the
+trail reaches the sleigh.
+
+FT4 restaged (reasons at the checks): the flat line is 42 stars (41 + the tip); the sleigh's back
+lands on the tip, measured through the computed transform; level on a flat line; on a rising line
+it sits as high as the tip and its angle is the hand-computed `atan2(-24, 110/220 * plot width)`
+at both widths. **Bite** (the untilted, back-anchored commit): FT4 fails exactly the 5
+restaged checks.

@@ -4796,9 +4796,11 @@
     const KX = 1.3, GAP = 7;
     const stars = [];
     let tip = null, n = 0, carry = 0;
+    const verts = [];
     segs.forEach((sg) => {
       const v = String(sg.points || "").trim().split(/\s+/).map((pt) => pt.split(",").map(Number))
         .filter((a) => a.length === 2 && Number.isFinite(a[0]) && Number.isFinite(a[1]));
+      verts.push(...v);
       for (let i = 1; i < v.length; i++) {
         const [x0, y0] = v[i - 1], [x1, y1] = v[i];
         const len = Math.hypot((x1 - x0) * KX, y1 - y0);
@@ -4813,17 +4815,26 @@
       if (v.length) tip = { x: v[v.length - 1][0], y: v[v.length - 1][1] };
     });
     if (!tip) return svgHtml;
+    // a star on the tip itself, so the trail runs right up to the back of the sleigh
+    const lastSt = stars[stars.length - 1];
+    if (!lastSt || Math.hypot((tip.x - lastSt.x) * KX, tip.y - lastSt.y) > 2) stars.push({ x: tip.x, y: tip.y, c: segs[segs.length - 1].color, k: n++ });
+    // the heading: from the last vertex at least 12 units back to the tip, so a one-minute wiggle
+    // does not spin the sleigh. Passed as viewBox units; the CSS turns them into an angle against
+    // the plot's real width (container units), so the tilt is right at every stretch.
+    let ref = verts[0];
+    for (let i = verts.length - 1; i >= 0; i--) { if (tip.x - verts[i][0] >= 12) { ref = verts[i]; break; } }
+    const hdx = ref && tip.x - ref[0] > 0 ? tip.x - ref[0] : 1, hdy = ref && tip.x - ref[0] > 0 ? tip.y - ref[1] : 0;
     const pct = (a, b) => (100 * a / b).toFixed(2) + "%";
     const starHtml = stars.map((st) =>
       `<i class="wpstar${st.k % 3 === 0 ? " big" : ""}" style="left:${pct(st.x, w)};top:${pct(st.y, h)};color:${st.c};animation-delay:${((st.k * 0.37) % 2.4).toFixed(2)}s"></i>`).join("");
     // SLEIGH AND REINDEER (2026-11-27, Perry: "sleigh should be smaller and have reindeer"). The
     // sleigh is drawn at 0.58 scale with two reindeer ahead of it, the front one with the red nose,
-    // on one 60x22 svg. The anchor (the tip of the line) is the sleigh's BACK at x=3 and the body's
-    // middle at y=15 (Perry, next: "the probability line should tral behind the sleigh"), so the
-    // stars stream out from behind the sleigh and the whole team flies on to the right, into the
-    // room .wpplot keeps beside the label. The anchor's top is clamped to 6px so a line pinned at
-    // the top cannot push the team out of the card.
-    const sleigh = `<span class="wpsleigh" style="left:${pct(tip.x, w)};top:max(6px, ${pct(tip.y, h)})"><svg viewBox="0 0 60 22" width="60" height="22">
+    // on one 60x22 svg. The tip of the line is the back of the sleigh (4, 15.5), like a vapour
+    // trail (Perry: "it should look like its coming out of the back of the sleigh like a airplane
+    // trail so the sleigh is at whatever height it needs to be for that to work"): no height clamp,
+    // and the team turns about that point to fly along the line's last heading. The reindeer fly
+    // on to the right, into the room .wpplot keeps beside the label.
+    const sleigh = `<span class="wpsleigh" style="left:${pct(tip.x, w)};top:${pct(tip.y, h)};--dx:${hdx.toFixed(2)};--dy:${hdy.toFixed(2)};--w:${w}"><svg viewBox="0 0 60 22" width="60" height="22">
       <path d="M25.5 12.5 Q30 11 38.5 11.2 M38 11.4 Q44 11 53.5 11.2" fill="none" stroke="#f6c84c" stroke-width="0.7"></path>
       <g><path d="M32 13.5 l-2 4 M33.5 14 l-0.5 4.5 M37 14 l1 4.5 M38.5 13.5 l2.5 3.5" stroke="#6e4522" stroke-width="1.1" stroke-linecap="round"></path>
       <path d="M30.4 11 l-1.4 -1 l0.6 2 Z" fill="#fbf5ec"></path><ellipse cx="35" cy="12" rx="5" ry="2.8" fill="#8a5a2e"></ellipse>

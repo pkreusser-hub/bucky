@@ -34173,8 +34173,12 @@ const sz = await evalOr(page, () => {
   // coming from santa and his sleigh and the line is little stars"). UI._wpTrailWrap is the one
   // function both win-probability sparklines go through. Star counts are hand-computed from the
   // fixture: spacing 7 in a box 1.3x the viewBox's width. A flat "0,28 220,28" is 286 long, so
-  // stars at 0,7,…,280 = 41. Two segments "0,28 110,28" (143 → 0..140 = 21, carry 4) and
-  // "110,28 220,4" (hypot(143,24) = 145.0 → 4..144 = 21) = 42.
+  // stars at 0,7,…,280 = 41, plus one on the tip (6 short of it, more than 2) = 42. Two segments
+  // "0,28 110,28" (143 → 0..140 = 21, carry 4) and "110,28 220,4" (hypot(143,24) = 145.0 →
+  // 4..144 = 21, the last 1.0 short of the tip, so no extra) = 42.
+  // RESTAGED 2026-11-27 (Perry: "it should look like its coming out of the back of the sleigh like
+  // a airplane trail so the sleigh is at whatever height it needs to be for that to work"): the
+  // sleigh's back sits on the tip with no height clamp, and the team tilts to the line's heading.
   if (section("FT4 · sleigh trail — the win-% line is stars from Santa's sleigh, Christmas only")) {
     const go = async (page, extra) => {
       await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + extra, { waitUntil: "networkidle0" });
@@ -34192,8 +34196,12 @@ const sz = await evalOr(page, () => {
       const pr = plot.getBoundingClientRect();
       const stars = [...host.querySelectorAll(".wpstar")].map((el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2 - pr.left, y: r.top + r.height / 2 - pr.top, w: r.width, h: r.height, c: getComputedStyle(el).color }; });
       const sl = host.querySelector(".wpsleigh"), sr = sl ? sl.getBoundingClientRect() : null;
+      const m = sl ? new DOMMatrix(getComputedStyle(sl).transform) : null;
       const out = { same: html === svg, wrapped: !!host.querySelector(".wpplot"), n: stars.length, pw: pr.width, ph: pr.height, stars,
-        sleigh: sr && { l: sr.left - pr.left, r: sr.right - pr.left, t: sr.top - pr.top, b: sr.bottom - pr.top, w: sr.width, h: sr.height },
+        sleigh: sr && { l: sr.left - pr.left, r: sr.right - pr.left, t: sr.top - pr.top, b: sr.bottom - pr.top, w: sl.offsetWidth, h: sl.offsetHeight,
+          // where the back of the sleigh (4, 15.5 in the team's own box) lands, relative to the plot
+          ax: sl.offsetLeft + 4 + m.transformPoint(new DOMPoint(0, 0)).x, ay: sl.offsetTop + 15.5 + m.transformPoint(new DOMPoint(0, 0)).y,
+          deg: Math.atan2(m.b, m.a) * 180 / Math.PI },
         labelL: host.querySelector(".nflwpv b").getBoundingClientRect().left - pr.left,
         hidden: host.querySelector(".wptrail") ? host.querySelector(".wptrail").getAttribute("aria-hidden") : null,
         polyOpacity: host.querySelector("polyline") ? getComputedStyle(host.querySelector("polyline")).opacity : null,
@@ -34212,25 +34220,27 @@ const sz = await evalOr(page, () => {
       // every star sits ON the line: y is the plot's middle (28/56), x runs left to right from 0
       // to 280/286 of the width, and the sleigh's box keeps its drawn size (it is not stretched)
       const xs = (f.stars || []).map((s) => s.x), ys = (f.stars || []).map((s) => s.y);
-      ok(f.wrapped && f.n === 41 && ys.every((y) => Math.abs(y - f.ph / 2) < 1) && Math.abs(xs[0]) < 1 && Math.abs(xs[40] - f.pw * 280 / 286) < 1 && xs.every((x, k) => k === 0 || x > xs[k - 1]),
-        "FT4 @" + W + " a flat line becomes 41 stars along the middle, evenly left to right (" + JSON.stringify({ n: f.n, pw: f.pw, first: xs[0], last: xs[40], y0: ys[0] }) + ")");
-      // RESTAGED 2026-11-27 (Perry: "sleigh should be smaller and have reindeer"): one 60x22 svg.
-      // RESTAGED AGAIN (Perry: "the probability line should tral behind the sleigh"): the anchor is
-      // the sleigh's back (x=3), so the team starts 3px left of the line's end and finishes 57px
-      // right of it, in the plot's 46px margin plus the 12px gap, short of the label's text; and
-      // no star lies past the sleigh's back.
+      ok(f.wrapped && f.n === 42 && ys.every((y) => Math.abs(y - f.ph / 2) < 1) && Math.abs(xs[0]) < 1 && Math.abs(xs[40] - f.pw * 280 / 286) < 1 && Math.abs(xs[41] - f.pw) < 1 && xs.every((x, k) => k === 0 || x > xs[k - 1]),
+        "FT4 @" + W + " a flat line becomes 41 stars along the middle, evenly left to right, plus one on the tip (" + JSON.stringify({ n: f.n, pw: f.pw, first: xs[0], last: xs[41], y0: ys[0] }) + ")");
+      // the back of the sleigh is ON the tip (the plot's right end, middle height), level on a flat
+      // line, and the team (60x22, not stretched) flies right into the plot's margin, short of the
+      // label. Every star is behind it.
       const lastStar = Math.max(...(f.stars || []).map((st) => st.x));
-      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.l - (f.pw - 3)) < 1 && Math.abs(f.sleigh.r - (f.pw + 57)) < 1 && f.sleigh.r < f.labelL && lastStar <= f.sleigh.l + 3 && f.sleigh.t < f.ph / 2 && f.sleigh.b > f.ph / 2 && f.docOver <= 0,
-        "FT4 @" + W + " the line trails behind the sleigh: the team flies ahead of the tip, undistorted 60x22, clear of the label, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, lastStar, labelL: f.labelL, docOver: f.docOver }) + ")");
+      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.ax - f.pw) < 0.6 && Math.abs(f.sleigh.ay - f.ph / 2) < 0.6 && Math.abs(f.sleigh.deg) < 0.5 && f.sleigh.r < f.labelL && lastStar <= f.sleigh.ax + 0.6 && f.docOver <= 0,
+        "FT4 @" + W + " the trail comes out of the back of the sleigh: its back is on the tip, level on a flat line, the team clear of the label, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, ph: f.ph, lastStar, labelL: f.labelL, docOver: f.docOver }) + ")");
+      // a rising line: tip at (220, 4), heading from (110, 28) (the last vertex 12+ back). The
+      // angle is against the REAL plot width, so it differs by width: atan2(-24, 110/220 * pw).
+      const t = (await probe(page, two)) || {};
+      const want = Math.atan2(-24, 110 / 220 * t.pw) * 180 / Math.PI;
+      ok(t.sleigh && Math.abs(t.sleigh.ax - t.pw) < 0.6 && Math.abs(t.sleigh.ay - t.ph * 4 / 56) < 0.6 && Math.abs(t.sleigh.deg - want) < 0.5,
+        "FT4 @" + W + " on a rising line the sleigh sits as high as the tip (no clamp) and climbs at the line's own angle, " + want.toFixed(1) + "deg here (" + JSON.stringify({ ax: t.sleigh && t.sleigh.ax, ay: t.sleigh && t.sleigh.ay, deg: t.sleigh && t.sleigh.deg, pw: t.pw }) + ")");
       ok(f.hidden === "true" && f.text === f.valText && /60%/.test(f.text) && Number(f.polyOpacity) < 0.5,
         "FT4 @" + W + " the trail is decorative (aria-hidden, adds no text) and the polyline stays as a faint glow (" + JSON.stringify({ hidden: f.hidden, text: f.text, polyOpacity: f.polyOpacity }) + ")");
       if (W === 390) {
-        const t = (await probe(page, two)) || {};
         const s = t.stars || [];
         const firstSeg = s.filter((st) => st.c === "rgb(0, 128, 255)").length, secondSeg = s.filter((st) => st.c === "rgb(255, 200, 0)").length;
-        // the tip at y=4 is above the 6px clamp, so the anchor sits at 6: top 6 - 15 = -9, bottom 13
-        ok(t.n === 42 && firstSeg === 21 && secondSeg === 21 && t.sleigh && Math.abs(t.sleigh.t + 9) < 1 && Math.abs(t.sleigh.b - 13) < 1,
-          "FT4 each segment's stars wear that segment's colour (21 + 21), and the sleigh rides up to the clamp at the top, still inside the card's padding (" + JSON.stringify({ n: t.n, firstSeg, secondSeg, sleigh: t.sleigh }) + ")");
+        ok(t.n === 42 && firstSeg === 21 && secondSeg === 21,
+          "FT4 each segment's stars wear that segment's colour (21 + 21) (" + JSON.stringify({ n: t.n, firstSeg, secondSeg }) + ")");
         if (SHOTS) {
           await page.evaluate((wavy) => {
             const UI = window.__GFFL__.UI;

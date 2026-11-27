@@ -278,7 +278,13 @@
     animation:wpTwinkle 2.4s ease-in-out infinite alternate; }
   .wpstar.big { width:9px; height:9px; margin:-4.5px 0 0 -4.5px; }
   @keyframes wpTwinkle { from { opacity:.45; } to { opacity:1; } }
-  .wpsleigh { position:absolute; width:60px; height:22px; transform:translate(-5%, -68.18%); }
+  /* the back of the sleigh (4px, 15.5px into the 60x22 team) sits on the line's tip, and the team
+     turns about it to the line's heading: atan2 of the last stretch in px, with x scaled by the
+     plot's real width (100cqw over the viewBox width --w), clamped to 40deg either way. A browser
+     without atan2 keeps the first transform, untilted. */
+  .nflwp .wpplot { container-type:inline-size; }
+  .wpsleigh { position:absolute; width:60px; height:22px; transform-origin:4px 15.5px; transform:translate(-4px, -15.5px);
+    transform:translate(-4px, -15.5px) rotate(clamp(-40deg, atan2(calc(var(--dy) * 1px), calc(var(--dx) / var(--w) * 100cqw)), 40deg)); }
   .wpsleigh svg { display:block; }
   /* Snow on the cards: a row of white drifts along each card's top edge, drawn as a background
      layer so no card gets a new positioned box. */
