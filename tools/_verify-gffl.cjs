@@ -8103,8 +8103,8 @@ async function openDetails(page, id) {
     ok((await page.evaluate(() => document.getElementById("rosterCard").hidden)), "…and row-click no longer triggers the add/claim flow");
     await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
     const moveBtnStyle = await page.$eval(".faMoveBtn", (b) => getComputedStyle(b).borderColor);
-    // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-    ok(moveBtnStyle === "rgb(224, 120, 42)", "the MOVE button is accent-outlined (--accent, fall #e0782a), distinct from an ordinary button's --border-card outline (" + moveBtnStyle + ")");
+    // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+    ok(moveBtnStyle === "rgb(246, 200, 76)", "the MOVE button is accent-outlined (--accent, Christmas #f6c84c), distinct from an ordinary button's --border-card outline (" + moveBtnStyle + ")");
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
     await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
     ok(/Claim F\. Agent/.test(await page.$eval("#rosterCard", (e) => e.textContent)), "the MOVE button still opens the claim/add flow, exactly as before");
@@ -10538,8 +10538,8 @@ async function openDetails(page, id) {
           // vs not", now against either hue.
           const sh = getComputedStyle(g).boxShadow || "";
           return g && { ball: g.classList.contains("hasball"),
-                        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-                        ring: /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/.test(sh),
+                        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+                        ring: /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/.test(sh),
                         rz: g.classList.contains("rz"),
                         h: Math.round(g.getBoundingClientRect().height) };
         };
@@ -10635,8 +10635,8 @@ async function openDetails(page, id) {
         // RESTAGED 2026-09-17: fixture PHI is in the red zone, so the picture
         // ring is --accent, not gold. Either hue still proves "the face is
         // ringed, the card is not". TU owns the gold↔red flip.
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const hl = (s) => /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/.test(s || "");
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const hl = (s) => /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/.test(s || "");
         const cellFor = (nm) => [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
         const read = (nm) => {
           const g = cellFor(nm); if (!g) return null;
@@ -13016,7 +13016,8 @@ async function openDetails(page, id) {
         document.body.appendChild(probe);
         const injCol = getComputedStyle(probe).color;
         probe.remove();
-        return { accent: hex(root.getPropertyValue("--accent").trim()), mut: hex(root.getPropertyValue("--mut").trim()),
+        // RESTAGED 2026-11-27 (Christmas default): the "accent red" these injury checks expect is the theme's danger red. Under Christmas --accent is gold, so injury tags take #ff6b74 instead (see league.html "Danger stays red"); under fall and navy it is still --accent.
+        return { accent: (document.documentElement.getAttribute("data-theme") === "christmas" ? "rgb(255, 107, 116)" : hex(root.getPropertyValue("--accent").trim())), mut: hex(root.getPropertyValue("--mut").trim()),
           clock: clock && getComputedStyle(clock).color, clockTxt: clock && clock.textContent.trim(),
           clockWeight: clock && getComputedStyle(clock).fontWeight,
           inj: injCol, injTxt: "OUT",
@@ -13032,7 +13033,8 @@ async function openDetails(page, id) {
       const surfaces = (await evalOr(page, async () => {
         const { UI } = window.__GFFL__;
         const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
-        const accent = hex(getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+        // RESTAGED 2026-11-27 (Christmas default): the "accent red" these injury checks expect is the theme's danger red. Under Christmas --accent is gold, so injury tags take #ff6b74 instead (see league.html "Danger stays red"); under fall and navy it is still --accent.
+        const accent = (document.documentElement.getAttribute("data-theme") === "christmas" ? "rgb(255, 107, 116)" : hex(getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()));
         const out = {};
         UI.openLocker(1);
         await new Promise((r) => setTimeout(r, 400));
@@ -13118,7 +13120,8 @@ async function openDetails(page, id) {
           };
         };
         const benchCell = [...document.querySelectorAll(".benchtable .pcellgrid")].find((e) => e.textContent.includes("L. McConkey"));
-        return { accent: hex(root.getPropertyValue("--accent").trim()),
+        // RESTAGED 2026-11-27 (Christmas default): the "accent red" these injury checks expect is the theme's danger red. Under Christmas --accent is gold, so injury tags take #ff6b74 instead (see league.html "Danger stays red"); under fall and navy it is still --accent.
+        return { accent: (document.documentElement.getAttribute("data-theme") === "christmas" ? "rgb(255, 107, 116)" : hex(root.getPropertyValue("--accent").trim())),
           q: read("A. St. Brown"), healthy: read("M. Harrison Jr."), d: read("C. McCaffrey"),
           bench: benchCell ? { txt: (benchCell.querySelector(".pname .inj") || {}).textContent,
             col: benchCell.querySelector(".pname .inj") ? getComputedStyle(benchCell.querySelector(".pname .inj")).color : null } : null,
@@ -13231,8 +13234,8 @@ async function openDetails(page, id) {
       await bootSim(page);
       const none = (await evalOr(page, () => ({
         ball: document.querySelectorAll(".pcellgrid.hasball").length,
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        rings: [...document.querySelectorAll(".pcellgrid")].filter((g) => /rgb\(232, 176, 74\)/.test(getComputedStyle(g).boxShadow || "")).length,
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        rings: [...document.querySelectorAll(".pcellgrid")].filter((g) => /rgb\(255, 217, 120\)/.test(getComputedStyle(g).boxShadow || "")).length,
       }))) || {};
       ok(none.ball === 0 && none.rings === 0, "under the replay nobody is ringed — a historical slate carries no drive to read (" + JSON.stringify(none) + ")");
       ok(errors.length === 0, "0 page errors");
@@ -13395,13 +13398,13 @@ async function openDetails(page, id) {
         return { liveAb: col(live, ".scteam b"), livePts: col(live, ".scpts"), upAb: col(up, ".scteam b"),
           state: col(live, ".scstate.live"), buttonBox: live ? getComputedStyle(live).textTransform : "" };
       })) || {};
-      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-      ok(cardInk.liveAb === cardInk.upAb && !/224, 120, 42/.test(cardInk.liveAb || ""),
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+      ok(cardInk.liveAb === cardInk.upAb && !/246, 200, 76/.test(cardInk.liveAb || ""),
         "a LIVE card's team abbrev reads the same ink as an upcoming one — the whole card is not red (" + cardInk.liveAb + " vs " + cardInk.upAb + ")");
-      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-      ok(!/224, 120, 42/.test(cardInk.livePts || ""), "…nor is its score (" + cardInk.livePts + ")");
-      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-      ok(/224, 120, 42/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+      ok(!/246, 200, 76/.test(cardInk.livePts || ""), "…nor is its score (" + cardInk.livePts + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+      ok(/246, 200, 76/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
       ok(cardInk.buttonBox === "none", "…and the card being a <button> did not inherit the base button rule's uppercase");
       ok(await clickIn(page, ".scchip.live"), "the live game's chip is tappable");
       // RESTAGED 2026-09-23: this wait used to be satisfied by the header ALREADY on screen. Scores
@@ -13755,8 +13758,8 @@ async function openDetails(page, id) {
       const preHead = (await evalOr(page, () => {
         const big = [...document.querySelectorAll(".nflbig")].map((e) => e.textContent.trim());
         const q = document.querySelector(".nflmid .nflq");
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        return { big, qCls: q ? q.className : "", qRed: q ? /rgb\(224, 120, 42\)/.test(getComputedStyle(q).color) : null,
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        return { big, qCls: q ? q.className : "", qRed: q ? /rgb\(246, 200, 76\)/.test(getComputedStyle(q).color) : null,
           chip: (document.querySelector("#nflChip") || {}).textContent || "",
           venueCount: (((document.querySelector("main") || {}).textContent || "").match(/Empower Field/g) || []).length };
       })) || {};
@@ -15692,8 +15695,10 @@ async function openDetails(page, id) {
       // the splash and status bar take its ground, #1b130e (--bg under data-theme="fall"), not
       // navy #0c1017. The rule this guards is unchanged: the splash matches the app's own dark
       // background, so nothing flashes cream or the other theme.
-      ok(m.theme_color === "#1b130e" && m.background_color === "#1b130e",
-        "theme + splash take the league's default dark background (the fall --bg), so nothing flashes cream (" + m.theme_color + "/" + m.background_color + ")");
+      // RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): the
+      // default is now Christmas, so the ground is #300a11 (--bg under data-theme="christmas").
+      ok(m.theme_color === "#300a11" && m.background_color === "#300a11",
+        "theme + splash take the league's default dark background (the Christmas --bg), so nothing flashes cream (" + m.theme_color + "/" + m.background_color + ")");
       ok(/GFFL/.test(m.name || "") && /GFFL/.test(m.short_name || ""), "…and it is named as the league (" + m.name + " / " + m.short_name + ")");
       // No explicit scope, DELIBERATELY: the default is the start_url's own directory ("/"), so
       // the League page's Draft link (a real <a href> out to ffdraft.html) stays inside the
@@ -16260,8 +16265,8 @@ async function openDetails(page, id) {
       ok(!!card && card.phase === "live", "a mocked now 2h past draftAt shows the LIVE state (" + JSON.stringify(card && card.phase) + ")");
       ok(card.joinText === "Draft is LIVE — join ▶", "…exact copy: \"Draft is LIVE — join ▶\" (" + card.joinText + ")");
       ok(card.joinHref === "ffdraft.html", "…still the same Draft link (ffdraft.html)");
-      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-      ok(card.joinBg === "rgb(224, 120, 42)", "…styled in the app's own LIVE colour, var(--accent) (" + card.joinBg + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+      ok(card.joinBg === "rgb(246, 200, 76)", "…styled in the app's own LIVE colour, var(--accent) (" + card.joinBg + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -16986,8 +16991,8 @@ async function openDetails(page, id) {
       // every size and moved the colour onto the crest disc beside them (asserted just above).
       // The identity guarantee stands — it just lives in the crest now, and the name must be
       // the app's own ink.
-      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-      ok(home.nameCol === "rgb(243, 231, 211)", "…with the team NAME in the sheet's neutral ink — identity is the crest's job now (" + home.nameCol + ")");
+      // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+      ok(home.nameCol === "rgb(251, 245, 236)", "…with the team NAME in the sheet's neutral ink — identity is the crest's job now (" + home.nameCol + ")");
       ok(home.nameEdge === "none", "…and no edge treatment on names anywhere since the pass (" + home.nameEdge + ")");
       ok(home.cardCrests === 2 && home.cardNames === 2, "every matchup card on the league home carries both crests and both stylized names");
       ok(/216, 31, 38/.test(home.headerAv), "…and the persistent header avatar wears the viewer's own team colour (" + home.headerAv + ")");
@@ -28861,8 +28866,8 @@ async function openDetails(page, id) {
         // RESTAGED 2026-09-17: the fixture's possessing PHI drive is in the
         // red zone, so the bar is --accent, not gold. The gutter is about
         // SPACE, not hue — either token still names the painted edge.
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const hlRe = /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const hlRe = /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/;
         const inkRect = (el) => {
           const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
           if (!n) return null;
@@ -28966,8 +28971,8 @@ async function openDetails(page, id) {
       const desk = (await evalOr(page, () => {
         // RESTAGED 2026-09-17: fixture is in the red zone, so the face ring
         // is accent. Either hue still proves "the picture is ringed, the card is not".
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const hl = (s) => /rgb\(232, 176, 74\)|rgb\(224, 120, 42\)/.test(s || "");
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const hl = (s) => /rgb\(255, 217, 120\)|rgb\(246, 200, 76\)|rgb\(255, 107, 116\)/.test(s || "");
         const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
         if (!g) return null;
         const shot = g.querySelector(".mushot");
@@ -29016,10 +29021,10 @@ async function openDetails(page, id) {
       await clickIn(page, ".mucard.mine");
       await waitOr(page, ".muhead", 9000);
       const phone = (await evalOr(page, () => {
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const GOLD = /rgb\(232, 176, 74\)/;
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const ACCENT = /rgb\(224, 120, 42\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const GOLD = /rgb\(255, 217, 120\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const read = (nm) => {
           const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
           if (!g) return null;
@@ -29054,10 +29059,10 @@ async function openDetails(page, id) {
       ok(phone.rusher && !phone.rusher.ball && !phone.rusher.rz && !phone.rusher.accent,
         "…and nobody on DAL is highlighted");
       const afterClear = (await evalOr(page, () => {
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const GOLD = /rgb\(232, 176, 74\)/;
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const ACCENT = /rgb\(224, 120, 42\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const GOLD = /rgb\(255, 217, 120\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const g = window.__GFFL__.D.S.games.get("PHI");
         g.rz = false;
         window.__GFFL__.UI.renderMatchup(true);
@@ -29086,10 +29091,10 @@ async function openDetails(page, id) {
       await clickIn(page, ".mucard.mine");
       await waitOr(page, ".muhead", 9000);
       const desk = (await evalOr(page, () => {
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const GOLD = /rgb\(232, 176, 74\)/;
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const ACCENT = /rgb\(224, 120, 42\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const GOLD = /rgb\(255, 217, 120\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
         if (!g) return null;
         const shot = g.querySelector(".mushot");
@@ -29117,10 +29122,10 @@ async function openDetails(page, id) {
       await clickIn(page, '.bnav button[data-v="team"]');
       await waitOr(page, ".lrow", 9000);
       const locker = (await evalOr(page, () => {
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const GOLD = /rgb\(232, 176, 74\)/;
-        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged.
-        const ACCENT = /rgb\(224, 120, 42\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const GOLD = /rgb\(255, 217, 120\)/;
+        // RESTAGED 2026-11-10 (Perry: "lets make it the default"): fall is the default theme, so the colours checked here are the fall tokens (accent #e0782a = rgb(224, 120, 42), gold #e8b04a = rgb(232, 176, 74), ink #f3e7d3 = rgb(243, 231, 211)) instead of navy's (#d50a0a, #ffb612, #e9edf4). What each check guards is unchanged. RESTAGED AGAIN 2026-11-27 (Perry: "make it the default", of the Christmas theme): Christmas is now the default, so these read the Christmas tokens (accent #f6c84c = rgb(246, 200, 76), gold #ffd978 = rgb(255, 217, 120), ink #fbf5ec = rgb(251, 245, 236)) instead of fall's.
+        const ACCENT = /rgb\(255, 107, 116\)/; // RESTAGED 2026-11-27: under the Christmas default the red zone is its own red #ff6b74, not --accent, which is gold there and would read as the gold possession ring. Still "red only in the red zone".
         const row = [...document.querySelectorAll(".lrow")].find((r) => /P\. Passer/.test(r.textContent));
         if (!row) return null;
         const sh = getComputedStyle(row).boxShadow || "";
@@ -33915,15 +33920,26 @@ const sz = await evalOr(page, () => {
       await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
     };
     const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
+    // RESTAGED 2026-11-27 (Perry, of the Christmas theme: "make it the default"): a plain boot is
+    // now Christmas, and fall became an opt-out like navy: ?theme=fall paints fall AND is stored
+    // ("fall"), it no longer clears storage; ?theme=christmas is what clears it now. The fall
+    // tokens and contrast floors checked below are unchanged.
     await go(page, "");
+    const c0 = (await read(page)) || {};
+    ok(c0.attr === "christmas" && c0.meta === "#300a11" && c0.stored === null,
+      "FT1 default boot is Christmas now, not fall: nothing stored (" + JSON.stringify({ attr: c0.attr, meta: c0.meta, stored: c0.stored }) + ")");
+    await go(page, "&theme=fall");
     const f = (await read(page)) || {};
-    ok(f.attr === "fall" && f.bg === "#1b130e" && f.card === "#2a1d14" && f.accent === "#e0782a" && f.body === "rgb(27, 19, 14)" && f.meta === "#1b130e" && f.headerBottom === "0px" && f.stored === null,
-      "FT1 default boot is fall: the fall tokens paint the body, the fall theme-color, the stripe replaces the header rule, nothing stored (" + JSON.stringify(f) + ")");
+    ok(f.attr === "fall" && f.bg === "#1b130e" && f.card === "#2a1d14" && f.accent === "#e0782a" && f.body === "rgb(27, 19, 14)" && f.meta === "#1b130e" && f.headerBottom === "0px" && f.stored === "fall",
+      "FT1 ?theme=fall: the fall tokens paint the body, the fall theme-color, the stripe replaces the header rule, the choice is stored (" + JSON.stringify(f) + ")");
     if (f.card) {
       const rs = { ink: ratio(f.ink, f.card), mut: ratio(f.mut, f.card), faint: ratio(f.faint, f.card), accent: ratio(f.accent, f.card), inkOnBlue: ratio(f.ink, f.blue) };
-      ok(rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
+      ok(f.attr === "fall" && rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
         "FT1 fall contrast on --card: ink, mut, accent and ink-on-blue clear AA, faint beats navy's 2.94 (" + JSON.stringify(Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, v.toFixed(2)]))) + ")");
     }
+    await go(page, "");
+    const f2 = (await read(page)) || {};
+    ok(f2.attr === "fall" && f2.bg === "#1b130e", "FT1 a later visit with no parameter stays fall (" + JSON.stringify({ attr: f2.attr, bg: f2.bg }) + ")");
     await go(page, "&theme=default");
     const d = (await read(page)) || {};
     ok(d.attr === null && d.bg === "#0c1017" && d.body === "rgb(12, 16, 23)" && d.meta === "#0c1017" && d.headerBottom === "1px" && d.stored === "default",
@@ -33931,12 +33947,12 @@ const sz = await evalOr(page, () => {
     await go(page, "");
     const d2 = (await read(page)) || {};
     ok(d2.attr === null && d2.bg === "#0c1017", "FT1 a later visit with no parameter stays navy (" + JSON.stringify({ attr: d2.attr, bg: d2.bg }) + ")");
-    await go(page, "&theme=fall");
+    await go(page, "&theme=christmas");
     const r = (await read(page)) || {};
     await go(page, "");
     const r2 = (await read(page)) || {};
-    ok(r.attr === "fall" && r.stored === null && r2.attr === "fall" && r2.bg === "#1b130e",
-      "FT1 ?theme=fall clears the opt-out, and fall stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr, bg: r2.bg } }) + ")");
+    ok(r.attr === "christmas" && r.stored === null && r2.attr === "christmas" && r2.bg === "#300a11",
+      "FT1 ?theme=christmas clears the opt-out, and Christmas stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr, bg: r2.bg } }) + ")");
     ok(errors.length === 0, "FT1 0 page errors (" + errors.join(" | ") + ")");
     await ctx.close();
   }
@@ -33984,7 +34000,7 @@ const sz = await evalOr(page, () => {
       await go(page, "&theme=default");
       const n = (await geo(page)) || {};
       ok(n.shown === false, "FT2 @" + W + " navy: the banner is not on screen (" + JSON.stringify({ shown: n.shown }) + ")");
-      await go(page, "&theme=fall"); // leave the stored choice cleared for later sections
+      await go(page, "&theme=christmas"); // leave the stored choice cleared (since 2026-11-27 ?theme=christmas clears it, ?theme=fall stores it)
       ok(errors.length === 0, "FT2 @" + W + " 0 page errors (" + errors.join(" | ") + ")");
       await ctx.close();
     }
@@ -34011,7 +34027,7 @@ const sz = await evalOr(page, () => {
   // green it doesnt feel very christmasy feel free to go further on the theme"). The old hexes
   // (#0e1912 ground, #f45d58 accent, #9b1c24 ribbon, 7.14:1) no longer hold; the new ones are
   // below, and the lights, the snow and the gold-accent text fix get checks of their own.
-  if (section("FT3 · Christmas theme — test mode, ?theme=christmas paints and is remembered, ?theme=fall returns, banner, contrast")) {
+  if (section("FT3 · Christmas theme — the default, ?theme=fall and ?theme=default opt out, banner, lights, snow, contrast")) {
     const lum = (hex) => {
       const c = hex.replace("#", "").match(/../g).map((x) => parseInt(x, 16) / 255)
         .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
@@ -34054,6 +34070,8 @@ const sz = await evalOr(page, () => {
           return out;
         })(),
         primary: (() => { const el = document.createElement("button"); el.className = "primary"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el); const o = { fg: c.color, bg: c.backgroundColor }; el.remove(); return o; })(),
+        danger: ["inj", "bad", "delta down"].map((k) => { const el = document.createElement("span"); el.className = k; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el).color; el.remove(); return c; }),
+        warn: (() => { const el = document.createElement("span"); el.className = "warn"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el).color; el.remove(); return c; })(),
         bad: (() => { const el = document.createElement("span"); el.className = "health bad"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el); const o = { fg: c.color, bg: c.backgroundColor }; el.remove(); return o; })(),
       };
     });
@@ -34063,15 +34081,17 @@ const sz = await evalOr(page, () => {
     };
     for (const W of [390, 1280]) {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: W, height: 844 } });
+      // RESTAGED 2026-11-27 (Perry: "make it the default"): out of test mode. A plain boot is
+      // Christmas with nothing stored, and ?theme=christmas clears storage instead of setting it.
       await go(page, "");
       const d = (await read(page)) || {};
-      ok(d.attr === "fall" && d.stored === null && !d.xShown && d.fShown,
-        "FT3 @" + W + " test mode: a plain boot is still fall, the turkey shows and the tree does not (" + JSON.stringify({ attr: d.attr, stored: d.stored, xShown: d.xShown, fShown: d.fShown }) + ")");
+      ok(d.attr === "christmas" && d.stored === null && d.xShown && !d.fShown,
+        "FT3 @" + W + " the default: a plain boot is Christmas, the tree shows and the turkey does not (" + JSON.stringify({ attr: d.attr, stored: d.stored, xShown: d.xShown, fShown: d.fShown }) + ")");
       await go(page, "&theme=christmas");
       const x = (await read(page)) || {};
       if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "gffl_christmas_" + W + ".png") });
-      ok(x.attr === "christmas" && x.bg === "#300a11" && x.card === "#45121e" && x.accent === "#f6c84c" && x.blue === "#1d5c38" && x.htmlBg === "rgb(48, 10, 17)" && x.meta === "#300a11" && x.headerBottom === "0px" && x.stored === "christmas",
-        "FT3 @" + W + " ?theme=christmas: the cranberry tokens paint the page, theme-color matches, the candy-cane stripe replaces the header rule, the choice is stored (" + JSON.stringify({ attr: x.attr, bg: x.bg, card: x.card, accent: x.accent, htmlBg: x.htmlBg, meta: x.meta, headerBottom: x.headerBottom, stored: x.stored }) + ")");
+      ok(x.attr === "christmas" && x.bg === "#300a11" && x.card === "#45121e" && x.accent === "#f6c84c" && x.blue === "#1d5c38" && x.htmlBg === "rgb(48, 10, 17)" && x.meta === "#300a11" && x.headerBottom === "0px" && x.stored === null,
+        "FT3 @" + W + " ?theme=christmas: the cranberry tokens paint the page, theme-color matches, the candy-cane stripe replaces the header rule, nothing stored (it is the default) (" + JSON.stringify({ attr: x.attr, bg: x.bg, card: x.card, accent: x.accent, htmlBg: x.htmlBg, meta: x.meta, headerBottom: x.headerBottom, stored: x.stored }) + ")");
       ok(x.xShown && !x.fShown && x.b && x.b.l > x.wR && x.b.r < x.cL && x.b.t >= x.hT && x.b.bt <= x.hB && x.hOver === 0 && x.docOver <= 0,
         "FT3 @" + W + " the tree ribbon replaces the turkey, between the wordmark and the crest, inside the header, no overflow (" + JSON.stringify({ b: x.b, wR: x.wR, cL: x.cL, hOver: x.hOver, docOver: x.docOver }) + ")");
       ok(x.text === "Merry Christmas" && x.textShown && x.inkBox && x.inkBox.l >= x.b.l && x.inkBox.r <= x.b.r && x.tree >= 28,
@@ -34095,6 +34115,10 @@ const sz = await evalOr(page, () => {
         const pr = x.primary, hb = x.bad;
         ok(pr && hb && ratio(toHex(pr.fg), toHex(pr.bg)) >= 4.5 && ratio(toHex(hb.fg), toHex(hb.bg)) >= 4.5 && hb.bg === "rgb(198, 42, 54)",
           "FT3 text on the gold accent and on the bad chip clears AA (" + JSON.stringify({ primary: pr, bad: hb, rP: pr && ratio(toHex(pr.fg), toHex(pr.bg)).toFixed(2), rB: hb && ratio(toHex(hb.fg), toHex(hb.bg)).toFixed(2) }) + ")");
+        // danger stays red: injury, .bad and a falling delta must not share .warn's gold; #ff6b74 on
+        // --card is hand-computed 5.60:1
+        ok(x.danger && x.danger.every((c) => c === "rgb(255, 107, 116)") && x.warn !== x.danger[0] && Math.abs(ratio("#ff6b74", "#45121e") - 5.60) < 0.01,
+          "FT3 injury, .bad and a falling delta are red, not the gold that .warn uses, 5.60:1 (" + JSON.stringify({ danger: x.danger, warn: x.warn }) + ")");
         ok(x.snow && x.snow.content !== "none" && x.snow.position === "fixed" && x.snow.z === "-1" && x.snow.anim === "xmasSnow" && x.bodyBg === "rgba(0, 0, 0, 0)" && /radial-gradient/.test(x.cardImg || ""),
           "FT3 snow falls behind the cards (fixed, z -1, animated, body transparent) and the cards wear snow caps (" + JSON.stringify({ snow: x.snow, bodyBg: x.bodyBg, cardImg: (x.cardImg || "").slice(0, 40) }) + ")");
       }
@@ -34109,8 +34133,9 @@ const sz = await evalOr(page, () => {
       const r = (await read(page)) || {};
       await go(page, "");
       const r2 = (await read(page)) || {};
-      ok(r.attr === "fall" && r.stored === null && r2.attr === "fall" && r2.fShown && !r2.xShown,
-        "FT3 @" + W + " ?theme=fall leaves Christmas, and fall stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr } }) + ")");
+      ok(r.attr === "fall" && r.stored === "fall" && r2.attr === "fall" && r2.fShown && !r2.xShown,
+        "FT3 @" + W + " ?theme=fall leaves Christmas and is stored, and fall stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr } }) + ")");
+      await go(page, "&theme=christmas");
       ok(errors.length === 0, "FT3 @" + W + " 0 page errors (" + errors.join(" | ") + ")");
       await ctx.close();
     }
@@ -34124,7 +34149,6 @@ const sz = await evalOr(page, () => {
       const rm = (await read(page)) || {};
       ok(rm.snow && rm.snow.position === "fixed" && rm.snow.anim === "none" && rm.lights && rm.lights.header && rm.lights.header.shown && rm.lights.header && rm.lights.header.glowAnim === "none",
         "FT3 reduced motion: the snow and the twinkle hold still (" + JSON.stringify({ snow: rm.snow, lights: rm.lights }) + ")");
-      await go(page, "&theme=fall");
       await ctx.close();
     }
   }
