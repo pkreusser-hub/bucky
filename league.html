@@ -12,20 +12,28 @@
      switches this browser back to navy and remembers it (localStorage "gffl-theme" = "default");
      ?theme=fall clears that. It runs here, before the stylesheet paints, so the page never
      flashes the other theme first. The theme itself is the :root[data-theme="fall"] token block
-     in the stylesheet: values only, no new token names, so navy is still the :root base. -->
+     in the stylesheet: values only, no new token names, so navy is still the :root base.
+     CHRISTMAS, TEST MODE (2026-11-27, Perry: "Similar to how we did a fall theme for gffl, I now
+     want to do a Christmas theme"). Off by default, the way fall started: ?theme=christmas (or
+     xmas) switches this browser to it and remembers it (localStorage "gffl-theme" = "christmas");
+     ?theme=fall returns to the default and ?theme=default still means navy. -->
 <script>
 (function () {
-  var K = "gffl-theme", q = null, navy = false;
+  var K = "gffl-theme", q = null, pick = null, stored = null;
   try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
-  var wantNavy = q === "default" || q === "navy" || q === "off";
+  if (q === "default" || q === "navy" || q === "off") pick = "default";
+  else if (q === "christmas" || q === "xmas") pick = "christmas";
+  else if (q === "fall") pick = "fall";
   try {
-    if (q === "fall") localStorage.removeItem(K);
-    else if (wantNavy) localStorage.setItem(K, "default");
-    navy = wantNavy || (q !== "fall" && localStorage.getItem(K) === "default");
-  } catch (e) { navy = wantNavy; }
+    if (pick === "fall") localStorage.removeItem(K);
+    else if (pick) localStorage.setItem(K, pick);
+    stored = localStorage.getItem(K);
+  } catch (e) {}
+  var theme = pick || (stored === "default" || stored === "christmas" ? stored : "fall");
   var m = document.querySelector('meta[name="theme-color"]');
-  if (navy) { if (m) m.setAttribute("content", "#0c1017"); return; }
-  document.documentElement.setAttribute("data-theme", "fall");
+  if (theme === "default") { if (m) m.setAttribute("content", "#0c1017"); return; }
+  if (theme === "christmas" && m) m.setAttribute("content", "#0e1912");
+  document.documentElement.setAttribute("data-theme", theme);
 })();
 </script>
 <!-- ITEM 33 (2026-08-10, user: "hide the browser bar at the top so it truly behaves like an
@@ -166,6 +174,24 @@
     --green-lt:#86b155;
     --row-hover:#241911; --row-hover2:#2e2016;
   }
+  /* CHRISTMAS THEME (test mode since 2026-11-27; see the switch in <head>). Same token NAMES,
+     Christmas VALUES: a deep evergreen ground, snow-white ink, a holly red accent, gold, a bright
+     pine green for "good", and cranberry for the "selected" fills --blue drives (and the banner
+     ribbon). Measured against --card #15251c: ink 14.05:1, mut 7.71, faint 4.93 (navy 2.94),
+     accent 4.99, green 6.66, green-lt 8.28, gold 9.61; ink on --blue 7.14. */
+  :root[data-theme="christmas"] {
+    --bg:#0e1912; --bg-page:#09110c; --tabbar:#0f1c14; --band:#122018;
+    --card:#15251c; --nested:#1b2e23; --nested2:#101c15;
+    --border-card:#294234; --divider:#294234; --divider2:#1b2e23; --border-hover:#3b5a47;
+    --ink:#f4f0e6; --ink2:#d6dccf; --mut:#a9b8ab; --faint:#81938a;
+    --accent:#f45d58; --green:#62b97c; --gold:#ecc45c; --blue:#9b1c24;
+    --green-lt:#7fcb94;
+    --row-hover:#13221a; --row-hover2:#192b21;
+  }
+  /* the candy-cane stripe under the header, Christmas only: it replaces the 1px bottom border */
+  :root[data-theme="christmas"] header { border-bottom:0;
+    background-image:repeating-linear-gradient(135deg, #c8202a 0 6px, #f4f0e6 6px 12px);
+    background-size:100% 4px; background-repeat:no-repeat; background-position:bottom; }
   /* the flannel stripe under the header, fall only: it replaces the 1px bottom border */
   :root[data-theme="fall"] header { border-bottom:0;
     background-image:repeating-linear-gradient(90deg, #8a3b1e 0 14px, #c8662b 14px 18px, #8a3b1e 18px 32px, #5a3b22 32px 36px);
@@ -208,13 +234,15 @@
      other way here: an author display rule is the switch, so it lives on the theme selector).
      Centred in the space between the wordmark and the crest by its own auto margins; the words
      drop on a very narrow phone and the turkey stays. Cream on rust reads 7.69:1. */
-  header .fallbanner { display:none; }
-  :root[data-theme="fall"] header .fallbanner { display:flex; align-items:center; gap:6px; margin:0 auto;
+  /* The Christmas banner (2026-11-27) is the same ribbon with a drawn tree, shown only under
+     the Christmas theme. Snow on cranberry reads 7.14:1. */
+  header .fallbanner, header .xmasbanner { display:none; }
+  :root[data-theme="fall"] header .fallbanner, :root[data-theme="christmas"] header .xmasbanner { display:flex; align-items:center; gap:6px; margin:0 auto;
     flex:0 1 auto; min-width:0; height:30px; padding:0 14px 0 10px; background:var(--blue); color:var(--ink);
     clip-path:polygon(0 0, 100% 0, calc(100% - 8px) 50%, 100% 100%, 0 100%, 8px 50%); }
-  header .fallbanner .turkey { flex:0 0 auto; display:block; }
-  header .fallbanner .fbtext { font:600 14px/1 var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; }
-  @media (max-width:359px) { header .fallbanner .fbtext { display:none; } }
+  header .fallbanner .turkey, header .xmasbanner .tree { flex:0 0 auto; display:block; }
+  header .fallbanner .fbtext, header .xmasbanner .fbtext { font:600 14px/1 var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; }
+  @media (max-width:359px) { header .fallbanner .fbtext, header .xmasbanner .fbtext { display:none; } }
   #hWeekYear { font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--mut); white-space:nowrap; }
   #hAvatar { width:32px; height:32px; border-radius:50%; flex:0 0 auto; overflow:hidden; cursor:pointer;
              background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
@@ -2556,6 +2584,22 @@
         <path d="M16.5 29.5 v2 M23.5 29.5 v2" stroke="#e8b04a" stroke-width="1.4" stroke-linecap="round"></path>
       </svg>
       <span class="fbtext">Gobble Gobble</span>
+    </span>
+    <!-- CHRISTMAS BANNER (2026-11-27). The same ribbon in cranberry with a drawn tree; Christmas
+         theme only. Decorative, so aria-hidden. -->
+    <span class="xmasbanner" aria-hidden="true">
+      <svg class="tree" viewBox="0 0 32 32" width="30" height="30">
+        <path d="M16 4 L24 15 H20 L27 25 H5 L12 15 H8 Z" fill="#2f8a4c"></path>
+        <path d="M16 4 L20 9.5 H12 Z" fill="#3fa35f"></path>
+        <rect x="14" y="25" width="4" height="4" fill="#7a4a26"></rect>
+        <path d="M16 0.6 l1.1 2.3 2.5 0.3 -1.8 1.7 0.5 2.5 -2.3 -1.2 -2.3 1.2 0.5 -2.5 -1.8 -1.7 2.5 -0.3 Z" fill="#ecc45c"></path>
+        <circle cx="14" cy="12.5" r="1.3" fill="#ecc45c"></circle>
+        <circle cx="18.5" cy="17.5" r="1.4" fill="#f4f0e6"></circle>
+        <circle cx="12" cy="20.5" r="1.4" fill="#ecc45c"></circle>
+        <circle cx="21.5" cy="22" r="1.4" fill="#f45d58"></circle>
+        <circle cx="15.5" cy="22.5" r="1.2" fill="#f4f0e6"></circle>
+      </svg>
+      <span class="fbtext">Merry Christmas</span>
     </span>
     <span class="sub">G.O.A.T. Fantasy Football League</span>
     <span class="hmeta" id="hMeta" hidden>

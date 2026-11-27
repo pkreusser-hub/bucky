@@ -34001,6 +34001,97 @@ const sz = await evalOr(page, () => {
       "FT2 the ribbon is cream on rust, 7.69:1 (" + JSON.stringify({ bg: lastFall.bg, fg: lastFall.fg }) + ")");
   }
 
+  // ---- FT3 · Christmas theme, test mode (2026-11-27, Perry: "Similar to how we did a fall theme
+  // for gffl, I now want to do a Christmas theme"). Off by default, as fall started: a plain boot
+  // stays fall; ?theme=christmas paints the evergreen tokens and remembers it; ?theme=fall returns
+  // to the default. The banner swaps: tree ribbon on, turkey off, same geometry rules as FT2.
+  // Expected values are the hex tokens in league.html's :root[data-theme="christmas"] block; the
+  // contrast floors are hand-computed WCAG.
+  if (section("FT3 · Christmas theme — test mode, ?theme=christmas paints and is remembered, ?theme=fall returns, banner, contrast")) {
+    const lum = (hex) => {
+      const c = hex.replace("#", "").match(/../g).map((x) => parseInt(x, 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    const read = (page) => evalOr(page, () => {
+      const cs = getComputedStyle(document.documentElement), t = (n) => cs.getPropertyValue(n).trim().toLowerCase();
+      const q = (s) => document.querySelector(s), r = (el) => (el ? el.getBoundingClientRect() : null);
+      const x = q("header .xmasbanner"), f = q("header .fallbanner"), w = q("header .wordmark"), c = q("header .hcrest"), h = q("header");
+      const tx = x && x.querySelector(".fbtext"), tr = x && x.querySelector(".tree");
+      let inkBox = null;
+      if (tx && tx.offsetParent !== null) { const rg = document.createRange(); rg.selectNodeContents(tx); const rr = rg.getBoundingClientRect(); inkBox = { l: rr.left, r: rr.right }; }
+      return {
+        attr: document.documentElement.getAttribute("data-theme"),
+        bg: t("--bg"), card: t("--card"), ink: t("--ink"), mut: t("--mut"), faint: t("--faint"), accent: t("--accent"),
+        green: t("--green"), gold: t("--gold"), blue: t("--blue"),
+        body: getComputedStyle(document.body).backgroundColor,
+        meta: (q('meta[name="theme-color"]') || {}).content,
+        headerBottom: h ? getComputedStyle(h).borderBottomWidth : null,
+        stored: (() => { try { return localStorage.getItem("gffl-theme"); } catch (e) { return "ERR"; } })(),
+        xShown: !!x && x.offsetParent !== null, fShown: !!f && f.offsetParent !== null,
+        b: r(x) && { l: r(x).left, r: r(x).right, t: r(x).top, bt: r(x).bottom },
+        wR: r(w) && r(w).right, cL: r(c) && r(c).left, hT: r(h) && r(h).top, hB: r(h) && r(h).bottom,
+        hOver: h ? h.scrollWidth - h.clientWidth : null, docOver: document.documentElement.scrollWidth - window.innerWidth,
+        text: tx ? tx.textContent.replace(/\s+/g, " ").trim() : null, textShown: !!tx && tx.offsetParent !== null, inkBox,
+        tree: tr ? tr.getBoundingClientRect().width : 0,
+        ribBg: x ? getComputedStyle(x).backgroundColor : null, ribFg: x ? getComputedStyle(x).color : null,
+      };
+    });
+    const go = async (page, extra) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + extra, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    };
+    for (const W of [390, 1280]) {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: W, height: 844 } });
+      await go(page, "");
+      const d = (await read(page)) || {};
+      ok(d.attr === "fall" && d.stored === null && !d.xShown && d.fShown,
+        "FT3 @" + W + " test mode: a plain boot is still fall, the turkey shows and the tree does not (" + JSON.stringify({ attr: d.attr, stored: d.stored, xShown: d.xShown, fShown: d.fShown }) + ")");
+      await go(page, "&theme=christmas");
+      const x = (await read(page)) || {};
+      if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "gffl_christmas_" + W + ".png") });
+      ok(x.attr === "christmas" && x.bg === "#0e1912" && x.card === "#15251c" && x.accent === "#f45d58" && x.blue === "#9b1c24" && x.body === "rgb(14, 25, 18)" && x.meta === "#0e1912" && x.headerBottom === "0px" && x.stored === "christmas",
+        "FT3 @" + W + " ?theme=christmas: the evergreen tokens paint the body, theme-color matches, the candy-cane stripe replaces the header rule, the choice is stored (" + JSON.stringify({ attr: x.attr, bg: x.bg, card: x.card, accent: x.accent, body: x.body, meta: x.meta, headerBottom: x.headerBottom, stored: x.stored }) + ")");
+      ok(x.xShown && !x.fShown && x.b && x.b.l > x.wR && x.b.r < x.cL && x.b.t >= x.hT && x.b.bt <= x.hB && x.hOver === 0 && x.docOver <= 0,
+        "FT3 @" + W + " the tree ribbon replaces the turkey, between the wordmark and the crest, inside the header, no overflow (" + JSON.stringify({ b: x.b, wR: x.wR, cL: x.cL, hOver: x.hOver, docOver: x.docOver }) + ")");
+      ok(x.text === "Merry Christmas" && x.textShown && x.inkBox && x.inkBox.l >= x.b.l && x.inkBox.r <= x.b.r && x.tree >= 28,
+        "FT3 @" + W + " the tree is drawn and the words sit inside the ribbon (" + JSON.stringify({ text: x.text, inkBox: x.inkBox, b: x.b, tree: x.tree }) + ")");
+      if (W === 390 && x.card) {
+        const rs = { ink: ratio(x.ink, x.card), mut: ratio(x.mut, x.card), faint: ratio(x.faint, x.card), accent: ratio(x.accent, x.card), green: ratio(x.green, x.card), gold: ratio(x.gold, x.card), inkOnBlue: ratio(x.ink, x.blue) };
+        ok(x.attr === "christmas" && rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.green >= 4.5 && rs.gold >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
+          "FT3 Christmas contrast on --card: ink, mut, accent, green, gold and ink-on-blue clear AA, faint beats navy's 2.94 (" + JSON.stringify(Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, v.toFixed(2)]))) + ")");
+        // the ribbon paints --blue #9b1c24 under --ink #f4f0e6; hand-computed, that is 7.14:1
+        ok(x.ribBg === "rgb(155, 28, 36)" && x.ribFg === "rgb(244, 240, 230)" && Math.abs(ratio("#f4f0e6", "#9b1c24") - 7.14) < 0.01,
+          "FT3 the ribbon is snow on cranberry, 7.14:1 (" + JSON.stringify({ bg: x.ribBg, fg: x.ribFg }) + ")");
+      }
+      await go(page, "");
+      const x2 = (await read(page)) || {};
+      ok(x2.attr === "christmas" && x2.bg === "#0e1912", "FT3 @" + W + " a later visit with no parameter stays Christmas (" + JSON.stringify({ attr: x2.attr, bg: x2.bg }) + ")");
+      await go(page, "&theme=default");
+      const n = (await read(page)) || {};
+      ok(n.attr === null && n.stored === "default" && !n.xShown && !n.fShown, "FT3 @" + W + " ?theme=default from Christmas is navy, no banner (" + JSON.stringify({ attr: n.attr, stored: n.stored }) + ")");
+      await go(page, "&theme=christmas");
+      await go(page, "&theme=fall");
+      const r = (await read(page)) || {};
+      await go(page, "");
+      const r2 = (await read(page)) || {};
+      ok(r.attr === "fall" && r.stored === null && r2.attr === "fall" && r2.fShown && !r2.xShown,
+        "FT3 @" + W + " ?theme=fall leaves Christmas, and fall stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr } }) + ")");
+      ok(errors.length === 0, "FT3 @" + W + " 0 page errors (" + errors.join(" | ") + ")");
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await newTestPage(browser, fullSeed(), { vw: { width: 340, height: 700 } });
+      await go(page, "&theme=christmas");
+      const g = (await read(page)) || {};
+      ok(g.xShown && !g.textShown && g.tree >= 28 && g.b.l > g.wR && g.b.r < g.cL && g.hOver === 0,
+        "FT3 @340 the words drop, the tree stays, still between wordmark and crest with no overflow (" + JSON.stringify({ b: g.b, wR: g.wR, cL: g.cL, tree: g.tree }) + ")");
+      await go(page, "&theme=fall");
+      await ctx.close();
+    }
+  }
+
   if (section("AVG · lg-*.js bytes match the recorded hashes for the current gffl-v")) {
     const crypto = require("crypto");
     const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");

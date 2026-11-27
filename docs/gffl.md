@@ -11556,3 +11556,35 @@ says `"preview"`; no new alert kind was added.
 run, the weekly dry run still reading `issue.json`, the description guard, and the special staying out
 of `listIssues`). **Bite** (HEAD's `announce.mjs`, no `push.json`): 884/886, exactly the two
 push.json checks fail.
+
+## 2026-11-27 — Christmas theme, test mode (off by default)
+
+Perry: "Similar to how we did a fall theme for gffl, I now want to do a Christmas theme". Built
+the way fall started: test mode first, fall stays the default.
+
+**Switch:** `league.html?theme=christmas` (or `xmas`) turns it on in that browser and remembers
+it (`localStorage["gffl-theme"] = "christmas"`). `?theme=fall` goes back to the default and
+clears storage; `?theme=default` still means navy. The head script now resolves one of three
+themes (stored `"default"` → navy, stored `"christmas"` → Christmas, anything else → fall) and
+sets the `theme-color` meta to `#0e1912` for Christmas. The static meta and the manifest stay
+fall, since fall is still what everyone sees.
+
+**Theme:** a `:root[data-theme="christmas"]` block, values only: evergreen ground `#0e1912`,
+cards `#15251c`, snow ink `#f4f0e6`, holly red accent `#f45d58`, gold `#ecc45c`, pine green
+`#62b97c`, cranberry `#9b1c24` for `--blue`. A diagonal red-and-white candy-cane stripe replaces
+the header rule. On `--card`: ink 14.05:1, mut 7.71, faint 4.93, accent 4.99, green 6.66, gold
+9.61; ink on `--blue` 7.14.
+
+**Banner:** `.xmasbanner`, a cranberry ribbon with the same notched shape as the turkey one, a
+drawn SVG tree (gold star, ornaments) and "Merry Christmas". It shares the turkey ribbon's CSS,
+so the same layout and the same below-360px word drop apply. Christmas only; the turkey shows
+only under fall.
+
+**Not themed** (same list as fall): lg-core.js's team-colour contrast loop, the `.conflictflag`
+chip and the football field. No lg-*.js change, so no version bump.
+
+**VERIFY:** new section **FT3** (19 checks at 390, 1280 and 340: plain boot still fall,
+`?theme=christmas` paints, stores and swaps the banner, geometry, contrast, remembered,
+`?theme=default` and `?theme=fall` leave it, 0 page errors). `--shots` writes
+`gffl_christmas_390.png` / `_1280.png` to the scratchpad. **Bite** (HEAD's `league.html`):
+FT1–FT3 24 pass / 11 fail, exactly the 11 Christmas checks; FT1 and FT2 all pass.
