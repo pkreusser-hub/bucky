@@ -34001,6 +34001,134 @@ const sz = await evalOr(page, () => {
       "FT2 the ribbon is cream on rust, 7.69:1 (" + JSON.stringify({ bg: lastFall.bg, fg: lastFall.fg }) + ")");
   }
 
+  // ---- FT3 · Christmas theme, test mode (2026-11-27, Perry: "Similar to how we did a fall theme
+  // for gffl, I now want to do a Christmas theme"). Off by default, as fall started: a plain boot
+  // stays fall; ?theme=christmas paints the evergreen tokens and remembers it; ?theme=fall returns
+  // to the default. The banner swaps: tree ribbon on, turkey off, same geometry rules as FT2.
+  // Expected values are the hex tokens in league.html's :root[data-theme="christmas"] block; the
+  // contrast floors are hand-computed WCAG.
+  // RESTAGED the same day from an evergreen ground to cranberry red (Perry: "I dont like the dark
+  // green it doesnt feel very christmasy feel free to go further on the theme"). The old hexes
+  // (#0e1912 ground, #f45d58 accent, #9b1c24 ribbon, 7.14:1) no longer hold; the new ones are
+  // below, and the lights, the snow and the gold-accent text fix get checks of their own.
+  if (section("FT3 · Christmas theme — test mode, ?theme=christmas paints and is remembered, ?theme=fall returns, banner, contrast")) {
+    const lum = (hex) => {
+      const c = hex.replace("#", "").match(/../g).map((x) => parseInt(x, 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    const read = (page) => evalOr(page, () => {
+      const cs = getComputedStyle(document.documentElement), t = (n) => cs.getPropertyValue(n).trim().toLowerCase();
+      const q = (s) => document.querySelector(s), r = (el) => (el ? el.getBoundingClientRect() : null);
+      const x = q("header .xmasbanner"), f = q("header .fallbanner"), w = q("header .wordmark"), c = q("header .hcrest"), h = q("header");
+      const tx = x && x.querySelector(".fbtext"), tr = x && x.querySelector(".tree");
+      let inkBox = null;
+      if (tx && tx.offsetParent !== null) { const rg = document.createRange(); rg.selectNodeContents(tx); const rr = rg.getBoundingClientRect(); inkBox = { l: rr.left, r: rr.right }; }
+      return {
+        attr: document.documentElement.getAttribute("data-theme"),
+        bg: t("--bg"), card: t("--card"), ink: t("--ink"), mut: t("--mut"), faint: t("--faint"), accent: t("--accent"),
+        green: t("--green"), gold: t("--gold"), blue: t("--blue"),
+        body: getComputedStyle(document.body).backgroundColor,
+        meta: (q('meta[name="theme-color"]') || {}).content,
+        headerBottom: h ? getComputedStyle(h).borderBottomWidth : null,
+        stored: (() => { try { return localStorage.getItem("gffl-theme"); } catch (e) { return "ERR"; } })(),
+        xShown: !!x && x.offsetParent !== null, fShown: !!f && f.offsetParent !== null,
+        b: r(x) && { l: r(x).left, r: r(x).right, t: r(x).top, bt: r(x).bottom },
+        wR: r(w) && r(w).right, cL: r(c) && r(c).left, hT: r(h) && r(h).top, hB: r(h) && r(h).bottom,
+        hOver: h ? h.scrollWidth - h.clientWidth : null, docOver: document.documentElement.scrollWidth - window.innerWidth,
+        text: tx ? tx.textContent.replace(/\s+/g, " ").trim() : null, textShown: !!tx && tx.offsetParent !== null, inkBox,
+        tree: tr ? tr.getBoundingClientRect().width : 0,
+        ribBg: x ? getComputedStyle(x).backgroundColor : null, ribFg: x ? getComputedStyle(x).color : null,
+        htmlBg: getComputedStyle(document.documentElement).backgroundColor, bodyBg: getComputedStyle(document.body).backgroundColor,
+        snow: (() => { const c = getComputedStyle(document.body, "::before"); return { content: c.content, position: c.position, z: c.zIndex, anim: c.animationName }; })(),
+        cardImg: (() => { const c = q(".card"); return c ? getComputedStyle(c).backgroundImage : null; })(),
+        // the lights: whichever of header / .bnav carries them at this width, and where they hang
+        lights: (() => {
+          const nav = q(".bnav"), out = {};
+          for (const [k, el] of [["header", h], ["bnav", nav]]) {
+            if (!el) continue;
+            const c = getComputedStyle(el, "::after"), cb = getComputedStyle(el, "::before"), er = el.getBoundingClientRect();
+            out[k] = { shown: c.content !== "none" && c.display !== "none", glowAnim: cb.animationName, bottom: c.bottom, hostBottom: er.bottom, hostZ: getComputedStyle(el).zIndex };
+          }
+          return out;
+        })(),
+        primary: (() => { const el = document.createElement("button"); el.className = "primary"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el); const o = { fg: c.color, bg: c.backgroundColor }; el.remove(); return o; })(),
+        bad: (() => { const el = document.createElement("span"); el.className = "health bad"; el.textContent = "x"; document.body.appendChild(el); const c = getComputedStyle(el); const o = { fg: c.color, bg: c.backgroundColor }; el.remove(); return o; })(),
+      };
+    });
+    const go = async (page, extra) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + extra, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    };
+    for (const W of [390, 1280]) {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: W, height: 844 } });
+      await go(page, "");
+      const d = (await read(page)) || {};
+      ok(d.attr === "fall" && d.stored === null && !d.xShown && d.fShown,
+        "FT3 @" + W + " test mode: a plain boot is still fall, the turkey shows and the tree does not (" + JSON.stringify({ attr: d.attr, stored: d.stored, xShown: d.xShown, fShown: d.fShown }) + ")");
+      await go(page, "&theme=christmas");
+      const x = (await read(page)) || {};
+      if (SHOTS) await page.screenshot({ path: path.join(SCRATCH, "gffl_christmas_" + W + ".png") });
+      ok(x.attr === "christmas" && x.bg === "#300a11" && x.card === "#45121e" && x.accent === "#f6c84c" && x.blue === "#1d5c38" && x.htmlBg === "rgb(48, 10, 17)" && x.meta === "#300a11" && x.headerBottom === "0px" && x.stored === "christmas",
+        "FT3 @" + W + " ?theme=christmas: the cranberry tokens paint the page, theme-color matches, the candy-cane stripe replaces the header rule, the choice is stored (" + JSON.stringify({ attr: x.attr, bg: x.bg, card: x.card, accent: x.accent, htmlBg: x.htmlBg, meta: x.meta, headerBottom: x.headerBottom, stored: x.stored }) + ")");
+      ok(x.xShown && !x.fShown && x.b && x.b.l > x.wR && x.b.r < x.cL && x.b.t >= x.hT && x.b.bt <= x.hB && x.hOver === 0 && x.docOver <= 0,
+        "FT3 @" + W + " the tree ribbon replaces the turkey, between the wordmark and the crest, inside the header, no overflow (" + JSON.stringify({ b: x.b, wR: x.wR, cL: x.cL, hOver: x.hOver, docOver: x.docOver }) + ")");
+      ok(x.text === "Merry Christmas" && x.textShown && x.inkBox && x.inkBox.l >= x.b.l && x.inkBox.r <= x.b.r && x.tree >= 28,
+        "FT3 @" + W + " the tree is drawn and the words sit inside the ribbon (" + JSON.stringify({ text: x.text, inkBox: x.inkBox, b: x.b, tree: x.tree }) + ")");
+      // lights: on a phone they hang off the header (the tab bar is at the bottom); on a desktop
+      // the sticky tab row (z 30) sits under the header and would cover them, so they hang off it
+      const L = x.lights || {};
+      ok(W < 1024 ? (L.header && L.header.shown && L.bnav && !L.bnav.shown && L.header.glowAnim === "xmasTwinkle")
+                  : (L.bnav && L.bnav.shown && L.header && !L.header.shown && L.bnav.glowAnim === "xmasTwinkle" && L.bnav.hostBottom >= (x.hB || 0)),
+        "FT3 @" + W + " the string of lights hangs off the " + (W < 1024 ? "header" : "tab row") + " and twinkles (" + JSON.stringify(L) + ")");
+      if (W === 390 && x.card) {
+        const rs = { ink: ratio(x.ink, x.card), mut: ratio(x.mut, x.card), faint: ratio(x.faint, x.card), accent: ratio(x.accent, x.card), green: ratio(x.green, x.card), gold: ratio(x.gold, x.card), inkOnBlue: ratio(x.ink, x.blue) };
+        ok(x.attr === "christmas" && rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.green >= 4.5 && rs.gold >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
+          "FT3 Christmas contrast on --card: ink, mut, accent, green, gold and ink-on-blue clear AA, faint beats navy's 2.94 (" + JSON.stringify(Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, v.toFixed(2)]))) + ")");
+        // the ribbon paints --blue #1d5c38 under --ink #fbf5ec; hand-computed, that is 7.34:1
+        ok(x.ribBg === "rgb(29, 92, 56)" && x.ribFg === "rgb(251, 245, 236)" && Math.abs(ratio("#fbf5ec", "#1d5c38") - 7.34) < 0.01,
+          "FT3 the ribbon is snow on green, 7.34:1 (" + JSON.stringify({ bg: x.ribBg, fg: x.ribFg }) + ")");
+        // gold accent: white on it would be 1.6:1, so accent fills carry the card red (9.78:1);
+        // the "bad" chip keeps a real red under white, 5.55:1. Read off live probe elements.
+        const toHex = (rgb) => "#" + (rgb.match(/\d+/g) || []).slice(0, 3).map((n) => (+n).toString(16).padStart(2, "0")).join("");
+        const pr = x.primary, hb = x.bad;
+        ok(pr && hb && ratio(toHex(pr.fg), toHex(pr.bg)) >= 4.5 && ratio(toHex(hb.fg), toHex(hb.bg)) >= 4.5 && hb.bg === "rgb(198, 42, 54)",
+          "FT3 text on the gold accent and on the bad chip clears AA (" + JSON.stringify({ primary: pr, bad: hb, rP: pr && ratio(toHex(pr.fg), toHex(pr.bg)).toFixed(2), rB: hb && ratio(toHex(hb.fg), toHex(hb.bg)).toFixed(2) }) + ")");
+        ok(x.snow && x.snow.content !== "none" && x.snow.position === "fixed" && x.snow.z === "-1" && x.snow.anim === "xmasSnow" && x.bodyBg === "rgba(0, 0, 0, 0)" && /radial-gradient/.test(x.cardImg || ""),
+          "FT3 snow falls behind the cards (fixed, z -1, animated, body transparent) and the cards wear snow caps (" + JSON.stringify({ snow: x.snow, bodyBg: x.bodyBg, cardImg: (x.cardImg || "").slice(0, 40) }) + ")");
+      }
+      await go(page, "");
+      const x2 = (await read(page)) || {};
+      ok(x2.attr === "christmas" && x2.bg === "#300a11", "FT3 @" + W + " a later visit with no parameter stays Christmas (" + JSON.stringify({ attr: x2.attr, bg: x2.bg }) + ")");
+      await go(page, "&theme=default");
+      const n = (await read(page)) || {};
+      ok(n.attr === null && n.stored === "default" && !n.xShown && !n.fShown, "FT3 @" + W + " ?theme=default from Christmas is navy, no banner (" + JSON.stringify({ attr: n.attr, stored: n.stored }) + ")");
+      await go(page, "&theme=christmas");
+      await go(page, "&theme=fall");
+      const r = (await read(page)) || {};
+      await go(page, "");
+      const r2 = (await read(page)) || {};
+      ok(r.attr === "fall" && r.stored === null && r2.attr === "fall" && r2.fShown && !r2.xShown,
+        "FT3 @" + W + " ?theme=fall leaves Christmas, and fall stays on the next visit (" + JSON.stringify({ r: { attr: r.attr, stored: r.stored }, r2: { attr: r2.attr } }) + ")");
+      ok(errors.length === 0, "FT3 @" + W + " 0 page errors (" + errors.join(" | ") + ")");
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await newTestPage(browser, fullSeed(), { vw: { width: 340, height: 700 } });
+      await go(page, "&theme=christmas");
+      const g = (await read(page)) || {};
+      ok(g.xShown && !g.textShown && g.tree >= 28 && g.b.l > g.wR && g.b.r < g.cL && g.hOver === 0,
+        "FT3 @340 the words drop, the tree stays, still between wordmark and crest with no overflow (" + JSON.stringify({ b: g.b, wR: g.wR, cL: g.cL, tree: g.tree }) + ")");
+      await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+      const rm = (await read(page)) || {};
+      ok(rm.snow && rm.snow.position === "fixed" && rm.snow.anim === "none" && rm.lights && rm.lights.header && rm.lights.header.shown && rm.lights.header && rm.lights.header.glowAnim === "none",
+        "FT3 reduced motion: the snow and the twinkle hold still (" + JSON.stringify({ snow: rm.snow, lights: rm.lights }) + ")");
+      await go(page, "&theme=fall");
+      await ctx.close();
+    }
+  }
+
   if (section("AVG · lg-*.js bytes match the recorded hashes for the current gffl-v")) {
     const crypto = require("crypto");
     const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");

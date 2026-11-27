@@ -12,20 +12,28 @@
      switches this browser back to navy and remembers it (localStorage "gffl-theme" = "default");
      ?theme=fall clears that. It runs here, before the stylesheet paints, so the page never
      flashes the other theme first. The theme itself is the :root[data-theme="fall"] token block
-     in the stylesheet: values only, no new token names, so navy is still the :root base. -->
+     in the stylesheet: values only, no new token names, so navy is still the :root base.
+     CHRISTMAS, TEST MODE (2026-11-27, Perry: "Similar to how we did a fall theme for gffl, I now
+     want to do a Christmas theme"). Off by default, the way fall started: ?theme=christmas (or
+     xmas) switches this browser to it and remembers it (localStorage "gffl-theme" = "christmas");
+     ?theme=fall returns to the default and ?theme=default still means navy. -->
 <script>
 (function () {
-  var K = "gffl-theme", q = null, navy = false;
+  var K = "gffl-theme", q = null, pick = null, stored = null;
   try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
-  var wantNavy = q === "default" || q === "navy" || q === "off";
+  if (q === "default" || q === "navy" || q === "off") pick = "default";
+  else if (q === "christmas" || q === "xmas") pick = "christmas";
+  else if (q === "fall") pick = "fall";
   try {
-    if (q === "fall") localStorage.removeItem(K);
-    else if (wantNavy) localStorage.setItem(K, "default");
-    navy = wantNavy || (q !== "fall" && localStorage.getItem(K) === "default");
-  } catch (e) { navy = wantNavy; }
+    if (pick === "fall") localStorage.removeItem(K);
+    else if (pick) localStorage.setItem(K, pick);
+    stored = localStorage.getItem(K);
+  } catch (e) {}
+  var theme = pick || (stored === "default" || stored === "christmas" ? stored : "fall");
   var m = document.querySelector('meta[name="theme-color"]');
-  if (navy) { if (m) m.setAttribute("content", "#0c1017"); return; }
-  document.documentElement.setAttribute("data-theme", "fall");
+  if (theme === "default") { if (m) m.setAttribute("content", "#0c1017"); return; }
+  if (theme === "christmas" && m) m.setAttribute("content", "#300a11");
+  document.documentElement.setAttribute("data-theme", theme);
 })();
 </script>
 <!-- ITEM 33 (2026-08-10, user: "hide the browser bar at the top so it truly behaves like an
@@ -166,6 +174,79 @@
     --green-lt:#86b155;
     --row-hover:#241911; --row-hover2:#2e2016;
   }
+  /* CHRISTMAS THEME (test mode since 2026-11-27; see the switch in <head>). Same token NAMES,
+     Christmas VALUES. RESTAGED the same day from an evergreen ground (Perry: "I dont like the dark
+     green it doesnt feel very christmasy feel free to go further on the theme"): the ground is now
+     a deep cranberry red, the accent is gold (it was holly red, which would vanish on a red
+     ground), green moves to the "good" token and the "selected" fills --blue drives (and the
+     banner ribbon). Measured against --card #45121e: ink 14.26:1, mut 8.62, faint 5.40 (navy
+     2.94), accent 9.78, gold 11.37, green 8.63, green-lt 10.28; ink on --blue 7.34. */
+  :root[data-theme="christmas"] {
+    --bg:#300a11; --bg-page:#22070c; --tabbar:#330b13; --band:#3a0d17;
+    --card:#45121e; --nested:#521826; --nested2:#3a0e18;
+    --border-card:#6a2234; --divider:#6a2234; --divider2:#521826; --border-hover:#8a3045;
+    --ink:#fbf5ec; --ink2:#ecdccf; --mut:#dcbab2; --faint:#b88f89;
+    --accent:#f6c84c; --green:#7ed492; --gold:#ffd978; --blue:#1d5c38;
+    --green-lt:#9be3aa;
+    --row-hover:#3b0e17; --row-hover2:#4b1522;
+  }
+  /* The accent is gold here, and white text on gold reads 1.6:1, so every white-on-accent fill
+     takes the card red instead (9.78:1). The injury "bad" chip keeps a real red: gold would not
+     read as bad. White on #c62a36 is 5.55:1. */
+  :root[data-theme="christmas"] #hAvatar, :root[data-theme="christmas"] button.primary,
+  :root[data-theme="christmas"] .draftlive .draftjoin, :root[data-theme="christmas"] .faMoveBtn:hover,
+  :root[data-theme="christmas"] .lgdeskbar .dldone, :root[data-theme="christmas"] #offlineChip { color:#45121e; }
+  :root[data-theme="christmas"] .health.bad { background:#c62a36; border-color:#c62a36; color:#fff; }
+  /* Header: a candy-cane top edge and a string of lights hanging off the bottom (in place of
+     the 1px rule). The lights are two layers of the same bulbs: ::after is the bulbs, ::before
+     a blurred copy that twinkles. Both are absolutely placed inside the sticky header, so they
+     add no width and catch no taps. */
+  :root[data-theme="christmas"] header { border-bottom:0;
+    border-image:repeating-linear-gradient(135deg, #d6303b 0 6px, #fbf5ec 6px 12px) 3; }
+  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] header::after,
+  :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after {
+    content:""; position:absolute; left:0; right:0; bottom:-9px; height:14px; pointer-events:none;
+    background-image:
+      linear-gradient(#1a0508, #1a0508),
+      radial-gradient(ellipse 3.5px 5px at 12px 9px, #ff4d5a 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 36px 9px, #ffd24a 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 60px 9px, #4fd17a 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 84px 9px, #5ab4ff 90%, transparent 100%);
+    background-size:100% 1.5px, 96px 14px, 96px 14px, 96px 14px, 96px 14px;
+    background-position:0 2px, 0 0, 0 0, 0 0, 0 0;
+    background-repeat:no-repeat, repeat-x, repeat-x, repeat-x, repeat-x; }
+  /* On a phone the lights hang off the header. On a desktop the tab row (.bnav, z-index 30)
+     sits sticky right under the header and would cover them, so they hang off the tab row
+     instead; on a phone .bnav is the fixed bottom bar and gets none. */
+  :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after { display:none; }
+  @media (min-width:1024px) {
+    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] header::after { display:none; }
+    :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after { display:block; }
+  }
+  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before { filter:blur(4px); opacity:.85; animation:xmasTwinkle 2.4s ease-in-out infinite alternate; }
+  @keyframes xmasTwinkle { from { opacity:.25; } to { opacity:.95; } }
+  /* Snow on the cards: a row of white drifts along each card's top edge, drawn as a background
+     layer so no card gets a new positioned box. */
+  :root[data-theme="christmas"] .card {
+    background-image:radial-gradient(ellipse 13px 7px at 50% 0, rgba(251,245,236,.92) 95%, transparent 100%);
+    background-size:22px 8px; background-repeat:repeat-x; background-position:-4px 0; }
+  /* Falling snow behind the cards. body gives up its own background so the fixed layers behind it
+     show (html paints the ground); two tiles at two speeds for depth. Reduced motion: it holds still. */
+  html[data-theme="christmas"] { background:var(--bg); }
+  :root[data-theme="christmas"] body { background:transparent; }
+  :root[data-theme="christmas"] body::before, :root[data-theme="christmas"] body::after {
+    content:""; position:fixed; left:0; right:0; top:-320px; height:calc(100vh + 640px); z-index:-1; pointer-events:none;
+    background-image:
+      radial-gradient(circle at 20px 30px, rgba(255,255,255,.75) 1.6px, transparent 2.2px),
+      radial-gradient(circle at 140px 110px, rgba(255,255,255,.6) 1.2px, transparent 1.8px),
+      radial-gradient(circle at 240px 200px, rgba(255,255,255,.7) 2px, transparent 2.6px),
+      radial-gradient(circle at 90px 260px, rgba(255,255,255,.5) 1.2px, transparent 1.8px);
+    background-size:320px 320px; animation:xmasSnow 26s linear infinite; }
+  :root[data-theme="christmas"] body::after { background-size:200px 200px; background-position:70px 40px; opacity:.6; animation-duration:40s; }
+  @keyframes xmasSnow { from { transform:translateY(0); } to { transform:translateY(320px); } }
+  @media (prefers-reduced-motion: reduce) {
+    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] body::before, :root[data-theme="christmas"] body::after { animation:none; }
+  }
   /* the flannel stripe under the header, fall only: it replaces the 1px bottom border */
   :root[data-theme="fall"] header { border-bottom:0;
     background-image:repeating-linear-gradient(90deg, #8a3b1e 0 14px, #c8662b 14px 18px, #8a3b1e 18px 32px, #5a3b22 32px 36px);
@@ -208,13 +289,15 @@
      other way here: an author display rule is the switch, so it lives on the theme selector).
      Centred in the space between the wordmark and the crest by its own auto margins; the words
      drop on a very narrow phone and the turkey stays. Cream on rust reads 7.69:1. */
-  header .fallbanner { display:none; }
-  :root[data-theme="fall"] header .fallbanner { display:flex; align-items:center; gap:6px; margin:0 auto;
+  /* The Christmas banner (2026-11-27) is the same ribbon with a drawn tree, shown only under
+     the Christmas theme. Snow on the green ribbon reads 7.34:1. */
+  header .fallbanner, header .xmasbanner { display:none; }
+  :root[data-theme="fall"] header .fallbanner, :root[data-theme="christmas"] header .xmasbanner { display:flex; align-items:center; gap:6px; margin:0 auto;
     flex:0 1 auto; min-width:0; height:30px; padding:0 14px 0 10px; background:var(--blue); color:var(--ink);
     clip-path:polygon(0 0, 100% 0, calc(100% - 8px) 50%, 100% 100%, 0 100%, 8px 50%); }
-  header .fallbanner .turkey { flex:0 0 auto; display:block; }
-  header .fallbanner .fbtext { font:600 14px/1 var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; }
-  @media (max-width:359px) { header .fallbanner .fbtext { display:none; } }
+  header .fallbanner .turkey, header .xmasbanner .tree { flex:0 0 auto; display:block; }
+  header .fallbanner .fbtext, header .xmasbanner .fbtext { font:600 14px/1 var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; }
+  @media (max-width:359px) { header .fallbanner .fbtext, header .xmasbanner .fbtext { display:none; } }
   #hWeekYear { font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--mut); white-space:nowrap; }
   #hAvatar { width:32px; height:32px; border-radius:50%; flex:0 0 auto; overflow:hidden; cursor:pointer;
              background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
@@ -2556,6 +2639,22 @@
         <path d="M16.5 29.5 v2 M23.5 29.5 v2" stroke="#e8b04a" stroke-width="1.4" stroke-linecap="round"></path>
       </svg>
       <span class="fbtext">Gobble Gobble</span>
+    </span>
+    <!-- CHRISTMAS BANNER (2026-11-27). The same ribbon in green with a drawn tree; Christmas
+         theme only. Decorative, so aria-hidden. -->
+    <span class="xmasbanner" aria-hidden="true">
+      <svg class="tree" viewBox="0 0 32 32" width="30" height="30">
+        <path d="M16 4 L24 15 H20 L27 25 H5 L12 15 H8 Z" fill="#7ed492"></path>
+        <path d="M16 4 L20 9.5 H12 Z" fill="#9be3aa"></path>
+        <rect x="14" y="25" width="4" height="4" fill="#7a4a26"></rect>
+        <path d="M16 0.6 l1.1 2.3 2.5 0.3 -1.8 1.7 0.5 2.5 -2.3 -1.2 -2.3 1.2 0.5 -2.5 -1.8 -1.7 2.5 -0.3 Z" fill="#ecc45c"></path>
+        <circle cx="14" cy="12.5" r="1.3" fill="#ecc45c"></circle>
+        <circle cx="18.5" cy="17.5" r="1.4" fill="#e0303c"></circle>
+        <circle cx="12" cy="20.5" r="1.4" fill="#ecc45c"></circle>
+        <circle cx="21.5" cy="22" r="1.4" fill="#e0303c"></circle>
+        <circle cx="15.5" cy="22.5" r="1.2" fill="#f4f0e6"></circle>
+      </svg>
+      <span class="fbtext">Merry Christmas</span>
     </span>
     <span class="sub">G.O.A.T. Fantasy Football League</span>
     <span class="hmeta" id="hMeta" hidden>
