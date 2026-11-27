@@ -11696,3 +11696,16 @@ untouched). FT3's light check restaged to the chase (animation name, `steps(4`, 
 TF gains a real-render check that the live matchup card carries the trail. **Bite** (the shipped
 league.html and lg-ui.js): FT1–FT4 and TF 114 pass / 11 fail, exactly the new and restaged
 checks.
+
+**Smaller, with reindeer** (same day, Perry: "sleigh should be smaller and have reindeer"). The
+sleigh is drawn at 0.58 scale with two reindeer in harness ahead of it, the front one with a red
+nose, on one 60x22 svg. The anchor on the line's tip is the sleigh's front (x=26) and the body's
+middle (y=15), so the sleigh covers the line's last stretch and the reindeer fly 34px on to the
+right. To keep them off the label, `.wpplot` takes `margin-right:24px` (plus the 12px gap = 36px).
+The anchor's top clamp is now 6px (team top at -9, inside the card's 10px padding).
+
+That margin made TF's precondition "the 220-unit box really is stretched wider than its viewBox"
+read exactly x1.00 on its 390px card, so that one reading is now taken at 1280px (x4.58) and the
+viewport restored; reason at the check. FT4's sleigh checks restaged to 60x22: left edge 26px
+before the tip, right edge 34px after, short of the label. **Bite** (the big-sleigh commit): FT4
+and TF fail exactly those 3 checks.

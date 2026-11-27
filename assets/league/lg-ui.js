@@ -4816,8 +4816,25 @@
     const pct = (a, b) => (100 * a / b).toFixed(2) + "%";
     const starHtml = stars.map((st) =>
       `<i class="wpstar${st.k % 3 === 0 ? " big" : ""}" style="left:${pct(st.x, w)};top:${pct(st.y, h)};color:${st.c};animation-delay:${((st.k * 0.37) % 2.4).toFixed(2)}s"></i>`).join("");
-    // top is clamped to 13px so a line pinned at the very top cannot push the sleigh out of its card
-    const sleigh = `<span class="wpsleigh" style="left:${pct(tip.x, w)};top:max(13px, ${pct(tip.y, h)})"><svg viewBox="0 0 46 30" width="46" height="30">
+    // SLEIGH AND REINDEER (2026-11-27, Perry: "sleigh should be smaller and have reindeer"). The
+    // sleigh is drawn at 0.58 scale with two reindeer ahead of it, the front one with the red nose,
+    // on one 60x22 svg. The anchor (the tip of the line) is the sleigh's front at x=26 and the body's
+    // middle at y=15, so the sleigh covers the line's last stretch and the reindeer fly on to the
+    // right, into the room .wpplot keeps beside the label. The anchor's top is clamped to 6px so a
+    // line pinned at the top cannot push the team out of the card.
+    const sleigh = `<span class="wpsleigh" style="left:${pct(tip.x, w)};top:max(6px, ${pct(tip.y, h)})"><svg viewBox="0 0 60 22" width="60" height="22">
+      <path d="M25.5 12.5 Q30 11 38.5 11.2 M38 11.4 Q44 11 53.5 11.2" fill="none" stroke="#f6c84c" stroke-width="0.7"></path>
+      <g><path d="M32 13.5 l-2 4 M33.5 14 l-0.5 4.5 M37 14 l1 4.5 M38.5 13.5 l2.5 3.5" stroke="#6e4522" stroke-width="1.1" stroke-linecap="round"></path>
+      <path d="M30.4 11 l-1.4 -1 l0.6 2 Z" fill="#fbf5ec"></path><ellipse cx="35" cy="12" rx="5" ry="2.8" fill="#8a5a2e"></ellipse>
+      <path d="M38 11.4 l2.4 -3.6 l1.6 0.9 l-2 3.7 Z" fill="#8a5a2e"></path><ellipse cx="41.4" cy="7.6" rx="2.3" ry="1.6" fill="#9a6a3a"></ellipse>
+      <path d="M40.6 6.4 l-1 -3 M40.1 4.9 l-1.7 -0.6 M41.6 6.2 l0.4 -3 M41.8 4.6 l1.5 -0.8" stroke="#e2c48c" stroke-width="0.8" stroke-linecap="round" fill="none"></path>
+      <circle cx="43.6" cy="8" r="0.8" fill="#3a2414"></circle><circle cx="41.6" cy="7.2" r="0.35" fill="#1a0508"></circle></g>
+      <g><path d="M46 13.5 l-2 4 M47.5 14 l-0.5 4.5 M51 14 l1 4.5 M52.5 13.5 l2.5 3.5" stroke="#6e4522" stroke-width="1.1" stroke-linecap="round"></path>
+      <path d="M44.4 11 l-1.4 -1 l0.6 2 Z" fill="#fbf5ec"></path><ellipse cx="49" cy="12" rx="5" ry="2.8" fill="#8a5a2e"></ellipse>
+      <path d="M52 11.4 l2.4 -3.6 l1.6 0.9 l-2 3.7 Z" fill="#8a5a2e"></path><ellipse cx="55.4" cy="7.6" rx="2.3" ry="1.6" fill="#9a6a3a"></ellipse>
+      <path d="M54.6 6.4 l-1 -3 M54.1 4.9 l-1.7 -0.6 M55.6 6.2 l0.4 -3 M55.8 4.6 l1.5 -0.8" stroke="#e2c48c" stroke-width="0.8" stroke-linecap="round" fill="none"></path>
+      <circle cx="57.6" cy="8" r="1.1" fill="#e0303c"></circle><circle cx="55.6" cy="7.2" r="0.35" fill="#1a0508"></circle></g>
+      <g transform="translate(0 4.6) scale(0.58)">
       <path d="M10 15 q-1 -8 6 -9 q7 0 7 9 Z" fill="#8a5a2e"></path><path d="M14 7 q2 -2 4 0" fill="none" stroke="#f6c84c" stroke-width="1.2"></path>
       <path d="M25 16 v-5 q0 -3 6 -3 q6 0 6 3 v5 Z" fill="#d6303b"></path>
       <circle cx="31" cy="7.2" r="3.3" fill="#f2c9a0"></circle>
@@ -4828,7 +4845,7 @@
       <path d="M6 15 h34 q3 0 3 3 q0 6 -7 6 h-24 q-6 0 -6 -9 Z" fill="#b81d2a"></path>
       <path d="M6 15 h34 q3 0 3 3" fill="none" stroke="#f6c84c" stroke-width="1.6"></path>
       <path d="M4 27.5 h34 q5 0 6 -4" fill="none" stroke="#f6c84c" stroke-width="1.8" stroke-linecap="round"></path>
-      <path d="M14 24 v3.5 M32 24 v3.5" stroke="#f6c84c" stroke-width="1.4"></path></svg></span>`;
+      <path d="M14 24 v3.5 M32 24 v3.5" stroke="#f6c84c" stroke-width="1.4"></path></g></svg></span>`;
     return `<div class="wpplot">${svgHtml}<div class="wptrail" aria-hidden="true">${starHtml}${sleigh}</div></div>`;
   }
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is

@@ -25377,6 +25377,12 @@ async function openDetails(page, id) {
         // (4x+ on desktop), so a 2-unit stroke painted ~8px wide — the line looked
         // bunched. Measure the stretch (svg px / 220) so the check is about a real
         // distortion, then require the computed vector-effect that cancels it.
+        // RESTAGED 2026-11-27: measured at a 1280px desktop width (restored after). Under the
+        // Christmas default the plot keeps 24px for the reindeer, and this test's phone card then
+        // comes out exactly 220px wide (x1.00), so the phone no longer shows the distortion.
+        const vp0 = page.viewport();
+        await page.setViewport({ width: 1280, height: 844 });
+        await new Promise((r) => setTimeout(r, 150));
         const strokeGeom = await page.evaluate(() => {
           const el = document.getElementById("muWp");
           const svg = el && el.querySelector("svg");
@@ -25392,8 +25398,9 @@ async function openDetails(page, id) {
         });
         // 390px viewport → ~1.13×; a desktop card is 4×+. Any stretch >1 is enough to show
         // the distortion is real here, not hypothetical.
+        if (vp0) await page.setViewport(vp0);
         ok(strokeGeom && strokeGeom.sx > 1.05,
-          "…the 220-unit box really is stretched wider than its viewBox here (x" + (strokeGeom && strokeGeom.sx) + ")");
+          "…the 220-unit box really is stretched wider than its viewBox at desktop width (x" + (strokeGeom && strokeGeom.sx) + ")");
         ok(strokeGeom && strokeGeom.ve === "non-scaling-stroke",
           "…and the stroke does not scale with that stretch (vector-effect=" + JSON.stringify(strokeGeom) + ")");
         ok(strokeGeom && strokeGeom.join === "round" && strokeGeom.cap === "round",
@@ -34187,6 +34194,7 @@ const sz = await evalOr(page, () => {
       const sl = host.querySelector(".wpsleigh"), sr = sl ? sl.getBoundingClientRect() : null;
       const out = { same: html === svg, wrapped: !!host.querySelector(".wpplot"), n: stars.length, pw: pr.width, ph: pr.height, stars,
         sleigh: sr && { l: sr.left - pr.left, r: sr.right - pr.left, t: sr.top - pr.top, b: sr.bottom - pr.top, w: sr.width, h: sr.height },
+        labelL: host.querySelector(".nflwpv b").getBoundingClientRect().left - pr.left,
         hidden: host.querySelector(".wptrail") ? host.querySelector(".wptrail").getAttribute("aria-hidden") : null,
         polyOpacity: host.querySelector("polyline") ? getComputedStyle(host.querySelector("polyline")).opacity : null,
         text: host.querySelector(".nflwp").textContent.replace(/\s+/g, " ").trim(), valText: host.querySelector(".nflwpv").textContent.replace(/\s+/g, " ").trim(),
@@ -34202,20 +34210,25 @@ const sz = await evalOr(page, () => {
       await go(page, "");
       const f = (await probe(page, flat)) || {};
       // every star sits ON the line: y is the plot's middle (28/56), x runs left to right from 0
-      // to 280/286 of the width, and the sleigh's box keeps its drawn 46x30 (it is not stretched)
+      // to 280/286 of the width, and the sleigh's box keeps its drawn size (it is not stretched)
       const xs = (f.stars || []).map((s) => s.x), ys = (f.stars || []).map((s) => s.y);
       ok(f.wrapped && f.n === 41 && ys.every((y) => Math.abs(y - f.ph / 2) < 1) && Math.abs(xs[0]) < 1 && Math.abs(xs[40] - f.pw * 280 / 286) < 1 && xs.every((x, k) => k === 0 || x > xs[k - 1]),
         "FT4 @" + W + " a flat line becomes 41 stars along the middle, evenly left to right (" + JSON.stringify({ n: f.n, pw: f.pw, first: xs[0], last: xs[40], y0: ys[0] }) + ")");
-      ok(f.sleigh && Math.abs(f.sleigh.w - 46) < 0.5 && Math.abs(f.sleigh.h - 30) < 0.5 && f.sleigh.l < f.pw && f.sleigh.r > f.pw - 46 && f.sleigh.t < f.ph / 2 && f.sleigh.b > f.ph / 2 && f.docOver <= 0,
-        "FT4 @" + W + " Santa's sleigh sits at the tip (the right end), undistorted 46x30, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, docOver: f.docOver }) + ")");
+      // RESTAGED 2026-11-27 (Perry: "sleigh should be smaller and have reindeer"): one 60x22 svg,
+      // the sleigh's front (x=26) on the tip, so it starts 26px left of the line's end and the
+      // reindeer finish 34px right of it, in the plot's 24px margin plus the 12px gap, short of
+      // the label's text.
+      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.l - (f.pw - 26)) < 1 && Math.abs(f.sleigh.r - (f.pw + 34)) < 1 && f.sleigh.r < f.labelL && f.sleigh.t < f.ph / 2 && f.sleigh.b > f.ph / 2 && f.docOver <= 0,
+        "FT4 @" + W + " Santa and the reindeer sit on the tip, undistorted 60x22, the reindeer clear of the label, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, labelL: f.labelL, docOver: f.docOver }) + ")");
       ok(f.hidden === "true" && f.text === f.valText && /60%/.test(f.text) && Number(f.polyOpacity) < 0.5,
         "FT4 @" + W + " the trail is decorative (aria-hidden, adds no text) and the polyline stays as a faint glow (" + JSON.stringify({ hidden: f.hidden, text: f.text, polyOpacity: f.polyOpacity }) + ")");
       if (W === 390) {
         const t = (await probe(page, two)) || {};
         const s = t.stars || [];
         const firstSeg = s.filter((st) => st.c === "rgb(0, 128, 255)").length, secondSeg = s.filter((st) => st.c === "rgb(255, 200, 0)").length;
-        ok(t.n === 42 && firstSeg === 21 && secondSeg === 21 && t.sleigh && t.sleigh.t < t.ph * 4 / 56 + 1 && t.sleigh.b > t.ph * 4 / 56,
-          "FT4 each segment's stars wear that segment's colour (21 + 21), and the sleigh rides the tip up at y=4 (" + JSON.stringify({ n: t.n, firstSeg, secondSeg, sleigh: t.sleigh }) + ")");
+        // the tip at y=4 is above the 6px clamp, so the anchor sits at 6: top 6 - 15 = -9, bottom 13
+        ok(t.n === 42 && firstSeg === 21 && secondSeg === 21 && t.sleigh && Math.abs(t.sleigh.t + 9) < 1 && Math.abs(t.sleigh.b - 13) < 1,
+          "FT4 each segment's stars wear that segment's colour (21 + 21), and the sleigh rides up to the clamp at the top, still inside the card's padding (" + JSON.stringify({ n: t.n, firstSeg, secondSeg, sleigh: t.sleigh }) + ")");
         if (SHOTS) {
           await page.evaluate((wavy) => {
             const UI = window.__GFFL__.UI;
