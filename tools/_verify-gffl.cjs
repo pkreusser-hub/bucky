@@ -34209,8 +34209,13 @@ const sz = await evalOr(page, () => {
       const m = sl ? new DOMMatrix(getComputedStyle(sl).transform) : null;
       const out = { same: html === svg, wrapped: !!host.querySelector(".wpplot"), n: stars.length, pw: pr.width, ph: pr.height, stars,
         sleigh: sr && { l: sr.left - pr.left, r: sr.right - pr.left, t: sr.top - pr.top, b: sr.bottom - pr.top, w: sl.offsetWidth, h: sl.offsetHeight,
-          // where the back of the sleigh (4, 15.5 in the team's own box) lands, relative to the plot
-          ax: sl.offsetLeft + 4 + m.transformPoint(new DOMPoint(0, 0)).x, ay: sl.offsetTop + 15.5 + m.transformPoint(new DOMPoint(0, 0)).y,
+          // where the back of the sleigh (4, 15.5 in the drawing's own units) is actually PAINTED,
+          // relative to the plot: the svg's screen matrix carries every CSS box, transform and
+          // viewBox fit. (The first version of this check did offset arithmetic on the span's box
+          // and passed while a stray rule letterboxed the drawing 17px below it.)
+          ax: (() => { const sv = sl.querySelector("svg"); return sv ? new DOMPoint(4, 15.5).matrixTransform(sv.getScreenCTM()).x - pr.left : null; })(),
+          ay: (() => { const sv = sl.querySelector("svg"); return sv ? new DOMPoint(4, 15.5).matrixTransform(sv.getScreenCTM()).y - pr.top : null; })(),
+          svgH: sl.querySelector("svg") ? sl.querySelector("svg").getBoundingClientRect().height : null,
           deg: Math.atan2(m.b, m.a) * 180 / Math.PI },
         labelL: host.querySelector(".nflwpv b").getBoundingClientRect().left - pr.left,
         hidden: host.querySelector(".wptrail") ? host.querySelector(".wptrail").getAttribute("aria-hidden") : null,
@@ -34236,7 +34241,7 @@ const sz = await evalOr(page, () => {
       // line, and the team (60x22, not stretched) flies right into the plot's margin, short of the
       // label. Every star is behind it.
       const lastStar = Math.max(...(f.stars || []).map((st) => st.x));
-      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.ax - f.pw) < 0.6 && Math.abs(f.sleigh.ay - f.ph / 2) < 0.6 && Math.abs(f.sleigh.deg) < 0.5 && f.sleigh.r < f.labelL && lastStar <= f.sleigh.ax + 0.6 && f.docOver <= 0,
+      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.svgH - 22) < 0.5 && Math.abs(f.sleigh.ax - f.pw) < 0.6 && Math.abs(f.sleigh.ay - f.ph / 2) < 0.6 && Math.abs(f.sleigh.deg) < 0.5 && f.sleigh.r < f.labelL && lastStar <= f.sleigh.ax + 0.6 && f.docOver <= 0,
         "FT4 @" + W + " the trail comes out of the back of the sleigh: its back is on the tip, level on a flat line, the team clear of the label, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, ph: f.ph, lastStar, labelL: f.labelL, docOver: f.docOver }) + ")");
       // a rising line: tip at (220, 4), heading from (110, 28) (the last vertex 12+ back). The
       // angle is against the REAL plot width, so it differs by width: atan2(-24, 110/220 * pw).
@@ -34275,6 +34280,45 @@ const sz = await evalOr(page, () => {
         }
       }
       ok(errors.length === 0, "FT4 @" + W + " 0 page errors (" + errors.join(" | ") + ")");
+      await ctx.close();
+    }
+    {
+      // The REAL matchup page, its own render path, with a moving win-% series: the stored series
+      // and the view are stubbed (LG.wpSeries / LG.wpViewPlaying) so the line has a shape; every
+      // pixel after that is the shipping matchupWinGraphHtml → wpTrailWrap → CSS. The sleigh's back
+      // must land on the last vertex the page itself drew. --shots keeps the plate.
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await page.evaluate(() => {
+        const G = window.__GFFL__, LG = G.LG, now = Date.now(), t0 = now - 3 * 3600000;
+        const ps = [0.52, 0.48, 0.55, 0.61, 0.57, 0.50, 0.44, 0.47, 0.58, 0.66, 0.63, 0.71, 0.78, 0.74, 0.81];
+        const rows = ps.map((p, i) => ({ t: t0 + i * (now - t0) / (ps.length - 1), p }));
+        LG.wpSeries = () => rows.slice();
+        LG.wpViewPlaying = () => ({ rows: rows.slice(), t0, t1: now });
+        G.UI.matchup = [1, 2];
+        G.UI.go("matchup");
+      });
+      await waitOr(page, "#muWp .wpsleigh");
+      const real = (await evalOr(page, () => {
+        const el = document.getElementById("muWp");
+        const polys = [...el.querySelectorAll("polyline.muwpline")];
+        const last = polys[polys.length - 1].getAttribute("points").trim().split(/\s+/).pop().split(",").map(Number);
+        const plot = el.querySelector(".wpplot svg").getBoundingClientRect();
+        const sl = el.querySelector(".wpsleigh"), m = new DOMMatrix(getComputedStyle(sl).transform);
+        el.scrollIntoView({ block: "center" });
+        const back = new DOMPoint(4, 15.5).matrixTransform(sl.querySelector("svg").getScreenCTM());
+        return { last, pw: plot.width, ph: plot.height, ax: back.x - plot.left, ay: back.y - plot.top, deg: Math.atan2(m.b, m.a) * 180 / Math.PI, stars: el.querySelectorAll(".wpstar").length };
+      })) || {};
+      ok(real.last && Math.abs(real.ax - real.last[0] / 220 * real.pw) < 1 && Math.abs(real.ay - real.last[1] / 56 * real.ph) < 1 && real.deg < -1 && real.stars > 20,
+        "FT4 the real matchup page: the sleigh's back is on the line's last drawn point, climbing with a rising line (" + JSON.stringify(real) + ")");
+      if (SHOTS) {
+        await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
+        await new Promise((res) => setTimeout(res, 300));
+        const r = await page.evaluate(() => { const b = document.getElementById("muWp").getBoundingClientRect(); return { x: 0, y: Math.max(0, b.top - 12), width: 390, height: b.height + 24 }; });
+        await page.screenshot({ path: path.join(SCRATCH, "gffl_sleigh_matchup_390.png"), clip: r });
+      }
+      ok(errors.length === 0, "FT4 real matchup page 0 page errors (" + errors.join(" | ") + ")");
       await ctx.close();
     }
     {

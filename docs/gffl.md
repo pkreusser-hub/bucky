@@ -11760,3 +11760,28 @@ anchor at the line's real last vertex with its transform applied.
 
 **VERIFY (lights chase, sleigh trail, reindeer, vapour trail, version fix, shipped together):**
 full `_verify-gffl.cjs` **4532/4532**.
+
+## 2026-11-27 — The sleigh drawing was 17px below its own box
+
+Perry, with a mockup made by moving the sleigh up in the previous screenshot: "still not getting
+what I am saying ... the attached is basically what its supposed to look like. See how the stars
+come out of the sleigh like a trail". (A second read of the two screenshots, by another model at
+Perry's suggestion, saw what I had missed: my own plate showed the same defect.)
+
+**Cause:** two chart rules also matched the sleigh's own `<svg>`, because it sits inside the chart:
+`.nflwp .wpplot svg { width:100%; height:56px }` and the older `.nflwp svg { height:56px }`. The
+60x22 drawing was laid out in a 60x56 box and fitted (`meet`) into its middle, 17px below the
+anchor. The positioned `<span>` was exactly right, and **every FT4/TF check measured the span**
+(offsetTop plus transform arithmetic), so the suite passed while the painted sleigh hung below
+the line. The "cached script" explanation in the entry above was a real problem, but it was not
+the one in Perry's screenshot.
+
+**Fix:** the chart rule is now `.nflwp .wpplot > svg`, and `.nflwp .wptrail .wpsleigh svg` pins
+the drawing to 60x22. Version **20261127d** (league.html only; installed apps re-fetch it).
+
+**Tests now measure paint, not boxes:** the sleigh's back is `DOMPoint(4, 15.5)` through the
+drawing's own `getScreenCTM()`, which includes every box, transform and viewBox fit. FT4 also
+requires the drawing itself to be 22px tall. **Bite** (the committed CSS): FT4 fails 5 of 16:
+the flat and rising checks at both widths and the real matchup page, with the painted back 17px
+low (ay 45 against 28). **Lesson:** a position check must read where the pixels land. A box can
+sit right while what is drawn inside it does not.
