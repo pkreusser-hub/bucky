@@ -62,7 +62,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20261127a">
+<meta name="gffl-v" content="20261127c">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against the live /gffl-version.txt (a ~10 byte file, fetched
      no-store) and replace if this snapshot is stale. Browser tabs skip — they already
@@ -217,23 +217,45 @@
     :root[data-theme="christmas"] .lrow.hasball.rz { box-shadow:inset 3px 0 0 #ff6b74; }
   }
   /* Header: a candy-cane top edge and a string of lights hanging off the bottom (in place of
-     the 1px rule). The lights are two layers of the same bulbs: ::after is the bulbs, ::before
-     a blurred copy that twinkles. Both are absolutely placed inside the sticky header, so they
-     add no width and catch no taps. */
+     the 1px rule). ::after is the string with every bulb dim; ::before is the same bulbs lit, each
+     with a halo. CHASE (2026-11-27, Perry: "lets make the little christmas lights you made light
+     up in a sequence"): ::before is masked to one 24px slot in every 96px, and the mask steps a
+     slot at a time, so red, gold, green and blue light in turn down the whole string. Both are
+     absolutely placed inside the sticky header, so they add no width and catch no taps. */
   :root[data-theme="christmas"] header { border-bottom:0;
     border-image:repeating-linear-gradient(135deg, #d6303b 0 6px, #fbf5ec 6px 12px) 3; }
   :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] header::after,
   :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after {
-    content:""; position:absolute; left:0; right:0; bottom:-9px; height:14px; pointer-events:none;
+    content:""; position:absolute; left:0; right:0; bottom:-12px; height:20px; pointer-events:none;
+    background-repeat:no-repeat, repeat-x, repeat-x, repeat-x, repeat-x; }
+  :root[data-theme="christmas"] header::after, :root[data-theme="christmas"] .bnav::after {
     background-image:
       linear-gradient(#1a0508, #1a0508),
+      radial-gradient(ellipse 3.5px 5px at 12px 9px, #7a2a30 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 36px 9px, #7a6630 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 60px 9px, #2c6a40 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 84px 9px, #2e5a80 90%, transparent 100%);
+    background-size:100% 1.5px, 96px 20px, 96px 20px, 96px 20px, 96px 20px;
+    background-position:0 2px, 0 0, 0 0, 0 0, 0 0; }
+  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before {
+    z-index:1;
+    background-repeat:repeat-x;
+    background-size:96px 20px;
+    -webkit-mask-image:linear-gradient(90deg, #000 0 24px, transparent 24px 96px); mask-image:linear-gradient(90deg, #000 0 24px, transparent 24px 96px);
+    -webkit-mask-size:96px 100%; mask-size:96px 100%; -webkit-mask-repeat:repeat-x; mask-repeat:repeat-x;
+    animation:xmasChase 1.6s steps(4, end) infinite; }
+  /* the lit bulbs, each with a halo in its own colour */
+  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before {
+    background-image:
       radial-gradient(ellipse 3.5px 5px at 12px 9px, #ff4d5a 90%, transparent 100%),
       radial-gradient(ellipse 3.5px 5px at 36px 9px, #ffd24a 90%, transparent 100%),
       radial-gradient(ellipse 3.5px 5px at 60px 9px, #4fd17a 90%, transparent 100%),
-      radial-gradient(ellipse 3.5px 5px at 84px 9px, #5ab4ff 90%, transparent 100%);
-    background-size:100% 1.5px, 96px 14px, 96px 14px, 96px 14px, 96px 14px;
-    background-position:0 2px, 0 0, 0 0, 0 0, 0 0;
-    background-repeat:no-repeat, repeat-x, repeat-x, repeat-x, repeat-x; }
+      radial-gradient(ellipse 3.5px 5px at 84px 9px, #5ab4ff 90%, transparent 100%),
+      radial-gradient(circle 10px at 12px 9px, rgba(255,77,90,.6), transparent 100%),
+      radial-gradient(circle 10px at 36px 9px, rgba(255,210,74,.6), transparent 100%),
+      radial-gradient(circle 10px at 60px 9px, rgba(79,209,122,.6), transparent 100%),
+      radial-gradient(circle 10px at 84px 9px, rgba(90,180,255,.6), transparent 100%); }
+  @keyframes xmasChase { from { -webkit-mask-position:0 0; mask-position:0 0; } to { -webkit-mask-position:96px 0; mask-position:96px 0; } }
   /* On a phone the lights hang off the header. On a desktop the tab row (.bnav, z-index 30)
      sits sticky right under the header and would cover them, so they hang off the tab row
      instead; on a phone .bnav is the fixed bottom bar and gets none. */
@@ -242,8 +264,31 @@
     :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] header::after { display:none; }
     :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after { display:block; }
   }
-  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before { filter:blur(4px); opacity:.85; animation:xmasTwinkle 2.4s ease-in-out infinite alternate; }
-  @keyframes xmasTwinkle { from { opacity:.25; } to { opacity:.95; } }
+  /* SLEIGH TRAIL (2026-11-27): the win-probability line under Christmas. lg-ui.js wraps the svg
+     in .wpplot and lays .wpstar stars along the line (each in its segment's colour) with
+     .wpsleigh at the tip. The polyline stays, faint, as the trail's glow. */
+  /* margin-right: the team flies 57px past the tip (60px wide, anchored at its back, 3px in); 46px
+     here plus the .nflwp gap of 12px gives it 58px, so it never reaches the label */
+  .nflwp .wpplot { position:relative; flex:1 1 auto; min-width:0; height:56px; margin-right:46px; }
+  .nflwp .wpplot svg { display:block; width:100%; height:56px; }
+  .nflwp .wpplot polyline { opacity:.28; }
+  .wptrail { position:absolute; inset:0; pointer-events:none; }
+  .wpstar { position:absolute; width:6px; height:6px; margin:-3px 0 0 -3px; background:currentColor;
+    clip-path:polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    animation:wpTwinkle 2.4s ease-in-out infinite alternate; }
+  .wpstar.big { width:9px; height:9px; margin:-4.5px 0 0 -4.5px; }
+  @keyframes wpTwinkle { from { opacity:.45; } to { opacity:1; } }
+  /* the back of the sleigh (4px, 15.5px into the 60x22 team) sits on the line's tip, and the team
+     turns about it to the line's heading: atan2 of the last stretch in px, with x scaled by the
+     plot's real width (100cqw over the viewBox width --w), clamped to 40deg either way. A browser
+     without atan2 keeps the first transform, untilted. The var() fallbacks matter: a var with no
+     value makes the whole declaration invalid at computed-value time, and that drops the
+     transform to none (not to the first declaration), which left the sleigh hanging off the
+     tip by its corner when a cached older lg-ui.js sent no --dx/--dy (2026-11-27). */
+  .nflwp .wpplot { container-type:inline-size; }
+  .wpsleigh { position:absolute; width:60px; height:22px; transform-origin:4px 15.5px; transform:translate(-4px, -15.5px);
+    transform:translate(-4px, -15.5px) rotate(clamp(-40deg, atan2(calc(var(--dy, 0) * 1px), calc(var(--dx, 1) / var(--w, 220) * 100cqw)), 40deg)); }
+  .wpsleigh svg { display:block; }
   /* Snow on the cards: a row of white drifts along each card's top edge, drawn as a background
      layer so no card gets a new positioned box. */
   :root[data-theme="christmas"] .card {
@@ -264,7 +309,9 @@
   :root[data-theme="christmas"] body::after { background-size:200px 200px; background-position:70px 40px; opacity:.6; animation-duration:40s; }
   @keyframes xmasSnow { from { transform:translateY(0); } to { transform:translateY(320px); } }
   @media (prefers-reduced-motion: reduce) {
-    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] body::before, :root[data-theme="christmas"] body::after { animation:none; }
+    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] body::before, :root[data-theme="christmas"] body::after, .wpstar { animation:none; }
+    /* the chase holds on all bulbs lit rather than one colour in four */
+    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before { -webkit-mask-image:none; mask-image:none; }
   }
   /* the flannel stripe under the header, fall only: it replaces the 1px bottom border */
   :root[data-theme="fall"] header { border-bottom:0;
@@ -2736,9 +2783,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20261127a"></script>
-  <script src="assets/league/lg-data.js?v=20261127a"></script>
-  <script src="assets/league/lg-ui.js?v=20261127a"></script>
+  <script src="assets/league/lg-core.js?v=20261127c"></script>
+  <script src="assets/league/lg-data.js?v=20261127c"></script>
+  <script src="assets/league/lg-ui.js?v=20261127c"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

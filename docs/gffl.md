@@ -11662,3 +11662,101 @@ Christmas and `--accent` otherwise, reason at each.
 **VERIFY:** full `_verify-gffl.cjs` **4512 pass / 4 fail**, all four in AG and all of the above;
 restaged, `--only AG` **122/122**, so **4516/4516**. `--only Y,AD,AH,AJ,AL,AM,TT,TU,FT1,FT2,FT3,AVG`
 **594/594** (then FT3 +1 check, **25/25**).
+
+## 2026-11-27 — The lights chase, and the win-% line is Santa's sleigh trail
+
+Perry: "lets make the little christmas lights you made light up in a sequence. also lets have the
+probability win line be a trail coming from santa and his sleigh and the line is little stars".
+
+**Chase.** The string is two layers. `::after` is every bulb dim, plus the wire. `::before` is the
+same bulbs lit, each with a halo in its own colour, masked to one 24px slot in every 96px; the
+mask steps 24px four times per 1.6s cycle (`steps(4, end)`), so red, gold, green and blue light in
+turn down the whole string. **This replaces the all-at-once twinkle** from "Christmas goes red".
+Reduced motion: no mask, every bulb lit, still.
+
+**Sleigh trail.** `wpTrailWrap(svg, segs, w, h)` in lg-ui.js, used by both win-probability
+sparklines (the matchup card and the NFL game page). Under Christmas only, it wraps the svg in
+`.wpplot` and adds an `aria-hidden` `.wptrail`: `.wpstar` stars (CSS clip-path, every third one
+bigger, twinkling on staggered delays) laid along each segment in that segment's own stroke
+colour, and `.wpsleigh` (inline SVG Santa, sack, sleigh, 46x30) at the tip, the newest reading.
+The polyline stays at opacity .28 as the trail's glow. The svg stretches non-uniformly
+(`preserveAspectRatio="none"`), so stars and sleigh are HTML placed by percentage, and keep their
+shape at every width. Spacing is 7 units in a box 1.3x the viewBox's width. The sleigh's top is
+clamped to 13px so a line pinned at the top cannot push it out of the card. Under fall and navy
+the function returns the svg untouched. The first sleigh plate had Santa hidden behind the
+sleigh's side; he was redrawn sitting above the rim.
+
+**Version bumped to 20261127b** and recorded (lg-ui.js changed). `UI._wpTrailWrap` is exposed for
+the suite.
+
+**VERIFY:** new section **FT4** (11 checks: hand-computed star counts, 41 on a flat line and
+21 + 21 on two segments in their own colours, every star on the line, the sleigh at the tip and
+undistorted at 390 and 1280, aria-hidden and no added text, the polyline faint, fall and navy
+untouched). FT3's light check restaged to the chase (animation name, `steps(4`, a 96px mask);
+TF gains a real-render check that the live matchup card carries the trail. **Bite** (the shipped
+league.html and lg-ui.js): FT1–FT4 and TF 114 pass / 11 fail, exactly the new and restaged
+checks.
+
+**Smaller, with reindeer** (same day, Perry: "sleigh should be smaller and have reindeer"). The
+sleigh is drawn at 0.58 scale with two reindeer in harness ahead of it, the front one with a red
+nose, on one 60x22 svg. The anchor on the line's tip is the sleigh's front (x=26) and the body's
+middle (y=15), so the sleigh covers the line's last stretch and the reindeer fly 34px on to the
+right. To keep them off the label, `.wpplot` takes `margin-right:24px` (plus the 12px gap = 36px).
+The anchor's top clamp is now 6px (team top at -9, inside the card's 10px padding).
+
+That margin made TF's precondition "the 220-unit box really is stretched wider than its viewBox"
+read exactly x1.00 on its 390px card, so that one reading is now taken at 1280px (x4.58) and the
+viewport restored; reason at the check. FT4's sleigh checks restaged to 60x22: left edge 26px
+before the tip, right edge 34px after, short of the label. **Bite** (the big-sleigh commit): FT4
+and TF fail exactly those 3 checks.
+
+**The line trails behind the sleigh** (Perry: "the probability line should tral behind the
+sleigh"). The anchor moved from the sleigh's front (x=26) to its back (x=3), so the stars stream
+out from behind it and the whole team flies ahead of the newest reading. `.wpplot`'s margin grew
+from 24px to 46px (plus the 12px gap = 58px for the 57px the team runs past the tip); a 390px card's
+plot is now ~191px wide. FT4 restaged: left edge 3px before the tip, right edge 57px after, short
+of the label, and no star past the sleigh's back. **Bite** (the front-anchored commit): FT4 fails
+exactly its 2 sleigh-position checks.
+
+**A vapour trail** (Perry: "no like it should look like its coming out of the back of the sleigh
+like a airplane trail so the sleigh is at whatever height it needs to be for that to work"). The
+back of the sleigh (4, 15.5 in the 60x22 team) now sits exactly on the line's tip: the 6px top
+clamp is gone, and the team turns about that point to the line's heading. The heading runs from
+the last vertex at least 12 units back to the tip, so a one-minute wiggle does not spin it.
+lg-ui.js passes it as `--dx`/`--dy`/`--w` in viewBox units, and the CSS turns it into
+`rotate(clamp(-40deg, atan2(dy px, dx/w * 100cqw), 40deg))` with `container-type:inline-size` on
+`.wpplot`, so the angle follows the plot's real stretch: the same rising fixture climbs 14.1deg
+on a 390px phone and 2.8deg at 1280. A browser without `atan2` keeps an untilted fallback
+transform. One star is added on the tip when the last one falls more than 2 units short, so the
+trail reaches the sleigh.
+
+FT4 restaged (reasons at the checks): the flat line is 42 stars (41 + the tip); the sleigh's back
+lands on the tip, measured through the computed transform; level on a flat line; on a rising line
+it sits as high as the tip and its angle is the hand-computed `atan2(-24, 110/220 * plot width)`
+at both widths. **Bite** (the untilted, back-anchored commit): FT4 fails exactly the 6
+restaged checks.
+
+**The sleigh hanging below the line** (Perry, with a screenshot: "you have the sleigh always stuck
+at the 50% line, the sleigh is supposed to be where the probability of win line is, so the stars
+trail DIRECTLY FROM THE BACK OF THE SLEIGH"). The rendering was right on the real card (tip y
+51.5, sleigh anchored at 51); the browser was running a mix. **I had re-recorded version
+20261127b four times** while the sleigh changed (deleting the AVG entry each time), and
+`/assets/league/*.js` is cached `immutable` for a year by its `?v=`, so a browser that fetched an
+early `lg-ui.js?v=20261127b` kept it while `league.html`'s CSS moved on. That old script sends no
+`--dx`/`--dy`/`--w`, and a `var()` with no value makes the tilt declaration invalid at
+computed-value time, which drops `transform` to `none` (not to the earlier fallback
+declaration): the sleigh's top-left corner sat on the tip, 15.5px low and 4px right.
+
+**Rule, again:** never re-record a version number. Every change to lg-*.js bytes gets a NEW
+gffl-v, even mid-session, even before anything reaches `main`; a branch deploy is a real browser
+with a real cache. Deleting an AVG entry to get past `--record`'s refusal is exactly the mistake
+that refusal exists to stop.
+
+**Fix:** version **20261127c**. The tilt now reads `var(--dy, 0)`, `var(--dx, 1)`, `var(--w, 220)`,
+so missing values give a level sleigh still on its point. New checks: FT4 renders a sleigh with no
+heading values and requires its back on the point with a real transform (**bite**, the committed
+CSS: `transform:none`, 15.5px off, 2 of 2 fail); TF requires the real matchup card's sleigh
+anchor at the line's real last vertex with its transform applied.
+
+**VERIFY (lights chase, sleigh trail, reindeer, vapour trail, version fix, shipped together):**
+full `_verify-gffl.cjs` **4532/4532**.

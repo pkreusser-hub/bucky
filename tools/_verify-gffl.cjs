@@ -25317,6 +25317,11 @@ async function openDetails(page, id) {
             sw: p.getAttribute("stroke-width"),
           })) : [];
           return {
+            xmas: { stars: el ? el.querySelectorAll(".wptrail .wpstar").length : -1, sleigh: !!(el && el.querySelector(".wptrail .wpsleigh")), theme: document.documentElement.getAttribute("data-theme"),
+              sleighTop: (() => { const sl = el && el.querySelector(".wpsleigh"); return sl ? sl.offsetTop : null; })(),
+              plotH: (() => { const t = el && el.querySelector(".wptrail"); return t ? t.offsetHeight : null; })(),
+              // the transform the browser actually applied: "none" means the tilt rule was thrown out
+              tf: (() => { const sl = el && el.querySelector(".wpsleigh"); return sl ? getComputedStyle(sl).transform : null; })() },
             hidden: !!(el && el.hidden),
             parent: el && el.offsetParent !== null,
             n: pts.length,
@@ -25351,6 +25356,16 @@ async function openDetails(page, id) {
         ok(painted.lastX === "220.0",
           "…and the last vertex is now at the far right of the plot (" + painted.lastX + ")");
         ok(painted.vb === "0 0 220 56", "…on the NFL 220×56 sparkline, not the labelled 80-tall plot (" + painted.vb + ")");
+        // 2026-11-27: under the Christmas default the live matchup card's line carries the sleigh
+        // trail (FT4 checks its geometry); this is the real render path reaching it.
+        ok(painted.xmas.theme === "christmas" && painted.xmas.stars > 0 && painted.xmas.sleigh,
+          "…and under Christmas it is a trail of stars from Santa's sleigh (" + JSON.stringify(painted.xmas) + ")");
+        // 2026-11-27 (Perry, with a screenshot: "you have the sleigh always stuck at the 50% line, the
+        // sleigh is supposed to be where the probability of win line is"). On the REAL card the
+        // sleigh's anchor must be the line's last vertex: lastY of 56 is lastY px down a 56px plot.
+        // FT4 only ever fed the trail hand-built lines, so this is the real render path's check.
+        ok(painted.xmas.plotH === 56 && Math.abs(painted.xmas.sleighTop - painted.lastY) < 1 && painted.xmas.tf && painted.xmas.tf !== "none",
+          "…and the sleigh rides the line's real tip, at the tip's height, with its transform applied (" + JSON.stringify({ sleighTop: painted.xmas.sleighTop, lastY: painted.lastY, tf: painted.xmas.tf }) + ")");
         ok(painted.midY === 28, "…the mid rule is the NFL midpoint (y=28) (" + painted.midY + ")");
         // RESTAGED 2026-09-14: leftover-√remaining pinned this 100-40
         // live lead to ~0% away (y ≈ 52, home 100) while 12 starters
@@ -25372,6 +25387,12 @@ async function openDetails(page, id) {
         // (4x+ on desktop), so a 2-unit stroke painted ~8px wide — the line looked
         // bunched. Measure the stretch (svg px / 220) so the check is about a real
         // distortion, then require the computed vector-effect that cancels it.
+        // RESTAGED 2026-11-27: measured at a 1280px desktop width (restored after). Under the
+        // Christmas default the plot keeps 24px for the reindeer, and this test's phone card then
+        // comes out exactly 220px wide (x1.00), so the phone no longer shows the distortion.
+        const vp0 = page.viewport();
+        await page.setViewport({ width: 1280, height: 844 });
+        await new Promise((r) => setTimeout(r, 150));
         const strokeGeom = await page.evaluate(() => {
           const el = document.getElementById("muWp");
           const svg = el && el.querySelector("svg");
@@ -25387,8 +25408,9 @@ async function openDetails(page, id) {
         });
         // 390px viewport → ~1.13×; a desktop card is 4×+. Any stretch >1 is enough to show
         // the distortion is real here, not hypothetical.
+        if (vp0) await page.setViewport(vp0);
         ok(strokeGeom && strokeGeom.sx > 1.05,
-          "…the 220-unit box really is stretched wider than its viewBox here (x" + (strokeGeom && strokeGeom.sx) + ")");
+          "…the 220-unit box really is stretched wider than its viewBox at desktop width (x" + (strokeGeom && strokeGeom.sx) + ")");
         ok(strokeGeom && strokeGeom.ve === "non-scaling-stroke",
           "…and the stroke does not scale with that stretch (vector-effect=" + JSON.stringify(strokeGeom) + ")");
         ok(strokeGeom && strokeGeom.join === "round" && strokeGeom.cap === "round",
@@ -34065,7 +34087,7 @@ const sz = await evalOr(page, () => {
           for (const [k, el] of [["header", h], ["bnav", nav]]) {
             if (!el) continue;
             const c = getComputedStyle(el, "::after"), cb = getComputedStyle(el, "::before"), er = el.getBoundingClientRect();
-            out[k] = { shown: c.content !== "none" && c.display !== "none", glowAnim: cb.animationName, bottom: c.bottom, hostBottom: er.bottom, hostZ: getComputedStyle(el).zIndex };
+            out[k] = { shown: c.content !== "none" && c.display !== "none", glowAnim: cb.animationName, timing: cb.animationTimingFunction, mask: (cb.maskImage || cb.webkitMaskImage || "").slice(0, 60), maskSize: cb.maskSize || cb.webkitMaskSize, bottom: c.bottom, hostBottom: er.bottom, hostZ: getComputedStyle(el).zIndex };
           }
           return out;
         })(),
@@ -34099,9 +34121,13 @@ const sz = await evalOr(page, () => {
       // lights: on a phone they hang off the header (the tab bar is at the bottom); on a desktop
       // the sticky tab row (z 30) sits under the header and would cover them, so they hang off it
       const L = x.lights || {};
-      ok(W < 1024 ? (L.header && L.header.shown && L.bnav && !L.bnav.shown && L.header.glowAnim === "xmasTwinkle")
-                  : (L.bnav && L.bnav.shown && L.header && !L.header.shown && L.bnav.glowAnim === "xmasTwinkle" && L.bnav.hostBottom >= (x.hB || 0)),
-        "FT3 @" + W + " the string of lights hangs off the " + (W < 1024 ? "header" : "tab row") + " and twinkles (" + JSON.stringify(L) + ")");
+      // RESTAGED 2026-11-27 (Perry: "lets make the little christmas lights you made light up in a
+      // sequence"): the all-at-once twinkle became a chase. The lit layer is masked to one 24px
+      // slot in each 96px (one bulb of the four colours) and the mask steps 4 times per cycle.
+      const chase = (o) => o && o.glowAnim === "xmasChase" && /steps\(4/.test(o.timing || "") && /linear-gradient/.test(o.mask || "") && /^96px/.test(o.maskSize || "");
+      ok(W < 1024 ? (L.header && L.header.shown && L.bnav && !L.bnav.shown && chase(L.header))
+                  : (L.bnav && L.bnav.shown && L.header && !L.header.shown && chase(L.bnav) && L.bnav.hostBottom >= (x.hB || 0)),
+        "FT3 @" + W + " the string of lights hangs off the " + (W < 1024 ? "header" : "tab row") + " and chases one bulb in four, in 4 steps (" + JSON.stringify(L) + ")");
       if (W === 390 && x.card) {
         const rs = { ink: ratio(x.ink, x.card), mut: ratio(x.mut, x.card), faint: ratio(x.faint, x.card), accent: ratio(x.accent, x.card), green: ratio(x.green, x.card), gold: ratio(x.gold, x.card), inkOnBlue: ratio(x.ink, x.blue) };
         ok(x.attr === "christmas" && rs.ink >= 7 && rs.mut >= 4.5 && rs.accent >= 4.5 && rs.green >= 4.5 && rs.gold >= 4.5 && rs.inkOnBlue >= 4.5 && rs.faint > 2.94,
@@ -34147,8 +34173,120 @@ const sz = await evalOr(page, () => {
         "FT3 @340 the words drop, the tree stays, still between wordmark and crest with no overflow (" + JSON.stringify({ b: g.b, wR: g.wR, cL: g.cL, tree: g.tree }) + ")");
       await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
       const rm = (await read(page)) || {};
-      ok(rm.snow && rm.snow.position === "fixed" && rm.snow.anim === "none" && rm.lights && rm.lights.header && rm.lights.header.shown && rm.lights.header && rm.lights.header.glowAnim === "none",
-        "FT3 reduced motion: the snow and the twinkle hold still (" + JSON.stringify({ snow: rm.snow, lights: rm.lights }) + ")");
+      ok(rm.snow && rm.snow.position === "fixed" && rm.snow.anim === "none" && rm.lights && rm.lights.header && rm.lights.header.shown && rm.lights.header.glowAnim === "none" && !/gradient/.test(rm.lights.header.mask || ""),
+        "FT3 reduced motion: the snow and the chase hold still, every bulb lit (" + JSON.stringify({ snow: rm.snow, lights: rm.lights }) + ")");
+      await ctx.close();
+    }
+  }
+
+  // ---- FT4 · the sleigh trail (2026-11-27, Perry: "lets have the probability win line be a trail
+  // coming from santa and his sleigh and the line is little stars"). UI._wpTrailWrap is the one
+  // function both win-probability sparklines go through. Star counts are hand-computed from the
+  // fixture: spacing 7 in a box 1.3x the viewBox's width. A flat "0,28 220,28" is 286 long, so
+  // stars at 0,7,…,280 = 41, plus one on the tip (6 short of it, more than 2) = 42. Two segments
+  // "0,28 110,28" (143 → 0..140 = 21, carry 4) and "110,28 220,4" (hypot(143,24) = 145.0 →
+  // 4..144 = 21, the last 1.0 short of the tip, so no extra) = 42.
+  // RESTAGED 2026-11-27 (Perry: "it should look like its coming out of the back of the sleigh like
+  // a airplane trail so the sleigh is at whatever height it needs to be for that to work"): the
+  // sleigh's back sits on the tip with no height clamp, and the team tilts to the line's heading.
+  if (section("FT4 · sleigh trail — the win-% line is stars from Santa's sleigh, Christmas only")) {
+    const go = async (page, extra) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + extra, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    };
+    const probe = (page, segs) => evalOr(page, (segs) => {
+      const UI = window.__GFFL__.UI;
+      const svg = '<svg viewBox="0 0 220 56" preserveAspectRatio="none"><polyline class="muwpline" points="' + segs.map((x) => x.points).join(" ") + '" fill="none" stroke="red"/></svg>';
+      const html = UI._wpTrailWrap(svg, segs, 220, 56);
+      const host = document.createElement("div");
+      host.className = "card"; host.id = "ft4host";
+      host.innerHTML = '<div class="nflwp">' + html + '<div class="nflwpv"><b>T1 60%</b><span class="mut small">win probability</span></div></div>';
+      (document.querySelector("main") || document.body).prepend(host);
+      const plot = host.querySelector(".wpplot svg") || host.querySelector("svg");
+      const pr = plot.getBoundingClientRect();
+      const stars = [...host.querySelectorAll(".wpstar")].map((el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2 - pr.left, y: r.top + r.height / 2 - pr.top, w: r.width, h: r.height, c: getComputedStyle(el).color }; });
+      const sl = host.querySelector(".wpsleigh"), sr = sl ? sl.getBoundingClientRect() : null;
+      const m = sl ? new DOMMatrix(getComputedStyle(sl).transform) : null;
+      const out = { same: html === svg, wrapped: !!host.querySelector(".wpplot"), n: stars.length, pw: pr.width, ph: pr.height, stars,
+        sleigh: sr && { l: sr.left - pr.left, r: sr.right - pr.left, t: sr.top - pr.top, b: sr.bottom - pr.top, w: sl.offsetWidth, h: sl.offsetHeight,
+          // where the back of the sleigh (4, 15.5 in the team's own box) lands, relative to the plot
+          ax: sl.offsetLeft + 4 + m.transformPoint(new DOMPoint(0, 0)).x, ay: sl.offsetTop + 15.5 + m.transformPoint(new DOMPoint(0, 0)).y,
+          deg: Math.atan2(m.b, m.a) * 180 / Math.PI },
+        labelL: host.querySelector(".nflwpv b").getBoundingClientRect().left - pr.left,
+        hidden: host.querySelector(".wptrail") ? host.querySelector(".wptrail").getAttribute("aria-hidden") : null,
+        polyOpacity: host.querySelector("polyline") ? getComputedStyle(host.querySelector("polyline")).opacity : null,
+        text: host.querySelector(".nflwp").textContent.replace(/\s+/g, " ").trim(), valText: host.querySelector(".nflwpv").textContent.replace(/\s+/g, " ").trim(),
+        docOver: document.documentElement.scrollWidth - window.innerWidth };
+      host.remove();
+      return out;
+    }, segs);
+    const flat = [{ points: "0,28 220,28", color: "rgb(255, 0, 0)" }];
+    const two = [{ points: "0,28 110,28", color: "rgb(0, 128, 255)" }, { points: "110,28 220,4", color: "rgb(255, 200, 0)" }];
+    const wavy = "0,30 30,26 60,34 90,22 120,40 150,30 180,18 220,12";
+    for (const W of [390, 1280]) {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: W, height: 844 } });
+      await go(page, "");
+      const f = (await probe(page, flat)) || {};
+      // every star sits ON the line: y is the plot's middle (28/56), x runs left to right from 0
+      // to 280/286 of the width, and the sleigh's box keeps its drawn size (it is not stretched)
+      const xs = (f.stars || []).map((s) => s.x), ys = (f.stars || []).map((s) => s.y);
+      ok(f.wrapped && f.n === 42 && ys.every((y) => Math.abs(y - f.ph / 2) < 1) && Math.abs(xs[0]) < 1 && Math.abs(xs[40] - f.pw * 280 / 286) < 1 && Math.abs(xs[41] - f.pw) < 1 && xs.every((x, k) => k === 0 || x > xs[k - 1]),
+        "FT4 @" + W + " a flat line becomes 41 stars along the middle, evenly left to right, plus one on the tip (" + JSON.stringify({ n: f.n, pw: f.pw, first: xs[0], last: xs[41], y0: ys[0] }) + ")");
+      // the back of the sleigh is ON the tip (the plot's right end, middle height), level on a flat
+      // line, and the team (60x22, not stretched) flies right into the plot's margin, short of the
+      // label. Every star is behind it.
+      const lastStar = Math.max(...(f.stars || []).map((st) => st.x));
+      ok(f.sleigh && Math.abs(f.sleigh.w - 60) < 0.5 && Math.abs(f.sleigh.h - 22) < 0.5 && Math.abs(f.sleigh.ax - f.pw) < 0.6 && Math.abs(f.sleigh.ay - f.ph / 2) < 0.6 && Math.abs(f.sleigh.deg) < 0.5 && f.sleigh.r < f.labelL && lastStar <= f.sleigh.ax + 0.6 && f.docOver <= 0,
+        "FT4 @" + W + " the trail comes out of the back of the sleigh: its back is on the tip, level on a flat line, the team clear of the label, no page overflow (" + JSON.stringify({ sleigh: f.sleigh, pw: f.pw, ph: f.ph, lastStar, labelL: f.labelL, docOver: f.docOver }) + ")");
+      // a rising line: tip at (220, 4), heading from (110, 28) (the last vertex 12+ back). The
+      // angle is against the REAL plot width, so it differs by width: atan2(-24, 110/220 * pw).
+      const t = (await probe(page, two)) || {};
+      const want = Math.atan2(-24, 110 / 220 * t.pw) * 180 / Math.PI;
+      ok(t.sleigh && Math.abs(t.sleigh.ax - t.pw) < 0.6 && Math.abs(t.sleigh.ay - t.ph * 4 / 56) < 0.6 && Math.abs(t.sleigh.deg - want) < 0.5,
+        "FT4 @" + W + " on a rising line the sleigh sits as high as the tip (no clamp) and climbs at the line's own angle, " + want.toFixed(1) + "deg here (" + JSON.stringify({ ax: t.sleigh && t.sleigh.ax, ay: t.sleigh && t.sleigh.ay, deg: t.sleigh && t.sleigh.deg, pw: t.pw }) + ")");
+      // a sleigh whose markup carries no --dx/--dy/--w (what a cached older lg-ui.js sent, the
+      // 2026-11-27 screenshot) must still have its back on its point, level, not a dropped transform
+      const bare = (await evalOr(page, () => {
+        const host = document.createElement("div"); host.className = "nflwp";
+        host.innerHTML = '<div class="wpplot"><svg viewBox="0 0 220 56" preserveAspectRatio="none"></svg><div class="wptrail"><span class="wpsleigh" style="left:50%;top:25%"></span></div></div>';
+        (document.querySelector("main") || document.body).prepend(host);
+        const sl = host.querySelector(".wpsleigh"), tf = getComputedStyle(sl).transform, m = new DOMMatrix(tf);
+        const o = { tf, ax: sl.offsetLeft + 4 + m.e, ay: sl.offsetTop + 15.5 + m.f, x: host.querySelector(".wptrail").offsetWidth / 2, y: 14 };
+        host.remove(); return o;
+      })) || {};
+      ok(bare.tf && bare.tf !== "none" && Math.abs(bare.ax - bare.x) < 0.6 && Math.abs(bare.ay - bare.y) < 0.6,
+        "FT4 @" + W + " a sleigh with no heading values still sits with its back on its point, level (the transform is not dropped) (" + JSON.stringify(bare) + ")");
+      ok(f.hidden === "true" && f.text === f.valText && /60%/.test(f.text) && Number(f.polyOpacity) < 0.5,
+        "FT4 @" + W + " the trail is decorative (aria-hidden, adds no text) and the polyline stays as a faint glow (" + JSON.stringify({ hidden: f.hidden, text: f.text, polyOpacity: f.polyOpacity }) + ")");
+      if (W === 390) {
+        const s = t.stars || [];
+        const firstSeg = s.filter((st) => st.c === "rgb(0, 128, 255)").length, secondSeg = s.filter((st) => st.c === "rgb(255, 200, 0)").length;
+        ok(t.n === 42 && firstSeg === 21 && secondSeg === 21,
+          "FT4 each segment's stars wear that segment's colour (21 + 21) (" + JSON.stringify({ n: t.n, firstSeg, secondSeg }) + ")");
+        if (SHOTS) {
+          await page.evaluate((wavy) => {
+            const UI = window.__GFFL__.UI;
+            const svg = '<svg viewBox="0 0 220 56" preserveAspectRatio="none"><line x1="0" y1="28" x2="220" y2="28" stroke="var(--divider)" stroke-width="1"/><polyline points="' + wavy + '" fill="none" stroke="#7ed492" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>';
+            const h = document.createElement("div"); h.className = "card";
+            h.innerHTML = '<div class="nflwp">' + UI._wpTrailWrap(svg, [{ points: wavy, color: "#7ed492" }], 220, 56) + '<div class="nflwpv"><b>T1 71%</b><span class="mut small">win probability</span></div></div>';
+            (document.querySelector("main") || document.body).prepend(h); window.scrollTo(0, 0);
+          }, wavy);
+          await page.screenshot({ path: path.join(SCRATCH, "gffl_sleigh_390.png"), clip: { x: 0, y: 0, width: 390, height: 240 } });
+        }
+      }
+      ok(errors.length === 0, "FT4 @" + W + " 0 page errors (" + errors.join(" | ") + ")");
+      await ctx.close();
+    }
+    {
+      // fall and navy: the sparkline is exactly the svg it always was, no wrapper, no stars
+      const { ctx, page } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 844 } });
+      await go(page, "&theme=fall");
+      const f = (await probe(page, flat)) || {};
+      await go(page, "&theme=default");
+      const n = (await probe(page, flat)) || {};
+      ok(f.same && !f.wrapped && f.n === 0 && n.same && !n.wrapped && n.n === 0,
+        "FT4 under fall and navy the win-% line is untouched: no wrapper, no stars, no sleigh (" + JSON.stringify({ fall: { same: f.same, n: f.n }, navy: { same: n.same, n: n.n } }) + ")");
+      await go(page, "&theme=christmas");
       await ctx.close();
     }
   }
