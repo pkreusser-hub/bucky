@@ -166,6 +166,12 @@ rules.
   starters on bye; the first draft had it 1,100 words in.
 - **One voice.** "I" all the way through. "RoboGoat here." opens and "RoboGoat" signs off; no
   third person in between.
+- **No mirror-image lines** (Perry, 2026-11-28: "never use mirror-image lines, they are a major AI
+  tell"). No line that denies one thing only to assert its twin in the same shape: "Tom has not changed
+  kickers. He has changed sides.", "I am not saying X. I am saying Y.", "That is not a bench, that is a
+  waiting room.", "not X but Y", "not X so much as Y", "X, not a Y". Say the thing once, straight. The
+  suite checks every issue from 2026-11-28 on with `analysis.mjs` `mirrorLines`; the editor pass looks for
+  the ones a pattern cannot see (balanced antitheses like "better than X and worse than Y").
 - **Callbacks once.** "On Saturday I wrote…" at most twice a column; the Week 4 recap had it seven
   times. Never reuse a sentence from an earlier column word for word.
 - **Numbers that matter.** Points in parentheses only for the players the story is about, not after

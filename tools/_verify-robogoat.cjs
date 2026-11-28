@@ -331,6 +331,13 @@ const PICKS = { 2: "3-1", 3: "4-0" };
           const third = src.filter((l) => l.trim() !== "RoboGoat").join("\n").replace(/^RoboGoat here\./m, "").replace(/“[^”]*”/g, " ");
           check(`${dir}: one voice: no third-person "RoboGoat" between the opener and the sign-off`, !/RoboGoat/.test(third), (third.match(/.{0,40}RoboGoat.{0,40}/) || [""])[0]);
         }
+        // No mirror-image lines (Perry, 2026-11-28: "never use mirror-image lines, they are a major AI tell"),
+        // for issues from that day on; earlier issues stay as sent (the Week 9 to 11 previews have them).
+        if (issue.published >= "2026-11-28") {
+          const mdTxt = fs.readFileSync(path.join(ROOT, dir, "column.md"), "utf8").split("\n").filter((l) => !/^(SUBJECT|KICKER|MASTHEAD|SUBHEAD):|^\[IMAGE:/.test(l)).join("\n");
+          const mirrors = (await import(pathToFileURL(path.join(ROOT, "tools/robogoat/analysis.mjs")).href)).mirrorLines(mdTxt);
+          check(`${dir}: no mirror-image lines ("X is not A. X is B.", "not A but B")`, mirrors.length === 0, mirrors.join(" | "));
+        }
         check(`${dir}: scores and records never split at the hyphen (each is in a no-wrap span)`, m.hyphenBreaks.length === 0, m.hyphenBreaks.join(" | "));
       }
       await page.close();
@@ -532,6 +539,16 @@ async function kitChecks() {
     () => new Date(A.sinceDefault([{ published: "2026-09-29" }, { published: "2026-10-03" }], NOW)).toISOString(), "2026-10-03T05:00:00.000Z");
   await expect("since: an issue older than 14 days is capped at 14 days back", () => new Date(A.sinceDefault([{ published: "2026-09-01" }], NOW)).toISOString(), "2026-09-20T17:00:00.000Z");
   await expect("since: no issues means 7 days back", () => new Date(A.sinceDefault([], NOW)).toISOString(), "2026-09-27T17:00:00.000Z");
+  // Mirror-image lines (Perry, 2026-11-28: "make a rule to never use mirror-image lines, they are a major AI
+  // tell"). Positives are lines that actually ran (Weeks 9 to 11 previews, the Thanksgiving special);
+  // negatives are near misses that must stay legal.
+  await expect("mirror lines: a denial answered on the same verb is caught (has not / has; am not saying / am saying)",
+    () => [A.mirrorLines("Tom has not changed kickers. He has changed sides.").length, A.mirrorLines("I am not saying she planned it. I am saying she raised him.").length], [1, 1]);
+  await expect("mirror lines: one-sentence pivots are caught (that is not X, that is Y; not X so much as Y; not X but Y)",
+    () => ["That is not a bench, that is a waiting room.", "He did not set a lineup so much as renew his season tickets.", "It was not luck but planning."].map((x) => A.mirrorLines(x).length), [1, 1, 1]);
+  await expect("mirror lines: near misses pass (a different verb next; an elliptical has not; a quote is exempt)",
+    () => ["Joe did not post about it. Joe has never posted about anything.", "What GFFL has noticed, and Calvin apparently has not, is that his quarterback is on bye.",
+      "Tom wrote, \u201cI am not mad. I am disappointed.\u201d"].map((x) => A.mirrorLines(x).length), [0, 0, 0]);
   // announce.mjs (2026-11-26, Perry: "yes add the push and send it", for the Thanksgiving special). A one-off
   // special has no issue.json (so listIssues, the archive and these checks never treat it as a week) and
   // carries push.json instead. Dry runs only: no network. The weekly path must still read issue.json.
