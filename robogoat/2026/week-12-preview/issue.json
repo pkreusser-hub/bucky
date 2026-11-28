@@ -1,0 +1,149 @@
+{
+ "season": 2026,
+ "week": 12,
+ "type": "preview",
+ "published": "2026-11-28",
+ "subject": "RoboGoat: Joe scores 136.8 before Sunday (Week 12 preview)",
+ "description": "Joe scores 136.8 over Thanksgiving before Sunday, Gibbs runs for 205 yards and loses, Tyler Bass wins it at the gun for Isaac, and Perry leads Tom by 42.6 and is an 11 percent underdog.",
+ "share": "https://goatfantasyleague.com/robogoat/2026/week-12-preview/share.png",
+ "window": "Nov. 25 to 30, 2026",
+ "picksRecord": "25-15",
+ "teams": {
+  "1": {
+   "name": "Battle Kreussers",
+   "owner": "Perry",
+   "color": "#001331",
+   "short": "Kreussers"
+  },
+  "2": {
+   "name": "Elanikan Skywalkers",
+   "owner": "Elan",
+   "color": "#000000",
+   "short": "Skywalkers"
+  },
+  "3": {
+   "name": "Wyoming Cowboys",
+   "owner": "Joe",
+   "color": "#cd9817",
+   "short": "Cowboys"
+  },
+  "4": {
+   "name": "Chula Vista Jaguarrams",
+   "owner": "Tom",
+   "color": "#406254",
+   "short": "Jaguarrams"
+  },
+  "5": {
+   "name": "Laws Rule",
+   "owner": "Sandy",
+   "color": "#c9953f",
+   "short": "Laws Rule"
+  },
+  "9": {
+   "name": "Scruffy Looking Nerfherders",
+   "owner": "John",
+   "color": "#009fe4",
+   "short": "Nerfherders"
+  },
+  "11": {
+   "name": "Kruz Control",
+   "owner": "Calvin",
+   "color": "#00246e",
+   "short": "Kruz Control"
+  },
+  "12": {
+   "name": "The GOAT Kids",
+   "owner": "Isaac",
+   "color": "#b4101f",
+   "short": "GOAT Kids"
+  }
+ },
+ "records": {
+  "1": "4-7",
+  "2": "4-7",
+  "3": "6-5",
+  "4": "5-6",
+  "5": "3-8",
+  "9": "8-3",
+  "11": "7-4",
+  "12": "7-4"
+ },
+ "games": [
+  {
+   "away": 4,
+   "home": 1,
+   "note": "Perry leads 53.6 to 11.0, but Tom has ten starters left. Pick: Tom."
+  },
+  {
+   "away": 3,
+   "home": 5,
+   "note": "Joe leads 136.8 to 44.0. Pick: Joe."
+  },
+  {
+   "away": 2,
+   "home": 9,
+   "note": "John leads 101.6 to 56.6. Pick: John."
+  },
+  {
+   "away": 12,
+   "home": 11,
+   "note": "Isaac leads 41.5 to 9.9. Pick: Isaac."
+  }
+ ],
+ "standings": [
+  {
+   "team": 9,
+   "w": 8,
+   "l": 3,
+   "pf": 1753.32
+  },
+  {
+   "team": 12,
+   "w": 7,
+   "l": 4,
+   "pf": 1679.38
+  },
+  {
+   "team": 11,
+   "w": 7,
+   "l": 4,
+   "pf": 1402.84
+  },
+  {
+   "team": 3,
+   "w": 6,
+   "l": 5,
+   "pf": 1479.9
+  },
+  {
+   "team": 4,
+   "w": 5,
+   "l": 6,
+   "pf": 1371.78
+  },
+  {
+   "team": 2,
+   "w": 4,
+   "l": 7,
+   "pf": 1529.56
+  },
+  {
+   "team": 1,
+   "w": 4,
+   "l": 7,
+   "pf": 1380.58
+  },
+  {
+   "team": 5,
+   "w": 3,
+   "l": 8,
+   "pf": 1339.96
+  }
+ ],
+ "picks": [
+  4,
+  3,
+  9,
+  12
+ ]
+}
