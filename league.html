@@ -5,27 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The GFFL — Goat Fantasy Football League</title>
 <meta name="description" content="The Goat Fantasy Football League — fast, clean, ours.">
-<meta name="theme-color" content="#1b130e">
+<meta name="theme-color" content="#300a11">
 <!-- FALL THEME, THE DEFAULT (2026-11-10). Test mode first (Perry, after the fall mockup: "lets do
      that"), then, the same day: "lets make it the default". RESTAGED from off-by-default: fall
      now paints for everyone, and the navy theme is the opt-out. ?theme=default (or navy, or off)
      switches this browser back to navy and remembers it (localStorage "gffl-theme" = "default");
      ?theme=fall clears that. It runs here, before the stylesheet paints, so the page never
      flashes the other theme first. The theme itself is the :root[data-theme="fall"] token block
-     in the stylesheet: values only, no new token names, so navy is still the :root base. -->
+     in the stylesheet: values only, no new token names, so navy is still the :root base.
+     CHRISTMAS, TEST MODE (2026-11-27, Perry: "Similar to how we did a fall theme for gffl, I now
+     want to do a Christmas theme"). Off by default, the way fall started: ?theme=christmas (or
+     xmas) switches this browser to it and remembers it (localStorage "gffl-theme" = "christmas");
+     ?theme=fall returns to the default and ?theme=default still means navy.
+     CHRISTMAS IS THE DEFAULT (2026-11-27, Perry: "make it the default"). RESTAGED from test mode,
+     the same move fall made on 11-10: a plain visit is Christmas; ?theme=fall and ?theme=default
+     (navy) are the opt-outs and are remembered; ?theme=christmas clears the stored choice. A
+     browser that had already opted out to navy stays navy. The static theme-color meta and the
+     manifest are the Christmas ground #300a11; this script sets the meta back for an opt-out. -->
 <script>
 (function () {
-  var K = "gffl-theme", q = null, navy = false;
+  var K = "gffl-theme", q = null, pick = null, stored = null;
   try { q = new URLSearchParams(location.search).get("theme"); } catch (e) {}
-  var wantNavy = q === "default" || q === "navy" || q === "off";
+  if (q === "default" || q === "navy" || q === "off") pick = "default";
+  else if (q === "christmas" || q === "xmas") pick = "christmas";
+  else if (q === "fall") pick = "fall";
   try {
-    if (q === "fall") localStorage.removeItem(K);
-    else if (wantNavy) localStorage.setItem(K, "default");
-    navy = wantNavy || (q !== "fall" && localStorage.getItem(K) === "default");
-  } catch (e) { navy = wantNavy; }
+    if (pick === "christmas") localStorage.removeItem(K);
+    else if (pick) localStorage.setItem(K, pick);
+    stored = localStorage.getItem(K);
+  } catch (e) {}
+  var theme = pick || (stored === "default" || stored === "fall" ? stored : "christmas");
   var m = document.querySelector('meta[name="theme-color"]');
-  if (navy) { if (m) m.setAttribute("content", "#0c1017"); return; }
-  document.documentElement.setAttribute("data-theme", "fall");
+  if (theme === "default") { if (m) m.setAttribute("content", "#0c1017"); return; }
+  if (theme === "fall" && m) m.setAttribute("content", "#1b130e");
+  document.documentElement.setAttribute("data-theme", theme);
 })();
 </script>
 <!-- ITEM 33 (2026-08-10, user: "hide the browser bar at the top so it truly behaves like an
@@ -49,7 +62,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20261110b">
+<meta name="gffl-v" content="20261127d">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against the live /gffl-version.txt (a ~10 byte file, fetched
      no-store) and replace if this snapshot is stale. Browser tabs skip — they already
@@ -166,6 +179,145 @@
     --green-lt:#86b155;
     --row-hover:#241911; --row-hover2:#2e2016;
   }
+  /* CHRISTMAS THEME (test mode since 2026-11-27; see the switch in <head>). Same token NAMES,
+     Christmas VALUES. RESTAGED the same day from an evergreen ground (Perry: "I dont like the dark
+     green it doesnt feel very christmasy feel free to go further on the theme"): the ground is now
+     a deep cranberry red, the accent is gold (it was holly red, which would vanish on a red
+     ground), green moves to the "good" token and the "selected" fills --blue drives (and the
+     banner ribbon). Measured against --card #45121e: ink 14.26:1, mut 8.62, faint 5.40 (navy
+     2.94), accent 9.78, gold 11.37, green 8.63, green-lt 10.28; ink on --blue 7.34. */
+  :root[data-theme="christmas"] {
+    --bg:#300a11; --bg-page:#22070c; --tabbar:#330b13; --band:#3a0d17;
+    --card:#45121e; --nested:#521826; --nested2:#3a0e18;
+    --border-card:#6a2234; --divider:#6a2234; --divider2:#521826; --border-hover:#8a3045;
+    --ink:#fbf5ec; --ink2:#ecdccf; --mut:#dcbab2; --faint:#b88f89;
+    --accent:#f6c84c; --green:#7ed492; --gold:#ffd978; --blue:#1d5c38;
+    --green-lt:#9be3aa;
+    --row-hover:#3b0e17; --row-hover2:#4b1522;
+  }
+  /* The accent is gold here, and white text on gold reads 1.6:1, so every white-on-accent fill
+     takes the card red instead (9.78:1). The injury "bad" chip keeps a real red: gold would not
+     read as bad. White on #c62a36 is 5.55:1. */
+  :root[data-theme="christmas"] #hAvatar, :root[data-theme="christmas"] button.primary,
+  :root[data-theme="christmas"] .draftlive .draftjoin, :root[data-theme="christmas"] .faMoveBtn:hover,
+  :root[data-theme="christmas"] .lgdeskbar .dldone, :root[data-theme="christmas"] #offlineChip { color:#45121e; }
+  :root[data-theme="christmas"] .health.bad { background:#c62a36; border-color:#c62a36; color:#fff; }
+  /* Danger stays red. The accent is gold here, but several rules use it to mean "bad": an
+     injury tag, .bad, a falling delta, delete, and the red zone (Perry, 2026-09-17: "lets have the
+     yellow highlight turn red if that player's offense is in the redzone"). In gold those would
+     read as .warn / the gold possession ring, so under Christmas they take a real red: #ff6b74 is
+     5.60:1 on --card and 5.01:1 on --nested. */
+  :root[data-theme="christmas"] .bad, :root[data-theme="christmas"] .inj, :root[data-theme="christmas"] .delta.down,
+  :root[data-theme="christmas"] .chatDel, :root[data-theme="christmas"] .scsitu.rz b { color:#ff6b74; }
+  :root[data-theme="christmas"] .rzdot, :root[data-theme="christmas"] .scposs.rz { background:#ff6b74; }
+  :root[data-theme="christmas"] .pcellgrid.hasball.rz .mushot, :root[data-theme="christmas"] .lrow.hasball.rz .lkshot { border-color:#ff6b74; box-shadow:inset 0 0 0 2px #ff6b74; }
+  @media (max-width:1023px) {
+    :root[data-theme="christmas"] .pcellgrid.hasball.rz.left  { box-shadow:inset 3px 0 0 #ff6b74; }
+    :root[data-theme="christmas"] .pcellgrid.hasball.rz.right { box-shadow:inset -3px 0 0 #ff6b74; }
+    :root[data-theme="christmas"] .lrow.hasball.rz { box-shadow:inset 3px 0 0 #ff6b74; }
+  }
+  /* Header: a candy-cane top edge and a string of lights hanging off the bottom (in place of
+     the 1px rule). ::after is the string with every bulb dim; ::before is the same bulbs lit, each
+     with a halo. CHASE (2026-11-27, Perry: "lets make the little christmas lights you made light
+     up in a sequence"): ::before is masked to one 24px slot in every 96px, and the mask steps a
+     slot at a time, so red, gold, green and blue light in turn down the whole string. Both are
+     absolutely placed inside the sticky header, so they add no width and catch no taps. */
+  :root[data-theme="christmas"] header { border-bottom:0;
+    border-image:repeating-linear-gradient(135deg, #d6303b 0 6px, #fbf5ec 6px 12px) 3; }
+  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] header::after,
+  :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after {
+    content:""; position:absolute; left:0; right:0; bottom:-12px; height:20px; pointer-events:none;
+    background-repeat:no-repeat, repeat-x, repeat-x, repeat-x, repeat-x; }
+  :root[data-theme="christmas"] header::after, :root[data-theme="christmas"] .bnav::after {
+    background-image:
+      linear-gradient(#1a0508, #1a0508),
+      radial-gradient(ellipse 3.5px 5px at 12px 9px, #7a2a30 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 36px 9px, #7a6630 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 60px 9px, #2c6a40 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 84px 9px, #2e5a80 90%, transparent 100%);
+    background-size:100% 1.5px, 96px 20px, 96px 20px, 96px 20px, 96px 20px;
+    background-position:0 2px, 0 0, 0 0, 0 0, 0 0; }
+  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before {
+    z-index:1;
+    background-repeat:repeat-x;
+    background-size:96px 20px;
+    -webkit-mask-image:linear-gradient(90deg, #000 0 24px, transparent 24px 96px); mask-image:linear-gradient(90deg, #000 0 24px, transparent 24px 96px);
+    -webkit-mask-size:96px 100%; mask-size:96px 100%; -webkit-mask-repeat:repeat-x; mask-repeat:repeat-x;
+    animation:xmasChase 1.6s steps(4, end) infinite; }
+  /* the lit bulbs, each with a halo in its own colour */
+  :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before {
+    background-image:
+      radial-gradient(ellipse 3.5px 5px at 12px 9px, #ff4d5a 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 36px 9px, #ffd24a 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 60px 9px, #4fd17a 90%, transparent 100%),
+      radial-gradient(ellipse 3.5px 5px at 84px 9px, #5ab4ff 90%, transparent 100%),
+      radial-gradient(circle 10px at 12px 9px, rgba(255,77,90,.6), transparent 100%),
+      radial-gradient(circle 10px at 36px 9px, rgba(255,210,74,.6), transparent 100%),
+      radial-gradient(circle 10px at 60px 9px, rgba(79,209,122,.6), transparent 100%),
+      radial-gradient(circle 10px at 84px 9px, rgba(90,180,255,.6), transparent 100%); }
+  @keyframes xmasChase { from { -webkit-mask-position:0 0; mask-position:0 0; } to { -webkit-mask-position:96px 0; mask-position:96px 0; } }
+  /* On a phone the lights hang off the header. On a desktop the tab row (.bnav, z-index 30)
+     sits sticky right under the header and would cover them, so they hang off the tab row
+     instead; on a phone .bnav is the fixed bottom bar and gets none. */
+  :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after { display:none; }
+  @media (min-width:1024px) {
+    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] header::after { display:none; }
+    :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] .bnav::after { display:block; }
+  }
+  /* SLEIGH TRAIL (2026-11-27): the win-probability line under Christmas. lg-ui.js wraps the svg
+     in .wpplot and lays .wpstar stars along the line (each in its segment's colour) with
+     .wpsleigh at the tip. The polyline stays, faint, as the trail's glow. */
+  /* margin-right: the team flies 57px past the tip (60px wide, anchored at its back, 3px in); 46px
+     here plus the .nflwp gap of 12px gives it 58px, so it never reaches the label */
+  .nflwp .wpplot { position:relative; flex:1 1 auto; min-width:0; height:56px; margin-right:46px; }
+  /* > svg, the chart only: a plain descendant selector also caught the sleigh's own 60x22 svg,
+     stretched it to a 56px-tall box and letterboxed the drawing 17px down from its anchor
+     (2026-11-27, found from Perry's screenshot after the suite had measured only the box) */
+  .nflwp .wpplot > svg { display:block; width:100%; height:56px; }
+  .nflwp .wpplot polyline { opacity:.28; }
+  .wptrail { position:absolute; inset:0; pointer-events:none; }
+  .wpstar { position:absolute; width:6px; height:6px; margin:-3px 0 0 -3px; background:currentColor;
+    clip-path:polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    animation:wpTwinkle 2.4s ease-in-out infinite alternate; }
+  .wpstar.big { width:9px; height:9px; margin:-4.5px 0 0 -4.5px; }
+  @keyframes wpTwinkle { from { opacity:.45; } to { opacity:1; } }
+  /* the back of the sleigh (4px, 15.5px into the 60x22 team) sits on the line's tip, and the team
+     turns about it to the line's heading: atan2 of the last stretch in px, with x scaled by the
+     plot's real width (100cqw over the viewBox width --w), clamped to 40deg either way. A browser
+     without atan2 keeps the first transform, untilted. The var() fallbacks matter: a var with no
+     value makes the whole declaration invalid at computed-value time, and that drops the
+     transform to none (not to the first declaration), which left the sleigh hanging off the
+     tip by its corner when a cached older lg-ui.js sent no --dx/--dy (2026-11-27). */
+  .nflwp .wpplot { container-type:inline-size; }
+  .wpsleigh { position:absolute; width:60px; height:22px; transform-origin:4px 15.5px; transform:translate(-4px, -15.5px);
+    transform:translate(-4px, -15.5px) rotate(clamp(-40deg, atan2(calc(var(--dy, 0) * 1px), calc(var(--dx, 1) / var(--w, 220) * 100cqw)), 40deg)); }
+  /* the sleigh's own drawing keeps its 60x22: .nflwp svg (the chart rule, further down) would
+     otherwise make it 56px tall and letterbox it 17px below its anchor */
+  .nflwp .wptrail .wpsleigh svg { display:block; flex:none; width:60px; height:22px; min-width:0; }
+  /* Snow on the cards: a row of white drifts along each card's top edge, drawn as a background
+     layer so no card gets a new positioned box. */
+  :root[data-theme="christmas"] .card {
+    background-image:radial-gradient(ellipse 13px 7px at 50% 0, rgba(251,245,236,.92) 95%, transparent 100%);
+    background-size:22px 8px; background-repeat:repeat-x; background-position:-4px 0; }
+  /* Falling snow behind the cards. body gives up its own background so the fixed layers behind it
+     show (html paints the ground); two tiles at two speeds for depth. Reduced motion: it holds still. */
+  html[data-theme="christmas"] { background:var(--bg); }
+  :root[data-theme="christmas"] body { background:transparent; }
+  :root[data-theme="christmas"] body::before, :root[data-theme="christmas"] body::after {
+    content:""; position:fixed; left:0; right:0; top:-320px; height:calc(100vh + 640px); z-index:-1; pointer-events:none;
+    background-image:
+      radial-gradient(circle at 20px 30px, rgba(255,255,255,.75) 1.6px, transparent 2.2px),
+      radial-gradient(circle at 140px 110px, rgba(255,255,255,.6) 1.2px, transparent 1.8px),
+      radial-gradient(circle at 240px 200px, rgba(255,255,255,.7) 2px, transparent 2.6px),
+      radial-gradient(circle at 90px 260px, rgba(255,255,255,.5) 1.2px, transparent 1.8px);
+    background-size:320px 320px; animation:xmasSnow 26s linear infinite; }
+  :root[data-theme="christmas"] body::after { background-size:200px 200px; background-position:70px 40px; opacity:.6; animation-duration:40s; }
+  @keyframes xmasSnow { from { transform:translateY(0); } to { transform:translateY(320px); } }
+  @media (prefers-reduced-motion: reduce) {
+    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before, :root[data-theme="christmas"] body::before, :root[data-theme="christmas"] body::after, .wpstar { animation:none; }
+    /* the chase holds on all bulbs lit rather than one colour in four */
+    :root[data-theme="christmas"] header::before, :root[data-theme="christmas"] .bnav::before { -webkit-mask-image:none; mask-image:none; }
+  }
   /* the flannel stripe under the header, fall only: it replaces the 1px bottom border */
   :root[data-theme="fall"] header { border-bottom:0;
     background-image:repeating-linear-gradient(90deg, #8a3b1e 0 14px, #c8662b 14px 18px, #8a3b1e 18px 32px, #5a3b22 32px 36px);
@@ -208,13 +360,15 @@
      other way here: an author display rule is the switch, so it lives on the theme selector).
      Centred in the space between the wordmark and the crest by its own auto margins; the words
      drop on a very narrow phone and the turkey stays. Cream on rust reads 7.69:1. */
-  header .fallbanner { display:none; }
-  :root[data-theme="fall"] header .fallbanner { display:flex; align-items:center; gap:6px; margin:0 auto;
+  /* The Christmas banner (2026-11-27) is the same ribbon with a drawn tree, shown only under
+     the Christmas theme. Snow on the green ribbon reads 7.34:1. */
+  header .fallbanner, header .xmasbanner { display:none; }
+  :root[data-theme="fall"] header .fallbanner, :root[data-theme="christmas"] header .xmasbanner { display:flex; align-items:center; gap:6px; margin:0 auto;
     flex:0 1 auto; min-width:0; height:30px; padding:0 14px 0 10px; background:var(--blue); color:var(--ink);
     clip-path:polygon(0 0, 100% 0, calc(100% - 8px) 50%, 100% 100%, 0 100%, 8px 50%); }
-  header .fallbanner .turkey { flex:0 0 auto; display:block; }
-  header .fallbanner .fbtext { font:600 14px/1 var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; }
-  @media (max-width:359px) { header .fallbanner .fbtext { display:none; } }
+  header .fallbanner .turkey, header .xmasbanner .tree { flex:0 0 auto; display:block; }
+  header .fallbanner .fbtext, header .xmasbanner .fbtext { font:600 14px/1 var(--font-display); letter-spacing:1px; text-transform:uppercase; white-space:nowrap; }
+  @media (max-width:359px) { header .fallbanner .fbtext, header .xmasbanner .fbtext { display:none; } }
   #hWeekYear { font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--mut); white-space:nowrap; }
   #hAvatar { width:32px; height:32px; border-radius:50%; flex:0 0 auto; overflow:hidden; cursor:pointer;
              background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
@@ -2557,6 +2711,22 @@
       </svg>
       <span class="fbtext">Gobble Gobble</span>
     </span>
+    <!-- CHRISTMAS BANNER (2026-11-27). The same ribbon in green with a drawn tree; Christmas
+         theme only. Decorative, so aria-hidden. -->
+    <span class="xmasbanner" aria-hidden="true">
+      <svg class="tree" viewBox="0 0 32 32" width="30" height="30">
+        <path d="M16 4 L24 15 H20 L27 25 H5 L12 15 H8 Z" fill="#7ed492"></path>
+        <path d="M16 4 L20 9.5 H12 Z" fill="#9be3aa"></path>
+        <rect x="14" y="25" width="4" height="4" fill="#7a4a26"></rect>
+        <path d="M16 0.6 l1.1 2.3 2.5 0.3 -1.8 1.7 0.5 2.5 -2.3 -1.2 -2.3 1.2 0.5 -2.5 -1.8 -1.7 2.5 -0.3 Z" fill="#ecc45c"></path>
+        <circle cx="14" cy="12.5" r="1.3" fill="#ecc45c"></circle>
+        <circle cx="18.5" cy="17.5" r="1.4" fill="#e0303c"></circle>
+        <circle cx="12" cy="20.5" r="1.4" fill="#ecc45c"></circle>
+        <circle cx="21.5" cy="22" r="1.4" fill="#e0303c"></circle>
+        <circle cx="15.5" cy="22.5" r="1.2" fill="#f4f0e6"></circle>
+      </svg>
+      <span class="fbtext">Merry Christmas</span>
+    </span>
     <span class="sub">G.O.A.T. Fantasy Football League</span>
     <span class="hmeta" id="hMeta" hidden>
       <span id="hWeekYear"></span>
@@ -2618,9 +2788,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20261110b"></script>
-  <script src="assets/league/lg-data.js?v=20261110b"></script>
-  <script src="assets/league/lg-ui.js?v=20261110b"></script>
+  <script src="assets/league/lg-core.js?v=20261127d"></script>
+  <script src="assets/league/lg-data.js?v=20261127d"></script>
+  <script src="assets/league/lg-ui.js?v=20261127d"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

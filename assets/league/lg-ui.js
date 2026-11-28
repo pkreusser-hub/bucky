@@ -4287,9 +4287,10 @@
       const poly = pts.map((p, i) => `${((i / (pts.length - 1)) * 220).toFixed(1)},${(52 - Math.max(0, Math.min(1, p)) * 48).toFixed(1)}`).join(" ");
       const last = pts[pts.length - 1], leadHome = last >= 0.5;
       const lead = leadHome ? home : away;
-      wp = `<div class="nflwp"><svg viewBox="0 0 220 56" preserveAspectRatio="none" role="img" aria-label="Win probability">
+      const svg = `<svg viewBox="0 0 220 56" preserveAspectRatio="none" role="img" aria-label="Win probability">
           <line x1="0" y1="28" x2="220" y2="28" stroke="var(--divider)" stroke-width="1"/>
-          <polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>
+          <polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+      wp = `<div class="nflwp">${wpTrailWrap(svg, [{ points: poly, color: "var(--accent)" }], 220, 56)}
         <div class="nflwpv"><b>${esc(lead.abbrev || "?")} ${Math.round((leadHome ? last : 1 - last) * 100)}%</b><span class="mut small">win probability</span></div></div>`;
     }
     let bars = "";
@@ -4781,6 +4782,84 @@
   // survives as the header's own full-width win-probability bar (each end in its side's
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
+  // CHRISTMAS SLEIGH TRAIL (2026-11-27, Perry: "lets have the probability win line be a trail
+  // coming from santa and his sleigh and the line is little stars"). Under the Christmas theme a
+  // win-probability sparkline keeps its polyline (faint, as the trail's glow) and gains an overlay:
+  // small stars laid along each segment in that segment's own colour, and Santa's sleigh at the
+  // tip, the newest reading. The svg stretches non-uniformly (preserveAspectRatio="none"), so
+  // stars and sleigh are HTML placed by percentage over it, not svg shapes, and keep their shape
+  // at every width. Spacing is measured in a box 1.3x wider than the viewBox, roughly a phone's
+  // stretch. Off the Christmas theme this returns the svg unchanged.
+  function xmasOn() { return document.documentElement.getAttribute("data-theme") === "christmas"; }
+  function wpTrailWrap(svgHtml, segs, w, h) {
+    if (!xmasOn() || !segs || !segs.length) return svgHtml;
+    const KX = 1.3, GAP = 7;
+    const stars = [];
+    let tip = null, n = 0, carry = 0;
+    const verts = [];
+    segs.forEach((sg) => {
+      const v = String(sg.points || "").trim().split(/\s+/).map((pt) => pt.split(",").map(Number))
+        .filter((a) => a.length === 2 && Number.isFinite(a[0]) && Number.isFinite(a[1]));
+      verts.push(...v);
+      for (let i = 1; i < v.length; i++) {
+        const [x0, y0] = v[i - 1], [x1, y1] = v[i];
+        const len = Math.hypot((x1 - x0) * KX, y1 - y0);
+        let d = carry;
+        while (d <= len) {
+          const t = len ? d / len : 0;
+          stars.push({ x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t, c: sg.color, k: n++ });
+          d += GAP;
+        }
+        carry = d - len;
+      }
+      if (v.length) tip = { x: v[v.length - 1][0], y: v[v.length - 1][1] };
+    });
+    if (!tip) return svgHtml;
+    // a star on the tip itself, so the trail runs right up to the back of the sleigh
+    const lastSt = stars[stars.length - 1];
+    if (!lastSt || Math.hypot((tip.x - lastSt.x) * KX, tip.y - lastSt.y) > 2) stars.push({ x: tip.x, y: tip.y, c: segs[segs.length - 1].color, k: n++ });
+    // the heading: from the last vertex at least 12 units back to the tip, so a one-minute wiggle
+    // does not spin the sleigh. Passed as viewBox units; the CSS turns them into an angle against
+    // the plot's real width (container units), so the tilt is right at every stretch.
+    let ref = verts[0];
+    for (let i = verts.length - 1; i >= 0; i--) { if (tip.x - verts[i][0] >= 12) { ref = verts[i]; break; } }
+    const hdx = ref && tip.x - ref[0] > 0 ? tip.x - ref[0] : 1, hdy = ref && tip.x - ref[0] > 0 ? tip.y - ref[1] : 0;
+    const pct = (a, b) => (100 * a / b).toFixed(2) + "%";
+    const starHtml = stars.map((st) =>
+      `<i class="wpstar${st.k % 3 === 0 ? " big" : ""}" style="left:${pct(st.x, w)};top:${pct(st.y, h)};color:${st.c};animation-delay:${((st.k * 0.37) % 2.4).toFixed(2)}s"></i>`).join("");
+    // SLEIGH AND REINDEER (2026-11-27, Perry: "sleigh should be smaller and have reindeer"). The
+    // sleigh is drawn at 0.58 scale with two reindeer ahead of it, the front one with the red nose,
+    // on one 60x22 svg. The tip of the line is the back of the sleigh (4, 15.5), like a vapour
+    // trail (Perry: "it should look like its coming out of the back of the sleigh like a airplane
+    // trail so the sleigh is at whatever height it needs to be for that to work"): no height clamp,
+    // and the team turns about that point to fly along the line's last heading. The reindeer fly
+    // on to the right, into the room .wpplot keeps beside the label.
+    const sleigh = `<span class="wpsleigh" style="left:${pct(tip.x, w)};top:${pct(tip.y, h)};--dx:${hdx.toFixed(2)};--dy:${hdy.toFixed(2)};--w:${w}"><svg viewBox="0 0 60 22" width="60" height="22">
+      <path d="M25.5 12.5 Q30 11 38.5 11.2 M38 11.4 Q44 11 53.5 11.2" fill="none" stroke="#f6c84c" stroke-width="0.7"></path>
+      <g><path d="M32 13.5 l-2 4 M33.5 14 l-0.5 4.5 M37 14 l1 4.5 M38.5 13.5 l2.5 3.5" stroke="#6e4522" stroke-width="1.1" stroke-linecap="round"></path>
+      <path d="M30.4 11 l-1.4 -1 l0.6 2 Z" fill="#fbf5ec"></path><ellipse cx="35" cy="12" rx="5" ry="2.8" fill="#8a5a2e"></ellipse>
+      <path d="M38 11.4 l2.4 -3.6 l1.6 0.9 l-2 3.7 Z" fill="#8a5a2e"></path><ellipse cx="41.4" cy="7.6" rx="2.3" ry="1.6" fill="#9a6a3a"></ellipse>
+      <path d="M40.6 6.4 l-1 -3 M40.1 4.9 l-1.7 -0.6 M41.6 6.2 l0.4 -3 M41.8 4.6 l1.5 -0.8" stroke="#e2c48c" stroke-width="0.8" stroke-linecap="round" fill="none"></path>
+      <circle cx="43.6" cy="8" r="0.8" fill="#3a2414"></circle><circle cx="41.6" cy="7.2" r="0.35" fill="#1a0508"></circle></g>
+      <g><path d="M46 13.5 l-2 4 M47.5 14 l-0.5 4.5 M51 14 l1 4.5 M52.5 13.5 l2.5 3.5" stroke="#6e4522" stroke-width="1.1" stroke-linecap="round"></path>
+      <path d="M44.4 11 l-1.4 -1 l0.6 2 Z" fill="#fbf5ec"></path><ellipse cx="49" cy="12" rx="5" ry="2.8" fill="#8a5a2e"></ellipse>
+      <path d="M52 11.4 l2.4 -3.6 l1.6 0.9 l-2 3.7 Z" fill="#8a5a2e"></path><ellipse cx="55.4" cy="7.6" rx="2.3" ry="1.6" fill="#9a6a3a"></ellipse>
+      <path d="M54.6 6.4 l-1 -3 M54.1 4.9 l-1.7 -0.6 M55.6 6.2 l0.4 -3 M55.8 4.6 l1.5 -0.8" stroke="#e2c48c" stroke-width="0.8" stroke-linecap="round" fill="none"></path>
+      <circle cx="57.6" cy="8" r="1.1" fill="#e0303c"></circle><circle cx="55.6" cy="7.2" r="0.35" fill="#1a0508"></circle></g>
+      <g transform="translate(0 4.6) scale(0.58)">
+      <path d="M10 15 q-1 -8 6 -9 q7 0 7 9 Z" fill="#8a5a2e"></path><path d="M14 7 q2 -2 4 0" fill="none" stroke="#f6c84c" stroke-width="1.2"></path>
+      <path d="M25 16 v-5 q0 -3 6 -3 q6 0 6 3 v5 Z" fill="#d6303b"></path>
+      <circle cx="31" cy="7.2" r="3.3" fill="#f2c9a0"></circle>
+      <path d="M27.6 7.6 q3.4 7.6 6.8 0 q-1.2 1.6 -3.4 1.6 q-2.2 0 -3.4 -1.6 Z" fill="#fbf5ec"></path>
+      <path d="M27.8 4.4 q3 -5.6 8.6 -2.4 l-1.4 1.6 q-1.8 -0.8 -2.6 2 Z" fill="#d6303b"></path>
+      <circle cx="36.6" cy="2.2" r="1.6" fill="#fbf5ec"></circle>
+      <rect x="27.2" y="4" width="7.6" height="2" rx="1" fill="#fbf5ec"></rect>
+      <path d="M6 15 h34 q3 0 3 3 q0 6 -7 6 h-24 q-6 0 -6 -9 Z" fill="#b81d2a"></path>
+      <path d="M6 15 h34 q3 0 3 3" fill="none" stroke="#f6c84c" stroke-width="1.6"></path>
+      <path d="M4 27.5 h34 q5 0 6 -4" fill="none" stroke="#f6c84c" stroke-width="1.8" stroke-linecap="round"></path>
+      <path d="M14 24 v3.5 M32 24 v3.5" stroke="#f6c84c" stroke-width="1.4"></path></g></svg></span>`;
+    return `<div class="wpplot">${svgHtml}<div class="wptrail" aria-hidden="true">${starHtml}${sleigh}</div></div>`;
+  }
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is
   // D.winProb recorded each minute. X is this pairing's football-on time
   // (idle Fri/Sat gaps add no width); now at the right during a live
@@ -4845,13 +4924,15 @@
     ).join("");
     // Same card language as the NFL game sparkline: the line, a mid rule, and
     // the leading side's % on the right. No axis labels, no heading, no note.
-    return `<div class="nflwp">
-        <svg viewBox="0 0 ${plot.w} ${plot.h}" preserveAspectRatio="none" role="img" aria-label="Win probability">
+    const svg = `<svg viewBox="0 0 ${plot.w} ${plot.h}" preserveAspectRatio="none" role="img" aria-label="Win probability">
           <line class="muwpmid" x1="0" y1="${midY}" x2="${plot.w}" y2="${midY}" stroke="var(--divider)" stroke-width="1"/>
-          ${lines}</svg>
+          ${lines}</svg>`;
+    return `<div class="nflwp">
+        ${wpTrailWrap(svg, segs.map((sg) => ({ points: sg.points, color: strokeFor(sg.side) })), plot.w, plot.h)}
         <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">win probability</span></div></div>`;
   }
   UI.renderMatchup = renderMatchup;
+  UI._wpTrailWrap = wpTrailWrap; // for the suite (FT4)
   // RENDER SEQUENCE (2026-09-23). Every FULL render takes a new number; a
   // live repaint rides the number it found. After each await the render
   // asks whether it is still wanted — a newer full render (a second arrow
