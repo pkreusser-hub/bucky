@@ -2,6 +2,17 @@
  "issues": [
   {
    "season": 2026,
+   "week": 12,
+   "type": "preview",
+   "path": "2026/week-12-preview/",
+   "published": "2026-11-28",
+   "headline": "Joe Scores 136.8 Before Sunday",
+   "description": "Joe scores 136.8 over Thanksgiving before Sunday, Gibbs runs for 205 yards and loses, Tyler Bass wins it at the gun for Isaac, and Perry leads Tom by 42.6 and is an 11 percent underdog.",
+   "subject": "RoboGoat: Joe scores 136.8 before Sunday (Week 12 preview)",
+   "share": "2026/week-12-preview/share.png"
+  },
+  {
+   "season": 2026,
    "week": 11,
    "type": "recap",
    "path": "2026/week-11/",
