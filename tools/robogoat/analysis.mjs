@@ -442,3 +442,30 @@ export function thursdayTallies(games, thisWeek, teams) {
     return { away: g.away, home: g.home, text: `${side(g.away)}, ${side(g.home)}.` };
   });
 }
+
+// ---------------------------------------------------------------- mirror-image lines
+/** Mirror-image lines (Perry, 2026-11-28: "never use mirror-image lines, they are a major AI tell"):
+ *  a line that denies one thing only to assert its twin in the same shape. Returns the offending
+ *  sentence(s); quotes are exempt (they are somebody's words). Caught:
+ *   - a negated sentence answered by the next one on the same auxiliary verb: "Tom has not changed
+ *     kickers. He has changed sides." / "I am not saying X. I am saying Y."
+ *   - one-sentence pivots: "not X but Y", "That is not a bench, that is a waiting room", "X, not a Y",
+ *     "not so much X as Y".
+ *  An elliptical "Calvin apparently has not, is that ..." is not a negation of a verb, so it is not a hit. */
+const MIRROR_AUX = "am|is|are|was|were|has|have|had|do|does|did|will|would|can|could|should";
+export function mirrorLines(text) {
+  const t = String(text || "").replace(/\u201c[^\u201d]*\u201d|"[^"\n]*"/g, " ").replace(/\s+/g, " ");
+  const sents = t.match(/[^.!?]+[.!?]+/g) || [];
+  const hits = [];
+  for (let i = 0; i < sents.length; i++) {
+    const a = sents[i].trim(), b = (sents[i + 1] || "").trim();
+    const m = new RegExp(`\\b(${MIRROR_AUX})(?: not|n't) +[a-z]`, "i").exec(a);
+    if (m && b) {
+      const head = b.split(/\s+/).slice(0, 4).join(" ").toLowerCase();
+      if (new RegExp(`\\b${m[1].toLowerCase()}\\b`).test(head)) { hits.push(a + " " + b); continue; }
+    }
+    if (/\bnot\b[^.;]{1,60},? but\b/i.test(a) || /\bnot\b[^.;]{1,60} so much as\b/i.test(a) ||
+        /\b(isn't|is not|wasn't|was not)\b[^.;]{1,50}, (it|that|he|she)('s| is| was)\b/i.test(a) || /\w, not (a|an|the)\b/i.test(a)) hits.push(a);
+  }
+  return hits;
+}

@@ -11785,3 +11785,24 @@ requires the drawing itself to be 22px tall. **Bite** (the committed CSS): FT4 f
 the flat and rising checks at both widths and the real matchup page, with the painted back 17px
 low (ay 45 against 28). **Lesson:** a position check must read where the pixels land. A box can
 sit right while what is drawn inside it does not.
+## 2026-11-28 — RoboGoat: no mirror-image lines
+
+Perry: "I want you to make a rule to never use mirror-image lines, they are a major AI tell".
+
+**The rule** is in `tools/robogoat/README.md` under the house rules: no line that denies one thing only
+to assert its twin in the same shape ("Tom has not changed kickers. He has changed sides.", "I am not
+saying X. I am saying Y.", "That is not a bench, that is a waiting room.", "not X but Y", "not X so much
+as Y", "X, not a Y").
+
+**The check.** `analysis.mjs` `mirrorLines(text)` returns the offending sentences; quotes are exempt.
+It catches a negated sentence answered by the next on the same auxiliary verb, and the one-sentence
+pivots above. An elliptical "Calvin apparently has not, is that ..." is not a hit (the first draft
+flagged it in the Week 8 preview; the negation must be followed by a word). Run over every column so
+far it finds 10, all real: the Week 9, 10 and 11 previews and the Thanksgiving special. Those stay as
+sent: the per-issue check runs only on issues published from 2026-11-28 on. A pattern cannot see a
+balanced antithesis ("better than X and worse than Y"); the editor pass is told to look for those.
+
+**VERIFY:** `node tools/_verify-robogoat.cjs` **889/889** (3 new: the same-verb denial, the one-sentence
+pivots, and three near misses that must pass). The per-issue check has no issue to read until the
+Week 12 preview, so the unit checks carry the proof. **Bite** (HEAD's `analysis.mjs`): 886/889,
+exactly the three new checks fail.
